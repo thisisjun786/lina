@@ -1,4 +1,4 @@
-# Contributing to Lina
+# Contributing to LINA
 
 [POLICY](../POLICY.md) is the authority for development, checks, merges and
 releases. Start with [CONTRIBUTING](../CONTRIBUTING.md) for setup and verification;
