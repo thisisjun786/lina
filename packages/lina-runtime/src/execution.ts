@@ -21,6 +21,7 @@ const AUTOMATIC = new Set([
 	"lina_status",
 	"lina_select_response",
 	"lina_memory_query",
+	"lina_world_read",
 	"lina_history_search",
 	"lina_context_expand",
 	"lina_develop_status",

@@ -15,7 +15,7 @@
 | 설치 구성과 전체 상태 버전관리 | [리팩터링 요구](plans/platform/008_refactor_preparation.md) | 홈·패키지 분리·로컬 체크포인트 구현, 자동 이력·선택 복원·외부 내보내기는 후속 |
 | ima2 이미지 엔진 | [생성·편집 연동](plans/platform/009_ima2_image_engine.md) | 도입 방향 확정, 어댑터 구현 전 |
 | 주기적 프로필 사진과 내부 SNS | [에이전트 일상](plans/platform/010_agent_daily_life_ideas.md) | 아이디어, 주기·예산·공유 대상 미정 |
-| 페르소나와 분리된 월드 엔진 | [RisuAI 참고와 월드 설계](plans/platform/011_world_engine_risuai.md) | 방향 확정, 장면·시간·사건·지식 범위·라이선스 검토 후 구현 |
+| 페르소나와 분리된 월드 엔진 | [RisuAI 참고와 월드 설계](plans/platform/011_world_engine_risuai.md), [최소 구현과 연결 계약](plans/platform/012_world_engine_mvp.md) | 장면·시간·사건·지식 범위와 선택적 런타임 연결 구현, 자동 일상·SNS·이미지는 후속 |
 
 UI 공개 참고 자료는 [설계 참고 자료](plans/codex-ui/000_source_research.md), 세부 시각 기준은 [Codex 디자인 언어](plans/codex-ui/005_codex_design_language.md)에 있다. 개인 캡처와 운영 이력은 제품 소스에 포함하지 않는다.
 

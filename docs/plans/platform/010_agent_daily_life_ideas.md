@@ -1,6 +1,6 @@
 # Agent daily life and social feed ideas
 
-Date: 2026-09-07. Status: idea backlog only; no implementation scheduled.
+Date: 2026-09-07. Status: SNS/profile-image idea backlog; no recurring generation scheduled. The foundational world state has a separate [minimal implementation](012_world_engine_mvp.md).
 Related decision: [ima2-gen image engine](009_ima2_image_engine.md).
 
 World-engine direction added on 2026-09-07: [separate world engine with RisuAI reference mechanisms](011_world_engine_risuai.md).

@@ -74,11 +74,19 @@ export class CodexHost {
 		signal: AbortSignal,
 	): Promise<unknown> {
 		let result: unknown;
+		let currentPayload = payload;
 		for (const handler of this.handlers.get(event) ?? []) {
 			const value = await (
 				handler as (event: unknown, context: unknown) => unknown
-			)(payload, { signal, cwd: this.workspace });
+			)(currentPayload, { signal, cwd: this.workspace });
 			if (value !== undefined) result = value;
+			if (
+				event === "context" &&
+				isRecord(currentPayload) &&
+				isRecord(value) &&
+				Array.isArray(value["messages"])
+			)
+				currentPayload = { ...currentPayload, messages: value["messages"] };
 		}
 		return result;
 	}
@@ -119,14 +127,16 @@ export class CodexHost {
 		const injected = messages.flatMap((message) => {
 			if (
 				!isRecord(message) ||
-				message["customType"] !== "lina-context-reference"
+				(message["customType"] !== "lina-context-reference" &&
+					message["customType"] !== "lina-world-reference")
 			)
 				return [];
 			return typeof message["content"] === "string" ? [message["content"]] : [];
 		});
+		const reference = injected.filter(Boolean).join("\n\n");
 		return {
 			...(systemPrompt ? { systemPrompt } : {}),
-			...(injected[0] ? { context: injected[0] } : {}),
+			...(reference ? { context: reference } : {}),
 		};
 	}
 

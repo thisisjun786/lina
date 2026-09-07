@@ -15,7 +15,7 @@ Codex and auxiliary model requests -> OpenCodex
 
 | Owner | Responsibility |
 | --- | --- |
-| lina-core | Durable requests/entries, source-linked context, persona/onboarding and installation contracts |
+| lina-core | Durable requests/entries, source-linked context, persona/onboarding, opt-in world state and installation contracts |
 | lina-runtime | Product startup, agent fleet, Lina host contracts, model/persona orchestration and lifecycle |
 | lina-codex | Codex RPC adapter, task identity, native events, permissions and reconnect |
 | lina-opencodex | Hub configuration/catalog, role model selection and auxiliary model requests |
@@ -33,6 +33,8 @@ Lina request identity and native Codex task identity remain distinct. Persist re
 Codex manages its execution context and native compaction. Lina keeps a separate text journal and LCM-style source-linked summaries. Failed summaries retain originals and the previous checkpoint; original preservation does not guarantee perfect recall. Search and expansion expose bounded source material, not private reasoning or binary payloads as conversation text.
 
 Authored core identity, inferred preferences, temporary mood, confirmed user corrections and shared project knowledge have distinct owners and provenance. Existing profiles are not overwritten from seed presets. Optional memory services require configured scopes; write acceptance, derivation/indexing and later recall are separate outcomes. OpenViking paths are restricted to the configured resource root. Retrieved service content is reference data, not new instructions.
+
+The optional [world engine](plans/platform/012_world_engine_mvp.md) owns immutable world definitions, simulation time, scene occupancy and accepted fictional events in a separate SQLite database. Runtime composition binds a bounded projection to the session's agent; world data never edits the authored persona or writes conversational observations. Explicit commands advance the world. Image/UI consumers have typed handoff contracts; schedules, feed publication and image generation remain separate owners.
 
 ## Web and attachment boundary
 

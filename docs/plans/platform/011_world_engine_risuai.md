@@ -1,7 +1,7 @@
 # LINA world engine: RisuAI reference and adoption backlog
 
 Date: 2026-09-07. Status: world-engine direction and RisuAI reference selected by
-the user; design backlog, not runtime implementation.
+the user. The [minimal world implementation](012_world_engine_mvp.md) now supplies opt-in state, events and scoped context; RisuAI imports and the broader mechanisms below remain backlog.
 Related: [daily-life/SNS ideas](010_agent_daily_life_ideas.md),
 [ima2 image engine](009_ima2_image_engine.md),
 [refactor preparation](008_refactor_preparation.md).
@@ -16,7 +16,7 @@ multi-agent continuity, as well as contextual lore retrieval.
 
 The setting, degree of simulation, time scale, posting cadence and initial world
 are undecided. A contemporary shared living space is an example, not a selected
-setting. Implementation follows the ongoing refactor; this note does not start a
+setting. The implemented minimum is documented separately; this reference does not enable a
 world simulation or add features to the current ima2 implementation slice.
 
 ## Ownership and composition
@@ -42,8 +42,7 @@ shared events to disagree; keeping it only in generated posts cannot explain or
 reliably reconstruct what happened. A separate world owner supports shared scenes
 while preserving each agent's knowledge and perspective. It adds event/state
 versioning and consistency work across persona, memory, jobs and SNS. Exact
-package paths and APIs must be mapped against the completed refactor before code
-changes; no existing module is renamed by this document.
+package paths, implemented APIs and current limitations are recorded in the [minimal implementation](012_world_engine_mvp.md); no existing module is renamed by this document.
 
 ## Source evidence
 
@@ -127,6 +126,5 @@ the application repository's license does not establish permission for all conte
    import/export. Verify a quiet tick, chain/budget limits, malformed imports,
    unsupported scripts, audience boundaries and recovery without duplicate posts.
 
-These are design candidates and acceptance targets, not test results or a committed
-delivery schedule. The user selected the direction; details above remain proposals.
-Runtime integration, schedules and external publication require separate implementation and verification.
+This sequence records design candidates and acceptance targets, not test results or a committed
+delivery schedule. The [minimal implementation record](012_world_engine_mvp.md) identifies the completed subset and its verification. Remaining mechanisms, schedules and publication need their own implementation and authorization.

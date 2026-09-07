@@ -1,0 +1,53 @@
+import { DatabaseSync } from "node:sqlite";
+
+const APPLICATION_ID = 0x4c575231;
+const SCHEMA_VERSION = 1;
+const SCHEMA = `
+CREATE TABLE worlds (id TEXT PRIMARY KEY, definition_json TEXT NOT NULL, state_json TEXT NOT NULL) STRICT;
+CREATE TABLE world_events (world_id TEXT NOT NULL REFERENCES worlds(id), idempotency_key TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), event_json TEXT NOT NULL, PRIMARY KEY(world_id, idempotency_key), UNIQUE(world_id, revision)) STRICT;
+`;
+function shape(db: DatabaseSync): string {
+	return JSON.stringify(
+		db
+			.prepare(
+				"SELECT name, sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name",
+			)
+			.all(),
+	);
+}
+export function initializeWorldSchema(db: DatabaseSync): void {
+	const application = db.prepare("PRAGMA application_id").get() as {
+		application_id: number;
+	};
+	const version = db.prepare("PRAGMA user_version").get() as {
+		user_version: number;
+	};
+	const count = db
+		.prepare(
+			"SELECT count(*) AS n FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
+		)
+		.get() as { n: number };
+	if (
+		count.n === 0 &&
+		application.application_id === 0 &&
+		version.user_version === 0
+	) {
+		db.exec(SCHEMA);
+		db.exec(
+			`PRAGMA application_id = ${APPLICATION_ID}; PRAGMA user_version = ${SCHEMA_VERSION}`,
+		);
+	} else if (
+		application.application_id !== APPLICATION_ID ||
+		version.user_version !== SCHEMA_VERSION
+	) {
+		throw Error("Unsupported world database owner or schema version");
+	}
+	const expected = new DatabaseSync(":memory:");
+	try {
+		expected.exec(SCHEMA);
+		if (shape(expected) !== shape(db))
+			throw Error("Unsupported world database schema");
+	} finally {
+		expected.close();
+	}
+}

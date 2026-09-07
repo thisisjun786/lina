@@ -23,6 +23,10 @@ import {
 	DurableStore,
 } from "../../lina-core/src/index.ts";
 import type {
+	WorldContextLimits,
+	WorldStore,
+} from "../../lina-core/src/world/index.ts";
+import type {
 	HonchoClientOptions,
 	HonchoConfig,
 } from "../../lina-memory/src/honcho/index.ts";
@@ -52,12 +56,18 @@ import type { SessionEngine } from "./session-engine.ts";
 import { createAttachmentTool } from "./tools/attachments.ts";
 import { createNotepadTools } from "./tools/notepad.ts";
 import { createStatusTool } from "./tools/status.ts";
+import { installWorldContext } from "./world.ts";
 
 export type AppOptions = {
 	engine: SessionEngine;
 	registerTools?: (host: LinaHost) => void;
 	memoryBackend?: "native" | "honcho" | "disabled";
 	modelSettings?: () => ModelSettings;
+	world?: {
+		store: WorldStore;
+		worldId: string;
+		limits: WorldContextLimits;
+	};
 	persona?: {
 		agents: AgentStore;
 		agentId: string;
@@ -92,6 +102,11 @@ export async function startPersistentApp(options: AppOptions) {
 	const approvalMode = parseApprovalMode(options.approvalMode);
 	const workspace = realpathSync(options.workspace),
 		botId = options.botId ?? "lina";
+	options.world?.store.context(
+		options.world.worldId,
+		botId,
+		options.world.limits,
+	);
 	const lease = acquireSessionLease(options.stateRoot, botId, workspace);
 	let transcriptLease: { close(): void } | undefined;
 	let native: SessionPort | undefined,
@@ -314,6 +329,8 @@ export async function startPersistentApp(options: AppOptions) {
 				installContextHooks(host, contextCoordinator, (query, signal) =>
 					memoryBridge.recall(query, signal),
 				);
+				if (options.world)
+					installWorldContext(host, { ...options.world, agentId: botId });
 				const tools = createContextTools(
 					storedContext,
 					journal,
