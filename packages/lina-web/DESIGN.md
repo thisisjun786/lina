@@ -1,6 +1,6 @@
 # Lina visual direction
 
-Codex 디자인 언어, Electron/웹 공통 렌더러, 메신저형 에이전트 목록과 모바일 탐색은 목표 방향이며 이미 구현된 상태가 아닙니다. 외부 주장은 재검증하지 않았습니다.
+공통 화면과 디자인 토큰은 `../lina-ui/client`에 있습니다. 메신저형 목록·모바일 탐색·붙여넣기 큐와 Electron 동봉 빌드를 구현했습니다. 2026-09-07 사용자가 제공한 Codex 앱 화면을 기준으로 표면의 밝기 순서, 버튼 정렬, 메뉴와 입력창을 재검수했습니다. 실제 검증 범위와 남은 플랫폼 연결은 [구현 기록](../../docs/plans/codex-ui/010_implementation.md)을 따릅니다. 특정 Codex 버전과의 픽셀 단위 일치를 보증하지 않습니다.
 
 The product direction is to adopt the
 Codex design language across surfaces, typography, spacing, icons, menus, the
@@ -9,7 +9,7 @@ and scale for visual verification. Keep Lina's agent-centric navigation and conv
 identity. Desktop targets Electron; web/PWA shares the same renderer and tokens.
 The plan specifies a messenger-style agent list and mobile navigation. Apply Codex styling to photo/name/recent-message rows;
 use full-screen mobile lists and optional desktop task columns.
-This describes the target design; the implementation has not yet been migrated.
+Web and desktop builds now consume the same renderer; native platform acceptance is recorded separately.
 
 ## First setup and agent creation
 
@@ -32,15 +32,17 @@ This utility surface does not need generated concept art, gradients or ornamenta
 
 ## Token ownership
 
-`client/tokens.css` owns color values for both modes. Components use semantic tokens
+[`../lina-ui/client/tokens.css`](../lina-ui/client/tokens.css) owns color values for both modes. Components use semantic tokens
 for main/sidebar/elevated surfaces, text, muted text, borders, focus/selection, buttons
 and status. This document describes their roles rather than duplicating numeric values.
 
-Dark: charcoal surfaces with enough separation between navigation, conversation and
-input; off-white text and readable muted labels. Light: white and light neutral gray
+Dark: the conversation is the darkest surface, the sidebar is one step lighter,
+and the composer and menus are raised neutral surfaces. Use off-white text and readable muted labels. Light: white and light neutral gray
 surfaces with black text. Selection uses the Codex neutral surface treatment;
 focus and semantic status colors remain accessible and are verified separately.
 Primary send/action buttons use high-contrast neutral treatment.
+
+The composer has a shared horizontal control axis: attachment on the left, model settings and a round arrow send control on the right. Task message input uses the same surface and send control. Icon geometry comes from SVG rather than font glyphs; mobile keeps at least 44px action targets. Form actions align to the end of their group. Mobile settings tabs stay on one line, dropping redundant icons at the narrowest width. Border emphasis belongs to form fields and keyboard focus; ordinary navigation and the chat header remain quiet.
 
 Use platform system fonts with Korean fallbacks, modest font weights, a consistent
 spacing scale and restrained radii. Avoid simulated window traffic lights or controls
@@ -122,3 +124,28 @@ height follows content; long drafts expose a temporary expand/reduce action. Bou
 height by the visible viewport and fit complete text rows. Preserve draft/selection,
 and keep Stop and required approvals reachable. Installation/update descriptions
 explain the web-app benefit and the explicit apply/reload behavior only in settings.
+
+### Common component ownership
+
+`lina-ui/client/components/ui/` is the shared shadcn/Base UI component source.
+`controls.css` applies Lina's tokens to Button and DropdownMenu; component classes
+retain agent-first geometry. The wrappers adapt the upstream base-nova patterns,
+without adding Tailwind or another build pipeline. Base UI owns focus, keyboard
+navigation, disabled semantics and floating placement inside the component.
+
+Imperative controllers mount a view into a dedicated host and pass values/actions.
+They must not mutate that host's children. In particular, list notices use the
+list view API, menu actions use callbacks, settings panels are controlled separately
+from the React tab navigation, and combobox updates use its adapter methods.
+Conversation history, composer drafts, attachment queues and transport stay in
+existing controllers/models. Adding a component does not change their ownership.
+
+
+### Task layout control
+
+The top sidebar icon only collapses navigation. Agent/task tabs only choose a
+list. The task toolbar owns the labeled `나란히 보기` / `나란히 보기 종료` action,
+using the common Button. Show it only when the actual sidebar width plus the task
+and reading columns fit. One control opens and closes the extra column; preserve
+list nodes, drafts, filters and focus across reparenting. Narrow screens fall back
+to the ordinary task list while retaining the user's wide-screen preference.

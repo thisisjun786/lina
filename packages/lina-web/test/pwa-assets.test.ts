@@ -4,6 +4,8 @@ import { startWebServer } from "../src/server.ts";
 
 test("a complete versioned shell serves manifest, icons and a scoped worker", async () => {
 	const assets = await loadWebAssets();
+	expect(assets.script).not.toContain("Download the React DevTools");
+	expect(assets.script).toContain("Copyright (c) 2023 shadcn");
 	expect(assets.pwa).toBeDefined();
 	if (!assets.pwa) throw new Error("PWA missing");
 	const { version, files } = assets.pwa;

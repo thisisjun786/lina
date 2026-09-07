@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { Connection } from "../client/connection.ts";
-import { ChatModel } from "../client/model.ts";
+import { Connection } from "../../lina-client/src/connection.ts";
+import { ChatModel } from "../../lina-client/src/model.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
+import { ExecutionModel } from "../../lina-client/src/execution-model.ts";
 import type { ControlSnapshot } from "../../lina-core/src/control/types.ts";
-import { ExecutionModel } from "../client/execution-model.ts";
 
 const state = (revision = 1): ControlSnapshot => ({
 	sessionId: "s",

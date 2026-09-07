@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"test": "bun test",
-		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/lina-web/client/tsconfig.json",
+		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/lina-ui/client/tsconfig.json && bun run --cwd packages/lina-desktop typecheck",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"ci:validate": "bun scripts/ci/validate.ts",

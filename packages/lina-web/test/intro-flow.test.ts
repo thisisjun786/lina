@@ -6,7 +6,7 @@ import {
 	parseChooseResult,
 	parseEntry,
 	parseTurn,
-} from "../client/intro-model.ts";
+} from "../../lina-ui/client/intro-model.ts";
 
 test("first visit and resume route to onboarding, explicit agent route still opens ordinary room", () => {
 	const entry = parseEntry({ firstUser: true, resume: null, legacyDrafts: [] });
@@ -57,7 +57,7 @@ test("a restored failed turn retains original request UUID and user source for r
 });
 
 test("entry service failure does not prevent ordinary conversation or reopen completed intake", async () => {
-	const { resolveBoot } = await import("../client/intro-model.ts");
+	const { resolveBoot } = await import("../../lina-ui/client/intro-model.ts");
 	const result = await resolveBoot(
 		parseBootQuery("http://localhost/"),
 		async () => {
@@ -82,7 +82,7 @@ test("entry service failure does not prevent ordinary conversation or reopen com
 });
 
 test("completed first setup ignores a saved user-onboarding URL", async () => {
-	const { resolveBoot } = await import("../client/intro-model.ts");
+	const { resolveBoot } = await import("../../lina-ui/client/intro-model.ts");
 	let calls = 0;
 	const r = await resolveBoot(
 		parseBootQuery("http://localhost/?onboarding=user"),

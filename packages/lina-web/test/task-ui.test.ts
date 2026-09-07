@@ -7,13 +7,14 @@ import {
 	parseTaskDetail,
 	parseTaskList,
 	taskDeepLink,
-} from "../client/task-view.ts";
+} from "../../lina-ui/client/task-view.ts";
 
 class Node {
 	id = "";
 	className = "";
 	type = "";
 	hidden = false;
+	scrollTop = 0;
 	attributes = new Map<string, string>();
 	setAttribute(k: string, v: string) {
 		this.attributes.set(k, v);
@@ -162,6 +163,11 @@ function fixture() {
 		root.append(node);
 		return node;
 	};
+	const tasksDialog = make("tasks-dialog", "section");
+	Object.defineProperty(tasksDialog, "showModal", { value: undefined });
+	Object.defineProperty(tasksDialog, "close", { value: undefined });
+	tasksDialog.hidden = true;
+
 	make("task-list");
 	make("tasks-status", "p");
 	make("add-task", "button");
@@ -199,7 +205,8 @@ function fixture() {
 		document: {
 			location: { href: "http://fixture/?agent=lina" },
 			createElement: (tag: string) => new Node(tag),
-			getElementById: find,
+			getElementById: (id: string) =>
+				[root, ...walk(root)].find((item) => item.id === id) ?? null,
 		},
 	};
 }
@@ -964,5 +971,315 @@ test("live detail fills new turn history even when its summary revision was alre
 	await f.find("task-send").fire("click");
 	await view.sync();
 	expect(f.find("task-history").textContent).toContain("새로 보낸 메시지");
+	view.close();
+});
+
+const otherTask = {
+	...sampleTask,
+	id: "task-2",
+	threadId: "other-native-thread",
+	ownerAgentId: "kai",
+	title: "카이 작업",
+};
+const taskAgents = {
+	agents: [
+		{ id: "lina", name: "리나" },
+		{ id: "kai", name: "카이" },
+	],
+};
+
+test("task list defaults to selected owner and all scope follows actual owners", async () => {
+	const f = fixture();
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		request: async (path) => {
+			if (path === "/api/agents") return taskAgents;
+			expect(path).toBe("/api/tasks");
+			return {
+				tasks: [
+					sampleTask,
+					otherTask,
+					{
+						...sampleTask,
+						id: "unknown",
+						ownerAgentId: "gone",
+						title: "남은 작업",
+					},
+				],
+			};
+		},
+	});
+	await view.showList();
+	expect(f.find("tasks-dialog").hidden).toBe(false);
+	expect(f.find("task-list").querySelectorAll("button")).toHaveLength(1);
+	expect(f.find("task-scope").textContent).toContain("담당: 리나");
+	await view.setScope("all");
+	expect(f.find("task-list").querySelectorAll("button")).toHaveLength(3);
+	expect(f.find("task-open-task-2").textContent).toContain("카이");
+	expect(f.find("task-open-unknown").textContent).toContain("담당 미지정");
+	await view.setOwner("kai");
+	expect(f.find("task-scope").value).toBe("all");
+	expect(f.find("task-list").querySelectorAll("button")).toHaveLength(3);
+	f.find("task-scope").value = "selected";
+	await f.find("task-scope").fire("change");
+	expect(f.find("task-list").querySelectorAll("button")).toHaveLength(1);
+	expect(f.find("task-list").textContent).toContain("카이 작업");
+	view.close();
+});
+
+test("detail back retains list scope scroll and task-specific input and owner drafts", async () => {
+	const f = fixture();
+	const events: string[] = [];
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		onShowList: () => events.push("list"),
+		onOpen: (id) => events.push(id),
+		request: async (path) => {
+			if (path === "/api/agents") return taskAgents;
+			if (path === "/api/tasks") return { tasks: [sampleTask, otherTask] };
+			return {
+				task: path.endsWith("task-2") ? otherTask : sampleTask,
+				thread: null,
+			};
+		},
+	});
+	await view.setScope("all");
+	await view.showList();
+	f.find("task-list").scrollTop = 120;
+	await view.open("task-1");
+	f.find("task-input").value = "첫 작업 초안";
+	f.find("task-owner").value = "kai";
+	await view.refresh();
+	await view.showList();
+	expect(f.dialog.open).toBe(false);
+	expect(f.find("task-list").scrollTop).toBe(120);
+	expect(f.find("task-scope").value).toBe("all");
+	await view.open("task-2");
+	expect(f.find("task-input").value).toBe("");
+	f.find("task-input").value = "둘째 초안";
+	await view.open("task-1");
+	expect(f.find("task-input").value).toBe("첫 작업 초안");
+	expect(f.find("task-owner").value).toBe("kai");
+	expect(f.find("task-open-codex").attributes.get("href")).toBe(
+		"codex://threads/thread-abc",
+	);
+	await f.find("task-close").fire("click");
+	expect(events.at(-1)).toBe("list");
+	expect(events).toContain("task-2");
+	view.close();
+});
+
+test("owner switch discards stale list and agent-directory responses", async () => {
+	const f = fixture();
+	const oldTasks = Promise.withResolvers<unknown>();
+	const oldAgents = Promise.withResolvers<unknown>();
+	let lists = 0;
+	let agents = 0;
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		request: async (path) => {
+			if (path === "/api/agents")
+				return ++agents === 1 ? oldAgents.promise : taskAgents;
+			return ++lists === 1
+				? oldTasks.promise
+				: { tasks: [sampleTask, otherTask] };
+		},
+	});
+	const old = view.refresh();
+	await view.setOwner("kai");
+	oldTasks.resolve({ tasks: [] });
+	oldAgents.resolve({ agents: [{ id: "kai", name: "오래된 이름" }] });
+	await old;
+	expect(f.find("task-list").textContent).toContain("카이 작업");
+	expect(f.find("task-scope").textContent).not.toContain("오래된 이름");
+	view.close();
+});
+
+test("scope switch invalidates pending detail and a late mutation without losing drafts", async () => {
+	const f = fixture();
+	const detail = Promise.withResolvers<unknown>();
+	const mutation = Promise.withResolvers<unknown>();
+	const sent = Promise.withResolvers<void>();
+	let reads = 0;
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		request: async (path, method = "GET") => {
+			if (method === "POST") {
+				sent.resolve();
+				return mutation.promise;
+			}
+			if (path === "/api/agents") return taskAgents;
+			if (path === "/api/tasks") return { tasks: [sampleTask, otherTask] };
+			return ++reads === 1
+				? detail.promise
+				: { task: sampleTask, thread: null };
+		},
+	});
+	const opening = view.open("task-1");
+	await view.setScope("all");
+	detail.resolve({ task: { ...sampleTask, title: "늦은 상세" }, thread: null });
+	await opening;
+	expect(f.dialog.open).toBe(false);
+	await view.open("task-1");
+	f.find("task-input").value = "보류한 입력";
+	const sending = f.find("task-send").fire("click");
+	await sent.promise;
+	await view.setScope("selected");
+	mutation.resolve({
+		task: { ...sampleTask, title: "늦은 응답", revision: 20 },
+	});
+	await sending;
+	await view.open("task-1");
+	expect(f.find("task-heading").textContent).toBe("로그 정리");
+	expect(f.find("task-input").value).toBe("보류한 입력");
+	view.close();
+});
+
+test("refresh during detail load preserves the active detail and owner selection", async () => {
+	const f = fixture();
+	const gate = Promise.withResolvers<unknown>();
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		request: async (path) => {
+			if (path === "/api/agents") return taskAgents;
+			if (path === "/api/tasks") return { tasks: [sampleTask] };
+			return gate.promise;
+		},
+	});
+	const opening = view.open("task-1");
+	await view.refresh();
+	gate.resolve({ task: sampleTask, thread: null });
+	await opening;
+	expect(f.find("task-heading").textContent).toBe("로그 정리");
+	expect(f.find("task-owner").value).toBe("lina");
+	expect(f.find("task-interrupt").disabled).toBe(false);
+	view.close();
+});
+
+test("inline task pane needs no list dialog and closes detail before asynchronous native close events", async () => {
+	const f = fixture();
+	f.find("tasks-dialog").id = "task-pane";
+	const callbacks: string[] = [];
+	f.dialog.close = () => {
+		f.dialog.open = false;
+	};
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		onShowList: () => callbacks.push("list"),
+		request: async (path) => {
+			if (path === "/api/agents") return taskAgents;
+			if (path === "/api/tasks") return { tasks: [sampleTask] };
+			return { task: sampleTask, thread: null };
+		},
+	});
+	await view.showList();
+	expect(f.find("task-pane").hidden).toBe(false);
+	await view.open("task-1");
+	await view.showList();
+	expect(callbacks).toEqual(["list", "list"]);
+	await view.open("task-1");
+	await f.dialog.fire("close");
+	expect(f.dialog.hidden).toBe(false);
+	expect(f.dialog.open).toBe(true);
+	expect(callbacks).toEqual(["list", "list"]);
+	view.close();
+});
+
+test("create uses the newly selected owner even when all tasks are shown", async () => {
+	const f = fixture();
+	const created = Promise.withResolvers<unknown>();
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		request: async (path, method = "GET", body) => {
+			if (method === "POST") {
+				created.resolve(body);
+				return { task: otherTask };
+			}
+			if (path === "/api/agents") return taskAgents;
+			return { tasks: [] };
+		},
+	});
+	await view.setScope("all");
+	await view.setOwner("kai");
+	await f.find("add-task").fire("click");
+	f.find("task-title").value = "정리";
+	f.find("task-cwd").value = "/tmp/work";
+	f.find("task-prompt").value = "파일 정리";
+	await f.find("task-create-submit").fire("click");
+	expect(await created.promise).toMatchObject({ ownerAgentId: "kai" });
+	view.close();
+});
+
+test("live handover adds a newly discovered owner without dropping an edited owner draft", async () => {
+	const f = fixture();
+	let task = { ...sampleTask };
+	let directory = { agents: [{ id: "lina", name: "리나" }] };
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		request: async (path) => {
+			if (path === "/api/agents") return directory;
+			if (path === "/api/tasks") return { tasks: [task] };
+			return { task, thread: null };
+		},
+	});
+	await view.open("task-1");
+	directory = taskAgents;
+	task = { ...task, ownerAgentId: "kai", revision: 4 };
+	await view.sync();
+	expect(
+		f
+			.find("task-owner")
+			.querySelectorAll("option")
+			.map((option) => option.value),
+	).toContain("kai");
+	expect(f.find("task-owner").value).toBe("kai");
+	f.find("task-owner").value = "lina";
+	task = { ...task, revision: 5 };
+	await view.sync();
+	expect(f.find("task-owner").value).toBe("lina");
+	view.close();
+});
+
+test("editing a restored task while its detail loads preserves the edited owner", async () => {
+	const f = fixture();
+	const values = new Map([
+		[
+			"lina.task-draft.v1.task-1",
+			JSON.stringify({ input: "saved task draft", owner: "kai" }),
+		],
+	]);
+	const pending = Promise.withResolvers<unknown>();
+	const view = installTasks({
+		ownerAgentId: "lina",
+		document: f.document,
+		storage: {
+			getItem: (key) => values.get(key) ?? null,
+			setItem: (key, value) => {
+				values.set(key, value);
+			},
+			removeItem: (key) => {
+				values.delete(key);
+			},
+		},
+		request: async (path) =>
+			path === "/api/agents" ? taskAgents : pending.promise,
+	});
+	const opening = view.open("task-1");
+	f.find("task-input").value = "edited while loading";
+	await f.find("task-input").fire("input");
+	pending.resolve({ task: sampleTask, thread: null });
+	await opening;
+	expect(f.find("task-owner").value).toBe("kai");
+	expect(JSON.parse(values.get("lina.task-draft.v1.task-1") ?? "null")).toEqual(
+		{ input: "edited while loading", owner: "kai" },
+	);
 	view.close();
 });

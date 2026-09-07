@@ -6,10 +6,10 @@
 
 | 기획 | 문서 | 현재 상태 |
 | --- | --- | --- |
-| Codex 디자인 언어, Electron과 웹 공통 화면 | [UI 개편](plans/codex-ui/001_ui_plan.md), [Electron](plans/codex-ui/004_electron_stack.md), [디자인 기준](../packages/lina-web/DESIGN.md) | 방향 확정, UI 전면 개편과 Electron 패키징은 후속 구현 |
+| Codex 디자인 언어, Electron과 웹 공통 화면 | [UI 개편](plans/codex-ui/001_ui_plan.md), [Electron](plans/codex-ui/004_electron_stack.md), [디자인 기준](../packages/lina-web/DESIGN.md) | 공통 화면·토큰·Electron 동봉 빌드 구현. [검증 범위](plans/codex-ui/010_implementation.md) |
 | 메신저형 에이전트 목록과 모바일 탐색 | [에이전트 목록](plans/codex-ui/006_agent_list_mobile.md), [작업 목록 배치](plans/codex-ui/007_sidebar_comparison.md) | 기본 한 목록 열, 넓은 창의 선택적 작업 열, 모바일 전체 화면 전환 |
 | 연속 메시지와 중간 사용자 입력 | [대화 전달](plans/codex-ui/002_conversation_delivery.md) | 공개된 발화와 미공개 후보를 나누는 엔진·저장 계약 설계 |
-| 이미지·파일 붙여넣기 | [첨부 계획](plans/codex-ui/003_clipboard_attachment.md) | 공통 첨부 큐와 플랫폼별 검증이 필요한 계획 |
+| 이미지·파일 붙여넣기 | [첨부 계획](plans/codex-ui/003_clipboard_attachment.md) | 파일 선택·붙여넣기 공통 큐 구현, Chromium 검증. 다른 OS·브라우저는 별도 검증 |
 | 전용 컴퓨터의 공통 계약 | [컴퓨터·실행·입력 소유권](plans/platform/001_runtime_contracts.md) | API·저장 계약 제안, 독립 GUI 입력은 아직 미검증 |
 | 프로바이더 선택과 로컬 모델 큐레이션 | [모델 온보딩](plans/platform/005_model_onboarding.md) | 제시 순서·큐레이션 요구 보존, 현재 연결은 Codex + OpenCodex |
 | 설치 구성과 전체 상태 버전관리 | [리팩터링 요구](plans/platform/008_refactor_preparation.md) | 홈·패키지 분리·로컬 체크포인트 구현, 자동 이력·선택 복원·외부 내보내기는 후속 |

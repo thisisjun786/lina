@@ -17,12 +17,12 @@ import {
 	shouldClearPreview,
 	userFieldSummaries,
 	userPatch,
-} from "../client/onboarding-model.ts";
+} from "../../lina-ui/client/onboarding-model.ts";
 import type {
 	AgentDraft,
 	Chapter,
 	UserState,
-} from "../client/onboarding-types.ts";
+} from "../../lina-ui/client/onboarding-types.ts";
 import {
 	CHAPTER_IDS,
 	emptyChapters,
@@ -32,7 +32,7 @@ import {
 	MAX_CHAPTER_TEXT,
 	MAX_USER_ANSWER,
 	UNSPECIFIED,
-} from "../client/onboarding-types.ts";
+} from "../../lina-ui/client/onboarding-types.ts";
 
 function profile(id = "agent-test"): AgentInput {
 	return {

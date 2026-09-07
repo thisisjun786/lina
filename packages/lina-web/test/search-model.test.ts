@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { SearchModel } from "../client/search-model.ts";
+import { SearchModel } from "../../lina-client/src/search-model.ts";
 
 const row = {
 	seq: 3,

@@ -1,0 +1,137 @@
+#draft-files,
+.message-files {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 8px 0;
+}
+#draft-files {
+	flex-wrap: nowrap;
+	overflow-x: auto;
+}
+.file-chip {
+	display: inline-flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 4px 10px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: var(--surface-raised);
+	font-size: 0.8125rem;
+	line-height: 20px;
+	max-width: 100%;
+	white-space: normal;
+}
+.file-chip a {
+	overflow-wrap: anywhere;
+	color: var(--text);
+}
+.file-chip button {
+	border: 0;
+	background: transparent;
+	color: var(--muted);
+	padding: 4px;
+	min-width: 28px;
+	min-height: 28px;
+	border-radius: var(--control-radius);
+	font-size: 0.8125rem;
+}
+.file-chip button:hover:not(:disabled) {
+	color: var(--text);
+	background: var(--selection);
+}
+#draft-files .file-chip {
+	flex: 0 0 auto;
+	flex-wrap: nowrap;
+}
+#draft-files .file-chip a {
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.file-preview {
+	max-width: min(640px, calc(100vw - 24px));
+	width: 100%;
+	max-height: 80dvh;
+	padding: 16px 24px 24px;
+}
+.file-preview[open] {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 16px;
+}
+.file-preview > strong {
+	align-self: center;
+	font-weight: 500;
+	font-size: 0.875rem;
+	overflow-wrap: anywhere;
+}
+.file-preview > button {
+	background: none;
+	color: var(--muted);
+	border: 0;
+	border-radius: var(--control-radius);
+	padding: 8px 12px;
+	min-height: 36px;
+	font-size: 0.875rem;
+}
+.file-preview > button:hover {
+	color: var(--text);
+	background: var(--surface-raised);
+}
+.file-preview > div {
+	grid-column: 1 / -1;
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+}
+.file-preview img {
+	display: block;
+	max-width: 100%;
+	max-height: 60dvh;
+	object-fit: contain;
+}
+.file-preview pre {
+	font: 0.875rem / 1.7 monospace;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+@media (max-width: 767px) {
+	.file-chip button,
+	.file-chip a,
+	.file-preview > button {
+		min-height: 44px;
+		display: inline-flex;
+		align-items: center;
+	}
+	.chat-header {
+		gap: 6px;
+	}
+	.connection-controls {
+		gap: 2px;
+	}
+	.chat-header h1 {
+		font-size: 1rem;
+	}
+	.file-preview {
+		padding: 12px 16px 20px;
+	}
+	.markdown-copy-button {
+		min-height: 44px;
+	}
+}
+@media (max-width: 360px) {
+	.connection-status {
+		font-size: 0;
+		gap: 0;
+	}
+	.message-body {
+		margin-left: 0;
+	}
+	.message-footer {
+		margin-left: 0;
+		flex-wrap: wrap;
+	}
+}

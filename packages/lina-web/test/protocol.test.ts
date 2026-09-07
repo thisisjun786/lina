@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseChat, parseServerFrame } from "../src/protocol.ts";
+import { parseChat, parseServerFrame } from "../../lina-client/src/protocol.ts";
 
 describe("web protocol", () => {
 	for (const frame of [

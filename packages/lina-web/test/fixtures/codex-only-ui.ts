@@ -4,7 +4,7 @@ import type { ControlSnapshot } from "../../../lina-core/src/control/types.ts";
 import { parseControlClient } from "../../../lina-core/src/control-wire.ts";
 import type { SessionSnapshot } from "../../../lina-core/src/protocol.ts";
 import { parseWireClient } from "../../../lina-core/src/wire.ts";
-import type { TaskDetail } from "../../client/task-view.ts";
+import type { TaskDetail } from "../../../lina-ui/client/task-view.ts";
 import { loadWebAssets } from "../../src/assets.ts";
 import { startWebServer } from "../../src/server.ts";
 

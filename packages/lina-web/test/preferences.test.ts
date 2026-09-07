@@ -4,8 +4,12 @@ import {
 	readPreferences,
 	savePreferences,
 	shouldSend,
-} from "../client/preferences.ts";
-import { readTheme, resolveTheme, saveTheme } from "../client/theme.ts";
+} from "../../lina-client/src/preferences.ts";
+import {
+	readTheme,
+	resolveTheme,
+	saveTheme,
+} from "../../lina-ui/client/theme.ts";
 
 test("browser preferences validate saved values and survive blocked storage", () => {
 	let value: string | null = null;
@@ -21,14 +25,14 @@ test("browser preferences validate saved values and survive blocked storage", ()
 			textSize: "large",
 			sendKey: "modifier",
 			sidebarCollapsed: true,
-			sidebarWidth: 256,
+			sidebarWidth: 304,
 		}),
 	).toBe(true);
 	expect(readPreferences(storage)).toEqual({
 		textSize: "large",
 		sendKey: "modifier",
 		sidebarCollapsed: true,
-		sidebarWidth: 256,
+		sidebarWidth: 304,
 	});
 	value = '{"textSize":"huge","sendKey":"wrong","sidebarCollapsed":"yes"}';
 	expect(readPreferences(storage)).toEqual(DEFAULT_PREFERENCES);
@@ -92,12 +96,12 @@ test("system preference resolves against OS while explicit theme wins", () => {
 test("sidebar width validates legacy and damaged device values and preserves a chosen size", () => {
 	const read = (sidebarWidth: unknown) =>
 		readPreferences({ getItem: () => JSON.stringify({ sidebarWidth }) });
-	expect(read(undefined).sidebarWidth).toBe(256);
+	expect(read(undefined).sidebarWidth).toBe(304);
 	expect(read(340).sidebarWidth).toBe(340);
 	expect(read(120).sidebarWidth).toBe(200);
 	expect(read(900).sidebarWidth).toBe(420);
-	expect(read("340").sidebarWidth).toBe(256);
-	expect(read(null).sidebarWidth).toBe(256);
+	expect(read("340").sidebarWidth).toBe(304);
+	expect(read(null).sidebarWidth).toBe(304);
 	let saved = "";
 	const storage = {
 		getItem: () => saved,

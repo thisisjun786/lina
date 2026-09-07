@@ -1,0 +1,16 @@
+{
+	"name": "@lina/ui",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"license": "Apache-2.0",
+	"dependencies": {
+		"@base-ui/react": "1.8.0",
+		"react": "19.2.8",
+		"react-dom": "19.2.8"
+	},
+	"devDependencies": {
+		"@types/react": "19.2.18",
+		"@types/react-dom": "19.2.7"
+	}
+}

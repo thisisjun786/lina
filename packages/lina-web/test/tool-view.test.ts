@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import type { ChatMessage } from "../client/model.ts";
+import type { ChatMessage } from "../../lina-client/src/model.ts";
 import {
 	createToolNode,
 	type ToolElement,
 	updateToolNode,
-} from "../client/tool-view.ts";
+} from "../../lina-ui/client/tool-view.ts";
 
 class FakeElement implements ToolElement {
 	readonly children: FakeElement[] = [];

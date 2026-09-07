@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { AttachmentDraft, attachmentLink } from "../client/attachment-draft.ts";
+import {
+	AttachmentDraft,
+	attachmentLink,
+} from "../../lina-client/src/attachment-draft.ts";
 
 const session = "12345678-1234-4234-8234-123456789012";
 const ref = {

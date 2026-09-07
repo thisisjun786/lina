@@ -3,7 +3,7 @@ import {
 	type MarkdownContainer,
 	parseMarkdown,
 	renderMarkdown,
-} from "../client/markdown.ts";
+} from "../../lina-ui/client/markdown.ts";
 
 type Listener = () => void;
 

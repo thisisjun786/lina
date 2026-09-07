@@ -4,9 +4,10 @@ import type {
 	ModelTrial,
 } from "../../lina-runtime/src/models/port.ts";
 import type { ModelSettings } from "../../lina-runtime/src/models/types.ts";
-import { installModelSettings } from "../client/model-settings.ts";
+import { installModelSettings } from "../../lina-ui/client/model-settings.ts";
+import { comboboxFixture } from "./fixtures/model-combobox.ts";
 
-// Structural DOM fixture exercises real event handlers without a server or inference.
+// Structural DOM fixture exercises controller events; browser QA owns combobox interaction.
 class Node {
 	id = "";
 	className = "";
@@ -138,6 +139,7 @@ class Node {
 	}
 }
 function fixture() {
+	const combos = comboboxFixture();
 	const root = new Node("dialog");
 	const make = (id: string, tag = "div") => {
 		const node = new Node(tag);
@@ -170,6 +172,7 @@ function fixture() {
 		getElementById: find,
 	};
 	return {
+		combos,
 		root,
 		find,
 		document,
@@ -219,6 +222,7 @@ function setup(initial?: ModelSettings) {
 	};
 	const view = installModelSettings(
 		f.dialog,
+		f.combos.factory,
 		f.document,
 		async (_path, method, body) => {
 			if (method === "PATCH") {
@@ -243,13 +247,8 @@ function setup(initial?: ModelSettings) {
 	);
 	return { ...f, view, stored: () => stored };
 }
-async function choose(f: ReturnType<typeof setup>, row: string, query: string) {
-	const input = f.find(`model-${row}-input`);
-	await input.fire("focus");
-	input.value = query;
-	await input.fire("input");
-	await input.fire("keydown", "ArrowDown");
-	await input.fire("keydown", "Enter");
+function choose(f: ReturnType<typeof setup>, row: string, value: string) {
+	f.combos.get(`model-${row}`).choose(value);
 }
 test("seven direct combobox rows select and save without registration or token UI", async () => {
 	const f = setup();
@@ -263,12 +262,10 @@ test("seven direct combobox rows select and save without registration or token U
 		"recall",
 		"vision",
 	])
-		expect(f.find(`model-${role}-input`).attributes.get("role")).toBe(
-			"combobox",
-		);
+		expect(f.combos.get(`model-${role}`).input.id).toBe(`model-${role}-input`);
 	expect(() => f.find("model-output")).toThrow();
 	expect(() => f.find("model-add-profile")).toThrow();
-	await choose(f, "default", "glm");
+	await choose(f, "default", "ollama/glm-flash");
 	await f.find("model-save").fire("click");
 	expect(f.stored().profiles[0]).toMatchObject({
 		provider: "ollama",
@@ -282,42 +279,34 @@ test("seven direct combobox rows select and save without registration or token U
 test("role reasoning stays independent while its model keeps inheriting", async () => {
 	const f = setup();
 	await f.view.open();
-	await choose(f, "default", "glm");
+	await choose(f, "default", "ollama/glm-flash");
 	const reason = f.find("model-summary-reasoning");
 	reason.value = "high";
 	await reason.fire("change");
-	await choose(f, "default", "vision");
+	await choose(f, "default", "codex/vision");
 	await f.find("model-save").fire("click");
 	expect(f.stored().roles.summary).toBeUndefined();
 	expect(f.stored().roleReasoning?.summary).toBe("high");
 	expect(f.find("model-summary-input").value).toContain("Vision");
 	expect(f.find("model-summary-reasoning").value).toBe("high");
 });
-test("search excludes unconfigured providers and vision excludes text-only models", async () => {
+test("controller supplies only configured models and image-capable vision choices", async () => {
 	const f = setup();
 	await f.view.open();
-	const input = f.find("model-default-input");
-	await input.fire("focus");
-	expect(f.find("model-default-list").textContent).not.toContain("Hidden");
-	input.value = "no match";
-	await input.fire("input");
-	expect(f.find("model-default-empty").textContent).toContain(
-		"검색 결과가 없습니다",
+	expect(f.combos.get("model-default").items.map((item) => item.value)).toEqual(
+		["ollama/glm-flash", "codex/vision"],
 	);
-	await input.fire("keydown", "Enter");
+	expect(f.combos.get("model-vision").items.map((item) => item.value)).toEqual([
+		"",
+		"codex/vision",
+	]);
 	expect(f.find("model-save").disabled).toBe(true);
-	const vision = f.find("model-vision-input");
-	await vision.fire("focus");
-	expect(f.find("model-vision-list").textContent).not.toContain("GLM Flash");
-	expect(f.find("model-vision-list").textContent).toContain("Vision");
-	await vision.fire("keydown", "Escape");
-	expect(vision.attributes.get("aria-expanded")).toBe("false");
 });
 test("agent role selection and reasoning do not change global bindings", async () => {
 	const f = setup();
 	await f.view.open("alpha");
-	await choose(f, "default", "glm");
-	await choose(f, "conversation", "vision");
+	await choose(f, "default", "ollama/glm-flash");
+	await choose(f, "conversation", "codex/vision");
 	const reason = f.find("model-conversation-reasoning");
 	reason.value = "medium";
 	await reason.fire("change");
@@ -335,6 +324,7 @@ test("closing fences a late load failure", async () => {
 	let reject: (reason: Error) => void = () => {};
 	const view = installModelSettings(
 		f.dialog,
+		f.combos.factory,
 		f.document,
 		() =>
 			new Promise((_, r) => {
@@ -349,26 +339,18 @@ test("closing fences a late load failure", async () => {
 	expect(f.find("model-settings-status").textContent).toBe(before);
 });
 
-test("model-name search chooses the actual model before inheritance and empty status is outside listbox", async () => {
+test("explicit model selection creates a role binding", async () => {
 	const f = setup();
 	await f.view.open();
-	await choose(f, "default", "glm");
-	await choose(f, "summary", "glm");
+	await choose(f, "default", "ollama/glm-flash");
+	await choose(f, "summary", "ollama/glm-flash");
 	await f.find("model-save").fire("click");
 	expect(f.stored().roles.summary).toBeDefined();
-	const input = f.find("model-summary-input");
-	input.value = "missing";
-	await input.fire("input");
-	expect(f.find("model-summary-empty").parent).not.toBe(
-		f.find("model-summary-list"),
-	);
 });
 test("reselecting inherited model in agent scope creates no false dirty edit", async () => {
 	const f = setup();
 	await f.view.open("alpha");
-	const input = f.find("model-summary-input");
-	await input.fire("focus");
-	await input.fire("keydown", "Enter");
+	f.combos.get("model-summary").choose("");
 	expect(f.find("model-save").disabled).toBe(true);
 });
 test("disconnected saved selection stays visible and cannot be reselected from catalog", async () => {
@@ -384,24 +366,32 @@ test("disconnected saved selection stays visible and cannot be reselected from c
 	await f.view.open();
 	expect(f.find("model-default-input").value).toContain("연결 확인 필요");
 	expect(f.find("model-save").disabled).toBe(true);
-	await f.find("model-default-input").fire("focus");
-	expect(f.find("model-default-list").textContent).not.toContain("old-model");
+	expect(
+		f.combos
+			.get("model-default")
+			.items.some((item) => item.value === "gone/old-model"),
+	).toBe(false);
 });
 
 test("model role scope includes unopened agents from the fleet catalog", async () => {
 	const f = fixture();
-	const view = installModelSettings(f.dialog, f.document, async () => ({
-		settings: {
-			revision: 0,
-			profiles: [],
-			roles: {},
-			agentRoles: {},
-			defaultProfileId: null,
-		},
-		catalog: [],
-		active: [],
-		agents: [{ id: "kai", name: "카이" }],
-	}));
+	const view = installModelSettings(
+		f.dialog,
+		f.combos.factory,
+		f.document,
+		async () => ({
+			settings: {
+				revision: 0,
+				profiles: [],
+				roles: {},
+				agentRoles: {},
+				defaultProfileId: null,
+			},
+			catalog: [],
+			active: [],
+			agents: [{ id: "kai", name: "카이" }],
+		}),
+	);
 	await view.open();
 	expect(
 		f.find("model-scope").children.some((option) => option.value === "kai"),
