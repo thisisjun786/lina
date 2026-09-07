@@ -73,6 +73,11 @@
 .markdown-body a:hover {
 	color: var(--accent-hover);
 }
+.markdown-attachment-image {
+	display: block;
+	max-width: 100%;
+	height: auto;
+}
 .markdown-inline-code {
 	padding: 0.12em 0.35em;
 	border: 1px solid var(--line);
