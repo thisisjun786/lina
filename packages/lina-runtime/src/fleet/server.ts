@@ -12,6 +12,7 @@ import { HonchoClient } from "../../../lina-memory/src/honcho/client.ts";
 import { defaultConversation } from "../persona/conversation.ts";
 import { companionRoutes } from "./companion-routes.ts";
 import { introRoutes } from "./intro-routes.ts";
+import { lifeRoutes } from "./life-routes.ts";
 import { type AgentFleet, validAgentId } from "./manager.ts";
 import { onboardingRoutes } from "./onboarding-routes.ts";
 
@@ -87,12 +88,14 @@ export async function startFleetServer(
 			const url = new URL(request.url);
 			if (
 				request.method === "POST" &&
-				/^\/api\/(?:onboarding\/(?:interview|preview)|agents\/(?:birth|[a-z][a-z0-9-]{0,47}\/intro\/(?:turn|choose)))$/.test(
+				/^\/api\/(?:onboarding\/(?:interview|preview)|agents\/(?:birth|[a-z][a-z0-9-]{0,47}\/intro\/(?:turn|choose))|life\/(?:drafts\/[a-zA-Z0-9._-]+\/suggest|author-sessions(?:\/[a-zA-Z0-9._-]+\/open)?))$/.test(
 					url.pathname,
 				)
 			)
 				server.timeout(request, 75);
 			try {
+				const life = await lifeRoutes(request, fleet, () => json(request));
+				if (life) return life;
 				const extension = await options.route?.(request, () => json(request));
 				if (extension) return extension;
 				const intro = await introRoutes(request, fleet, () => json(request));

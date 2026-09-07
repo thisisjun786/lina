@@ -169,12 +169,26 @@ export function parseDefinition(value: unknown): WorldDefinition {
 	};
 }
 export function parseProposal(value: unknown): WorldProposal {
-	fields(value, PROPOSAL_FIELDS);
+	const definitionChange =
+		!!value &&
+		typeof value === "object" &&
+		"kind" in value &&
+		value.kind === "definition";
+	fields(
+		value,
+		definitionChange
+			? [...PROPOSAL_FIELDS, "definition", "relocations"]
+			: PROPOSAL_FIELDS,
+	);
 	id(value.worldId);
 	id(value.idempotencyKey);
 	integer(value.expectedRevision, "expected revision");
 	integer(value.simulationTime, "simulation time");
-	if (value.kind !== "activity" && value.kind !== "tick")
+	if (
+		value.kind !== "activity" &&
+		value.kind !== "tick" &&
+		value.kind !== "definition"
+	)
 		throw Error("Invalid world event kind");
 	if (value.sceneId !== null) id(value.sceneId);
 	ids(value.actorIds);
@@ -189,6 +203,19 @@ export function parseProposal(value: unknown): WorldProposal {
 		if (move.sceneId !== null) id(move.sceneId);
 	}
 	const proposal = value as unknown as WorldProposal;
+	if (proposal.kind === "definition") {
+		parseDefinition(proposal.definition);
+		list(proposal.relocations);
+		for (const move of proposal.relocations) {
+			fields(move, ["agentId", "sceneId"]);
+			id(move.agentId);
+			if (move.sceneId !== null) id(move.sceneId);
+		}
+		unique(
+			proposal.relocations.map((move) => move.agentId),
+			"relocation",
+		);
+	}
 	unique(
 		proposal.facts.map((f) => f.id),
 		"fact",
@@ -200,6 +227,9 @@ export function parseProposal(value: unknown): WorldProposal {
 	withinCapacity(proposal);
 	return {
 		...structuredClone(proposal),
+		...(proposal.kind === "definition"
+			? { definition: parseDefinition(proposal.definition) }
+			: {}),
 		expectedRevision:
 			proposal.expectedRevision === 0 ? 0 : proposal.expectedRevision,
 		simulationTime: proposal.simulationTime === 0 ? 0 : proposal.simulationTime,

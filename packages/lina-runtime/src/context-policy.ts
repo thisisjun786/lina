@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto";
 
 /** Authorization identity; ordinary world progress is deliberately not part of it. */
-export type SessionContextPolicy = Readonly<{
-	purpose: "conversation" | "life";
-	version: 1;
+type ContextPolicyFields = Readonly<{
 	agentId: string;
 	worldId: string | null;
 	bindingRevision: number;
@@ -11,6 +9,22 @@ export type SessionContextPolicy = Readonly<{
 	sourcePolicyVersion: number;
 	scopeDigest: string;
 }>;
+export type SessionContextPolicy = ContextPolicyFields &
+	(
+		| Readonly<{ purpose: "conversation" | "life"; version: 1 }>
+		| Readonly<{
+				purpose: "world-author";
+				version: 2;
+				worldId: string;
+				authorGrantId: string;
+				capabilityPolicyDigest: string;
+		  }>
+	);
+type UnsignedPolicy = SessionContextPolicy extends infer P
+	? P extends SessionContextPolicy
+		? Omit<P, "scopeDigest">
+		: never
+	: never;
 export type SessionContextSource =
 	| Readonly<{ kind: "bootstrap"; requestId: string }>
 	| Readonly<{ kind: "turn"; requestId: string }>
@@ -21,7 +35,7 @@ export type SessionContextSource =
 			callId: string;
 	  }>;
 export type SessionContextMaterial = Readonly<{
-	kind: "shared-growth" | "disclosed-life";
+	kind: "shared-growth" | "disclosed-life" | "author-world";
 	sourceId: string;
 }>;
 export type SessionContextExposure = Readonly<{
@@ -45,6 +59,12 @@ const FIELDS = [
 	"disclosureRevision",
 	"sourcePolicyVersion",
 ];
+const AUTHOR_FIELDS = [...FIELDS, "authorGrantId", "capabilityPolicyDigest"];
+function policyFields(input: Record<string, unknown>): readonly string[] {
+	return input["version"] === 2 && input["purpose"] === "world-author"
+		? AUTHOR_FIELDS
+		: FIELDS;
+}
 function invalid(): never {
 	throw new Error("Invalid session context policy");
 }
@@ -70,9 +90,7 @@ function revision(value: unknown, minimum = 0): value is number {
 		typeof value === "number" && Number.isSafeInteger(value) && value >= minimum
 	);
 }
-function fields(
-	value: Record<string, unknown>,
-): Omit<SessionContextPolicy, "scopeDigest"> {
+function fields(value: Record<string, unknown>): UnsignedPolicy {
 	const {
 		purpose,
 		version,
@@ -83,17 +101,19 @@ function fields(
 		sourcePolicyVersion,
 	} = value;
 	if (
-		(purpose !== "conversation" && purpose !== "life") ||
-		version !== 1 ||
+		!(
+			(version === 1 && (purpose === "conversation" || purpose === "life")) ||
+			(version === 2 && purpose === "world-author")
+		) ||
 		!identifier(agentId) ||
 		(worldId !== null && !identifier(worldId)) ||
-		(purpose === "life" && worldId === null) ||
+		(purpose !== "conversation" && worldId === null) ||
 		!revision(bindingRevision) ||
 		!revision(disclosureRevision) ||
 		!revision(sourcePolicyVersion, 1)
 	)
 		invalid();
-	return {
+	const common = {
 		purpose,
 		version,
 		agentId,
@@ -102,17 +122,38 @@ function fields(
 		disclosureRevision,
 		sourcePolicyVersion,
 	};
+	if (purpose === "world-author" && version === 2 && worldId !== null) {
+		const { authorGrantId, capabilityPolicyDigest } = value;
+		if (
+			!identifier(authorGrantId) ||
+			typeof capabilityPolicyDigest !== "string" ||
+			!/^[a-f0-9]{64}$/.test(capabilityPolicyDigest)
+		)
+			invalid();
+		return {
+			...common,
+			purpose,
+			version,
+			worldId,
+			authorGrantId,
+			capabilityPolicyDigest,
+		};
+	}
+	if (version !== 1 || (purpose !== "conversation" && purpose !== "life"))
+		invalid();
+	return { ...common, purpose, version };
 }
-function digest(value: Omit<SessionContextPolicy, "scopeDigest">): string {
+function digest(value: UnsignedPolicy): string {
 	return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 export function createSessionContextPolicy(
 	value: unknown,
 ): SessionContextPolicy {
 	const input = record(value);
+	const allowed = policyFields(input);
 	if (
-		Object.keys(input).length !== FIELDS.length ||
-		Object.keys(input).some((k) => !FIELDS.includes(k))
+		Object.keys(input).length !== allowed.length ||
+		Object.keys(input).some((k) => !allowed.includes(k))
 	)
 		invalid();
 	const parsed = fields(input);
@@ -122,9 +163,10 @@ export function parseSessionContextPolicy(
 	value: unknown,
 ): SessionContextPolicy {
 	const input = record(value);
+	const allowed = policyFields(input);
 	if (
-		Object.keys(input).length !== FIELDS.length + 1 ||
-		Object.keys(input).some((k) => k !== "scopeDigest" && !FIELDS.includes(k))
+		Object.keys(input).length !== allowed.length + 1 ||
+		Object.keys(input).some((k) => k !== "scopeDigest" && !allowed.includes(k))
 	)
 		invalid();
 	const parsed = fields(input);
@@ -143,7 +185,9 @@ export function parseSessionContextMaterials(
 			const { kind, sourceId } = input;
 			if (
 				Object.keys(input).length !== 2 ||
-				(kind !== "shared-growth" && kind !== "disclosed-life") ||
+				(kind !== "shared-growth" &&
+					kind !== "disclosed-life" &&
+					kind !== "author-world") ||
 				!identifier(sourceId)
 			)
 				invalid();

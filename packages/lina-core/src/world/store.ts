@@ -1,6 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { openCheckedDatabase } from "../session-binding.ts";
+import { AuthoringPersistence } from "./authoring-persistence.ts";
+import { AuthoringRequests } from "./authoring-requests.ts";
+import type { WorldAuthoringPort } from "./authoring-types.ts";
 import { projectContext, validateContextLimits } from "./context.ts";
 import { LifePersistence } from "./life-persistence.ts";
 import type {
@@ -92,10 +95,59 @@ function stateJson(snapshot: WorldSnapshot): string {
 }
 
 /** Trusted application API. Bind agent views in the runtime; never expose this store as an agent tool. */
-export class WorldStore {
+export class WorldStore implements WorldAuthoringPort {
 	private readonly db: DatabaseSync;
 	private readonly life: LifePersistence;
+	private readonly author: AuthoringPersistence;
+	private readonly suggestions: AuthoringRequests;
 	private closed = false;
+	readonly draftWorld: WorldAuthoringPort["draftWorld"] = (...args) =>
+		this.transaction(() => this.author.draftWorld(...args), true);
+	readonly worldDraft: WorldAuthoringPort["worldDraft"] = (...args) =>
+		this.transaction(() => this.author.worldDraft(...args), false);
+	readonly worldDrafts: WorldAuthoringPort["worldDrafts"] = (...args) =>
+		this.transaction(() => this.author.worldDrafts(...args), false);
+	readonly worldCatalog: WorldAuthoringPort["worldCatalog"] = (...args) =>
+		this.transaction(() => this.author.worldCatalog(...args), false);
+	readonly editWorldDraft: WorldAuthoringPort["editWorldDraft"] = (...args) =>
+		this.transaction(() => this.author.editWorldDraft(...args), true);
+	readonly previewWorldDraft: WorldAuthoringPort["previewWorldDraft"] = (
+		...args
+	) => this.transaction(() => this.author.previewWorldDraft(...args), false);
+	readonly activateWorldDraft: WorldAuthoringPort["activateWorldDraft"] = (
+		...args
+	) => this.transaction(() => this.author.activateWorldDraft(...args), true);
+	readonly worldPack: WorldAuthoringPort["worldPack"] = (...args) =>
+		this.transaction(() => this.author.worldPack(...args), false);
+	readonly lifeConfig: WorldAuthoringPort["lifeConfig"] = (...args) =>
+		this.transaction(() => this.author.lifeConfig(...args), false);
+	readonly setLifeConfig: WorldAuthoringPort["setLifeConfig"] = (...args) =>
+		this.transaction(() => this.author.setLifeConfig(...args), true);
+	readonly grantWorldAuthor: WorldAuthoringPort["grantWorldAuthor"] = (
+		...args
+	) => this.transaction(() => this.author.grantWorldAuthor(...args), true);
+	readonly worldAuthorGrant: WorldAuthoringPort["worldAuthorGrant"] = (
+		...args
+	) => this.transaction(() => this.author.worldAuthorGrant(...args), false);
+	readonly revokeWorldAuthor: WorldAuthoringPort["revokeWorldAuthor"] = (
+		...args
+	) => this.transaction(() => this.author.revokeWorldAuthor(...args), true);
+	readonly prepareWorldSuggestion: WorldAuthoringPort["prepareWorldSuggestion"] =
+		(...args) =>
+			this.transaction(() => this.suggestions.prepare(...args), true);
+	readonly worldSuggestion: WorldAuthoringPort["worldSuggestion"] = (...args) =>
+		this.transaction(() => this.suggestions.get(...args), false);
+	readonly dispatchWorldSuggestion: WorldAuthoringPort["dispatchWorldSuggestion"] =
+		(...args) =>
+			this.transaction(() => this.suggestions.dispatch(...args), true);
+	readonly finishWorldSuggestion: WorldAuthoringPort["finishWorldSuggestion"] =
+		(...args) => this.transaction(() => this.suggestions.finish(...args), true);
+	readonly failWorldSuggestion: WorldAuthoringPort["failWorldSuggestion"] = (
+		...args
+	) => this.transaction(() => this.suggestions.fail(...args), true);
+	readonly abandonWorldSuggestion: WorldAuthoringPort["abandonWorldSuggestion"] =
+		(...args) =>
+			this.transaction(() => this.suggestions.abandon(...args), true);
 	constructor(
 		path: string,
 		private readonly now: () => number = Date.now,
@@ -107,6 +159,7 @@ export class WorldStore {
 				? new DatabaseSync(path)
 				: openCheckedDatabase(path).db;
 		this.life = new LifePersistence(this.db, {
+			assertActors: (proposal) => this.author.assertActors(proposal),
 			snapshot: (worldId) => this.snapshot(worldId),
 			snapshotAt: (worldId, revision) =>
 				this.rebuild(this.snapshot(worldId).definition, revision),
@@ -121,13 +174,27 @@ export class WorldStore {
 			},
 			write: (proposal, next) => this.writeWorld(proposal, next),
 		});
+		this.author = new AuthoringPersistence(this.db, {
+			exists: (worldId) => !!this.row(worldId),
+			snapshot: (worldId) => this.snapshot(worldId),
+			snapshotAt: (worldId, revision) =>
+				this.rebuild(this.snapshot(worldId).definition, revision),
+			create: (definition) => this.createWorld(definition),
+			life: this.life,
+		});
+		this.suggestions = new AuthoringRequests(this.db, this.author);
 		let transactionStarted = false;
 		try {
 			this.db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000");
 			this.db.exec("BEGIN IMMEDIATE");
 			transactionStarted = true;
-			initializeWorldSchema(this.db, () => this.auditWorld());
+			initializeWorldSchema(
+				this.db,
+				() => this.auditWorld(),
+				() => this.audit(false),
+			);
 			this.audit();
+			this.suggestions.recover();
 			this.db.exec("COMMIT");
 			transactionStarted = false;
 			this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
@@ -139,28 +206,27 @@ export class WorldStore {
 	}
 	create(input: WorldDefinition): WorldSnapshot {
 		const definition = parseDefinition(input);
-		return this.transaction(() => {
-			const existing = this.row(definition.id);
-			if (existing) {
-				if (
-					!isDeepStrictEqual(JSON.parse(existing.definition_json), definition)
-				)
-					throw Error("World definition conflict; definitions are immutable");
-				return this.decode(existing);
-			}
-			const snapshot = initialSnapshot(definition);
-			this.db
-				.prepare(
-					"INSERT INTO worlds (id, definition_json, state_json) VALUES (?, ?, ?)",
-				)
-				.run(definition.id, JSON.stringify(definition), stateJson(snapshot));
-			this.db
-				.prepare(
-					"INSERT INTO world_definition_versions (world_id, version, definition_json) VALUES (?, ?, ?)",
-				)
-				.run(definition.id, definition.version, JSON.stringify(definition));
-			return snapshot;
-		});
+		return this.transaction(() => this.createWorld(definition));
+	}
+	private createWorld(definition: WorldDefinition): WorldSnapshot {
+		const existing = this.row(definition.id);
+		if (existing) {
+			if (!isDeepStrictEqual(JSON.parse(existing.definition_json), definition))
+				throw Error("World definition conflict; definitions are immutable");
+			return this.decode(existing);
+		}
+		const snapshot = initialSnapshot(definition);
+		this.db
+			.prepare(
+				"INSERT INTO worlds (id, definition_json, state_json) VALUES (?, ?, ?)",
+			)
+			.run(definition.id, JSON.stringify(definition), stateJson(snapshot));
+		this.db
+			.prepare(
+				"INSERT INTO world_definition_versions (world_id, version, definition_json) VALUES (?, ?, ?)",
+			)
+			.run(definition.id, definition.version, JSON.stringify(definition));
+		return snapshot;
 	}
 	snapshot(worldId: string): WorldSnapshot {
 		this.assertOpen();
@@ -184,6 +250,8 @@ export class WorldStore {
 	}
 	accept(input: WorldProposal): { event: WorldEvent; replayed: boolean } {
 		const proposal = parseProposal(input);
+		if (proposal.kind === "definition")
+			throw Error("WORLD_CONFIRMATION_REQUIRED");
 		return this.transaction(() => {
 			const previous = this.db
 				.prepare(
@@ -198,6 +266,7 @@ export class WorldStore {
 				return { event, replayed: true };
 			}
 			this.life.legacyWrite(proposal.worldId);
+			this.author.assertActors(proposal);
 			const next = transition(this.snapshot(proposal.worldId), proposal);
 			const event = this.writeWorld(proposal, next);
 			return { event, replayed: false };
@@ -222,9 +291,29 @@ export class WorldStore {
 				event.revision,
 				JSON.stringify(event),
 			);
-		this.db
-			.prepare("UPDATE worlds SET state_json = ? WHERE id = ?")
-			.run(stateJson(next), proposal.worldId);
+		if (proposal.kind === "definition") {
+			this.db
+				.prepare(
+					"INSERT INTO world_definition_versions (world_id, version, definition_json) VALUES (?, ?, ?)",
+				)
+				.run(
+					proposal.worldId,
+					next.definition.version,
+					JSON.stringify(next.definition),
+				);
+			this.db
+				.prepare(
+					"UPDATE worlds SET definition_json = ?, state_json = ? WHERE id = ?",
+				)
+				.run(
+					JSON.stringify(next.definition),
+					stateJson(next),
+					proposal.worldId,
+				);
+		} else
+			this.db
+				.prepare("UPDATE worlds SET state_json = ? WHERE id = ?")
+				.run(stateJson(next), proposal.worldId);
 		return event;
 	}
 	prepareLife(input: LifeDefinition): LifeState {
@@ -311,7 +400,7 @@ export class WorldStore {
 		}, false);
 	}
 	/** Re-open audits atomic state against accepted events, without replaying any external effect. */
-	private audit(): void {
+	private audit(includeAuthor = true): void {
 		this.auditWorld();
 		const definitions = this.db
 			.prepare(
@@ -325,8 +414,23 @@ export class WorldStore {
 		const worlds = this.db
 			.prepare(`SELECT ${WORLD_COLUMNS} FROM worlds`)
 			.all() as WorldRow[];
-		if (definitions.length !== worlds.length)
-			throw Error("Corrupt world definition registry");
+		const referenced = new Set<string>();
+		for (const world of worlds) {
+			const entries = definitions
+				.filter((row) => row.world_id === world.id)
+				.sort((a, b) => a.version - b.version);
+			if (!entries.length) throw Error("Missing initial world definition");
+			referenced.add(`${world.id}:${entries[0]?.version}`);
+			for (const raw of this.db
+				.prepare(
+					`SELECT ${EVENT_COLUMNS} FROM world_events WHERE world_id = ? ORDER BY revision`,
+				)
+				.iterate(world.id)) {
+				const event = readEvent(raw as EventRow);
+				if (event.kind === "definition")
+					referenced.add(`${world.id}:${event.definition.version}`);
+			}
+		}
 		for (const row of definitions) {
 			const definition = parseDefinition(JSON.parse(row.definition_json));
 			integer(row.version, "definition registry version", 1);
@@ -335,11 +439,15 @@ export class WorldStore {
 				!world ||
 				definition.id !== row.world_id ||
 				definition.version !== row.version ||
-				!isDeepStrictEqual(definition, JSON.parse(world.definition_json))
+				!referenced.has(`${row.world_id}:${row.version}`)
 			)
 				throw Error("Corrupt world definition registry");
 		}
 		this.life.audit();
+		if (includeAuthor) {
+			this.author.audit();
+			this.suggestions.audit();
+		}
 	}
 	private auditWorld(): void {
 		const worlds = this.db
@@ -358,7 +466,25 @@ export class WorldStore {
 		definition: WorldDefinition,
 		revision?: number,
 	): WorldSnapshot {
-		let rebuilt = initialSnapshot(definition);
+		const hasRegistry = !!this.db
+			.prepare(
+				"SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'world_definition_versions'",
+			)
+			.get();
+		const original = hasRegistry
+			? (this.db
+					.prepare(
+						"SELECT definition_json FROM world_definition_versions WHERE world_id = ? ORDER BY version LIMIT 1",
+					)
+					.get(definition.id) as { definition_json: string } | undefined)
+			: undefined;
+		if (hasRegistry && !original)
+			throw Error("Missing original world definition");
+		let rebuilt = initialSnapshot(
+			original
+				? parseDefinition(JSON.parse(original.definition_json))
+				: definition,
+		);
 		// Startup must inspect every stored row, including unsupported revisions.
 		// Only an explicit historical lookup is allowed to bound the scan.
 		const query = this.db.prepare(
@@ -370,9 +496,26 @@ export class WorldStore {
 				: query.iterate(definition.id, revision);
 		for (const row of rows) {
 			const event = readEvent(row as EventRow);
-			if (event.definitionVersion !== definition.version)
-				throw Error("Corrupt world definition version");
 			rebuilt = transition(rebuilt, eventProposal(event));
+			if (event.definitionVersion !== rebuilt.definition.version)
+				throw Error("Corrupt world definition version");
+			if (event.kind === "definition") {
+				const entry = this.db
+					.prepare(
+						"SELECT definition_json FROM world_definition_versions WHERE world_id = ? AND version = ?",
+					)
+					.get(definition.id, event.definitionVersion) as
+					| { definition_json: string }
+					| undefined;
+				if (
+					!entry ||
+					!isDeepStrictEqual(
+						parseDefinition(JSON.parse(entry.definition_json)),
+						event.definition,
+					)
+				)
+					throw Error("Corrupt world definition registry");
+			}
 			if (event.revision !== rebuilt.revision)
 				throw Error("Corrupt world event revision");
 		}
@@ -414,6 +557,7 @@ export class WorldStore {
 	}
 	close(): void {
 		if (this.closed) return;
+		this.transaction(() => this.suggestions.close());
 		this.db.close();
 		this.closed = true;
 	}

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
+import { migrateLifeDefinition } from "./life-definition.ts";
 import { canonicalLifeJson, lifeDigest } from "./life-json.ts";
 import { parseEffect } from "./life-record-validation.ts";
 import {
@@ -29,8 +30,13 @@ import {
 	parseWorldBinding,
 } from "./life-validation.ts";
 import { eventId, transition } from "./transition.ts";
-import type { WorldEvent, WorldProposal, WorldSnapshot } from "./types.ts";
-import { fields, id, integer } from "./validation.ts";
+import type {
+	WorldDefinitionProposal,
+	WorldEvent,
+	WorldProposal,
+	WorldSnapshot,
+} from "./types.ts";
+import { fields, id, integer, parseProposal } from "./validation.ts";
 
 type StateRow = {
 	world_id: string;
@@ -74,6 +80,7 @@ const INPUT_COLUMNS =
 const EFFECT_COLUMNS =
 	"world_id, intent_id, life_revision, payload_digest, intent_json, consumer_receipt_json";
 type WorldAccess = {
+	assertActors(proposal: WorldProposal): void;
 	snapshot(worldId: string): WorldSnapshot;
 	snapshotAt(worldId: string, revision: number): WorldSnapshot;
 	proposalAt(worldId: string, revision: number): WorldProposal;
@@ -84,9 +91,60 @@ type Envelope = {
 	commit: LifeCommit;
 	identity: IdentityPolicySnapshot;
 };
+type DefinitionEnvelope = {
+	version: 2;
+	kind: "definition";
+	world: WorldDefinitionProposal;
+	expectedLifeRevision: number;
+	previousDefinitionRevision: number;
+	definition: LifeDefinition;
+};
 
-function decodeEnvelope(row: CommitRow): Envelope {
+function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
 	const value: unknown = JSON.parse(row.envelope_json);
+	if (
+		value &&
+		typeof value === "object" &&
+		"version" in value &&
+		value.version === 2
+	) {
+		fields(value, [
+			"version",
+			"kind",
+			"world",
+			"expectedLifeRevision",
+			"previousDefinitionRevision",
+			"definition",
+		]);
+		const world = parseProposal(value.world);
+		integer(value.expectedLifeRevision, "previous LIFE revision");
+		integer(
+			value.previousDefinitionRevision,
+			"previous LIFE definition revision",
+			1,
+		);
+		if (value.kind !== "definition" || world.kind !== "definition")
+			throw Error("Invalid LIFE configuration envelope");
+		const envelope: DefinitionEnvelope = {
+			version: 2,
+			kind: "definition",
+			world,
+			expectedLifeRevision: value.expectedLifeRevision,
+			previousDefinitionRevision: value.previousDefinitionRevision,
+			definition: parseLifeDefinition(value.definition),
+		};
+		integer(row.life_revision, "LIFE commit revision", 1);
+		integer(row.world_revision, "LIFE world revision", 1);
+		if (
+			row.world_id !== world.worldId ||
+			row.idempotency_key !== world.idempotencyKey ||
+			row.life_revision !== envelope.expectedLifeRevision + 1 ||
+			row.world_revision !== world.expectedRevision + 1 ||
+			row.input_digest !== lifeDigest(envelope)
+		)
+			throw Error("Corrupt LIFE configuration provenance");
+		return envelope;
+	}
 	fields(value, ["version", "commit", "identity"]);
 	if (value.version !== 1) throw Error("Unsupported LIFE commit envelope");
 	const envelope: Envelope = {
@@ -94,6 +152,8 @@ function decodeEnvelope(row: CommitRow): Envelope {
 		commit: parseLifeCommit(value.commit),
 		identity: parseIdentityPolicy(value.identity),
 	};
+	if (envelope.commit.world.kind === "definition")
+		throw Error("Unsupported LIFE configuration in activity envelope");
 	integer(row.life_revision, "LIFE commit revision", 1);
 	integer(row.world_revision, "LIFE world revision", 1);
 	if (
@@ -107,13 +167,15 @@ function decodeEnvelope(row: CommitRow): Envelope {
 	return envelope;
 }
 function receipt(row: CommitRow, replayed: boolean): LifeReceipt {
+	const envelope = decodeEnvelope(row);
+	if (envelope.version !== 1) throw Error("WORLD_CONFIRMATION_REQUIRED");
 	return {
 		worldId: row.world_id,
 		eventId: eventId(row.world_id, row.world_revision),
 		worldRevision: row.world_revision,
 		lifeRevision: row.life_revision,
 		inputDigest: row.input_digest,
-		identity: decodeEnvelope(row).identity,
+		identity: envelope.identity,
 		replayed,
 	};
 }
@@ -164,6 +226,12 @@ export class LifePersistence {
 		const state = this.row(worldId);
 		if (!state) throw Error("LIFE is not prepared for this world");
 		return this.config(worldId, state.config_revision);
+	}
+	definitionAt(worldId: string, lifeRevision: number): LifeDefinition {
+		return this.config(
+			worldId,
+			this.snapshotAt(worldId, lifeRevision).definitionRevision,
+		);
 	}
 	private config(worldId: string, revision: number): LifeDefinition {
 		integer(revision, "LIFE configuration revision", 1);
@@ -265,6 +333,9 @@ export class LifePersistence {
 		throw Error("LIFE_COMMIT_REQUIRED");
 	}
 	preview(commit: LifeCommit, identity: IdentityPolicySnapshot): LifePreview {
+		if (commit.world.kind === "definition")
+			throw Error("WORLD_CONFIRMATION_REQUIRED");
+		this.world.assertActors(commit.world);
 		const previous = this.snapshot(commit.world.worldId);
 		const world = this.world.snapshot(commit.world.worldId);
 		const nextWorld = transition(world, commit.world);
@@ -304,6 +375,8 @@ export class LifePersistence {
 		}
 	}
 	accept(commit: LifeCommit, identity: IdentityPolicySnapshot): LifeReceipt {
+		if (commit.world.kind === "definition")
+			throw Error("WORLD_CONFIRMATION_REQUIRED");
 		const envelope: Envelope = { version: 1, commit, identity };
 		const inputDigest = lifeDigest(envelope);
 		const previous = this.db
@@ -372,6 +445,87 @@ export class LifePersistence {
 					canonicalLifeJson(intent),
 				);
 		return receipt(row, false);
+	}
+	previewDefinition(
+		proposal: WorldDefinitionProposal,
+		definition: LifeDefinition,
+	): LifeState {
+		const world = this.world.snapshot(proposal.worldId);
+		return migrateLifeDefinition(
+			this.snapshot(proposal.worldId),
+			world,
+			transition(world, proposal),
+			this.definition(proposal.worldId),
+			definition,
+		);
+	}
+	changeDefinition(
+		proposal: WorldDefinitionProposal,
+		definition: LifeDefinition,
+	): LifeState {
+		const old = this.definition(proposal.worldId),
+			next = this.previewDefinition(proposal, definition);
+		const envelope: DefinitionEnvelope = {
+			version: 2,
+			kind: "definition",
+			world: proposal,
+			expectedLifeRevision: next.revision - 1,
+			previousDefinitionRevision: old.revision,
+			definition,
+		};
+		this.db
+			.prepare(
+				"INSERT INTO life_config (world_id, revision, definition_json, digest) VALUES (?, ?, ?, ?)",
+			)
+			.run(
+				definition.worldId,
+				definition.revision,
+				canonicalLifeJson(definition),
+				lifeDigest(definition),
+			);
+		const accepted = this.world.write(
+			proposal,
+			transition(this.world.snapshot(proposal.worldId), proposal),
+		);
+		this.db
+			.prepare(
+				"INSERT INTO life_commits (world_id, life_revision, world_revision, idempotency_key, input_digest, envelope_json) VALUES (?, ?, ?, ?, ?, ?)",
+			)
+			.run(
+				proposal.worldId,
+				next.revision,
+				accepted.revision,
+				proposal.idempotencyKey,
+				lifeDigest(envelope),
+				canonicalLifeJson(envelope),
+			);
+		this.db
+			.prepare(
+				"UPDATE life_states SET life_revision = ?, world_revision = ?, config_revision = ?, state_json = ? WHERE world_id = ?",
+			)
+			.run(
+				next.revision,
+				accepted.revision,
+				definition.revision,
+				canonicalLifeJson(next),
+				proposal.worldId,
+			);
+		for (const row of this.db
+			.prepare("SELECT policy_json FROM world_bindings WHERE world_id = ?")
+			.all(proposal.worldId) as Array<{ policy_json: string }>) {
+			const previous = parseWorldBinding(JSON.parse(row.policy_json));
+			const binding = parseWorldBinding({
+				...previous,
+				revision: previous.revision + 1,
+				projectionPolicyRevision: definition.projection.revision,
+			});
+			this.db
+				.prepare(
+					"UPDATE world_bindings SET revision = ?, policy_json = ? WHERE agent_id = ?",
+				)
+				.run(binding.revision, canonicalLifeJson(binding), binding.agentId);
+		}
+		return next;
 	}
 	private assertInputs(
 		commit: LifeCommit,
@@ -506,8 +660,9 @@ export class LifePersistence {
 		return this.rebuild(row, revision).state;
 	}
 	private rebuild(row: StateRow, revision?: number) {
-		const definition = this.config(row.world_id, row.config_revision);
 		let state = parseLifeState(JSON.parse(row.baseline_json));
+		let definition = this.config(row.world_id, state.definitionRevision);
+		const configs = new Set([definition.revision]);
 		const baseline = initialLifeState(
 			this.world.snapshotAt(row.world_id, row.base_world_revision),
 			definition,
@@ -531,6 +686,36 @@ export class LifePersistence {
 				row.world_id,
 				entry.world_revision,
 			);
+			if (envelope.version === 2) {
+				if (
+					!isDeepStrictEqual(
+						envelope.world,
+						this.world.proposalAt(row.world_id, entry.world_revision),
+					) ||
+					envelope.expectedLifeRevision !== state.revision ||
+					envelope.previousDefinitionRevision !== definition.revision ||
+					!isDeepStrictEqual(
+						envelope.definition,
+						this.config(row.world_id, envelope.definition.revision),
+					)
+				)
+					throw Error("Corrupt paired LIFE configuration event");
+				state = migrateLifeDefinition(
+					state,
+					oldWorld,
+					nextWorld,
+					definition,
+					envelope.definition,
+				);
+				definition = envelope.definition;
+				configs.add(definition.revision);
+				if (
+					state.revision !== entry.life_revision ||
+					state.worldRevision !== entry.world_revision
+				)
+					throw Error("Corrupt LIFE configuration revision sequence");
+				continue;
+			}
 			if (
 				!isDeepStrictEqual(
 					envelope.commit.world,
@@ -565,7 +750,7 @@ export class LifePersistence {
 		}
 		if (revision !== undefined && state.revision !== revision)
 			throw Error("Missing LIFE revision");
-		return { state, effects, consumed };
+		return { state, effects, consumed, configs };
 	}
 	/** Audit all rows without a safe-integer upper filter, before any model or query consumer. */
 	audit(): void {
@@ -575,22 +760,22 @@ export class LifePersistence {
 		const configs = this.db
 			.prepare("SELECT world_id, revision FROM life_config")
 			.all() as Array<{ world_id: string; revision: number }>;
-		if (states.length !== configs.length)
-			throw Error("Orphan LIFE configuration");
 		for (const config of configs) {
 			this.config(config.world_id, config.revision);
-			if (
-				!states.some(
-					(row) =>
-						row.world_id === config.world_id &&
-						row.config_revision === config.revision,
-				)
-			)
+			if (!states.some((row) => row.world_id === config.world_id))
 				throw Error("Orphan LIFE configuration");
 		}
 		for (const row of states) {
 			const saved = this.snapshot(row.world_id);
 			const rebuilt = this.rebuild(row);
+			const registered = configs.filter(
+				(item) => item.world_id === row.world_id,
+			);
+			if (
+				registered.length !== rebuilt.configs.size ||
+				registered.some((item) => !rebuilt.configs.has(item.revision))
+			)
+				throw Error("Orphan LIFE configuration");
 			if (!isDeepStrictEqual(saved, rebuilt.state))
 				throw Error("Corrupt LIFE checkpoint");
 			const effects = this.effects(row.world_id);

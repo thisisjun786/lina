@@ -8,6 +8,11 @@ export {
 	createSessionContextPolicy,
 	parseSessionContextPolicy,
 } from "../../lina-runtime/src/context-policy.ts";
+export type {
+	WorldAuthorEngine,
+	WorldAuthorEngineOptions,
+} from "./author-capabilities.ts";
+export { createWorldAuthorEngine } from "./author-capabilities.ts";
 export { jsonSchemaOf, validateToolArguments } from "./host.ts";
 export type {
 	CodexSessionHeader,

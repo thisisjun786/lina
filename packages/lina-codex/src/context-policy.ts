@@ -139,11 +139,21 @@ export class CodexContextPolicy {
 	}
 	current(): SessionContextPolicy | undefined {
 		if (!this.policy) return;
+		let current: SessionContextPolicy;
 		try {
-			return parseSessionContextPolicy(this.options.currentContextPolicy?.());
+			current = parseSessionContextPolicy(
+				this.options.currentContextPolicy?.(),
+			);
 		} catch {
 			throw new Error("Current context policy is unavailable");
 		}
+		if (
+			(current.purpose === "world-author" ||
+				this.policy.purpose === "world-author") &&
+			current.purpose !== this.policy.purpose
+		)
+			throw Error("Author purpose cannot cross a native context boundary");
+		return current;
 	}
 	adopt(policy: SessionContextPolicy | undefined, epoch: number): void {
 		this.policy = policy;
@@ -214,10 +224,14 @@ export class CodexContextPolicy {
 		if (this.current()?.scopeDigest !== policy.scopeDigest)
 			throw new Error("Context scope changed before delivery");
 		if (
-			policy.purpose === "conversation" &&
-			materials.some((m) => m.kind === "disclosed-life")
+			materials.some(
+				(m) =>
+					(m.kind === "author-world" && policy.purpose !== "world-author") ||
+					(policy.purpose === "world-author" && m.kind !== "author-world") ||
+					(policy.purpose === "conversation" && m.kind === "disclosed-life"),
+			)
 		)
-			throw new Error("Context material is not allowed for conversation");
+			throw new Error(`Context material is not allowed for ${policy.purpose}`);
 		const receipt = parseSessionContextExposure({
 			type: "context_exposure",
 			version: 1,

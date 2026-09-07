@@ -1,4 +1,7 @@
-import type { WorldDefinition, WorldProposal } from "../src/world/index.ts";
+import type {
+	WorldActivityProposal,
+	WorldDefinition,
+} from "../src/world/index.ts";
 
 export function worldDefinition(id = "test-world"): WorldDefinition {
 	return {
@@ -35,8 +38,8 @@ export function worldDefinition(id = "test-world"): WorldDefinition {
 }
 
 export function worldActivity(
-	patch: Partial<WorldProposal> = {},
-): WorldProposal {
+	patch: Partial<WorldActivityProposal> = {},
+): WorldActivityProposal {
 	return {
 		worldId: "test-world",
 		idempotencyKey: "shared-event",

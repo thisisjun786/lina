@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexHost } from "../../lina-codex/src/host.ts";
 import {
+	type WorldActivityProposal,
 	type WorldContextLimits,
-	type WorldProposal,
 	WorldStore,
 } from "../../lina-core/src/world/index.ts";
 import type { ContextServices } from "../src/context/port.ts";
@@ -93,8 +93,8 @@ export function worldFixture() {
 }
 
 export function activity(
-	overrides: Partial<WorldProposal> = {},
-): WorldProposal {
+	overrides: Partial<WorldActivityProposal> = {},
+): WorldActivityProposal {
 	return {
 		worldId: "island",
 		idempotencyKey: "boat-arrival",

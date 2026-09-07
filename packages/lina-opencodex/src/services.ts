@@ -175,9 +175,19 @@ export function createOpenCodexModelControl(
 					28000
 			)
 				throw new OpenCodexError("invalid_input", "Invalid authoring input");
+			const settings = settingsGetter();
+			if (
+				input.expectedSettingsRevision !== undefined &&
+				(!Number.isSafeInteger(input.expectedSettingsRevision) ||
+					settings?.revision !== input.expectedSettingsRevision)
+			)
+				throw new OpenCodexError(
+					"invalid_input",
+					"Authoring model settings revision conflict",
+				);
 			const resolved = requireResolved(
 				runtime,
-				settingsGetter(),
+				settings,
 				"conversation",
 				input.agentId,
 			);

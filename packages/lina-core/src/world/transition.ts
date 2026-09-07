@@ -1,5 +1,6 @@
 import type { WorldDefinition, WorldProposal, WorldSnapshot } from "./types.ts";
 import { integer, knownAgents, withinCapacity } from "./validation.ts";
+import { applyWorldDefinition } from "./world-definition.ts";
 
 export function initialSnapshot(definition: WorldDefinition): WorldSnapshot {
 	const snapshot = structuredClone({
@@ -25,6 +26,8 @@ export function transition(
 		throw Error("World revision conflict");
 	if (proposal.simulationTime < current.simulationTime)
 		throw Error("World time cannot go backwards");
+	if (proposal.kind === "definition")
+		return applyWorldDefinition(current, proposal);
 	knownAgents(proposal.actorIds, current.definition.agents);
 	knownAgents(proposal.audience, current.definition.agents);
 	if (proposal.kind === "tick") {

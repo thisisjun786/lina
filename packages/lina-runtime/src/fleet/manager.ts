@@ -6,6 +6,7 @@ import type { AgentInput } from "../../../lina-core/src/agents/types.ts";
 import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.ts";
 import { DialogueStore } from "../../../lina-core/src/onboarding/dialogue-store.ts";
 import { OnboardingStore } from "../../../lina-core/src/onboarding/store.ts";
+import { WorldStore } from "../../../lina-core/src/world/store.ts";
 import { HonchoClient } from "../../../lina-memory/src/honcho/client.ts";
 import { validateHonchoConfig } from "../../../lina-memory/src/honcho/config.ts";
 import {
@@ -13,6 +14,11 @@ import {
 	HonchoRequestError,
 } from "../../../lina-memory/src/honcho/types.ts";
 import { boundWorkspace } from "../installation.ts";
+import type {
+	WorldAuthorFactoryOptions,
+	WorldAuthorSession,
+} from "../life/author-session.ts";
+import { WorldAuthoring } from "../life/authoring.ts";
 import type { ModelControl } from "../models/port.ts";
 import { ModelSettingsStore } from "../models/settings.ts";
 import { splitPolicy } from "../policy/response.ts";
@@ -21,6 +27,133 @@ import { readPresets } from "./presets.ts";
 export const validAgentId = (id: string) => /^[a-z][a-z0-9-]{0,47}$/.test(id);
 type App = Awaited<ReturnType<typeof startPersistentApp>>;
 export class AgentFleet {
+	private worldStore: WorldStore | undefined;
+	private worldAuthoring: WorldAuthoring | undefined;
+	private readonly authors = new Map<string, Promise<WorldAuthorSession>>();
+	private readonly ownedAuthors = new Map<string, WorldAuthorSession>();
+	private readonly readyAuthors = new Map<string, WorldAuthorSession>();
+	get life(): WorldAuthoring {
+		if (this.closed || this.closing) throw Error("Fleet is closed");
+		if (!this.options.ownsInstallation?.() && !this.ready.has("lina"))
+			throw Error("Installation ownership is required for world authoring");
+		if (!this.worldAuthoring) {
+			const root = checkedDirectory(join(this.root, "life"), true);
+			this.worldStore ??= new WorldStore(join(root, "world.sqlite"));
+			this.worldAuthoring = new WorldAuthoring({
+				store: this.worldStore,
+				authoring: (input, signal) => {
+					if (!this.options.modelControl?.authoring)
+						throw Error("Authoring model unavailable");
+					return this.options.modelControl.authoring(input, signal);
+				},
+				modelSettingsRevision: () => this.modelSettings.snapshot().revision,
+				agentExists: (id) => !!this.agents.get(id),
+			});
+		}
+		return this.worldAuthoring;
+	}
+	grantWorldAuthor(worldId: string, agentId: string) {
+		if (!validAgentId(agentId) || !this.agents.get(agentId))
+			throw Error("Unknown guide agent");
+		return this.life.store.grantWorldAuthor(worldId, agentId);
+	}
+	openWorldAuthor(grantId: string): Promise<WorldAuthorSession> {
+		const service = this.life;
+		const grant = service.store.worldAuthorGrant(grantId);
+		const scope = { grantId, grantRevision: grant.revision };
+		service.assertScope(scope);
+		const profile = this.agents.get(grant.agentId);
+		if (!profile) throw Error("Unknown guide agent");
+		const existing = this.authors.get(grantId);
+		if (existing) return existing;
+		if (!this.options.createWorldAuthor)
+			throw Error("Qualified world author engine unavailable");
+		const stateRoot = checkedDirectory(
+			join(this.root, "life", "author-sessions", grant.id),
+			true,
+		);
+		const pending = this.options
+			.createWorldAuthor({
+				stateRoot,
+				grant,
+				profile,
+				service,
+				modelSettings: () => this.modelSettings.snapshot(),
+			})
+			.then(async (author) => {
+				// The factory transferred ownership even if this open is no longer valid.
+				this.ownedAuthors.set(grantId, author);
+				try {
+					service.assertScope(scope);
+					if (this.closing || this.closed) throw Error("Fleet is closed");
+					this.readyAuthors.set(grantId, author);
+					return author;
+				} catch (error) {
+					try {
+						await author.stop();
+					} catch (cleanupError) {
+						throw new AggregateError(
+							[error, cleanupError],
+							"World author open and cleanup failed",
+						);
+					} finally {
+						this.forgetStoppedWorldAuthor(grantId, author);
+					}
+					throw error;
+				}
+			})
+			.catch((error) => {
+				if (!this.ownedAuthors.has(grantId)) this.authors.delete(grantId);
+				throw error;
+			});
+		this.authors.set(grantId, pending);
+		return pending;
+	}
+	private forgetStoppedWorldAuthor(
+		grantId: string,
+		author: WorldAuthorSession,
+	) {
+		if (author.stopped && this.ownedAuthors.get(grantId) === author) {
+			this.ownedAuthors.delete(grantId);
+			this.authors.delete(grantId);
+			this.readyAuthors.delete(grantId);
+		}
+	}
+	private async stopWorldAuthor(grantId: string): Promise<boolean> {
+		let author = this.ownedAuthors.get(grantId);
+		if (!author) {
+			try {
+				await this.authors.get(grantId);
+			} catch (error) {
+				// Report this opening's cleanup failure without silently retrying it.
+				// A later stop finds the retained owner directly, bypassing the failed open.
+				if (this.ownedAuthors.has(grantId)) throw error;
+				return false;
+			}
+			author = this.ownedAuthors.get(grantId);
+		}
+		if (!author) return false;
+		try {
+			await author.stop();
+			return true;
+		} finally {
+			this.forgetStoppedWorldAuthor(grantId, author);
+		}
+	}
+	openedWorldAuthor(grantId: string) {
+		const service = this.life;
+		const grant = service.store.worldAuthorGrant(grantId);
+		service.assertScope({ grantId, grantRevision: grant.revision });
+		return this.readyAuthors.get(grantId);
+	}
+	async revokeWorldAuthor(grantId: string, expectedRevision: number) {
+		const service = this.life;
+		// Persist revocation before signalling native work or releasing an approval.
+		const grant = service.store.revokeWorldAuthor(grantId, expectedRevision);
+		if (!(await this.stopWorldAuthor(grantId)))
+			await service.cancelGrant(grantId);
+		return grant;
+	}
 	readonly onboarding: OnboardingStore;
 	private readonly introductionShutdown = new AbortController();
 	private readonly introductionRequests = new Set<Promise<void>>();
@@ -120,6 +253,9 @@ export class AgentFleet {
 			approvalMode?: AppOptions["approvalMode"];
 			importSession?: string;
 			createApp?: (options: Omit<AppOptions, "engine">) => Promise<App>;
+			createWorldAuthor?: (
+				options: WorldAuthorFactoryOptions,
+			) => Promise<WorldAuthorSession>;
 			modelControl?: ModelControl;
 			ownsInstallation?: () => boolean;
 		},
@@ -275,6 +411,18 @@ export class AgentFleet {
 			[...this.memoryInit.values()].map((item) => item.promise),
 		);
 		const failures: unknown[] = [];
+		const authorIds = new Set([
+			...this.authors.keys(),
+			...this.ownedAuthors.keys(),
+		]);
+		for (const id of authorIds) {
+			try {
+				await this.stopWorldAuthor(id);
+			} catch (error) {
+				failures.push(error);
+			}
+		}
+		await this.worldAuthoring?.close();
 		for (const pending of this.apps.values()) {
 			let app: App;
 			try {
@@ -305,6 +453,7 @@ export class AgentFleet {
 		this.modelSettings.close();
 		this.onboarding.close();
 		this.dialogueStore?.close();
+		this.worldStore?.close();
 		this.closed = true;
 		this.closing = false;
 	}

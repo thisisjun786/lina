@@ -24,6 +24,8 @@ export interface ModelControl {
 	authoring?(
 		input: {
 			agentId: string;
+			/** Optional for existing onboarding callers; pins a captured author request. */
+			expectedSettingsRevision?: number;
 			systemPrompt: string;
 			messages: Array<{ role: "user" | "assistant"; content: string }>;
 		},

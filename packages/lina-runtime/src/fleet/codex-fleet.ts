@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
+import { createWorldAuthorEngine } from "../../../lina-codex/src/author-capabilities.ts";
 import { type CodexRpc, createCodexRpc } from "../../../lina-codex/src/rpc.ts";
 import { createCodexEngine } from "../../../lina-codex/src/session.ts";
 import { TaskManager } from "../../../lina-codex/src/tasks.ts";
@@ -15,6 +16,7 @@ import { OpenCodexHub } from "../../../lina-opencodex/src/index.ts";
 import { parseApprovalMode } from "../approval-policy.ts";
 import { codexAssistantPrompt } from "../codex-prompt.ts";
 import { parseMemoryBackend } from "../context/backend.ts";
+import { createWorldAuthorSession } from "../life/author-session.ts";
 import { resolveProfile } from "../models/selection.ts";
 import { type AppOptions, startPersistentApp } from "../session-app.ts";
 import { createCodexTaskTools } from "../tools/codex-tasks.ts";
@@ -39,6 +41,8 @@ export type CodexFleetOptions = {
 	homeDir?: string;
 	createTaskRpc?: () => Promise<CodexRpc>;
 	defaultTaskMode?: "owned" | "shared";
+	/** Trusted composition seam; never populated from HTTP or model arguments. */
+	createWorldAuthorEngine?: typeof createWorldAuthorEngine;
 	createApp?: (
 		options: Omit<AppOptions, "engine">,
 	) => ReturnType<typeof startPersistentApp>;
@@ -185,6 +189,46 @@ async function startUnlocked(
 			modelControl,
 			ownsInstallation,
 			...(honcho ? { honcho } : {}),
+			async createWorldAuthor(authorOptions) {
+				const currentSelection = () => {
+					authorOptions.service.assertScope({
+						grantId: authorOptions.grant.id,
+						grantRevision: authorOptions.grant.revision,
+					});
+					const connection = hub.isolatedHomeConnection();
+					if (!connection || !hub.status().connected)
+						throw Error("OpenCodex Hub is unavailable");
+					const selected = resolveProfile(
+						getSettings(),
+						"conversation",
+						authorOptions.grant.agentId,
+					);
+					if (!selected)
+						throw Error(
+							"Choose a guide-agent conversation model before opening the world author",
+						);
+					return { connection, selected };
+				};
+				const ready = await (
+					options.createWorldAuthorEngine ?? createWorldAuthorEngine
+				)({
+					nativeRoot: join(authorOptions.stateRoot, "native"),
+					grantId: authorOptions.grant.id,
+					agentId: authorOptions.grant.agentId,
+					worldId: authorOptions.grant.worldId,
+					...currentSelection(),
+					currentSelection,
+					models: hub.createModelControl(
+						getSettings,
+						authorOptions.grant.agentId,
+					),
+					providerEnv: hub.childEnvironment(),
+					...(env["LINA_CODEX_COMMAND"]
+						? { command: env["LINA_CODEX_COMMAND"] }
+						: {}),
+				});
+				return createWorldAuthorSession({ ...authorOptions, ...ready });
+			},
 			createApp:
 				options.createApp ??
 				(async (appOptions) => {

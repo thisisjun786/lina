@@ -96,6 +96,12 @@ not a durable autonomous everyday-life simulation.
   imported JS/Lua, network requests or persona rewrites. Report unsupported syntax
   rather than claiming whole-RisuAI compatibility.
 
+## Implemented Lina subset
+
+[020 world authoring](../life/020_world_authoring.md) now implements independently written typed pack/draft storage, version confirmation and a bounded lore/rule evaluator. Supported input is Lina's version-1 JSON protocol: exact token phrases with primary/secondary keys, always-active entries, probability, priority, placement, bounded recursion, typed expressions and proposed variable/event/fact/attitude/goal effects. Visibility is applied before key matching and random draws; conditions pass before recursive text can activate another entry; discarded records cannot apply effects. Persisted preview receipts are validated on creation and replay, including their actor/recipient/seed binding.
+
+This is not a Risu character-card, module, CBS or Lua loader. The import adapter preserves unsupported entries as non-executable reports and retains source IDs. It does not run imported regex, scripts, network calls, image jobs or persona writes. Actor simulation, internal publication and image delivery remain later implementation units. Core tests and independent review cover the implemented subset; native author-session isolation, teardown fixes and independent review are recorded in 020. Integrated acceptance is scoped to the tested source candidate. Synthetic model responses do not establish live authoring quality.
+
 ## Reuse and license record
 
 The upstream [LICENSE](https://github.com/kwaroran/Risuai/blob/c454df882aaf32e02a22da26d3718c8cadc97814/LICENSE)

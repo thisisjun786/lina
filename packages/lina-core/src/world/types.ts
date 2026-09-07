@@ -27,7 +27,7 @@ export interface WorldDefinition {
 	scenes: WorldScene[];
 	lore: WorldFact[];
 }
-export interface WorldProposal {
+export interface WorldActivityProposal {
 	worldId: string;
 	idempotencyKey: string;
 	expectedRevision: number;
@@ -40,13 +40,19 @@ export interface WorldProposal {
 	facts: WorldFact[];
 	moves: Array<{ agentId: string; sceneId: string | null }>;
 }
-export interface WorldEvent extends WorldProposal {
+export type WorldDefinitionProposal = Omit<WorldActivityProposal, "kind"> & {
+	kind: "definition";
+	definition: WorldDefinition;
+	relocations: Array<{ agentId: string; sceneId: string | null }>;
+};
+export type WorldProposal = WorldActivityProposal | WorldDefinitionProposal;
+export type WorldEvent = WorldProposal & {
 	id: string;
 	revision: number;
 	acceptedAt: string;
 	origin: "fictional";
 	definitionVersion: number;
-}
+};
 export interface WorldSnapshot {
 	definition: WorldDefinition;
 	revision: number;

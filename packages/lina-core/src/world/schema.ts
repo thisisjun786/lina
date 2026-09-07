@@ -1,8 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
+import { AUTHORING_SCHEMA, migrateWorldV2 } from "./authoring-schema.ts";
 import { LIFE_SCHEMA, migrateWorldV1 } from "./migrations.ts";
 
 const APPLICATION_ID = 0x4c575231;
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const SCHEMA = `
 CREATE TABLE worlds (id TEXT PRIMARY KEY, definition_json TEXT NOT NULL, state_json TEXT NOT NULL) STRICT;
 CREATE TABLE world_events (world_id TEXT NOT NULL REFERENCES worlds(id), idempotency_key TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), event_json TEXT NOT NULL, PRIMARY KEY(world_id, idempotency_key), UNIQUE(world_id, revision)) STRICT;
@@ -19,6 +20,7 @@ function shape(db: DatabaseSync): string {
 export function initializeWorldSchema(
 	db: DatabaseSync,
 	validateLegacy: () => void,
+	validateV2: () => void,
 ): void {
 	const application = db.prepare("PRAGMA application_id").get() as {
 		application_id: number;
@@ -40,21 +42,27 @@ export function initializeWorldSchema(
 		db.exec(`PRAGMA application_id = ${APPLICATION_ID}`);
 	} else if (
 		application.application_id !== APPLICATION_ID ||
-		(version.user_version !== 1 && version.user_version !== SCHEMA_VERSION)
+		![1, 2, SCHEMA_VERSION].includes(version.user_version)
 	) {
 		throw Error("Unsupported world database owner or schema version");
 	}
 	const expected = new DatabaseSync(":memory:");
 	try {
 		expected.exec(SCHEMA);
-		if (version.user_version === SCHEMA_VERSION) expected.exec(LIFE_SCHEMA);
+		if (version.user_version >= 2) expected.exec(LIFE_SCHEMA);
+		if (version.user_version === SCHEMA_VERSION)
+			expected.exec(AUTHORING_SCHEMA);
 		if (shape(expected) !== shape(db))
 			throw Error("Unsupported world database schema");
 	} finally {
 		expected.close();
 	}
-	if (version.user_version !== SCHEMA_VERSION) {
+	if (version.user_version < 2) {
 		validateLegacy();
 		migrateWorldV1(db);
+	}
+	if (version.user_version < 3) {
+		validateV2();
+		migrateWorldV2(db);
 	}
 }

@@ -7,6 +7,7 @@ import type { SdkSessionOptions } from "../../lina-runtime/src/host.ts";
 import type { ModelControl } from "../../lina-runtime/src/models/port.ts";
 import type { SessionPort } from "../../lina-runtime/src/sdk-port.ts";
 import type { SessionEngine } from "../../lina-runtime/src/session-engine.ts";
+import { worldAuthorCapability } from "./author-capabilities.ts";
 import {
 	CodexContextPolicy,
 	validateContextOptions,
@@ -145,6 +146,7 @@ export async function createCodexSession(
 ): Promise<CodexSession> {
 	const workspace = realpathSync(options.workspace);
 	validateContextOptions(options);
+	worldAuthorCapability(options);
 	const identity = initializeCodexSessionFile(
 		options.sessionFile,
 		workspace,
@@ -167,6 +169,7 @@ async function startSession(
 	rpc: CodexRpc,
 	ownsRpc: boolean,
 ): Promise<CodexSession> {
+	const author = worldAuthorCapability(options);
 	const host = new CodexHost(
 		workspace,
 		options.permissions ??
@@ -212,6 +215,7 @@ async function startSession(
 	// interruption and close settle them; elapsed wall time alone is not failure.
 	const runTimeoutMs = options.notificationTimeoutMs ?? null;
 	let closed = false;
+	let closing: Promise<void> | undefined;
 	let ended = false;
 	let boundThreadId: string | undefined;
 	let boundModelProvider: string | undefined;
@@ -228,6 +232,11 @@ async function startSession(
 	let tokens: number | null = null;
 	let contextWindow: number | null = options.services.contextWindow;
 	const skillNames: string[] = [];
+	let startupCatalog: unknown;
+	const assertContext = (): void => {
+		author?.assert();
+		contextPolicy.assertCurrent();
+	};
 
 	const emit = (event: unknown): void => {
 		for (const listener of listeners) listener(event);
@@ -300,7 +309,7 @@ async function startSession(
 
 	const settleHost = (signal?: AbortSignal): void => {
 		try {
-			contextPolicy.assertCurrent();
+			assertContext();
 		} catch {
 			return;
 		}
@@ -353,7 +362,7 @@ async function startSession(
 			)
 				return;
 			try {
-				contextPolicy.assertCurrent();
+				assertContext();
 			} catch {
 				failRun(new Error("Context scope changed; attention required"));
 				return;
@@ -469,7 +478,7 @@ async function startSession(
 					throw new Error("Native context is no longer active");
 				signal?.throwIfAborted();
 				try {
-					contextPolicy.assertCurrent();
+					assertContext();
 				} catch {
 					failRun(new Error("Context scope changed; attention required"));
 					throw new Error("Context scope changed; delivery blocked");
@@ -477,6 +486,22 @@ async function startSession(
 			};
 			if (contextPolicy.explicit) beforeSend(guard);
 			guard();
+			if (author) {
+				if (
+					method === "item/commandExecution/requestApproval" ||
+					method === "item/fileChange/requestApproval"
+				)
+					return { decision: "decline" };
+				if (method === "item/permissions/requestApproval")
+					return { permissions: {}, scope: "turn" };
+				if (
+					method !== "item/tool/call" ||
+					!isRecord(params) ||
+					typeof params["tool"] !== "string" ||
+					!author.allowsTool(params["tool"])
+				)
+					throw Error("Native request is outside the bound author capability");
+			}
 			if (!signal) throw new Error("No active Codex turn for native request");
 			if (method === "item/tool/call" && isRecord(params)) {
 				const tool = typeof params["tool"] === "string" ? params["tool"] : "";
@@ -577,6 +602,7 @@ async function startSession(
 		instructions: string,
 		signal?: AbortSignal,
 	): Promise<void> => {
+		author?.assert();
 		if (instructions === deliveredInstructions) return;
 		await rpc.request(
 			"thread/inject_items",
@@ -604,6 +630,10 @@ async function startSession(
 	const bindNative = async (
 		initial: ReturnType<typeof conversationTurn>,
 	): Promise<void> => {
+		author?.assert();
+		let authorResumed:
+			| { thread?: { id?: string; turns?: unknown; modelProvider?: string } }
+			| undefined;
 		let header = readCodexSessionHeader(identity.sessionFile, workspace);
 		const policy = contextPolicy.current();
 		const changed =
@@ -615,10 +645,46 @@ async function startSession(
 			header.nativeThreadId &&
 			(!boundThreadId || changed || contextPolicy.uncertain)
 		) {
-			const prior = await rpc.request<{ thread?: unknown }>("thread/read", {
+			let prior = await rpc.request<{ thread?: unknown }>("thread/read", {
 				threadId: header.nativeThreadId,
 				includeTurns: true,
 			});
+			if (
+				author &&
+				isRecord(prior.thread) &&
+				isRecord(prior.thread["status"]) &&
+				prior.thread["status"]["type"] === "notLoaded"
+			) {
+				// A newly owned process reports persisted threads as notLoaded. Only
+				// settled history may be loaded, then the ordinary idle/run audit runs.
+				if (
+					contextPolicy.uncertain ||
+					!Array.isArray(prior.thread["turns"]) ||
+					prior.thread["turns"].some(
+						(t) =>
+							!isRecord(t) ||
+							!["completed", "failed", "interrupted"].includes(
+								String(t["status"]),
+							),
+					)
+				)
+					throw Error("Old author native run is uncertain; attention required");
+				await author.preflight(rpc);
+				author.assert();
+				authorResumed = await rpc.request("thread/resume", {
+					threadId: header.nativeThreadId,
+					...author.threadParams,
+					cwd: workspace,
+					model: initial.model,
+					modelProvider: initial.modelProvider,
+					historyMode: "legacy",
+				});
+				author.verifyThread(authorResumed);
+				prior = await rpc.request("thread/read", {
+					threadId: header.nativeThreadId,
+					includeTurns: true,
+				});
+			}
 			contextPolicy.reconcile(prior.thread, header.nativeThreadId);
 			for (const entry of historyFromTurns(
 				isRecord(prior.thread) ? prior.thread["turns"] : undefined,
@@ -630,7 +696,7 @@ async function startSession(
 			header = prepareCodexContext(identity.sessionFile, workspace, policy);
 		}
 		if (boundThreadId && !changed) {
-			contextPolicy.assertCurrent();
+			assertContext();
 			return;
 		}
 		boundThreadId = undefined;
@@ -645,10 +711,27 @@ async function startSession(
 		contextPolicy.adopt(policy, epoch);
 
 		let threadId = header.nativeThreadId;
+		if (author) {
+			await author.preflight(rpc);
+			author.assert();
+		}
 		if (threadId) {
-			const resumed = await rpc.request<{
-				thread?: { id?: string; turns?: unknown; modelProvider?: string };
-			}>("thread/resume", { threadId });
+			const resumed =
+				authorResumed ??
+				(await rpc.request<{
+					thread?: { id?: string; turns?: unknown; modelProvider?: string };
+				}>("thread/resume", {
+					threadId,
+					...(author
+						? {
+								...author.threadParams,
+								cwd: workspace,
+								model: initial.model,
+								modelProvider: initial.modelProvider,
+							}
+						: {}),
+				}));
+			author?.verifyThread(resumed);
 			if (resumed.thread?.id !== threadId)
 				throw new Error("Codex resume did not return the bound native thread");
 			boundModelProvider =
@@ -673,8 +756,9 @@ async function startSession(
 				cwd: workspace,
 				model: initial.model,
 				modelProvider: initial.modelProvider,
-				approvalPolicy: "on-request",
-				sandbox: "workspace-write",
+				...(author
+					? author.threadParams
+					: { approvalPolicy: "on-request", sandbox: "workspace-write" }),
 				personality: "none",
 				historyMode: "legacy",
 				developerInstructions: bootstrap,
@@ -685,6 +769,7 @@ async function startSession(
 					inputSchema: jsonSchemaOf(tool.parameters),
 				})),
 			});
+			author?.verifyThread(started);
 			threadId = started.thread.id;
 			deliveredInstructions = bootstrap;
 			boundModelProvider = initial.modelProvider;
@@ -723,14 +808,14 @@ async function startSession(
 			typeof read.thread["modelProvider"] === "string"
 		)
 			boundModelProvider = read.thread["modelProvider"];
-		if (policy) contextPolicy.assertCurrent();
+		if (policy) assertContext();
 		if (header.nativeThreadId && options.bootstrapInstructions) {
 			const exposure = contextPolicy.plan({
 				kind: "bootstrap",
 				requestId: randomUUID(),
 			});
 			await injectInstructions(bootstrap);
-			contextPolicy.assertCurrent();
+			assertContext();
 			contextPolicy.delivered(exposure);
 		}
 	};
@@ -742,6 +827,7 @@ async function startSession(
 		});
 		rpc.notify("initialized");
 		const catalog = await rpc.request("model/list", {});
+		startupCatalog = catalog;
 
 		if (options.skillRoots?.length) {
 			await rpc.request("skills/extraRoots/set", {
@@ -754,8 +840,11 @@ async function startSession(
 		});
 		skillNames.push(...enabledSkills(listed));
 		options.register?.(host.asLinaHost(), options.services, host.permissions);
+		author?.bindTools([...host.tools.keys()]);
 
-		await bindNative(conversationTurn(options, catalog));
+		await bindNative(
+			author ? author.model(catalog) : conversationTurn(options, catalog),
+		);
 	} catch (error) {
 		unsubscribeRpc();
 		unsubscribeRequests();
@@ -792,12 +881,19 @@ async function startSession(
 				throw new Error("Codex session is closed or requires attention");
 			if (currentTurnId || pendingStart)
 				throw new Error("A native request is already active");
-			const catalog = await rpc.request("model/list", {});
-			await bindNative(conversationTurn(options, catalog));
-			contextPolicy.assertCurrent();
-			const selected = conversationTurn(options, catalog, boundModelProvider);
+			author?.assert();
+			const catalog = author
+				? startupCatalog
+				: await rpc.request("model/list", {});
+			await bindNative(
+				author ? author.model(catalog) : conversationTurn(options, catalog),
+			);
+			assertContext();
+			const selected = author
+				? author.model(catalog)
+				: conversationTurn(options, catalog, boundModelProvider);
 			const prepared = await host.beforeTurn(text, admission.signal);
-			contextPolicy.assertCurrent();
+			assertContext();
 			admission.signal.throwIfAborted();
 			const additionalContext: Record<string, { value: string; kind: string }> =
 				{};
@@ -829,7 +925,7 @@ async function startSession(
 						options.systemPrompt;
 					const exposure = contextPolicy.plan(source);
 					await injectInstructions(instructions, admission.signal);
-					contextPolicy.assertCurrent();
+					assertContext();
 
 					admission.signal.throwIfAborted();
 					contextPolicy.begin(boundThreadId as string, source.requestId);
@@ -846,7 +942,7 @@ async function startSession(
 						},
 					);
 					contextPolicy.delivered(exposure);
-					contextPolicy.assertCurrent();
+					assertContext();
 					const startedId =
 						typeof started.turn?.id === "string" ? started.turn.id : undefined;
 					if (startedId) noteTurn(startedId);
@@ -887,7 +983,7 @@ async function startSession(
 			undefined;
 		},
 		async compact() {
-			contextPolicy.assertCurrent();
+			assertContext();
 			const done = waitNotification(
 				(method, params) =>
 					method === "thread/compacted" ||
@@ -921,36 +1017,40 @@ async function startSession(
 			emit({ type: "entry_appended", entry });
 			return entry.id;
 		},
-		async close() {
-			if (closed) return;
+		close() {
+			if (closing) return closing;
 			closed = true;
 			ended = true;
-			try {
-				if (currentTurnId || pendingStart) {
-					try {
-						await abortActiveTurn(false);
-					} catch {
-						/* still finish close */
-					}
-				}
-			} finally {
-				clearRun();
-				failWaiters(new Error("Codex session is closed"));
-				unsubscribeRpc();
-				unsubscribeRequests();
-				listeners.clear();
+			// Publish one completion before hooks run, including a failed teardown.
+			closing = Promise.resolve().then(async () => {
 				try {
-					contextPolicy.assertCurrent();
-					await host.emit(
-						"agent_settled",
-						{ type: "agent_settled" },
-						new AbortController().signal,
-					);
-				} catch {
-					/* close still finishes if a settled hook fails */
+					if (currentTurnId || pendingStart) {
+						try {
+							await abortActiveTurn(false);
+						} catch {
+							/* still finish close */
+						}
+					}
+				} finally {
+					clearRun();
+					failWaiters(new Error("Codex session is closed"));
+					unsubscribeRpc();
+					unsubscribeRequests();
+					listeners.clear();
+					try {
+						assertContext();
+						await host.emit(
+							"agent_settled",
+							{ type: "agent_settled" },
+							new AbortController().signal,
+						);
+					} catch {
+						/* close still finishes if a settled hook fails */
+					}
+					if (ownsRpc) await rpc.close();
 				}
-				if (ownsRpc) await rpc.close();
-			}
+			});
+			return closing;
 		},
 	};
 	return session;

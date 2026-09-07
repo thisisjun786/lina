@@ -2,6 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import type { ContextServices } from "../../lina-runtime/src/context/port.ts";
 import type { ModelControl } from "../../lina-runtime/src/models/port.ts";
 import type { ModelSettings } from "../../lina-runtime/src/models/types.ts";
@@ -240,6 +241,7 @@ async function openSession(
 	options: {
 		models?: ModelControl;
 		register?: Parameters<typeof createCodexSession>[0]["register"];
+		rpc?: Parameters<typeof createCodexSession>[0]["rpc"];
 	} = {},
 ) {
 	const dir = tempDir();
@@ -253,12 +255,69 @@ async function openSession(
 		systemPrompt: "Lina",
 		services: services(),
 		models: options.models ?? models(),
-		rpcClient: fake,
+		...(options.rpc ? { rpc: options.rpc } : { rpcClient: fake }),
 		...(options.register ? { register: options.register } : {}),
 	});
 	cleanup.push(() => session.close());
 	return session;
 }
+
+test("concurrent session close calls wait for the same teardown completion", async () => {
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const session = await openSession(new FakeCodexRpc(), {
+		register: (host) => {
+			host.on("agent_settled", async () => {
+				entered.resolve();
+				await release.promise;
+			});
+		},
+	});
+	const first = session.close();
+	await entered.promise;
+	try {
+		expect(session.close()).toBe(first);
+	} finally {
+		release.resolve();
+		await first;
+	}
+	expect(session.close()).toBe(first);
+});
+
+test("repeated session close preserves an owned RPC teardown failure", async () => {
+	const input = new PassThrough();
+	const output = new PassThrough();
+	const fake = new FakeCodexRpc();
+	input.on("data", (chunk: Buffer) => {
+		for (const line of chunk.toString().trim().split("\n")) {
+			const frame = JSON.parse(line);
+			if (frame.id === undefined || !frame.method) continue;
+			void fake.request(frame.method, frame.params).then((result) => {
+				output.write(JSON.stringify({ id: frame.id, result }) + "\n");
+			});
+		}
+	});
+	const session = await openSession(fake, {
+		rpc: { stdio: { input, output } },
+	});
+	// This test owns the failing close and stream cleanup, not the normal helper.
+	cleanup.pop();
+	const failure = new Error("synthetic owned transport close failure");
+	const end = spyOn(input, "end").mockImplementation(() => {
+		throw failure;
+	});
+	try {
+		const first = session.close();
+		await expect(first).rejects.toBe(failure);
+		await expect(session.close()).rejects.toBe(failure);
+		expect(session.close()).toBe(first);
+		expect(end).toHaveBeenCalledTimes(1);
+	} finally {
+		end.mockRestore();
+		input.destroy();
+		output.destroy();
+	}
+});
 
 function turnStarted(threadId: string, turnId: string) {
 	return {
