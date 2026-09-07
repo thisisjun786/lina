@@ -1,3 +1,13 @@
+export type {
+	SessionContextExposure,
+	SessionContextMaterial,
+	SessionContextPolicy,
+	SessionContextSource,
+} from "../../lina-runtime/src/context-policy.ts";
+export {
+	createSessionContextPolicy,
+	parseSessionContextPolicy,
+} from "../../lina-runtime/src/context-policy.ts";
 export { jsonSchemaOf, validateToolArguments } from "./host.ts";
 export type {
 	CodexSessionHeader,
@@ -10,6 +20,7 @@ export {
 	initializeCodexSessionFile,
 	inspectCodexSessionFile,
 	markCodexThreadPending,
+	prepareCodexContext,
 	readCodexSessionHeader,
 } from "./identity.ts";
 export type {

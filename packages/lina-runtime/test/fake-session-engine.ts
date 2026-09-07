@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+	parseSessionContextPolicy,
+	type SessionContextPolicy,
+} from "../src/context-policy.ts";
 import type { SdkSessionOptions } from "../src/host.ts";
 import { type AppOptions, startPersistentApp } from "../src/session-app.ts";
 import type { SessionEngine } from "../src/session-engine.ts";
@@ -8,7 +12,12 @@ import { ControlledSession } from "./runtime-fixture.ts";
 export type { SdkSessionOptions } from "../src/host.ts";
 
 /** Test-owned identity format: no native SDK and never used by product startup. */
-export function initializeSessionFile(file: string, workspace: string) {
+export function initializeSessionFile(
+	file: string,
+	workspace: string,
+	policy?: SessionContextPolicy,
+) {
+	if (policy) parseSessionContextPolicy(policy);
 	const cwd = realpathSync(workspace);
 	if (!existsSync(file) || readFileSync(file, "utf8") === "") {
 		writeFileSync(
@@ -37,6 +46,7 @@ export function testSessionEngine(): SessionEngine {
 			const identity = initializeSessionFile(
 				options.sessionFile,
 				options.workspace,
+				options.contextPolicy,
 			);
 			return new ControlledSession(identity.sessionId, identity.sessionFile);
 		},

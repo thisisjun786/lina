@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { CodexHost } from "../../lina-codex/src/host.ts";
+import { AgentStore } from "../../lina-core/src/agents/store.ts";
 import type { SdkSessionOptions } from "../src/host.ts";
 import { type AppOptions, startPersistentApp } from "../src/session-app.ts";
 import { testSessionEngine } from "./fake-session-engine.ts";
@@ -43,60 +44,64 @@ function fixture() {
 	return { ...fixture, options, hosts };
 }
 
-test("persistent app world option binds actual bot ID and leaves shared store open through restart", async () => {
+test("installed world configuration is refused before unguarded collectors or session writes", async () => {
 	const { options, store, hosts } = fixture();
 	options.world = { store, worldId: "island", limits };
-	const app = await startPersistentApp(options);
-	cleanups.push(app.stop);
-	const first = hosts[0];
-	if (!first) throw Error("Session host was not created");
-	expect(first.tools.has("lina_world_read")).toBe(true);
-	const tool = first.tools.get("lina_world_read");
-	if (!tool) throw Error("World tool was not registered");
-	const read = await tool.execute(
-		"world-read",
-		{},
-		new AbortController().signal,
-	);
-	expect(JSON.stringify(read)).toContain("harbor bell");
-	expect(JSON.stringify(read)).not.toContain("blue key");
-	const before = await first.beforeTurn("hello", new AbortController().signal);
-	expect(before.systemPrompt ?? "").not.toContain("harbor bell");
-	await app.stop();
+	let initialized = false;
+	options.engine = {
+		...options.engine,
+		initialize: () => {
+			initialized = true;
+			throw Error("Unexpected engine initialization");
+		},
+	};
+	await expect(startPersistentApp(options)).rejects.toThrow("source-aware");
+	expect(initialized).toBe(false);
+	expect(hosts).toEqual([]);
+	expect(existsSync(options.stateRoot)).toBe(false);
+	// Rejecting activation does not take ownership of or mutate the caller's world.
 	store.accept(activity());
-	const resumed = await startPersistentApp(options);
-	cleanups.push(resumed.stop);
-	expect(resumed.binding.sessionId).toBe(app.binding.sessionId);
-	const next = hosts[1];
-	if (!next) throw Error("Resumed host was not created");
-	const turn = await next.beforeTurn(
-		"after restart",
-		new AbortController().signal,
-	);
-	const reference = await next.emit(
-		"context",
-		{ messages: [] },
-		new AbortController().signal,
-	);
-	expect(JSON.stringify(reference)).toContain("The boat is red");
-	expect(JSON.stringify(reference)).not.toContain("blue key");
-	expect(turn.systemPrompt).toBe(before.systemPrompt);
-	expect(resumed.runtime.store.history().messages).toEqual([]);
-	await resumed.stop();
 	expect(store.snapshot("island").revision).toBe(1);
 });
 
-test("persistent app delivers the world reference through Codex beforeTurn", async () => {
-	const { options, store, hosts } = fixture();
-	options.world = { store, worldId: "island", limits };
+test("ordinary bootstrap exposes current authored persona through the pure registered compiler", async () => {
+	const { options, root } = fixture();
+	const agents = new AgentStore(join(root, "agents.sqlite"));
+	cleanups.push(() => agents.close());
+	agents.create({
+		id: "rumi",
+		name: "Rumi",
+		role: "Navigator",
+		personality: "Curious",
+		voice: "Plain",
+		profile: "Exact authored identity for bootstrap",
+		appearance: "A green coat",
+		interests: ["stars"],
+		avatarId: null,
+		evolution: "manual",
+	});
+	options.persona = { agents, agentId: "rumi" };
+	let captured: SdkSessionOptions | undefined;
+	const create = options.createSession;
+	if (!create) throw Error("Missing fixture session factory");
+	options.createSession = async (input) => {
+		const session = await create(input);
+		captured = input;
+		return session;
+	};
 	const app = await startPersistentApp(options);
 	cleanups.push(app.stop);
-	const host = hosts[0];
-	if (!host) throw Error("Session host was not created");
-	const turn = await host.beforeTurn("hello", new AbortController().signal);
-	expect(turn.context).toContain("harbor bell");
-	expect(turn.context).not.toContain("blue key");
-	expect(turn.systemPrompt ?? "").not.toContain("harbor bell");
+	expect(typeof captured?.bootstrapInstructions).toBe("function");
+	expect(captured?.bootstrapInstructions?.()).toContain("Personality: Curious");
+	expect(captured?.bootstrapInstructions?.()).toContain("Navigator");
+	// Biography is reference data; bootstrap reuses the authored behavior compiler.
+	expect(captured?.bootstrapInstructions?.()).not.toContain(
+		"Exact authored identity for bootstrap",
+	);
+	agents.update("rumi", 1, { personality: "Careful authored curiosity" });
+	expect(captured?.bootstrapInstructions?.()).toContain(
+		"Careful authored curiosity",
+	);
 });
 
 test("world is absent unless explicitly enabled", async () => {

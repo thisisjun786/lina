@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { AgentStore } from "../../lina-core/src/agents/store.ts";
 import { WorldStore } from "../../lina-core/src/world/index.ts";
 import { installPersona } from "../src/persona/hooks.ts";
-import { installWorldContext } from "../src/world.ts";
 import {
 	activity,
+	installTestWorldContext as installWorldContext,
 	limits,
 	worldFixture,
 	worldServices,

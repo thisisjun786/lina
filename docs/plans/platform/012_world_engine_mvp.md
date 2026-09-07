@@ -1,8 +1,8 @@
 # Minimal world engine
 
-Date: 2026-09-07. Status: minimal implementation, opt-in runtime integration. No installed service or automatic simulation is enabled by this change.
+Date: 2026-09-07. Status: minimal ledger plus local LIFE state/context implementation. Installed LIFE integration is gated on the later source-aware memory/persona builder; no automatic simulation is enabled.
 
-Product-direction update: the [LIFE social-simulation contract](013_life_engine_research.md) calls for shared learned personality/relationships and separate event/secret disclosure. The optional raw-context hook documented here describes the current MVP code; it needs replacement by separate ordinary-conversation and LIFE projections before fulfilling that clarified contract.
+Product-direction update: the [LIFE social-simulation contract](013_life_engine_research.md) calls for shared learned personality/relationships and separate event/secret disclosure. [010](../life/010_state_and_views.md) now adds that storage/projection/transport boundary. The legacy `context()` described below remains available to trusted callers and explicit LIFE sessions for unprepared worlds; it is not the ordinary-conversation view.
 The [full implementation roadmap](../life/000_plan.md) retains this storage foundation and specifies its [migration and context-boundary changes](../life/010_state_and_views.md). SNS, images and periodic avatars are included in that plan, with activation policies still undecided.
 
 This implements the first world-state slice of [the selected direction](011_world_engine_risuai.md). [Daily-life SNS and profile images](010_agent_daily_life_ideas.md) remain follow-up work. The implementation is original Lina code using existing SQLite and host contracts; it includes no copied or ported RisuAI implementation, scripts, cards or assets. RisuAI import compatibility is not claimed.
@@ -14,7 +14,7 @@ This implements the first world-state slice of [the selected direction](011_worl
 | `lina-core/src/agents/store.ts` and `agents/persona.ts` | Own authored identity and persona dynamics. World storage receives agent IDs, never an editable persona store. |
 | `lina-memory/src/engine/store.ts` | Owns source-linked conversational observations. World facts stay in the world database; they are not inserted as user/self observations. |
 | `lina-codex/src/task-store.ts` | Owns actual Codex work. A fictional activity does not create a Codex task or prove that real work ran. |
-| `lina-runtime/src/session-app.ts` | Composes an optional, agent-bound world context with the existing persona and conversation. The application owns the shared world's lifecycle. |
+| `lina-runtime/src/session-app.ts` | Rejects installed world composition until source-aware memory/history/persona consumers exist. Direct adapter composition requires explicit trusted scope. The application owns the shared world's lifecycle. |
 
 The new owner is `lina-core/src/world/`, exposed at its `index.ts` boundary. `WorldStore` follows the repository's SQLite store pattern and reuses `openCheckedDatabase` for file safety. It has no engine SDK, persona, memory, image or UI dependency. The runtime depends on this core boundary and the existing Lina host contract. No package dependency or default startup path changes.
 
@@ -89,9 +89,11 @@ The agent projection contains only its current scene, visible facts and visible 
 
 Engineering ceilings reject excessive input instead of silently truncating accepted state: 32,768 characters per text field, 4,096 items per input list, and 1,000,000 UTF-8 bytes per definition/proposal/expanded checkpoint. These are storage bounds, not image-generation spend or a daily activity allowance. A full checkpoint requires a future retention/migration decision. Startup audits all accepted events; no large-history performance target is claimed.
 
-`AppOptions.world = { store, worldId, limits }` enables `installWorldContext` for the actual session bot ID. Every Codex `beforeTurn` emits `context`; that hook reads the current world and replaces old `lina-world-reference` blocks automatically. A read-only `lina_world_read` tool also reads fresh state and accepts no world/agent selectors. Invalid startup binding fails before session initialization; a failed later lookup/budget aborts context preparation, and tool failures use the existing failed-tool result. There is no stale-cache fallback.
+`installWorldContext` now requires explicit `purpose`, a trusted current context-policy reader, and LIFE view limits. Conversation also requires the current identity-policy reader; it selects only the agent's bound shared growth and registers no raw world tool. Explicit LIFE sessions select individual perception (or legacy scoped context for an unprepared world) and register selector-free `lina_world_read`. Every hook removes old `lina-world-reference` blocks before inserting a fresh permitted view. Invalid binding/policy or failed lookup aborts preparation. `AppOptions.world` itself now rejects before session initialization, until 050 supplies all guarded memory/history/persona consumers. See [012](../life/012_context_migration.md).
 
 The reference explicitly says it is fictional data, cannot change identity/permissions, and must not be stored as actual experience. CodexHost composes the world and existing memory/working-context hooks; both reach the adapter's `additionalContext`, outside authored instructions. Other hook semantics are preserved. No world option means no world hook or tool. The application closes its shared store after stopping consumers.
+
+Schema v2 retains old event JSON, audits every old row before migration and creates no LIFE baseline implicitly. `prepareLife` records an explicit baseline; `acceptLife` atomically commits paired world/LIFE state, identity provenance, consumed inputs and publication intents. After preparation, fresh legacy `accept` calls reject. Startup validates the complete paired history, input markers and intents without dispatching effects. The full API and real-file/process evidence are in [011](../life/011_state_contract.md); the MVP evidence below is historical.
 
 In confirmation mode, `lina_world_read` uses the same automatic-read approval policy as existing memory/context reads. Explicit native `ask`/`deny` still applies, and mutation tools still need approval. Execution-path tests check the registered tool through CodexHost and the actual execution/approval coordinator, not only its read implementation.
 

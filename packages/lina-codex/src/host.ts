@@ -145,10 +145,12 @@ export class CodexHost {
 		callId: string,
 		args: unknown,
 		signal: AbortSignal,
+		guard?: () => void,
 	): Promise<{
 		contentItems: Array<{ type: "inputText"; text: string }>;
 		success: boolean;
 	}> {
+		guard?.();
 		const tool = this.tools.get(name);
 		if (!tool) throw new Error(`Unknown Lina tool: ${name}`);
 		const params = validateToolArguments(jsonSchemaOf(tool.parameters), args);
@@ -167,11 +169,13 @@ export class CodexHost {
 			{ type: "tool_call", toolCallId: callId, toolName: name, input: params },
 			signal,
 		);
+		guard?.();
 		if (isRecord(decision) && decision["block"]) {
 			const reason =
 				typeof decision["reason"] === "string"
 					? decision["reason"]
 					: "Permission was not granted";
+			guard?.();
 			await this.emit(
 				"tool_execution_end",
 				{
@@ -199,6 +203,7 @@ export class CodexHost {
 					cwd: this.workspace,
 				} as never,
 			);
+			guard?.();
 			await this.emit(
 				"tool_execution_end",
 				{
@@ -215,7 +220,12 @@ export class CodexHost {
 				success: true,
 			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "Tool failed";
+			guard?.();
+			const message = guard
+				? "Tool failed"
+				: error instanceof Error
+					? error.message
+					: "Tool failed";
 			await this.emit(
 				"tool_execution_end",
 				{

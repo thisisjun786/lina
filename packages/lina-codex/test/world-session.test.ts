@@ -14,6 +14,7 @@ import {
 import {
 	activity,
 	limits,
+	worldAccess,
 	worldFixture,
 	worldServices,
 } from "../../lina-runtime/test/world-fixture.ts";
@@ -42,6 +43,8 @@ async function open(root: string, store: WorldStore, agentId: string) {
 	const workspace = join(root, agentId);
 	mkdirSync(workspace, { recursive: true });
 	const rpc = createCompanionRpc(workspace);
+	const access = worldAccess(agentId);
+	const policy = access.currentContextPolicy();
 	cleanup.push(() => rpc.close());
 	const session = await createCodexSession({
 		workspace,
@@ -49,6 +52,17 @@ async function open(root: string, store: WorldStore, agentId: string) {
 		agentDir: join(workspace, "auth"),
 		agentId,
 		systemPrompt: "A distinct base prompt",
+		contextPolicy: policy,
+		currentContextPolicy: access.currentContextPolicy,
+		contextExposure: (source) =>
+			source.kind === "bootstrap"
+				? []
+				: [
+						{
+							kind: "disclosed-life",
+							sourceId: `island:${agentId}:revision:${store.snapshot("island").revision}`,
+						},
+					],
 		services: worldServices(),
 		models,
 		rpc: rpc.options,
@@ -66,7 +80,13 @@ async function open(root: string, store: WorldStore, agentId: string) {
 					...event.messages,
 				],
 			}));
-			installWorldContext(host, { store, worldId: "island", agentId, limits });
+			installWorldContext(host, {
+				store,
+				worldId: "island",
+				agentId,
+				limits,
+				...access,
+			});
 		},
 	});
 	cleanup.push(() => session.close());
@@ -146,6 +166,7 @@ test("actual turn/start requests keep world references untrusted, agent-scoped a
 	const fixture = worldFixture();
 	cleanup.push(fixture.close);
 	const mina = await open(fixture.root, fixture.store, "mina");
+	expect(mina.session.nativeEpoch).toBe(1);
 	const rumi = await open(fixture.root, fixture.store, "rumi");
 	const initialMina = worldFromRequest(
 		await turn(mina, "Mina first request"),
@@ -230,6 +251,16 @@ test("reopening world and Codex session restores scoped reference on the same th
 	const resumed = await open(fixture.root, reopenedWorld, "rumi");
 	expect(resumed.session.sessionId).toBe(sessionId);
 	expect(resumed.session.threadId).toBe(threadId);
+	expect(resumed.session.nativeEpoch).toBe(1);
+	expect(
+		resumed.session
+			.contextLineage()
+			.some((receipt) =>
+				receipt.materials.some(
+					(material) => material.sourceId === "island:rumi:revision:0",
+				),
+			),
+	).toBe(true);
 	const methods = resumed.rpc.requests.map((request) => request.method);
 	expect(methods).toContain("thread/resume");
 	expect(methods).not.toContain("thread/start");

@@ -27,6 +27,7 @@ Record the exact source revision or file digest set, command, exit code and mate
 | Conversational setup | New/existing users, failed-text and same-ID recovery, confirmed-only sharing, one-time guidance, restart and actual developer input; [contract](plans/onboarding.md) |
 | Durable chat and memory | Ordered original entries, duplicate prevention, source-linked compaction, failure recovery, persistence and later scoped recall; [runtime](CODEX_RUNTIME.md) |
 | Codex tasks | Same native task ID for reads/input/stop/approval, correct owner/revision, reconnect without blind replay, owned/shared lifecycle separation |
+| LIFE state and context boundary | Paired world/social transaction; exact v1 migration and complete replay; real DB/process restart; private views; authored identity precedence; policy-bound serialized RPC and native epoch recovery; [first-unit evidence](plans/life/010_state_and_views.md) |
 | Local install and checkpoints | Out-of-checkout launcher, failed-upgrade pointer preservation, offline SQLite/WAL capture, private payloads, integrity checks and staged recovery; [contract](plans/installation.md) |
 | UI and attachments | Desktop/mobile keyboard and focus, drafts and scroll, actual file bytes, supported MIME/size errors, reconnect and browser console/network evidence |
 | Provider compatibility | Exact Codex/OpenCodex service versions, engine × API × model, capability, real input/output, persistence and restart where promised |
@@ -40,7 +41,7 @@ Live scripts under [scripts/qa](../scripts/qa) may require accounts, inference a
 
 Check local Markdown targets and section anchors in changed documents. Persona source records keep the original `sha256` and verify current bytes against `currentSha256`; use the [reproducible check](PUBLICATION.md#reproducible-documentation-checks) for persona, avatar and icon digests. Preserve image and license bytes. Review identifying strings in context: synthetic examples, loopback/default configuration and public third-party attribution differ from personal environment records.
 
-Automatic semantic history, selective live restore, external-service export, the Electron redesign, multi-message delivery, clipboard additions, desktop provisioning, image integration and the world/feed engine require their own implementation evidence. Planning documents are acceptance requirements, not evidence that these features ran.
+Automatic semantic history, selective live restore, external-service export, the Electron redesign, multi-message delivery, clipboard additions, desktop provisioning, image integration and the complete LIFE/feed engine require their own implementation evidence. LIFE storage/projection/transport tests do not establish safe installed memory collection, autonomous behavior, publication or image delivery. Planning documents are acceptance requirements, not evidence that these features ran.
 
 ## Upgrade checks
 

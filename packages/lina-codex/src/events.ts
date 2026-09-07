@@ -11,7 +11,18 @@ export type ProjectedEntry = {
 	content?: string;
 	display?: boolean;
 	details?: unknown;
-	codex?: { turnId: string; ordinal: number; nativeItemId: string };
+	contextPolicy?: Readonly<{
+		nativeEpoch: number;
+		scopeDigest: string;
+		sourcePolicyVersion: number;
+		exposureIds: readonly string[];
+	}>;
+	codex?: {
+		turnId: string;
+		ordinal: number;
+		nativeItemId: string;
+		nativeEpoch?: number;
+	};
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -40,7 +51,7 @@ function userText(content: unknown): string {
 export function projectCodexItem(
 	item: unknown,
 	completedAtMs?: unknown,
-	identity?: { turnId: string; ordinal: number },
+	identity?: { turnId: string; ordinal: number; nativeEpoch?: number },
 ): ProjectedEntry | undefined {
 	if (
 		!isRecord(item) ||
@@ -54,7 +65,9 @@ export function projectCodexItem(
 		: {};
 	const id = (role: string) =>
 		identity
-			? `codex:${identity.turnId}:${role}:${identity.ordinal}`
+			? identity.nativeEpoch
+				? `codex-v2:${identity.nativeEpoch}:${encodeURIComponent(identity.turnId)}:${role}:${identity.ordinal}`
+				: `codex:${identity.turnId}:${role}:${identity.ordinal}`
 			: (item["id"] as string);
 	if (item["type"] === "userMessage") {
 		return {
@@ -125,7 +138,7 @@ export function projectNotice(
 export function eventsFromNotification(
 	method: string,
 	params: unknown,
-	identity?: { turnId: string; ordinal: number },
+	identity?: { turnId: string; ordinal: number; nativeEpoch?: number },
 ): unknown[] {
 	if (!isRecord(params)) return [];
 	switch (method) {
@@ -205,7 +218,10 @@ export function eventsFromNotification(
 	}
 }
 
-export function historyFromTurns(turns: unknown): ProjectedEntry[] {
+export function historyFromTurns(
+	turns: unknown,
+	nativeEpoch = 0,
+): ProjectedEntry[] {
 	if (!Array.isArray(turns)) return [];
 	const entries: ProjectedEntry[] = [];
 	for (const turn of turns) {
@@ -227,7 +243,11 @@ export function historyFromTurns(turns: unknown): ProjectedEntry[] {
 				item,
 				at,
 				typeof turn["id"] === "string"
-					? { turnId: turn["id"], ordinal }
+					? {
+							turnId: turn["id"],
+							ordinal,
+							...(nativeEpoch ? { nativeEpoch } : {}),
+						}
 					: undefined,
 			);
 			if (entry) entries.push(entry);

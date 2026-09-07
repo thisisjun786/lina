@@ -10,8 +10,12 @@ import {
 import type { PermissionResolver } from "../src/approval-policy.ts";
 import { ExecutionCoordinator } from "../src/execution.ts";
 import { installExecutionHooks } from "../src/execution-hooks.ts";
-import { installWorldContext } from "../src/world.ts";
-import { activity, limits, worldFixture } from "./world-fixture.ts";
+import {
+	activity,
+	installTestWorldContext as installWorldContext,
+	limits,
+	worldFixture,
+} from "./world-fixture.ts";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {

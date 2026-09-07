@@ -15,9 +15,9 @@
 | 설치 구성과 전체 상태 버전관리 | [리팩터링 요구](plans/platform/008_refactor_preparation.md) | 홈·패키지 분리·로컬 체크포인트 구현, 자동 이력·선택 복원·외부 내보내기는 후속 |
 | ima2 이미지 엔진 | [생성·편집 연동](plans/platform/009_ima2_image_engine.md), [LIFE 통합 계약](plans/life/070_images_and_avatars.md) | 현재 dev에 이미지 어댑터 변경 포함. 이 월드 브랜치와의 통합 및 LIFE 게시 연결은 별도 검증 필요 |
 | 주기적 프로필 사진과 내부 SNS | [에이전트 일상](plans/platform/010_agent_daily_life_ideas.md), [LIFE 전체 구현 계획](plans/life/000_plan.md) | 이미지·게시물·사용자/에이전트 상호작용까지 단계별 계획 작성. 주기·예산·공유 대상 미정 |
-| 페르소나와 분리된 월드 엔진 | [RisuAI 참고와 월드 설계](plans/platform/011_world_engine_risuai.md), [최소 구현과 연결 계약](plans/platform/012_world_engine_mvp.md) | 장면·시간·사건·지식 범위와 선택적 런타임 연결 구현, 자동 일상·SNS·이미지는 후속 |
+| 페르소나와 분리된 월드 엔진 | [RisuAI 참고와 월드 설계](plans/platform/011_world_engine_risuai.md), [최소 구현과 연결 계약](plans/platform/012_world_engine_mvp.md) | 장면·사건·개인 경험·믿음·공유 성장 저장과 목적별 전달 구현. 설치본 활성화는 기억·페르소나 출처 조정 뒤 진행 |
 | LIFE 사회 시뮬레이션과 공유 성장 | [소스 분석과 구현 방향](plans/platform/013_life_engine_research.md) | 사용자 배경 설정·확률적 사건·업무 영향·개인 경험·비밀·관계가 목표. 성격·관계 성장은 일반 대화와 공유하고 사건 원문은 별도 공개 제어. NPC 엔진 소스·실행 실험 완료, 제품 통합은 후속 |
-| LIFE 전체 구현과 통합 검증 | [전체 계획](plans/life/000_plan.md), [첫 단위 저장 설계](plans/life/011_state_contract.md), [대화 이전 설계](plans/life/012_context_migration.md), [이미지·아바타 연결](plans/life/070_images_and_avatars.md) | 8단계 계획을 유지하며 첫 단위 P 상세화. 제품 코드 구현과 자동화 활성화는 별도 |
+| LIFE 전체 구현과 통합 검증 | [전체 계획](plans/life/000_plan.md), [첫 단위 저장 설계](plans/life/011_state_contract.md), [대화 이전 설계](plans/life/012_context_migration.md), [이미지·아바타 연결](plans/life/070_images_and_avatars.md) | 8단계 구현 진행 중. 첫 단위 로컬 검사 통과, 독립 리뷰 중. 자동 일상·업무 연결·SNS·이미지는 후속 단위에서 구현 |
 
 UI 공개 참고 자료는 [설계 참고 자료](plans/codex-ui/000_source_research.md), 세부 시각 기준은 [Codex 디자인 언어](plans/codex-ui/005_codex_design_language.md)에 있다. 개인 캡처와 운영 이력은 제품 소스에 포함하지 않는다.
 

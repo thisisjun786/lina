@@ -1,6 +1,6 @@
 # 012 — First-unit context transport and activation boundary
 
-Status: P detail for [010](010_state_and_views.md), 2026-09-07. Uses the scope/stop contract in [011](011_state_contract.md). This is a file-level implementation plan, not an activated runtime feature.
+Status: transport implemented locally for [010](010_state_and_views.md), 2026-09-07; independent review in progress. Uses the scope/stop contract in [011](011_state_contract.md). Installed runtime activation still requires 050.
 
 ## What the first unit closes
 
@@ -44,6 +44,7 @@ type SessionContextPolicy = Readonly<{
 // SdkSessionOptions additions:
 contextPolicy?: SessionContextPolicy;
 bootstrapInstructions?: () => string;
+currentContextPolicy?: () => SessionContextPolicy;
 
 // SessionEngine initialization signature:
 initialize(sessionFile: string, workspace: string,
@@ -65,7 +66,11 @@ Policy versions, bound identities and authorization revisions are constructed by
 
 `scopeDigest` is derived from all preceding authorization fields with a canonical encoder; a caller cannot supply an arbitrary digest to claim compatibility. It excludes ordinary world event/state revisions, so everyday progress does not rotate a context. Changing the bound agent/world, binding revision, disclosure permission revision or source-policy version invalidates reuse even when purpose/version are unchanged. Unbind carries a new binding revision and null world, not the previous world's rights. Permission revisions are monotonic and never restored by reverting a display setting.
 
+The runtime-owned `context-policy.ts` module supplies the strict policy codec/digest builder. `currentContextPolicy` is the trusted live reader used before turns and tool-result delivery; it is required when an explicit context policy is supplied and must initially agree with it. Neither a frozen options object nor a model argument can certify that permission is still current. Direct non-LIFE clients can omit both. The later production builder supplies this reader from its fenced world/persona owners. Tests supply a controlled reader and change it during an in-flight tool call to exercise revocation.
+
 Persist actual native-context exposure as metadata receipts owned by `session.ts` and the runtime journal: native epoch, request ID, material/source references, exposure kind (shared growth or disclosed LIFE body), scope digest and delivery outcome. Write the planned exposure before sending context/tool results; a crash with unknown delivery is conservatively treated as exposed. A failed dispatch may clear the pending exposure only with positive evidence that nothing reached the model. Compacting, omitting a reference on the next request, or changing a developer instruction does not erase this exposure history. Trusted exposure receipts are not model-authored source claims.
+
+Add an optional trusted `contextExposure` callback to `SdkSessionOptions`, with a source discriminator for a turn or named tool call and a typed list of material references/kinds. This callback reports the runtime's selected projection before transport delivery; it never copies authority from tool arguments or free-form result text. Explicit-policy construction requires this callback even when the result is an empty list. The adapter persists its receipts, restores them from metadata on reopen, and exposes read-only lineage for 050. Tool errors do not serialize these private material IDs into ordinary responses. The field path is runtime/fixture producer → SDK option → Codex transport receipt writer → strict metadata decoder → subsequent epoch/source-policy consumers; all are in the transport worker's assignment.
 
 ## Bootstrap versus per-turn instructions
 
@@ -128,7 +133,7 @@ Core `IdentityPolicySnapshot` tests prove supplied-policy validation. A live run
 | MODIFY runtime `test/session-app.test.ts`; configured LIFE without ready consumers | Explicit unavailable integration before capture/observer/archive activity; ordinary non-LIFE configuration remains usable |
 | 050 gate tests in `test/life-memory.test.ts` | Drive actual Companion/Honcho/archive paths and profile-edit races; fixture-only input tests cannot activate installed sharing |
 
-New test files above do not exist and are NOT RUN. Existing baseline command run during P: `bun test packages/lina-codex/test/session-lifecycle.test.ts packages/lina-runtime/test/companion-memory.test.ts packages/lina-runtime/test/context-capture.test.ts` exited 0 with **37 passing tests**, 120 assertions. All three file paths are direct arguments, so this checks those existing lifecycle/collection paths. It does not read the new design documents or prove new context-policy behavior.
+Implemented coverage is in Codex `context-policy.test.ts` (23 cases), runtime `context-policy`, `world-app`, `life-context` and the combined `life-session` tests, alongside existing adapter/session/approval regressions. The native lane passed 112 tests/580 assertions; the combined accepted-state/persona/serialized-RPC/reopen tests passed 2 tests/46 assertions. Both are included in the root pass in [010](010_state_and_views.md). Bootstrap observers remain unused, actual policy changes rotate native epochs, and pending acknowledgment/exposure metadata survives reopen without blind replacement. Current-policy and exposure callbacks are required whenever an explicit policy is supplied.
 
 Image test paths exist in the image-integrated `dev` source, not the current world checkout; do not report them run here. Existing world/approval/session 25-test evidence at the unchanged world revision is reusable. Future QA must record exact combined source revision, test activation and runtime/SQLite versions. A successful fake-RPC migration is not proof of the real server's behavior; live acceptance remains in 080 with an explicit provider budget.
 

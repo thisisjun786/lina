@@ -56,7 +56,6 @@ import type { SessionEngine } from "./session-engine.ts";
 import { createAttachmentTool } from "./tools/attachments.ts";
 import { createNotepadTools } from "./tools/notepad.ts";
 import { createStatusTool } from "./tools/status.ts";
-import { installWorldContext } from "./world.ts";
 
 export type AppOptions = {
 	engine: SessionEngine;
@@ -98,15 +97,14 @@ export async function startPersistentApp(options: AppOptions) {
 		throw Error(
 			"Legacy session import is no longer supported; existing data was not changed",
 		);
+	if (options.world)
+		throw Error(
+			"LIFE integration requires source-aware memory, history and persona services before activation",
+		);
 	const responsePolicy = new ResponsePolicy(options.systemPrompt);
 	const approvalMode = parseApprovalMode(options.approvalMode);
 	const workspace = realpathSync(options.workspace),
 		botId = options.botId ?? "lina";
-	options.world?.store.context(
-		options.world.worldId,
-		botId,
-		options.world.limits,
-	);
 	const lease = acquireSessionLease(options.stateRoot, botId, workspace);
 	let transcriptLease: { close(): void } | undefined;
 	let native: SessionPort | undefined,
@@ -253,6 +251,8 @@ export async function startPersistentApp(options: AppOptions) {
 			sessionFile,
 			agentDir: options.agentDir,
 			systemPrompt: responsePolicy.sections.common,
+			bootstrapInstructions: () =>
+				refreshPersona?.() ?? responsePolicy.sections.common,
 			agentId: botId,
 			...(options.modelSettings
 				? { modelSettings: options.modelSettings }
@@ -329,8 +329,6 @@ export async function startPersistentApp(options: AppOptions) {
 				installContextHooks(host, contextCoordinator, (query, signal) =>
 					memoryBridge.recall(query, signal),
 				);
-				if (options.world)
-					installWorldContext(host, { ...options.world, agentId: botId });
 				const tools = createContextTools(
 					storedContext,
 					journal,

@@ -6,13 +6,17 @@ Status: P detail for [010](010_state_and_views.md), 2026-09-07. Proposed behavio
 
 | Field | This unit |
 | --- | --- |
-| Method / trigger | Satisfy the first unit of the approved-direction roadmap following the user's request to proceed with P. |
+| Method / trigger | Satisfy-spec PABCD for the first implementation unit after the user authorized full execution and workspace repair. The roadmap cycle closed at `e192745`; its next direction was 010–012, with no scope reduction. |
 | Goal | One accepted state can contain an event, personal knowledge and learned attitudes; each reader gets its permitted view; replay/restart preserves the same result. |
 | Non-goals | Authoring UI, installed-world activation, autonomous/model calls, social-engine import, work ingestion, SNS/image dispatch and live ordinary-memory migration. Those remain in their owning later units. |
 | Verifier | Named red-test targets and activation matrix below; actual baseline commands in the evidence section only prove existing behavior. |
-| Stop / artifact | P ends with 010–012 concrete contracts and source/verification mapping. B is a later phase; record here and in the roadmap, not a parallel plan tree. |
+| Stop / artifact | Close this cycle after the 010–012 acceptance matrix passes and the implementation is independently reviewed. Record here, in 010 and the task evidence folder; proceed to 020 under the same goal. |
 | Outcomes | Ready for A if the schema, read boundaries and dependencies are concrete; otherwise record the specific unresolved contract. No claim that future tests pass. |
 | Escalation | Product setting/cadence/spend/publication decisions remain unset. An incompatible source/schema or need to expand live activation changes the plan before implementation. Any worker assignment names a disjoint write set; two failed independent attempts return the slice to the owner. |
+
+Execution uses the existing isolated `/home/jun/code/lina-world-engine` checkout on `codex/life-engine`, temporary SQLite/session fixtures and local fakes. No installed data, external SNS writes or provider calls are authorized. The user supplied no token or wall-clock budget; completion is criteria-driven. No runtime cadence or spending default is introduced.
+
+The implementation is split into disjoint assignments within this unit: a core worker owns `life-types.ts`, `life-validation.ts`, `life-transition.ts`, `views.ts` and their pure/fixture tests; a transport worker owns Codex identity/session/event conversion and its tests, plus runtime `host.ts`, `session-engine.ts` and the new `context-policy.ts` contract. The main owner implements schema/migration/store/public exports and runtime world/session/persona integration, with migration and application tests. Workers do not commit, change workflow state, edit another lane or activate installed LIFE. The main owner reviews each diff and integrates its contract before verification.
 
 The implementation checkout currently supplies the world MVP at `24f776b8fe9ce29351aa67292e5a2692f9b1ed2e`. Remote `dev` was read as `cd74c89ea642735a9eeee9f63f88651b900a7bef`, which includes the image-owner change. The world MVP is not yet in that base. Preserve the full roadmap; this document resolves the first unit's schema and behavior, not a new reduced product goal.
 
@@ -183,7 +187,7 @@ Creation → storage → restoration → consumers is complete for every added g
 
 ## Red tests and observable acceptance
 
-Create these files in B; they are **not existing runnable tests**: `packages/lina-core/test/life-state.test.ts`, `life-migration.test.ts`, `life-views.test.ts`, `life-fixture.ts`. Existing world recovery helpers can be reused.
+Implemented test files: `packages/lina-core/test/life-state.test.ts`, `life-store.test.ts`, `life-migration.test.ts`, `life-views.test.ts`, with shared synthetic fixtures in `life-fixture.ts`. Behavior was first exercised with failing tests before implementation.
 
 | Trigger in actual test | Required observation |
 | --- | --- |
@@ -200,7 +204,7 @@ Create these files in B; they are **not existing runnable tests**: `packages/lin
 | Allowed growth versus manual/locked identity-policy snapshot | Allowed change has cause and visible projection; forbidden change rejects without mutating authored persona |
 | Unknown JSON/engine version, malformed or overflowing numeric value | Reject before acceptance/restoration; no silent fallback/reset |
 
-Baseline evidence reused from the unchanged world source: existing four-file world/core/approval/session command passed 25 tests at the same MVP revision. It observes the foundation only. New verifier target paths above are unimplemented and NOT RUN; B must first show failing tests, then passing tests.
+Implementation evidence: all new core suites are included in the 1,414-test root pass recorded in [010](010_state_and_views.md). The first store API run failed 19 cases before implementation; migration failed 3 cases before the schema upgrade; later historical direct/observed witness probes failed 2 cases before the persistence origin check. Real-file reopen, SQL failure injection, SIGKILL after acceptance and two competing writer processes now pass. The separate `life-persistence.ts` helper shares WorldStore's database transaction and owns the paired replay/audit; it is not a public raw-database API. Its row codecs and replay stay together so persisted invariants use the same normalized envelope.
 
 P document check: extracted the SQL block above and the actual v1 `SCHEMA` from `world/schema.ts` into an isolated in-memory SQLite 3.46.1 database. SQL creation exited 0, created all 9 expected tables, and `PRAGMA foreign_key_check` returned no rows. The check directly reads this document and the old schema file. It validates DDL syntax/creation only; data migration, replay, TypeScript parsing and canonicalization still require the future tests.
 

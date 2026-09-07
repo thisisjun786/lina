@@ -70,3 +70,28 @@ test("rehydrated item aliases and repeated identical messages keep stable distin
 		})?.id,
 	).toBe(restored[0]?.id);
 });
+
+test("new native epochs cannot collide and use the same live and history identity", () => {
+	const item = { id: "native-item", type: "agentMessage", text: "same" };
+	const turns = [{ id: "turn", items: [item] }];
+	expect(historyFromTurns(turns)[0]?.id).toBe("codex:turn:assistant:0");
+	const one = historyFromTurns(turns, 1)[0];
+	const two = historyFromTurns(turns, 2)[0];
+	expect(one?.id).toBe("codex-v2:1:turn:assistant:0");
+	expect(two?.id).toBe("codex-v2:2:turn:assistant:0");
+	expect(
+		projectCodexItem(item, 0, { turnId: "turn", ordinal: 0, nativeEpoch: 2 })
+			?.id,
+	).toBe(two?.id);
+});
+
+test("epoch IDs cannot alias a legacy turn whose ID resembles the new version marker", () => {
+	const item = { id: "item", type: "agentMessage", text: "same" };
+	const legacy = projectCodexItem(item, 0, { turnId: "v2:1:turn", ordinal: 0 });
+	const current = projectCodexItem(item, 0, {
+		turnId: "turn",
+		ordinal: 0,
+		nativeEpoch: 1,
+	});
+	expect(current?.id).not.toBe(legacy?.id);
+});

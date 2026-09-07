@@ -1,3 +1,16 @@
+import type {
+	SessionContextMaterial,
+	SessionContextPolicy,
+	SessionContextSource,
+} from "./context-policy.ts";
+
+export type {
+	SessionContextExposure,
+	SessionContextMaterial,
+	SessionContextPolicy,
+	SessionContextSource,
+} from "./context-policy.ts";
+
 import type { Static, TSchema } from "typebox";
 import type { PermissionResolver } from "./approval-policy.ts";
 import type { StreamEvent } from "./broadcast/activity.ts";
@@ -55,6 +68,12 @@ export interface LinaHost {
 
 /** Shared session construction input, independent of any engine SDK. */
 export type SdkSessionOptions = {
+	readonly contextPolicy?: SessionContextPolicy;
+	readonly bootstrapInstructions?: () => string;
+	readonly currentContextPolicy?: () => SessionContextPolicy;
+	readonly contextExposure?: (
+		source: SessionContextSource,
+	) => readonly SessionContextMaterial[];
 	readonly agentId?: string;
 	readonly modelSettings?: () => ModelSettings;
 	readonly workspace: string;

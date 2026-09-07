@@ -8,12 +8,48 @@ import {
 	WorldStore,
 } from "../../lina-core/src/world/index.ts";
 import type { ContextServices } from "../src/context/port.ts";
+import { createSessionContextPolicy } from "../src/context-policy.ts";
+import type { LinaHost } from "../src/host.ts";
+import { installWorldContext } from "../src/world.ts";
 
 export const limits: WorldContextLimits = {
 	maxChars: 12000,
 	maxFacts: 20,
 	maxEvents: 10,
 };
+
+/** Synthetic trusted LIFE scope; production composition belongs to its runtime owner. */
+export function worldAccess(agentId: string, worldId = "island") {
+	const policy = createSessionContextPolicy({
+		version: 1,
+		purpose: "life",
+		agentId,
+		worldId,
+		bindingRevision: 0,
+		disclosureRevision: 1,
+		sourcePolicyVersion: 1,
+	});
+	return {
+		purpose: "life" as const,
+		currentContextPolicy: () => policy,
+		lifeLimits: { maxChars: 12000, maxRecords: 30 },
+	};
+}
+
+export function installTestWorldContext(
+	host: LinaHost,
+	options: {
+		store: WorldStore;
+		worldId: string;
+		agentId: string;
+		limits: WorldContextLimits;
+	},
+): void {
+	installWorldContext(host, {
+		...worldAccess(options.agentId, options.worldId),
+		...options,
+	});
+}
 
 export function worldFixture() {
 	const root = mkdtempSync(join(tmpdir(), "lina-world-context-"));

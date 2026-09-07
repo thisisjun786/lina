@@ -1,4 +1,5 @@
 /** SDK-independent execution port. Native event payloads are decoded at the seam. */
+import type { SessionContextExposure } from "./context-policy.ts";
 import type { DevelopmentNoticeMarker } from "./development/notices.ts";
 import type { ModelControl } from "./models/port.ts";
 export type PromptAdmission = {
@@ -11,6 +12,8 @@ export interface SessionPort {
 	readonly models?: ModelControl;
 	readonly sessionId: string;
 	readonly sessionFile: string;
+	/** Trusted native exposure receipts, available on policy-aware adapters. */
+	contextLineage?(): readonly SessionContextExposure[];
 	history(): readonly unknown[];
 	hasActiveRun(): boolean;
 	subscribe(listener: (event: unknown) => void): () => void;

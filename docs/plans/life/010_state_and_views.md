@@ -1,6 +1,6 @@
 # 010 — Accepted state, knowledge and shared growth
 
-Status: proposed implementation, not implemented. Parent: [whole plan](000_plan.md). Depends on the existing world ledger. Scope: one durable authority and explicit consumers; excludes scheduling and engine adoption.
+Status: implemented locally; independent review in progress. Parent: [whole plan](000_plan.md). Depends on the existing world ledger. Scope: one durable authority and explicit consumers; excludes scheduling and engine adoption. Installed activation remains gated on 050.
 
 P concretization: [011 storage/projection contract](011_state_contract.md) and [012 context migration/activation contract](012_context_migration.md) own the exact first-unit design. They keep original world event JSON stable, specify the LIFE sidecar transaction and defer installed activation until the later memory/identity-owner gates exist. This preserves all requirements in 020–080.
 
@@ -24,7 +24,7 @@ New records originate in typed builders/validated proposals, serialize into vers
 
 ```ts
 // Before: world?: { store, worldId, limits } injects full scoped reference.
-// After (proposed): caller binds identity and purpose, never a model argument.
+// Conceptual access boundary: caller binds identity and purpose, never a model argument.
 type WorldAccess =
   | { purpose: "conversation"; binding: WorldBinding; disclosure: DisclosurePolicy }
   | { purpose: "life"; binding: WorldBinding };
@@ -43,7 +43,7 @@ interface LifeCommit {
 }
 ```
 
-The proposed symbol bodies are defined in `life-types.ts`, with parsing in `validation.ts`. `SharedPersonaView` contains world/agent/revision and allowlisted adaptive traits/habits plus the speaker's permitted attitudes. It excludes event text, secret text, private cause IDs, free-form summaries, other agents' attitudes and omniscient relation scores. The internal projection can retain audit references separately.
+The implemented symbol bodies are defined in `life-types.ts`, with parsing in `life-validation.ts` and its focused record/state/JSON helpers. Runtime `WorldContextOptions` requires a current trusted context-policy reader and, for conversation, an identity-policy reader. `SharedPersonaView` contains world/agent/revision and allowlisted adaptive traits/habits plus the speaker's permitted attitudes. It excludes event text, secret text, private cause IDs, free-form summaries, other agents' attitudes and omniscient relation scores. The internal projection can retain audit references separately.
 
 `AgentExperience` has experiencer, cause event, channel (direct/observed/told/inferred), claim references and simulation time. `KnowledgeClaim` distinguishes world fact from individual belief, with source, confidence category and correction/supersession links. Secret knowers, permission to disclose and publication audience are separate relations. Knowing something does not grant permission to publish it. Scene narration itself can be private; filtering facts alone is insufficient.
 
@@ -74,7 +74,9 @@ The reuse key also includes trusted agent/world binding and disclosure-policy re
 | Existing raw world hook from resumed context | Old `lina-world-reference` block removed before a normal request, including thread resume |
 | Native thread has prior raw world context that cannot be removed | Purpose/policy cutover creates one clean thread; original history retained for authorized viewing; no old private summary forwarded on restart |
 
-Planned tests above do not exist yet. Add red tests first. Validate actual `turn/start.additionalContext` and instructions, not only helper strings. Inspect all uses of `WorldProposal.kind` (`activity`, `tick`), `AppOptions.world`, and every view consumer before adding variants. Future purpose values fail closed on decode.
+The acceptance tests now exist in core `life-state`, `life-store`, `life-views`, `life-migration`; runtime `life-context`, `life-session`, `world-app`, `world-approval`; and Codex `context-policy`/existing regression suites. `life-session` composes accepted SQLite state, the actual persona compiler and actual serialized `turn/start` requests, then reopens the same Lina/native session. Historical direct/observed experience also checks the original event's actors/audience and time. No activity/tick variants were added. Future purpose values fail closed on decode.
+
+First-unit source verification on 2026-09-07: root `bun test` passed 1,414 tests (6,846 assertions); root/browser typecheck, lint and `ci:build` passed. Lint retains existing nonblocking warnings/information. All data and native transports were synthetic and isolated. This is not evidence of live model behavior, installed memory safety, SNS, UI or image generation. [012](012_context_migration.md) preserves those later gates.
 
 ## Controls and residual limits
 

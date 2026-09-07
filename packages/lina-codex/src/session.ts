@@ -2,10 +2,15 @@ import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import type { PermissionResolver } from "../../lina-runtime/src/approval-policy.ts";
 import type { ContextServices } from "../../lina-runtime/src/context/port.ts";
+import type { SessionContextExposure } from "../../lina-runtime/src/context-policy.ts";
 import type { SdkSessionOptions } from "../../lina-runtime/src/host.ts";
 import type { ModelControl } from "../../lina-runtime/src/models/port.ts";
 import type { SessionPort } from "../../lina-runtime/src/sdk-port.ts";
 import type { SessionEngine } from "../../lina-runtime/src/session-engine.ts";
+import {
+	CodexContextPolicy,
+	validateContextOptions,
+} from "./context-policy.ts";
 import {
 	eventsFromNotification,
 	historyFromTurns,
@@ -21,6 +26,7 @@ import {
 	inspectCodexSessionFile,
 	loadCodexJournal,
 	markCodexThreadPending,
+	prepareCodexContext,
 	readCodexSessionHeader,
 } from "./identity.ts";
 import { conversationTurn } from "./model.ts";
@@ -52,6 +58,8 @@ export type CodexEngineDefaults = {
 export type CodexSession = SessionPort & {
 	readonly threadId: string;
 	readonly skillNames: readonly string[];
+	readonly nativeEpoch: number;
+	contextLineage(): readonly SessionContextExposure[];
 };
 
 type Waiter = {
@@ -136,7 +144,12 @@ export async function createCodexSession(
 	options: CodexSessionOptions,
 ): Promise<CodexSession> {
 	const workspace = realpathSync(options.workspace);
-	const identity = initializeCodexSessionFile(options.sessionFile, workspace);
+	validateContextOptions(options);
+	const identity = initializeCodexSessionFile(
+		options.sessionFile,
+		workspace,
+		options.contextPolicy,
+	);
 	const rpc = options.rpcClient ?? (await createCodexRpc(options.rpc));
 	const ownsRpc = !options.rpcClient;
 	try {
@@ -161,6 +174,11 @@ async function startSession(
 				action: name === "bash" || name === "edit" ? "ask" : "allow",
 			})),
 	);
+	const contextPolicy = new CodexContextPolicy(
+		options,
+		identity.sessionFile,
+		workspace,
+	);
 	const listeners = new Set<(event: unknown) => void>();
 	const history: ProjectedEntry[] = [...journalEntries(identity.sessionFile)];
 	const nativeItems = new Map<string, number>();
@@ -168,10 +186,10 @@ async function startSession(
 	const remember = (entry: ProjectedEntry) => {
 		if (entry.codex && entry.message) {
 			nativeItems.set(
-				`${entry.codex.turnId}:${entry.codex.nativeItemId}`,
+				`${entry.codex.nativeEpoch ?? 0}:${entry.codex.turnId}:${entry.codex.nativeItemId}`,
 				entry.codex.ordinal,
 			);
-			const key = `${entry.codex.turnId}:${entry.message.role}`;
+			const key = `${entry.codex.nativeEpoch ?? 0}:${entry.codex.turnId}:${entry.message.role}`;
 			ordinals.set(
 				key,
 				Math.max(ordinals.get(key) ?? 0, entry.codex.ordinal + 1),
@@ -180,11 +198,13 @@ async function startSession(
 	};
 	for (const entry of history) remember(entry);
 	const retain = (entry: ProjectedEntry) => {
-		if (history.some((item) => item.id === entry.id)) return false;
-		appendCodexJournal(identity.sessionFile, entry);
-		history.push(entry);
-		remember(entry);
-		return true;
+		if (history.some((item) => item.id === entry.id)) return;
+		const lineage = contextPolicy.entryLineage(entry.codex?.nativeEpoch ?? 0);
+		const retained = lineage ? { ...entry, contextPolicy: lineage } : entry;
+		appendCodexJournal(identity.sessionFile, retained);
+		history.push(retained);
+		remember(retained);
+		return retained;
 	};
 	const waiters = new Set<Waiter>();
 	const waitTimeoutMs = options.notificationTimeoutMs ?? 30_000;
@@ -258,6 +278,7 @@ async function startSession(
 		if (closed || ended || liveSeq === 0) return;
 		if (settledTurnIds.has(turnId)) return;
 		currentTurnId = turnId;
+		contextPolicy.note(turnId);
 		pendingStart = false;
 		turnReady?.resolve(turnId);
 	};
@@ -278,6 +299,11 @@ async function startSession(
 	};
 
 	const settleHost = (signal?: AbortSignal): void => {
+		try {
+			contextPolicy.assertCurrent();
+		} catch {
+			return;
+		}
 		void host
 			.emit(
 				"agent_settled",
@@ -300,6 +326,7 @@ async function startSession(
 		const hadRun =
 			currentTurnId !== undefined || pendingStart || waiters.size > 0;
 		ended = true;
+		contextPolicy.attention();
 		clearRun();
 		failWaiters(error);
 		if (!hadRun || closed) return;
@@ -310,6 +337,36 @@ async function startSession(
 
 	const unsubscribeRpc = rpc.subscribe((method, params) => {
 		const source = threadIdOf(params);
+		const compacted =
+			method === "thread/compacted" ||
+			(method === "item/completed" &&
+				isRecord(params) &&
+				isRecord(params["item"]) &&
+				params["item"]["type"] === "contextCompaction");
+		if (contextPolicy.explicit && method !== "eof") {
+			if (
+				closed ||
+				ended ||
+				!boundThreadId ||
+				source !== boundThreadId ||
+				(liveSeq === 0 && !compacted)
+			)
+				return;
+			try {
+				contextPolicy.assertCurrent();
+			} catch {
+				failRun(new Error("Context scope changed; attention required"));
+				return;
+			}
+			const incomingTurn =
+				isRecord(params) && typeof params["turnId"] === "string"
+					? params["turnId"]
+					: isRecord(params) && isRecord(params["turn"])
+						? params["turn"]["id"]
+						: undefined;
+			if (incomingTurn && currentTurnId && incomingTurn !== currentTurnId)
+				return;
+		}
 		if (boundThreadId && source && source !== boundThreadId) return;
 		if (method === "eof") {
 			failRun(
@@ -347,6 +404,8 @@ async function startSession(
 					: undefined;
 			const completedId =
 				typeof turn?.["id"] === "string" ? turn["id"] : currentTurnId;
+			if (completedId) contextPolicy.note(completedId);
+			contextPolicy.settle();
 			finalizeRun(completedId);
 			settleHost();
 		}
@@ -360,17 +419,26 @@ async function startSession(
 			if (typeof usage?.["modelContextWindow"] === "number")
 				contextWindow = usage["modelContextWindow"];
 		}
-		let projection: { turnId: string; ordinal: number } | undefined;
+		let projection:
+			| { turnId: string; ordinal: number; nativeEpoch?: number }
+			| undefined;
 		if (method === "item/completed" && isRecord(params)) {
 			const item = projectCodexItem(params["item"]);
 			const turnId =
 				typeof params["turnId"] === "string" ? params["turnId"] : currentTurnId;
 			if (item?.message && turnId) {
-				const key = `${turnId}:${item.message.role}`;
+				const key = `${contextPolicy.nativeEpoch}:${turnId}:${item.message.role}`;
 				projection = {
 					turnId,
+					...(contextPolicy.nativeEpoch
+						? { nativeEpoch: contextPolicy.nativeEpoch }
+						: {}),
 					ordinal:
-						nativeItems.get(`${turnId}:${item.id}`) ?? ordinals.get(key) ?? 0,
+						nativeItems.get(
+							`${contextPolicy.nativeEpoch}:${turnId}:${item.id}`,
+						) ??
+						ordinals.get(key) ??
+						0,
 				};
 			}
 		}
@@ -380,7 +448,9 @@ async function startSession(
 				event["type"] === "entry_appended" &&
 				isRecord(event["entry"])
 			) {
-				if (!retain(event["entry"] as ProjectedEntry)) continue;
+				const retained = retain(event["entry"] as ProjectedEntry);
+				if (!retained) continue;
+				event["entry"] = retained;
 			}
 			emit(event);
 		}
@@ -388,14 +458,44 @@ async function startSession(
 
 	const unsubscribeRequests = rpc.onRequest(async (method, params) => {
 		const source = threadIdOf(params);
+		if (contextPolicy.explicit && source !== boundThreadId)
+			throw new Error("Foreign native context request");
 		if (boundThreadId && source && source !== boundThreadId) return;
 		const signal = turnAbort?.signal;
+		const epoch = contextPolicy.nativeEpoch;
+		const guard = (): void => {
+			if (closed || ended || epoch !== contextPolicy.nativeEpoch)
+				throw new Error("Native context is no longer active");
+			signal?.throwIfAborted();
+			try {
+				contextPolicy.assertCurrent();
+			} catch {
+				failRun(new Error("Context scope changed; attention required"));
+				throw new Error("Context scope changed; delivery blocked");
+			}
+		};
+		guard();
 		if (!signal) throw new Error("No active Codex turn for native request");
 		if (method === "item/tool/call" && isRecord(params)) {
 			const tool = typeof params["tool"] === "string" ? params["tool"] : "";
 			const callId =
 				typeof params["callId"] === "string" ? params["callId"] : randomUUID();
-			return host.invokeTool(tool, callId, params["arguments"], signal);
+			const result = await host.invokeTool(
+				tool,
+				callId,
+				params["arguments"],
+				signal,
+				contextPolicy.explicit ? guard : undefined,
+			);
+			guard();
+			contextPolicy.plan({
+				kind: "tool",
+				requestId: contextPolicy.requestId ?? randomUUID(),
+				toolName: tool,
+				callId,
+			});
+			guard();
+			return result;
 		}
 		if (
 			method === "item/commandExecution/requestApproval" &&
@@ -407,6 +507,7 @@ async function startSession(
 				{ command: params["command"], cwd: params["cwd"] },
 				signal,
 			);
+			guard();
 			return { decision: allow ? "accept" : "decline" };
 		}
 		if (method === "item/fileChange/requestApproval" && isRecord(params)) {
@@ -416,6 +517,7 @@ async function startSession(
 				{ reason: params["reason"] },
 				signal,
 			);
+			guard();
 			return { decision: allow ? "accept" : "decline" };
 		}
 	});
@@ -462,6 +564,168 @@ async function startSession(
 		return aborting;
 	};
 
+	const injectInstructions = async (
+		instructions: string,
+		signal?: AbortSignal,
+	): Promise<void> => {
+		if (instructions === deliveredInstructions) return;
+		await rpc.request(
+			"thread/inject_items",
+			{
+				threadId: boundThreadId,
+				items: [
+					{
+						type: "message",
+						role: "developer",
+						content: [
+							{
+								type: "input_text",
+								text:
+									"[Current Lina instruction snapshot]\nThis complete snapshot replaces earlier Lina instruction snapshots. Apply only its current persona, shared user context and first-reply state; omitted earlier guidance is no longer active. It does not change host permissions or authorize tools.\n\n" +
+									instructions,
+							},
+						],
+					},
+				],
+			},
+			signal,
+		);
+		deliveredInstructions = instructions;
+	};
+	const bindNative = async (
+		initial: ReturnType<typeof conversationTurn>,
+	): Promise<void> => {
+		let header = readCodexSessionHeader(identity.sessionFile, workspace);
+		const policy = contextPolicy.current();
+		const changed =
+			policy &&
+			(header.contextPolicy?.scopeDigest !== policy.scopeDigest ||
+				header.contextTransition);
+		if (
+			policy &&
+			header.nativeThreadId &&
+			(!boundThreadId || changed || contextPolicy.uncertain)
+		) {
+			const prior = await rpc.request<{ thread?: unknown }>("thread/read", {
+				threadId: header.nativeThreadId,
+				includeTurns: true,
+			});
+			contextPolicy.reconcile(prior.thread, header.nativeThreadId);
+			for (const entry of historyFromTurns(
+				isRecord(prior.thread) ? prior.thread["turns"] : undefined,
+				header.nativeEpoch ?? 0,
+			))
+				retain(entry);
+		}
+		if (changed) {
+			header = prepareCodexContext(identity.sessionFile, workspace, policy);
+		}
+		if (boundThreadId && !changed) {
+			contextPolicy.assertCurrent();
+			return;
+		}
+		boundThreadId = undefined;
+		settledTurnIds.clear();
+		currentTurnId = undefined;
+		tokens = null;
+		const bootstrap = options.bootstrapInstructions?.() ?? options.systemPrompt;
+		if (typeof bootstrap !== "string")
+			throw new Error("Invalid bootstrap instructions");
+		const epoch =
+			(header.nativeEpoch ?? 0) + (header.contextTransition ? 1 : 0);
+		contextPolicy.adopt(policy, epoch);
+
+		let threadId = header.nativeThreadId;
+		if (threadId) {
+			const resumed = await rpc.request<{
+				thread?: { id?: string; turns?: unknown; modelProvider?: string };
+			}>("thread/resume", { threadId });
+			if (resumed.thread?.id !== threadId)
+				throw new Error("Codex resume did not return the bound native thread");
+			boundModelProvider =
+				typeof resumed.thread.modelProvider === "string"
+					? resumed.thread.modelProvider
+					: initial.modelProvider;
+			for (const entry of historyFromTurns(resumed.thread?.turns, epoch))
+				retain(entry);
+		} else {
+			const exposure = contextPolicy.plan(
+				{
+					kind: "bootstrap",
+					requestId: header.contextTransition?.id ?? randomUUID(),
+				},
+				policy,
+				epoch,
+			);
+			markCodexThreadPending(identity.sessionFile, workspace);
+			const started = await rpc.request<{
+				thread: { id: string; path?: string | null };
+			}>("thread/start", {
+				cwd: workspace,
+				model: initial.model,
+				modelProvider: initial.modelProvider,
+				approvalPolicy: "on-request",
+				sandbox: "workspace-write",
+				personality: "none",
+				historyMode: "legacy",
+				developerInstructions: bootstrap,
+				dynamicTools: [...host.tools.values()].map((tool) => ({
+					type: "function",
+					name: tool.name,
+					description: tool.description,
+					inputSchema: jsonSchemaOf(tool.parameters),
+				})),
+			});
+			threadId = started.thread.id;
+			deliveredInstructions = bootstrap;
+			boundModelProvider = initial.modelProvider;
+			commitCodexThread(
+				identity.sessionFile,
+				workspace,
+				threadId,
+				started.thread.path ?? undefined,
+			);
+			contextPolicy.delivered(exposure);
+			try {
+				await rpc.request("thread/name/set", {
+					threadId,
+					name: `lina:${identity.sessionId}`,
+				});
+			} catch {
+				/* native id is already bound; rename is best-effort persistence */
+			}
+		}
+		boundThreadId = threadId;
+		const read = await rpc.request<{ thread?: unknown }>("thread/read", {
+			threadId: boundThreadId,
+			includeTurns: true,
+		});
+		for (const entry of historyFromTurns(
+			isRecord(read.thread) ? read.thread["turns"] : undefined,
+			epoch,
+		))
+			retain(entry);
+		if (policy) contextPolicy.reconcile(read.thread, boundThreadId);
+		currentTurnId = activeTurnId(read.thread);
+		if (currentTurnId) turnAbort = new AbortController();
+		if (
+			!boundModelProvider &&
+			isRecord(read.thread) &&
+			typeof read.thread["modelProvider"] === "string"
+		)
+			boundModelProvider = read.thread["modelProvider"];
+		if (policy) contextPolicy.assertCurrent();
+		if (header.nativeThreadId && options.bootstrapInstructions) {
+			const exposure = contextPolicy.plan({
+				kind: "bootstrap",
+				requestId: randomUUID(),
+			});
+			await injectInstructions(bootstrap);
+			contextPolicy.assertCurrent();
+			contextPolicy.delivered(exposure);
+		}
+	};
+
 	try {
 		await rpc.request("initialize", {
 			clientInfo: { name: "lina", title: "Lina", version: "0.1.0" },
@@ -482,76 +746,7 @@ async function startSession(
 		skillNames.push(...enabledSkills(listed));
 		options.register?.(host.asLinaHost(), options.services, host.permissions);
 
-		const initial = conversationTurn(options, catalog);
-		const header = readCodexSessionHeader(identity.sessionFile, workspace);
-		let threadId = header.nativeThreadId;
-		if (threadId) {
-			const resumed = await rpc.request<{
-				thread?: { id?: string; turns?: unknown; modelProvider?: string };
-			}>("thread/resume", { threadId });
-			if (resumed.thread?.id !== threadId)
-				throw new Error("Codex resume did not return the bound native thread");
-			boundModelProvider =
-				typeof resumed.thread.modelProvider === "string"
-					? resumed.thread.modelProvider
-					: initial.modelProvider;
-			for (const entry of historyFromTurns(resumed.thread?.turns))
-				retain(entry);
-		} else {
-			markCodexThreadPending(identity.sessionFile, workspace);
-			const started = await rpc.request<{
-				thread: { id: string; path?: string | null };
-			}>("thread/start", {
-				cwd: workspace,
-				model: initial.model,
-				modelProvider: initial.modelProvider,
-				approvalPolicy: "on-request",
-				sandbox: "workspace-write",
-				personality: "none",
-				historyMode: "legacy",
-				developerInstructions: options.systemPrompt,
-				dynamicTools: [...host.tools.values()].map((tool) => ({
-					type: "function",
-					name: tool.name,
-					description: tool.description,
-					inputSchema: jsonSchemaOf(tool.parameters),
-				})),
-			});
-			threadId = started.thread.id;
-			deliveredInstructions = options.systemPrompt;
-			boundModelProvider = initial.modelProvider;
-			commitCodexThread(
-				identity.sessionFile,
-				workspace,
-				threadId,
-				started.thread.path ?? undefined,
-			);
-			try {
-				await rpc.request("thread/name/set", {
-					threadId,
-					name: `lina:${identity.sessionId}`,
-				});
-			} catch {
-				/* native id is already bound; rename is best-effort persistence */
-			}
-		}
-		boundThreadId = threadId;
-		const read = await rpc.request<{ thread?: unknown }>("thread/read", {
-			threadId: boundThreadId,
-			includeTurns: true,
-		});
-		for (const entry of historyFromTurns(
-			isRecord(read.thread) ? read.thread["turns"] : undefined,
-		))
-			retain(entry);
-		currentTurnId = activeTurnId(read.thread);
-		if (currentTurnId) turnAbort = new AbortController();
-		if (
-			!boundModelProvider &&
-			isRecord(read.thread) &&
-			typeof read.thread["modelProvider"] === "string"
-		)
-			boundModelProvider = read.thread["modelProvider"];
+		await bindNative(conversationTurn(options, catalog));
 	} catch (error) {
 		unsubscribeRpc();
 		unsubscribeRequests();
@@ -566,7 +761,13 @@ async function startSession(
 		sessionId: identity.sessionId,
 		sessionFile: identity.sessionFile,
 		models: options.models,
-		threadId: boundThreadId,
+		get threadId() {
+			return boundThreadId as string;
+		},
+		get nativeEpoch() {
+			return contextPolicy.nativeEpoch;
+		},
+		contextLineage: () => contextPolicy.lineage(),
 		skillNames,
 		history: () => history,
 		hasActiveRun: () => !closed && !ended && currentTurnId !== undefined,
@@ -578,9 +779,16 @@ async function startSession(
 		},
 		async prompt(text, admission) {
 			admission.signal.throwIfAborted();
+			if (closed || ended)
+				throw new Error("Codex session is closed or requires attention");
+			if (currentTurnId || pendingStart)
+				throw new Error("A native request is already active");
 			const catalog = await rpc.request("model/list", {});
+			await bindNative(conversationTurn(options, catalog));
+			contextPolicy.assertCurrent();
 			const selected = conversationTurn(options, catalog, boundModelProvider);
 			const prepared = await host.beforeTurn(text, admission.signal);
+			contextPolicy.assertCurrent();
 			admission.signal.throwIfAborted();
 			const additionalContext: Record<string, { value: string; kind: string }> =
 				{};
@@ -605,34 +813,17 @@ async function startSession(
 			);
 			try {
 				try {
-					// collaborationMode can persist a custom prompt without rendering it
-					// into model input. Deliver the complete snapshot as a developer item.
-					const instructions = prepared.systemPrompt ?? options.systemPrompt;
-					if (instructions !== deliveredInstructions) {
-						await rpc.request(
-							"thread/inject_items",
-							{
-								threadId: boundThreadId,
-								items: [
-									{
-										type: "message",
-										role: "developer",
-										content: [
-											{
-												type: "input_text",
-												text:
-													"[Current Lina instruction snapshot]\nThis complete snapshot replaces earlier Lina instruction snapshots. Apply only its current persona, shared user context and first-reply state; omitted earlier guidance is no longer active. It does not change host permissions or authorize tools.\n\n" +
-													instructions,
-											},
-										],
-									},
-								],
-							},
-							admission.signal,
-						);
-						deliveredInstructions = instructions;
-					}
+					const source = { kind: "turn" as const, requestId: randomUUID() };
+					const instructions =
+						prepared.systemPrompt ??
+						options.bootstrapInstructions?.() ??
+						options.systemPrompt;
+					const exposure = contextPolicy.plan(source);
+					await injectInstructions(instructions, admission.signal);
+					contextPolicy.assertCurrent();
+
 					admission.signal.throwIfAborted();
+					contextPolicy.begin(boundThreadId as string, source.requestId);
 					const started = await rpc.request<{ turn?: { id?: string } }>(
 						"turn/start",
 						{
@@ -645,6 +836,8 @@ async function startSession(
 								: {}),
 						},
 					);
+					contextPolicy.delivered(exposure);
+					contextPolicy.assertCurrent();
 					const startedId =
 						typeof started.turn?.id === "string" ? started.turn.id : undefined;
 					if (startedId) noteTurn(startedId);
@@ -661,6 +854,8 @@ async function startSession(
 					)
 						admission.disposition("started");
 				} catch (error) {
+					contextPolicy.attention();
+					if (contextPolicy.uncertain) ended = true;
 					pendingStart = false;
 					turnReady.resolve(undefined);
 					done.cancel(asError(error, "Codex turn/start failed"));
@@ -683,6 +878,7 @@ async function startSession(
 			undefined;
 		},
 		async compact() {
+			contextPolicy.assertCurrent();
 			const done = waitNotification(
 				(method, params) =>
 					method === "thread/compacted" ||
@@ -735,6 +931,7 @@ async function startSession(
 				unsubscribeRequests();
 				listeners.clear();
 				try {
+					contextPolicy.assertCurrent();
 					await host.emit(
 						"agent_settled",
 						{ type: "agent_settled" },

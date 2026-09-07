@@ -3,6 +3,51 @@ export type {
 	WorldImageBrief,
 	WorldImageReceipt,
 } from "./contracts.ts";
+export type {
+	AdmissionReceipt,
+	AgentBelief,
+	AgentExperience,
+	AuthorInspection,
+	AuthorScope,
+	BindingSelection,
+	ClaimRef,
+	DisclosurePolicy,
+	EngineCheckpoint,
+	GrowthDelta,
+	GrowthState,
+	IdentityPolicySnapshot,
+	KnowledgeClaim,
+	LifeClaim,
+	LifeCommit,
+	LifeDefinition,
+	LifeInput,
+	LifePerception,
+	LifePreview,
+	LifeReceipt,
+	LifeState,
+	LifeViewLimits,
+	PerceptionScope,
+	ProjectionPolicy,
+	PublicationScope,
+	PublicationView,
+	SecretPolicy,
+	SharedPersonaView,
+	SideEffectIntent,
+	WorldBinding,
+} from "./life-types.ts";
+export {
+	canonicalLifeJson,
+	lifeDigest,
+	parseBindingSelection,
+	parseIdentityPolicy,
+	parseLifeCommit,
+	parseLifeDefinition,
+	parseLifeInput,
+	parseLifeState,
+	parseLifeViewLimits,
+	parseProjectionPolicy,
+	parseWorldBinding,
+} from "./life-validation.ts";
 export { WorldStore } from "./store.ts";
 export type {
 	WorldContext,
@@ -15,3 +60,9 @@ export type {
 	WorldScene,
 	WorldSnapshot,
 } from "./types.ts";
+export {
+	projectAuthorInspection,
+	projectLifePerception,
+	projectPublication,
+	projectSharedPersona,
+} from "./views.ts";
