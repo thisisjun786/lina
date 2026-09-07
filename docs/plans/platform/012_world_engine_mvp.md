@@ -2,6 +2,9 @@
 
 Date: 2026-09-07. Status: minimal implementation, opt-in runtime integration. No installed service or automatic simulation is enabled by this change.
 
+Product-direction update: the [LIFE social-simulation contract](013_life_engine_research.md) calls for shared learned personality/relationships and separate event/secret disclosure. The optional raw-context hook documented here describes the current MVP code; it needs replacement by separate ordinary-conversation and LIFE projections before fulfilling that clarified contract.
+The [full implementation roadmap](../life/000_plan.md) retains this storage foundation and specifies its [migration and context-boundary changes](../life/010_state_and_views.md). SNS, images and periodic avatars are included in that plan, with activation policies still undecided.
+
 This implements the first world-state slice of [the selected direction](011_world_engine_risuai.md). [Daily-life SNS and profile images](010_agent_daily_life_ideas.md) remain follow-up work. The implementation is original Lina code using existing SQLite and host contracts; it includes no copied or ported RisuAI implementation, scripts, cards or assets. RisuAI import compatibility is not claimed.
 
 ## Ownership decision

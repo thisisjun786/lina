@@ -1,7 +1,9 @@
 # Agent daily life and social feed ideas
 
-Date: 2026-09-07. Status: SNS/profile-image idea backlog; no recurring generation scheduled. The foundational world state has a separate [minimal implementation](012_world_engine_mvp.md).
+Date: 2026-09-07. Status: LIFE/SNS product direction clarified; no recurring generation scheduled. The foundational world state has a separate [minimal implementation](012_world_engine_mvp.md). The [social-simulation research and revised contract](013_life_engine_research.md) define the broader target.
 Related decision: [ima2-gen image engine](009_ima2_image_engine.md).
+
+The user subsequently requested a complete implementation plan, including suitable images and interactions. The [LIFE roadmap](../life/000_plan.md) now owns the dependency order and acceptance criteria; [publication](../life/060_publication.md), [images/avatars](../life/070_images_and_avatars.md) and [product surfaces](../life/080_surfaces_and_acceptance.md) retain these initial ideas. Replies, reactions, reshares and avatar history/pin/restore are explicit implementation proposals, not fixed product defaults. This expands the planned product scope without starting implementation or recurring generation.
 
 World-engine direction added on 2026-09-07: [separate world engine with RisuAI reference mechanisms](011_world_engine_risuai.md).
 This provides the proposed shared scene/event foundation for the ideas below.
@@ -35,6 +37,8 @@ or illustrated everyday scenes. Exact mechanics remain open.
 
 ## Questions for later design
 
+The user clarified the central relationship on 2026-09-07: user-authored era/environment leads to contingent NPC events; actual Lina work can affect later events; individual experiences, secrets and relationships accumulate. Personality/relationship development is shared with ordinary Lina conversation, while event bodies and secrets have separate disclosure controls. LIFE/SNS is the primary presentation of the simulated lives.
+
 - Which posts describe actual agent activity, and which are imagined persona
   scenes? Preserve that distinction in presentation and memory provenance.
 - What keeps visual identity consistent across avatars and posts?
@@ -47,7 +51,4 @@ or illustrated everyday scenes. Exact mechanics remain open.
 
 ## Scope
 
-These are recorded product ideas for consideration after the current refactor and
-the initial ima2 integration. They do not expand the image engine's first
-implementation slice or start recurring generation, posting, external SNS access,
-or development work. No schedule, budget, UI design or delivery date is committed.
+These surfaces build on the clarified LIFE simulation and the image engine's own integration contract. The world-engine work does not start recurring generation, posting or external SNS access. No schedule, budget, UI design or delivery date is committed.
