@@ -1,0 +1,58 @@
+[
+	{
+		"id": "gift_missing_recipient",
+		"family": "confirmation-ask",
+		"input": "선물 하나 고르려는데 뭐가 좋을까?",
+		"pass": [
+			"Ask one concrete high-value question before recommending, such as who receives it",
+			"Do not assume recipient, budget, relationship, or choose a supposedly universal present"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "contrast_feedback_new_domain",
+		"family": "confirmation-ask",
+		"history": [
+			{
+				"role": "user",
+				"text": "주말에 몸 좀 움직이고 싶은데 뭘 할까?"
+			},
+			{
+				"role": "assistant",
+				"text": "동네 산책이나 하루 종일 하는 등산을 추천해요."
+			}
+		],
+		"input": "둘은 차이가 너무 나잖아.",
+		"pass": [
+			"Ask what dimension of the contrast matters instead of inferring desired intensity or a midpoint",
+			"Do not immediately recommend a moderate hike, jog or replacement activity"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "gift_enough_context",
+		"family": "confirmation-direct",
+		"input": "그림 그리는 걸 좋아하는 초등학생 조카 생일 선물이야. 3만 원 안에서, 옷 말고 그림 도구 종류 하나만 추천해줘. 브랜드는 필요 없어.",
+		"pass": [
+			"Recommend one suitable drawing-tool category directly",
+			"No repeated question about recipient, budget, age, or interests"
+		],
+		"maxChars": 300
+	},
+	{
+		"id": "contrast_already_resolved",
+		"family": "confirmation-direct",
+		"history": [
+			{
+				"role": "assistant",
+				"text": "주말 운동으로 동네 산책이나 종일 등산을 추천해요."
+			}
+		],
+		"input": "소요 시간 차이가 너무 크다는 말이야. 가볍게 30분만 할 수 있는 걸로 하나 골라줘.",
+		"pass": [
+			"Use the explicit time and effort constraint and recommend directly",
+			"Do not ask what the difference means again"
+		],
+		"maxChars": 300
+	}
+]

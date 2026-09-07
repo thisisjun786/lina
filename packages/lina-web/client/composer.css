@@ -1,0 +1,88 @@
+.composer-area {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	padding: 10px 30px 18px;
+	width: 100%;
+	max-width: 820px;
+	align-self: center;
+}
+.composer {
+	flex-shrink: 0;
+	border: 1px solid var(--input-border);
+	border-radius: 16px;
+	padding: 15px 15px 12px;
+	background: var(--input-bg);
+	box-shadow: none;
+}
+.composer:focus-within {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px var(--focus-ring);
+}
+textarea {
+	display: block;
+	width: 100%;
+	border: none;
+	outline: none;
+	resize: none;
+	min-height: 44px;
+	max-height: none;
+	background: transparent;
+	color: inherit;
+	font-size: 0.86rem;
+	line-height: 1.7;
+}
+textarea:focus-visible {
+	outline: none;
+}
+textarea::placeholder {
+	color: var(--muted);
+}
+.composer-bottom {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	align-items: center;
+	margin-top: 6px;
+}
+#composer-hint {
+	font-size: 0.65rem;
+	color: var(--muted);
+	line-height: 1.5;
+}
+#send {
+	border: 0;
+	border-radius: 8px;
+	padding: 10px 14px;
+	color: var(--button-text);
+	background: var(--button-bg);
+	min-height: 36px;
+	white-space: nowrap;
+	font-size: 0.75rem;
+}
+#send span {
+	margin-left: 10px;
+	font-size: 0.95rem;
+}
+#send:hover:not(:disabled) {
+	background: var(--button-hover);
+}
+#send:disabled {
+	background: var(--disabled-bg);
+	color: var(--muted);
+}
+
+.work-panels {
+	min-height: 0;
+	max-height: 50dvh;
+	overflow: auto;
+}
+.execution-bar {
+	flex-shrink: 0;
+}
+
+.composer-expand {
+	margin-left: auto;
+	color: var(--muted);
+	white-space: nowrap;
+}

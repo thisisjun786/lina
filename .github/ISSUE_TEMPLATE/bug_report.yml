@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible Lina defect.
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and observed behavior
+      description: What should happen, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal steps or commands. If intermittent, describe the conditions and frequency.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Versions and environment
+      description: Lina revision, OS, Bun, browser or runtime, and source/native/container install mode.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Error, screenshot, request ID, or logs. Remove tokens, account details and private conversations.

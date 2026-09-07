@@ -1,0 +1,40 @@
+name: Dependency or provider compatibility
+description: Report a broken engine, proxy, model, API or memory-service integration.
+body:
+  - type: dropdown
+    id: integration
+    attributes:
+      label: Integration
+      options:
+        - Codex
+        - OpenCodex
+        - OpenViking or Honcho
+        - Other dependency
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Tested versions
+      description: Lina revision, engine/service versions, OS and Bun. Include the last working version if known.
+    validations:
+      required: true
+  - type: textarea
+    id: combination
+    attributes:
+      label: Provider, API, model and capability
+      description: "Example: Codex -> OpenCodex -> provider/model, /v1/responses, streaming tool calls. Use N/A for non-model integrations."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction and observed result
+      description: Minimal redacted request or steps, expected result, actual error and request ID when available. Remove secrets and private conversation content.
+    validations:
+      required: true
+  - type: textarea
+    id: upstream
+    attributes:
+      label: Upstream reference and comparison
+      description: Link docs, release notes or an upstream issue. If tested directly without Lina, record the result; otherwise say untested.

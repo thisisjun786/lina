@@ -1,0 +1,284 @@
+[
+	{
+		"id": "dinner_underspecified",
+		"family": "clarification-ask",
+		"input": "ㅋㅋㅋ 그 내가 오늘저녁에 소고기요리를 먹고싶은데 어떤걸먹을까",
+		"history": [],
+		"pass": [
+			"Ask one short, concrete question that resolves a missing distinction before selecting or judging",
+			"Do not invent user preferences or offer a confident recommendation before the question",
+			"Avoid a questionnaire or broad list of conditional recommendations"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "gap_feedback",
+		"family": "clarification-ask",
+		"input": "너무 갭이큰거아냐 ?",
+		"history": [
+			{
+				"role": "user",
+				"text": "오늘 저녁에 소고기 요리를 먹고 싶은데 뭘 먹을까?"
+			},
+			{
+				"role": "assistant",
+				"text": "스키야키를 추천해요. 소고기 자체를 진하게 먹고 싶다면 채끝 스테이크가 더 맞아요."
+			}
+		],
+		"pass": [
+			"Ask one short, concrete question that resolves a missing distinction before selecting or judging",
+			"Do not invent user preferences or offer a confident recommendation before the question",
+			"Avoid a questionnaire or broad list of conditional recommendations",
+			"Clarify what gap means; do not assume it means a culinary midpoint or replace with chop steak"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "desk_uncertain",
+		"family": "clarification-ask",
+		"input": "책상을 바꾸려는데 어떤 스타일이 나한테 맞을까?",
+		"history": [],
+		"pass": [
+			"Ask one short, concrete question that resolves a missing distinction before selecting or judging",
+			"Do not invent user preferences or offer a confident recommendation before the question",
+			"Avoid a questionnaire or broad list of conditional recommendations"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "plan_without_criteria",
+		"family": "clarification-ask",
+		"input": "이직하는 게 낫겠지?",
+		"history": [
+			{
+				"role": "user",
+				"text": "요즘 회사 생각이 많아."
+			}
+		],
+		"pass": [
+			"Ask one short, concrete question that resolves a missing distinction before selecting or judging",
+			"Do not invent user preferences or offer a confident recommendation before the question",
+			"Avoid a questionnaire or broad list of conditional recommendations",
+			"Do not treat sparse context as evidence to recommend resignation or staying"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "ambiguous_fix",
+		"family": "clarification-ask",
+		"input": "둘 다 좀 별론데.",
+		"history": [
+			{
+				"role": "assistant",
+				"text": "발표 제목으로 ‘새로운 시작’이나 ‘전환점’을 생각해봤어요."
+			}
+		],
+		"pass": [
+			"Ask one short, concrete question that resolves a missing distinction before selecting or judging",
+			"Do not invent user preferences or offer a confident recommendation before the question",
+			"Avoid a questionnaire or broad list of conditional recommendations",
+			"Clarify the objection or desired direction before supplying more titles"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "ambiguous_scope",
+		"family": "clarification-ask",
+		"input": "오늘 그거 밀어붙여도 되겠지?",
+		"history": [],
+		"pass": [
+			"Ask one short, concrete question that resolves a missing distinction before selecting or judging",
+			"Do not invent user preferences or offer a confident recommendation before the question",
+			"Avoid a questionnaire or broad list of conditional recommendations"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "necessary_question_not_filler",
+		"family": "clarification-ask",
+		"input": "오늘 저녁 소고기 뭐 먹을까?",
+		"history": [
+			{
+				"role": "user",
+				"text": "답변 끝에 습관적으로 질문 붙이지는 마."
+			}
+		],
+		"pass": [
+			"Ask one short, concrete question that resolves a missing distinction before selecting or judging",
+			"Do not invent user preferences or offer a confident recommendation before the question",
+			"Avoid a questionnaire or broad list of conditional recommendations",
+			"A necessary discriminator question is allowed despite the earlier ban on habitual closing questions"
+		],
+		"maxChars": 220
+	},
+	{
+		"id": "casual_question",
+		"family": "clarification-ask",
+		"input": "방 분위기를 바꾸고 싶은데 가구를 뭘 바꿀까?",
+		"history": [],
+		"pass": [
+			"Ask one short, concrete question that resolves a missing distinction before selecting or judging",
+			"Do not invent user preferences or offer a confident recommendation before the question",
+			"Avoid a questionnaire or broad list of conditional recommendations",
+			"Maintain the configured casual voice"
+		],
+		"maxChars": 220,
+		"voice": "편안한 한국어 반말로 짧고 구체적으로 말한다. 쓸데없는 아부는 하지 않는다."
+	},
+	{
+		"id": "dinner_sufficient",
+		"family": "clarification-direct",
+		"input": "집에서 혼자 해먹을 거야. 소고기 불고깃감이랑 양파 있고 팬 하나로 15분 안에. 달지 않게 먹을 메뉴 하나 골라줘.",
+		"history": [],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question",
+			"Respect home cooking, thin beef, onion, one pan, 15 minutes, not sweet"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "pick_without_personalizing",
+		"family": "clarification-direct",
+		"input": "취향은 따지지 말고 소고기 메뉴 아무거나 하나만 딱 골라줘. 질문 말고.",
+		"history": [],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "brainstorm_not_personalize",
+		"family": "clarification-direct",
+		"input": "소고기로 만들 수 있는 요리 세 가지만 알려줘.",
+		"history": [],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question",
+			"Provide three dish ideas; this is an idea list, not a request to find the best personal fit"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "simple_fact",
+		"family": "clarification-direct",
+		"input": "스키야키는 구이야, 전골이야?",
+		"history": [],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question",
+			"Answer the category without turning it into a preference interview"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "use_prior_context",
+		"family": "clarification-direct",
+		"input": "그럼 소고기 요리는 뭘로 할까?",
+		"history": [
+			{
+				"role": "user",
+				"text": "오늘 집에서 혼자 해먹을 거야. 팬 하나만 쓰고, 15분 정도. 불고깃감과 양파가 있고 달게 먹는 건 싫어."
+			},
+			{
+				"role": "assistant",
+				"text": "집에서 팬 하나로 빠르게, 달지 않게 드실 거군요."
+			}
+		],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "answer_after_question",
+		"family": "clarification-direct",
+		"input": "집에서 해먹을 거고, 15분 정도. 얇은 소고기랑 양파만 있어. 간단하게 하나 골라줘.",
+		"history": [
+			{
+				"role": "user",
+				"text": "오늘 소고기 뭐 먹을까?"
+			},
+			{
+				"role": "assistant",
+				"text": "집에서 만들어 드실 건가요, 밖에서 드실 건가요?"
+			}
+		],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question",
+			"Use the clarification and move to a recommendation instead of opening another interview"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "gap_explained",
+		"family": "clarification-direct",
+		"input": "난이도 차이가 크다는 말이야. 집에서 15분 안에 팬 하나로 할 수 있는 소고기 요리로 골라줘.",
+		"history": [
+			{
+				"role": "assistant",
+				"text": "스키야키나 채끝 스테이크를 추천해요."
+			}
+		],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question",
+			"Objection is now explicit; adapt rather than asking what gap means again"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "clear_tone_feedback",
+		"family": "clarification-direct",
+		"input": "아 좀 오바하지 말고.",
+		"history": [
+			{
+				"role": "assistant",
+				"text": "정말 대단한 판단이에요! 역시 남다른 통찰력이 있으시네요!"
+			}
+		],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question",
+			"Adjust obvious excessive praise without asking what was excessive"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "rewrite_not_recommend",
+		"family": "clarification-direct",
+		"input": "‘오늘 저녁은 소고기로 먹을까 해’를 자연스럽게 다듬어줘. 문장만.",
+		"history": [],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question",
+			"Return only rewritten sentence; no meal-choice question"
+		],
+		"maxChars": 1100
+	},
+	{
+		"id": "authorized_assumption",
+		"family": "clarification-direct",
+		"input": "소고기 메뉴 하나 골라줘. 모르는 조건은 무난하게 가정하고 바로 추천해도 돼.",
+		"history": [],
+		"pass": [
+			"Answer or perform the request directly using the supplied context",
+			"Do not ask for already supplied information or ask unnecessary permission",
+			"Do not append a habitual question",
+			"A brief stated assumption is allowed; do not invent it as a known user preference"
+		],
+		"maxChars": 1100
+	}
+]

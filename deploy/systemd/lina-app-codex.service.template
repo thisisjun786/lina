@@ -1,0 +1,19 @@
+[Unit]
+Description=Lina Codex assistant
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=8
+
+[Service]
+Type=exec
+WorkingDirectory=%h/code/Lina
+UMask=0077
+Environment="PATH=%h/node/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="LINA_HOME=%h/.lina"
+ExecStart=%h/.bun/bin/bun packages/lina-runtime/scripts/start-codex.ts
+Restart=always
+RestartSec=3s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=default.target

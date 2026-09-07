@@ -1,0 +1,17 @@
+Lina — Lifelong Intelligent Networked Agent
+Copyright 2026 Lina contributors
+
+Lina's original source code, documentation, maintainer-authored persona preset
+text, and the nine avatars and two app icons identified in the maintainer's
+2026-09-07 attestation are licensed under the Apache License, Version 2.0,
+to the extent of the contributors' rights. See LICENSE.
+The preset text derives from the maintainer-provided lina-persona collection;
+data/personas/sources.json records the original and current content digests.
+
+Third-party software retains its own copyright and license terms. See
+THIRD_PARTY_NOTICES.md for the reviewed upstream references and their scope.
+The owner attests to directly creating/generating those eleven image assets
+and holding their input rights. The asset scope and attestation are recorded
+in data/personas/README.md; hashes identify the files covered by that statement.
+
+This notice is informational and does not modify the Apache License.

@@ -1,0 +1,11 @@
+{
+	"name": "@lina/web",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Local browser interface for the Lina intervention socket",
+	"scripts": {
+		"start": "bun scripts/start.ts"
+	},
+	"license": "Apache-2.0"
+}

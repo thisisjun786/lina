@@ -1,0 +1,233 @@
+# Lina-owned Honcho 3.1.0. BUZZ model-role settings, with direct Ollama Cloud
+# inference and OpenGateway embeddings. JSON object mode is validated by Honcho;
+# no provider-enforced schema guarantee is assumed. Secrets: runtime/service.env.
+
+[deriver]
+ENABLED = true
+WORKERS = 1
+POLLING_SLEEP_INTERVAL_SECONDS = 1.0
+POLLING_BACKOFF_ENABLED = true
+POLLING_SLEEP_MAX_INTERVAL_SECONDS = 30.0
+POLLING_BACKOFF_MULTIPLIER = 2.0
+POLLING_STARTUP_JITTER_SECONDS = 0.0
+POLLING_JITTER_RATIO = 0.5
+STALE_SESSION_TIMEOUT_MINUTES = 5
+DEDUPLICATE = true
+MAX_INPUT_TOKENS = 23000
+WORKING_REPRESENTATION_MAX_OBSERVATIONS = 100
+REPRESENTATION_BATCH_WORK_UNIT_TARGET_TOKENS = 512
+REPRESENTATION_BATCH_TARGET_INPUT_TOKENS = 1024
+REPRESENTATION_BATCH_MAX_AGE_SECONDS = 1800
+FLUSH_ENABLED = true
+
+[deriver.model_config]
+transport = "openai"
+model = "deepseek-v4-flash:0731"
+structured_output_mode = "json_object"
+max_output_tokens = 4096
+
+[deriver.model_config.overrides]
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_API_KEY"
+
+[deriver.model_config.overrides.provider_params.extra_body]
+reasoning_effort = "none"
+
+# ---------------------------------------------------------------------------
+# Dialectic — user-facing memory reasoning
+# ---------------------------------------------------------------------------
+[dialectic]
+MAX_OUTPUT_TOKENS = 8192
+MAX_INPUT_TOKENS = 100000
+HISTORY_TOKEN_LIMIT = 8192
+SESSION_HISTORY_MAX_TOKENS = 4096
+
+[dialectic.levels.minimal]
+MAX_TOOL_ITERATIONS = 1
+MAX_OUTPUT_TOKENS = 250
+TOOL_CHOICE = "auto"
+
+[dialectic.levels.minimal.model_config]
+transport = "openai"
+model = "deepseek-v4-flash:0731"
+
+[dialectic.levels.minimal.model_config.overrides]
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_API_KEY"
+
+[dialectic.levels.minimal.model_config.overrides.provider_params.extra_body]
+reasoning_effort = "none"
+
+[dialectic.levels.low]
+MAX_TOOL_ITERATIONS = 5
+MAX_OUTPUT_TOKENS = 1024
+TOOL_CHOICE = "auto"
+
+[dialectic.levels.low.model_config]
+transport = "openai"
+model = "deepseek-v4-flash:0731"
+
+[dialectic.levels.low.model_config.overrides]
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_API_KEY"
+
+[dialectic.levels.low.model_config.overrides.provider_params.extra_body]
+reasoning_effort = "none"
+
+[dialectic.levels.medium]
+MAX_TOOL_ITERATIONS = 2
+MAX_OUTPUT_TOKENS = 2048
+TOOL_CHOICE = "auto"
+
+[dialectic.levels.medium.model_config]
+transport = "openai"
+model = "glm-5.3-flash"
+
+[dialectic.levels.medium.model_config.overrides]
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_API_KEY"
+
+[dialectic.levels.medium.model_config.overrides.provider_params.extra_body]
+reasoning_effort = "low"
+
+[dialectic.levels.high]
+MAX_TOOL_ITERATIONS = 4
+MAX_OUTPUT_TOKENS = 3072
+TOOL_CHOICE = "auto"
+
+[dialectic.levels.high.model_config]
+transport = "openai"
+model = "glm-5.3-flash"
+
+[dialectic.levels.high.model_config.overrides]
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_API_KEY"
+
+[dialectic.levels.high.model_config.overrides.provider_params.extra_body]
+reasoning_effort = "low"
+
+[dialectic.levels.max]
+MAX_TOOL_ITERATIONS = 10
+MAX_OUTPUT_TOKENS = 4096
+TOOL_CHOICE = "auto"
+
+[dialectic.levels.max.model_config]
+transport = "openai"
+model = "glm-5.3"
+
+[dialectic.levels.max.model_config.overrides]
+api_key_env = "OLLAMA_API_KEY"
+base_url = "https://ollama.com/v1"
+
+[dialectic.levels.max.model_config.overrides.provider_params.extra_body]
+reasoning_effort = "low"
+
+# ---------------------------------------------------------------------------
+# Summary — evidence-preserving session compression
+# ---------------------------------------------------------------------------
+[summary]
+ENABLED = true
+MESSAGES_PER_SHORT_SUMMARY = 20
+MESSAGES_PER_LONG_SUMMARY = 60
+MAX_TOKENS_SHORT = 1000
+MAX_TOKENS_LONG = 4000
+
+[summary.model_config]
+transport = "openai"
+model = "glm-5.3-flash"
+
+[summary.model_config.overrides]
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_API_KEY"
+
+[summary.model_config.overrides.provider_params.extra_body]
+reasoning_effort = "low"
+
+# ---------------------------------------------------------------------------
+# Dream — persistent memory consolidation; no fallback, fail closed
+# Card Refresh reuses the deduction model in Honcho 3.1.0.
+# ---------------------------------------------------------------------------
+[dream]
+ENABLED = true
+DOCUMENT_THRESHOLD = 50
+IDLE_TIMEOUT_MINUTES = 60
+MIN_HOURS_BETWEEN_DREAMS = 8
+ENABLED_TYPES = ["omni", "card_refresh"]
+MAX_TOOL_ITERATIONS = 20
+HISTORY_TOKEN_LIMIT = 16384
+
+[dream.deduction_model_config]
+transport = "openai"
+model = "glm-5.3"
+max_output_tokens = 4096
+
+[dream.deduction_model_config.overrides]
+api_key_env = "OLLAMA_API_KEY"
+base_url = "https://ollama.com/v1"
+
+[dream.deduction_model_config.overrides.provider_params.extra_body]
+reasoning_effort = "low"
+
+[dream.induction_model_config]
+transport = "openai"
+model = "deepseek-v4-pro:0813"
+max_output_tokens = 8192
+
+[dream.induction_model_config.overrides]
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_API_KEY"
+
+[dream.induction_model_config.overrides.provider_params.extra_body]
+reasoning_effort = "high"
+
+# ---------------------------------------------------------------------------
+# Embedding — opengateway comsat-embed-ko-8b-preview, pgvector halfvec(2048)
+# The API key is EMBEDDING_MODEL_CONFIG__OVERRIDES__API_KEY in .env, never here.
+# 2048 is the smallest dimension the gateway serves for this model; pgvector
+# HNSW on the vector type stops at 2000, so the columns are halfvec(2048)
+# (see schema-new.sql).
+# ---------------------------------------------------------------------------
+[embedding]
+VECTOR_DIMENSIONS = 2048
+# opengateway caps one embeddings request at 10,649 characters in total
+# (its estimate of 8,192 tokens).  Honcho budgets requests by cl100k token
+# count, and the English observation text here runs ~4.4 characters per
+# token (up to ~5.5 for long words), so 1800 tokens keeps every request and
+# every single input under that cap.
+MAX_INPUT_TOKENS = 1800
+MAX_TOKENS_PER_REQUEST = 1800
+MAX_CONCURRENT_EMBEDDINGS = 9
+MAX_PENDING_EMBED_TASKS = 50
+
+[embedding.model_config]
+transport = "openai"
+model = "sionic-ai/comsat-embed-ko-8b-preview"
+dimensions_mode = "always"
+encoding_format_mode = "float"
+timeout = 90.0
+# opengateway rejects more than 128 inputs per embeddings request.
+max_batch_size = 128
+
+[embedding.model_config.overrides]
+base_url = "https://apis.opengateway.ai/v1"
+
+# ---------------------------------------------------------------------------
+# Peer card — per-peer profile cards.  Not a model role: upstream creates and
+# updates cards inside the deriver turn (deriver model) and refreshes them
+# with the dream deduction model (src/dreamer/specialists.py).  PeerCardSettings
+# has only ENABLED; any model_config placed here is silently ignored.
+# ---------------------------------------------------------------------------
+[peer_card]
+ENABLED = true
+
+[vector_store]
+TYPE = "pgvector"
+
+[metrics]
+ENABLED = false
+
+[telemetry]
+ENABLED = false
+
+[sentry]
+ENABLED = false

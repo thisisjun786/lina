@@ -1,0 +1,139 @@
+[
+  {
+    "id": "lina",
+    "source": "lina-persona/agents/lina-themis/SOUL.md",
+    "file": "data/personas/sources/lina-SOUL.md",
+    "sha256": "fb39e3b4a17ea6b294125fbcf7b3c6df3d0dfde530f0f7dc007068da205c1f7f",
+    "currentSha256": "b26bc705d11f889b4fdf05281111342b26fea48f9bad94f5d0255eb9a8c03049"
+  },
+  {
+    "id": "lina",
+    "source": "lina-persona/agents/lina-themis/CHARACTER.md",
+    "file": "data/personas/sources/lina-CHARACTER.md",
+    "sha256": "3a95be5e9841232de2dc8d031c30c32caa2822d77db00f8cc1a14bc6394be100",
+    "currentSha256": "1404c960a5acf000dc7571b6b3215e15286ea33311eedcbfebf009f3af0ade50",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation."
+  },
+  {
+    "id": "kai",
+    "source": "lina-persona/agents/kai-themis/SOUL.md",
+    "file": "data/personas/sources/kai-SOUL.md",
+    "sha256": "b16fe110f9802b0d35debc24c930680539a9437867e0f81c262327e2f6b5ae64",
+    "currentSha256": "b16fe110f9802b0d35debc24c930680539a9437867e0f81c262327e2f6b5ae64"
+  },
+  {
+    "id": "kai",
+    "source": "lina-persona/agents/kai-themis/CHARACTER.md",
+    "file": "data/personas/sources/kai-CHARACTER.md",
+    "sha256": "802286e0fc24d209e79ab44a1d3f37ad584a1109d894fb95face88e49d374ea4",
+    "currentSha256": "ba6a7d8cc7a5defaf262ce2660f5f7c3dbfcd819e725be72946bed34cfe1b942",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation."
+  },
+  {
+    "id": "sera",
+    "source": "lina-persona/agents/sera-valen/SOUL.md",
+    "file": "data/personas/sources/sera-SOUL.md",
+    "sha256": "a960b00f4d303b60c0f2b027dd2ab91a0b9877d8a39a30f8b8e6564ef7637e3e",
+    "currentSha256": "a960b00f4d303b60c0f2b027dd2ab91a0b9877d8a39a30f8b8e6564ef7637e3e"
+  },
+  {
+    "id": "sera",
+    "source": "lina-persona/agents/sera-valen/CHARACTER.md",
+    "file": "data/personas/sources/sera-CHARACTER.md",
+    "sha256": "cd927dd306af20f6550e308f304a6bfa5213162bcd8b119ac48640a13acfa33c",
+    "currentSha256": "a901d2c5c86ff418183966d5ccfc7293046bab1036f09a59e8b4edc076ed836b",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation."
+  },
+  {
+    "id": "sion",
+    "source": "lina-persona/agents/sion-leto/SOUL.md",
+    "file": "data/personas/sources/sion-SOUL.md",
+    "sha256": "472d379e261be02ccdb9b468a9e217abfb20fb56889025c77e0a0f0525bb14e1",
+    "currentSha256": "6182e3ba3dcc7a150df52bcc3d608930e44f6b66b54d6b5ad93ac1eb31abf9af",
+    "modification": "Authored privacy edit: generalized personal fleet names to the user’s computers, servers, storage and agent runtimes; retained technical responsibilities and approval boundaries. Matching preset profile updated."
+  },
+  {
+    "id": "sion",
+    "source": "lina-persona/agents/sion-leto/CHARACTER.md",
+    "file": "data/personas/sources/sion-CHARACTER.md",
+    "sha256": "15d8780029727baf9f9a96d9f62767c7f5a4788d151c26b5389730d8642de6fb",
+    "currentSha256": "29f0497b11af26d67a861d84241c4274cbb8006f760b8fe30b06c6253749005b",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation."
+  },
+  {
+    "id": "kanna",
+    "source": "lina-persona/agents/kanna-cadell/SOUL.md",
+    "file": "data/personas/sources/kanna-SOUL.md",
+    "sha256": "e7a29f93f5810ef32322960dafdf901468aadb39480f86ece35799bf1f3f0964",
+    "currentSha256": "0cc0e15bfbff266ebaca66f8dae96e140540cf128d56182a90af9d3c5c3f1f79",
+    "modification": "Authored privacy edit: replaced the personal user name with the user or their chosen form of address; preserved role, voice and approval boundaries. Matching preset voice/profile updated."
+  },
+  {
+    "id": "kanna",
+    "source": "lina-persona/agents/kanna-cadell/CHARACTER.md",
+    "file": "data/personas/sources/kanna-CHARACTER.md",
+    "sha256": "2e60f450ee17daad9e7ef6ce6452919fce6e8e4463db4e659954ec5e3cb78287",
+    "currentSha256": "38fa2a5e8b92df23541a99d39986ca65e8023a5d50ea23715b8b54a97c2d81e4",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation. Generalized the personal form of address."
+  },
+  {
+    "id": "rumi",
+    "source": "lina-persona/agents/rumi-leto/SOUL.md",
+    "file": "data/personas/sources/rumi-SOUL.md",
+    "sha256": "07ee67a0483b32c5aa5f52d0cbb78eec76ea424404312581818826d05896e368",
+    "currentSha256": "07ee67a0483b32c5aa5f52d0cbb78eec76ea424404312581818826d05896e368"
+  },
+  {
+    "id": "rumi",
+    "source": "lina-persona/agents/rumi-leto/CHARACTER.md",
+    "file": "data/personas/sources/rumi-CHARACTER.md",
+    "sha256": "fe24f1d813141f654848954c0c7c549cf124c0c8bc5f694c9233c8ac74e2f31f",
+    "currentSha256": "7641912ff2ef6945726c6a2840d622d1a16702c2e02a21106a6074b93253ea41",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation."
+  },
+  {
+    "id": "arin",
+    "source": "lina-persona/agents/arin-hesti/SOUL.md",
+    "file": "data/personas/sources/arin-SOUL.md",
+    "sha256": "055c2035ea0d801e0bd70e7ce0c495035762bf8a38e57f0ddb1df2df58079871",
+    "currentSha256": "055c2035ea0d801e0bd70e7ce0c495035762bf8a38e57f0ddb1df2df58079871"
+  },
+  {
+    "id": "arin",
+    "source": "lina-persona/agents/arin-hesti/CHARACTER.md",
+    "file": "data/personas/sources/arin-CHARACTER.md",
+    "sha256": "0b105e912b4bf5ad7117f7c6a9448a57da42657e3fd4a1272b18d05f8cff14e6",
+    "currentSha256": "181abd8d2e3ed1d974748b76af3b633791d10fc6edb1c3c09a455ec9a706a2ba",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation."
+  },
+  {
+    "id": "cleo",
+    "source": "lina-persona/agents/cleo-aster/SOUL.md",
+    "file": "data/personas/sources/cleo-SOUL.md",
+    "sha256": "45f21e29c0d15a319d3f383ad4c16a9c60d22e78e74fc1e723ef828582e3f2de",
+    "currentSha256": "45f21e29c0d15a319d3f383ad4c16a9c60d22e78e74fc1e723ef828582e3f2de"
+  },
+  {
+    "id": "cleo",
+    "source": "lina-persona/agents/cleo-aster/CHARACTER.md",
+    "file": "data/personas/sources/cleo-CHARACTER.md",
+    "sha256": "3c488e605e6e58d6a4dcc06d55f67b790ace02835125141248ba8f099bc4c4b9",
+    "currentSha256": "38e857b3f4566a17de5cd418389fc92b5b4e3834bf59e6d02bb000b799408476",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation."
+  },
+  {
+    "id": "cairn",
+    "source": "lina-persona/agents/cairn-mercer/SOUL.md",
+    "file": "data/personas/sources/cairn-SOUL.md",
+    "sha256": "8cc69343fb556f91a701615599018a7ab2892cf5d2272744d093db13e100fccf",
+    "currentSha256": "8cc69343fb556f91a701615599018a7ab2892cf5d2272744d093db13e100fccf"
+  },
+  {
+    "id": "cairn",
+    "source": "lina-persona/agents/cairn-mercer/CHARACTER.md",
+    "file": "data/personas/sources/cairn-CHARACTER.md",
+    "sha256": "aa051862ae9e3b512964068c2b857e6f5fa97cef62c00f03ef50076e7d0f2082",
+    "currentSha256": "915b776bd625308830bc5ea193d538788b362e1adc14e64695f9f03006e5ed2f",
+    "modification": "Authored privacy edit: retained character role, voice and appearance; replaced private image-production history and unavailable links with the shipped avatar and existing rights attestation."
+  }
+]

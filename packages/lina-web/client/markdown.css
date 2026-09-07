@@ -1,0 +1,137 @@
+.markdown-body {
+	color: var(--text);
+	line-height: 1.8;
+	overflow-wrap: anywhere;
+}
+.markdown-body > :first-child {
+	margin-top: 0;
+}
+.markdown-body > :last-child {
+	margin-bottom: 0;
+}
+.markdown-body p,
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body blockquote,
+.markdown-code-block {
+	margin: 0.9em 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+	font-weight: 650;
+	line-height: 1.35;
+	text-wrap: balance;
+}
+.markdown-body h1 {
+	font-size: 1.35rem;
+}
+.markdown-body h2 {
+	font-size: 1.2rem;
+}
+.markdown-body h3 {
+	font-size: 1.08rem;
+}
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+	font-size: 1rem;
+}
+.markdown-body ul,
+.markdown-body ol {
+	padding-left: 1.5em;
+}
+.markdown-body li + li {
+	margin-top: 0.2em;
+}
+.markdown-quote {
+	padding: 0.1em 0 0.1em 1em;
+	border-left: 2px solid var(--line-strong);
+	color: var(--muted);
+}
+.markdown-quote > :first-child {
+	margin-top: 0;
+}
+.markdown-quote > :last-child {
+	margin-bottom: 0;
+}
+.markdown-body a {
+	color: var(--accent);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.16em;
+}
+.markdown-body a:hover {
+	color: var(--accent-hover);
+}
+.markdown-inline-code {
+	padding: 0.12em 0.35em;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	background: var(--surface-raised);
+	font-size: 0.9em;
+}
+.markdown-code-block {
+	overflow: hidden;
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--surface-raised);
+}
+.markdown-code-toolbar {
+	min-height: 36px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 5px 8px 5px 12px;
+	border-bottom: 1px solid var(--line);
+	color: var(--muted);
+	font-size: 0.68rem;
+}
+.markdown-code-language {
+	flex: 1;
+}
+.markdown-copy-button {
+	min-height: 28px;
+	padding: 4px 8px;
+	border: 1px solid var(--line-strong);
+	border-radius: 4px;
+	background: var(--surface-main);
+	color: var(--accent);
+	font-size: 0.68rem;
+}
+.markdown-copy-button:hover {
+	background: var(--input-bg);
+}
+.markdown-copy-status {
+	min-width: 4.5em;
+	color: var(--muted);
+	font-size: 0.65rem;
+}
+.markdown-code-block pre {
+	margin: 0;
+	padding: 13px 14px;
+	overflow-x: auto;
+	font:
+		0.82rem / 1.65 ui-monospace,
+		SFMono-Regular,
+		Menlo,
+		Consolas,
+		monospace;
+	tab-size: 2;
+}
+.markdown-code-block code {
+	font: inherit;
+}
+
+.markdown-copy-status:empty {
+	display: none;
+}

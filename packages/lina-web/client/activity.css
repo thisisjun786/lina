@@ -1,0 +1,56 @@
+.activity-panel {
+	border-left: 1px solid var(--line);
+	background: var(--surface-inspector);
+	padding: 27px 20px;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: auto;
+}
+.activity-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.activity-heading h2 {
+	font-size: 0.8rem;
+	font-weight: 650;
+}
+.activity-list {
+	list-style: none;
+	padding: 0;
+	margin: 21px 0 0;
+}
+.activity-list li {
+	padding: 0 0 22px 15px;
+	position: relative;
+	border-left: 1px solid var(--line);
+	margin-left: 3px;
+}
+.activity-list li:not(.activity-empty)::before {
+	content: "";
+	position: absolute;
+	top: 4px;
+	left: -3px;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--muted);
+}
+.activity-list p {
+	font-size: 0.69rem;
+	line-height: 1.7;
+}
+.activity-list time {
+	display: block;
+	color: var(--muted);
+	font-size: 0.67rem;
+	margin-top: 4px;
+}
+.activity-list .activity-empty {
+	border: 0;
+	padding: 0;
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.7rem;
+}

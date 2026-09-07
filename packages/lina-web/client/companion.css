@@ -1,0 +1,224 @@
+.model-settings {
+	display: grid;
+	gap: 0;
+	border-top: 1px solid var(--line);
+}
+.model-role-row {
+	display: grid;
+	grid-template-columns: 96px minmax(0, 1fr);
+	align-items: center;
+	gap: 12px;
+	padding: 9px 0;
+	border-bottom: 1px solid var(--line);
+	font-size: 0.82rem;
+}
+.model-role-row select {
+	min-width: 0;
+	padding: 7px;
+	border: 1px solid var(--input-border);
+	border-radius: 6px;
+	background: var(--input-bg);
+	color: var(--text);
+}
+.model-effective {
+	color: var(--muted);
+	font-size: 0.72rem;
+	line-height: 1.6;
+	padding-top: 10px;
+}
+.model-trial {
+	display: grid;
+	gap: 8px;
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid var(--line);
+	font-size: 0.82rem;
+}
+.model-trial select,
+.model-trial textarea {
+	width: 100%;
+	padding: 8px;
+	border: 1px solid var(--input-border);
+	border-radius: 6px;
+	background: var(--input-bg);
+	color: var(--text);
+	resize: vertical;
+}
+.model-trial .secondary-button {
+	justify-self: start;
+}
+.model-test-result {
+	white-space: pre-wrap;
+	color: var(--muted);
+	line-height: 1.6;
+}
+.model-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 12px;
+	margin-top: 12px;
+}
+.mind-dialog {
+	width: min(680px, calc(100vw - 24px));
+	max-height: calc(100dvh - 32px);
+}
+.mind-body {
+	overflow-y: auto;
+	padding: 16px 20px 22px;
+}
+.mind-record {
+	border-top: 1px solid var(--line);
+	padding: 14px 0;
+}
+.mind-record p {
+	margin-top: 6px;
+	line-height: 1.65;
+}
+.mind-record small {
+	display: block;
+	color: var(--muted);
+	margin-top: 7px;
+	line-height: 1.6;
+}
+.mind-record .text-button {
+	margin-top: 8px;
+}
+.mind-empty {
+	color: var(--muted);
+	padding: 18px 0;
+}
+.model-config-row {
+	display: grid;
+	grid-template-columns: 76px minmax(0, 1fr) 70px;
+	gap: 8px 10px;
+	align-items: start;
+	padding: 12px 0;
+	border-bottom: 1px solid var(--line);
+	font-size: 0.82rem;
+}
+.model-config-row > label {
+	padding-top: 12px;
+}
+.model-config-row select,
+.model-combobox input {
+	width: 100%;
+	min-width: 0;
+	min-height: 42px;
+	border: 1px solid var(--input-border);
+	border-radius: 8px;
+	background: var(--input-bg);
+	color: var(--text);
+	font: inherit;
+	padding: 9px;
+}
+.model-combobox {
+	min-width: 0;
+	position: relative;
+}
+.model-combobox[data-open="true"] {
+	z-index: 4;
+}
+.model-combobox input {
+	padding-right: 22px;
+	background-image:
+		linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+		linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+	background-position:
+		calc(100% - 13px) 18px,
+		calc(100% - 9px) 18px;
+	background-size: 4px 4px;
+	background-repeat: no-repeat;
+	text-overflow: ellipsis;
+}
+.model-combobox-list {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: calc(100% + 5px);
+	z-index: 4;
+	max-height: min(220px, 40dvh);
+	overflow: auto;
+	overscroll-behavior: contain;
+	padding: 4px;
+	border: 1px solid var(--input-border);
+	border-radius: 10px;
+	background: var(--input-bg);
+}
+.model-combobox[data-placement="above"] .model-combobox-list {
+	top: auto;
+	bottom: calc(100% + 5px);
+}
+.model-combobox-list[hidden] {
+	display: none;
+}
+.model-combobox-list [role="option"] {
+	padding: 11px 9px;
+	min-height: 42px;
+	border-radius: 6px;
+	cursor: pointer;
+	overflow-wrap: anywhere;
+	line-height: 1.5;
+}
+.model-combobox-list [role="option"]:hover,
+.model-combobox-list [data-active="true"] {
+	background: color-mix(in srgb, var(--accent) 18%, var(--input-bg));
+}
+.model-combobox-list [aria-selected="true"] {
+	color: var(--accent);
+	font-weight: 600;
+}
+.model-combobox input:focus-visible,
+.model-config-row select:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.model-config-row :disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.model-row-hint {
+	grid-column: 2 / -1;
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.72rem;
+	line-height: 1.5;
+}
+.model-row-hint:empty {
+	display: none;
+}
+.model-availability-hint {
+	padding: 12px 0 4px;
+}
+.model-trial:not([open]) > :not(summary) {
+	display: none;
+}
+.model-trial summary {
+	cursor: pointer;
+	padding: 8px 0;
+}
+.model-actions {
+	flex-wrap: wrap;
+}
+@media (max-width: 480px) {
+	.model-config-row {
+		grid-template-columns: minmax(0, 1fr) 70px;
+	}
+	.model-config-row > label {
+		grid-column: 1 / -1;
+		padding-top: 0;
+	}
+	.model-row-hint {
+		grid-column: 1 / -1;
+	}
+}
+
+.model-effective p,
+.model-test-result,
+.mind-record {
+	overflow-wrap: anywhere;
+}
+.model-role-row select {
+	width: 100%;
+	min-height: 42px;
+	font: inherit;
+}

@@ -1,0 +1,24 @@
+name: Design decision
+description: Resolve a design choice with concrete constraints and acceptance criteria.
+body:
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision needed
+      description: State the choice and why it matters now.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and tradeoffs
+      description: Include the current approach and the constraints each option must satisfy.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and next action
+      description: What evidence would settle the choice, and what work follows it?
+    validations:
+      required: true

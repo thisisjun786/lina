@@ -1,0 +1,140 @@
+.execution-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin-bottom: 8px;
+	padding: 6px 2px;
+	font-size: 0.75rem;
+}
+.execution-error {
+	color: var(--warning);
+	font-size: 0.75rem;
+	line-height: 1.6;
+	margin: 7px 0;
+}
+.approval-request {
+	border-left: 2px solid var(--accent);
+	padding: 12px;
+	margin: 10px 0;
+	background: var(--surface-raised);
+	border-radius: 6px;
+}
+.approval-request strong {
+	font-size: 0.8rem;
+	font-weight: 600;
+}
+.approval-target {
+	margin: 6px 0 8px;
+	font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+	font-size: 0.72rem;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
+	color: var(--text);
+}
+.approval-input {
+	margin-bottom: 10px;
+}
+.approval-input > summary {
+	cursor: pointer;
+	color: var(--muted);
+	font-size: 0.7rem;
+}
+.approval-request pre {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+	font-size: 0.75rem;
+	line-height: 1.6;
+	margin: 8px 0;
+	max-height: 160px;
+	overflow: auto;
+}
+.approval-buttons {
+	display: flex;
+	gap: 8px;
+}
+.approval-buttons button[data-decision="allow"] {
+	background: var(--button-bg);
+	color: var(--button-text);
+	border-color: var(--button-bg);
+}
+
+.execution-bar {
+	min-height: 42px;
+	justify-content: flex-start;
+	margin-bottom: 6px;
+}
+.presence-mark {
+	flex: 0 0 28px;
+	height: 28px;
+	display: grid;
+	place-items: center;
+	border-radius: 9px;
+	background: var(--selection);
+	color: var(--accent);
+	font:
+		italic 23px Georgia,
+		serif;
+	letter-spacing: -0.12em;
+	padding-right: 4px;
+}
+#presence-label {
+	min-width: 0;
+	color: var(--muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 0.75rem;
+}
+#presence-elapsed {
+	color: var(--muted);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+#cancel-run {
+	margin-left: auto;
+}
+#cancel-run,
+.approval-buttons button {
+	border: 0;
+	border-radius: 6px;
+	background: var(--surface-raised);
+	color: var(--text);
+	padding: 8px 12px;
+	min-height: 36px;
+	flex-shrink: 0;
+}
+.approval-buttons button:disabled {
+	opacity: 0.6;
+}
+#presence[data-moving="true"] .presence-mark {
+	animation: lina-working 2.4s ease-in-out infinite;
+}
+@keyframes lina-working {
+	0%,
+	100% {
+		transform: rotate(-5deg) translateY(0);
+	}
+	50% {
+		transform: rotate(6deg) translateY(-2px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	#presence[data-moving="true"] .presence-mark {
+		animation: none;
+	}
+}
+@media (max-width: 767px) {
+	#presence {
+		gap: 7px;
+	}
+	#cancel-run,
+	.approval-buttons button {
+		min-height: 44px;
+	}
+	.approval-request pre {
+		max-height: 120px;
+	}
+}

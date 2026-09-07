@@ -1,0 +1,66 @@
+.context-panel {
+	margin-bottom: 10px;
+	border-top: 1px solid var(--line);
+	font-size: 0.75rem;
+	overflow: hidden;
+}
+.context-panel > summary {
+	padding: 10px 2px;
+	cursor: pointer;
+	color: var(--muted);
+	font-weight: 500;
+}
+.context-body {
+	padding: 0 2px 10px;
+	max-height: 28dvh;
+	overflow: auto;
+}
+.context-panel p {
+	margin: 5px 0;
+	line-height: 1.65;
+	overflow-wrap: anywhere;
+}
+.context-panel h3 {
+	font-size: 0.75rem;
+	font-weight: 600;
+	margin: 16px 0 6px;
+}
+.context-muted {
+	color: var(--muted);
+}
+.working-items,
+.memory-recall {
+	white-space: pre-wrap;
+}
+.memory-recall {
+	border-left: 2px solid var(--line-strong);
+	padding-left: 10px;
+	max-height: 140px;
+	overflow: auto;
+}
+.context-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+.context-actions button {
+	color: var(--text);
+	background: var(--surface-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: 6px;
+	padding: 7px 12px;
+	min-height: 36px;
+}
+.context-actions button:disabled {
+	color: var(--muted);
+	opacity: 0.7;
+}
+.context-error {
+	color: var(--warning);
+}
+@media (max-width: 767px) {
+	.context-actions button {
+		min-height: 44px;
+	}
+}

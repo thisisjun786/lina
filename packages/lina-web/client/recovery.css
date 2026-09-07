@@ -1,0 +1,24 @@
+.pending-recovery {
+	margin: 0 1.5rem;
+	padding: 0.6rem;
+	max-height: 14rem;
+	overflow: auto;
+	border: 1px solid var(--line);
+	border-radius: 0.5rem;
+	background: var(--surface-raised);
+	font-size: 0.85rem;
+}
+.pending-recovery summary {
+	cursor: pointer;
+}
+.pending-item {
+	padding: 0.5rem 0;
+	overflow-wrap: anywhere;
+}
+.pending-item button {
+	margin-right: 0.7rem;
+	color: var(--accent);
+	background: none;
+	border: 0;
+	cursor: pointer;
+}

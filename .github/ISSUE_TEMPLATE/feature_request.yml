@@ -1,0 +1,22 @@
+name: Feature request
+description: Describe a user problem and the outcome that would solve it.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who is trying to do what, and where does the current experience fall short?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe one concrete successful flow, including how we can verify it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and constraints
+      description: Workarounds, scope limits, examples or references, if useful.

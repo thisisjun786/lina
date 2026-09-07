@@ -1,0 +1,70 @@
+:root {
+	font-family:
+		-apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+		"Noto Sans CJK KR", sans-serif;
+	color: var(--text);
+	background: var(--app-bg);
+	font-synthesis: none;
+}
+* {
+	box-sizing: border-box;
+}
+body {
+	margin: 0;
+	font-size: 0.9375rem;
+}
+button,
+input,
+textarea {
+	font: inherit;
+}
+button,
+a,
+textarea {
+	-webkit-tap-highlight-color: transparent;
+}
+button {
+	cursor: pointer;
+}
+button:disabled {
+	cursor: not-allowed;
+}
+a {
+	color: inherit;
+	text-decoration: none;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+summary:focus-visible,
+textarea:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 4px;
+}
+body [hidden] {
+	display: none;
+}
+h1,
+h2,
+h3,
+p {
+	margin: 0;
+	word-break: keep-all;
+}
+h1,
+h2,
+h3 {
+	text-wrap: balance;
+}
+.workspace {
+	display: grid;
+	grid-template-columns: clamp(
+			200px,
+			var(--sidebar-width, 256px),
+			min(420px, 45vw)
+		) minmax(0, 1fr);
+	height: 100dvh;
+	max-width: 1600px;
+	margin: auto;
+	background: var(--surface-main);
+}

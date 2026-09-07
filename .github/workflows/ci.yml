@@ -1,0 +1,144 @@
+name: Lina CI
+
+on:
+  # Keep intermediate PR bases covered too; select cost inside the workflow.
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lina-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.plan.outputs.app }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          install: 'false'
+      - name: Test CI controls
+        run: bun test ./scripts/ci
+      - name: Validate workflow and contribution files
+        run: bun run ci:validate
+      - id: secret-scan
+        run: bash scripts/ci/secrets.sh
+      - name: Select checks and record candidate
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: bun scripts/ci/plan.ts
+
+  lint:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: bun run lint
+
+  types:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: bun run typecheck
+
+  tests:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Install PDF extraction dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends poppler-utils
+      - name: Check document extraction tools
+        run: |
+          /usr/bin/pdftotext -v
+          /usr/bin/python3 --version
+          /usr/bin/prlimit --version
+      # Includes installer, persistence, and Codex/OpenCodex adapter contracts.
+      # CI helper tests already ran in changes; don't run them twice.
+      - id: dependency-audit
+        run: bun scripts/ci/audit.ts
+      - run: bun test ./packages
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: bun run ci:build
+
+  dev-gate:
+    name: dev-gate
+    if: always() && github.base_ref != 'main'
+    needs: [changes, lint, types, tests, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          install: 'false'
+      - name: Aggregate results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EXPECTED_RELEASE: 'false'
+        run: bun scripts/ci/gate.ts
+
+  release-gate:
+    name: release-gate
+    if: always() && github.base_ref == 'main'
+    needs: [changes, lint, types, tests, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          install: 'false'
+      - name: Aggregate results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EXPECTED_RELEASE: 'true'
+        run: bun scripts/ci/gate.ts

@@ -1,0 +1,13 @@
+{
+	"name": "@lina/memory",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"test": "bun test"
+	},
+	"dependencies": {
+		"zod": "^4.5.4"
+	},
+	"license": "Apache-2.0"
+}

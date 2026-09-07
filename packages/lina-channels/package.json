@@ -1,0 +1,18 @@
+{
+	"name": "@lina/channels",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"test": "bun test"
+	},
+	"dependencies": {
+		"discord.js": "^14.27.0",
+		"ws": "^8.21.3",
+		"zod": "^4.5.4"
+	},
+	"devDependencies": {
+		"@types/ws": "^8.18.1"
+	},
+	"license": "Apache-2.0"
+}

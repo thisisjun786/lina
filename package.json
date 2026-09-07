@@ -1,0 +1,27 @@
+{
+	"name": "lina",
+	"private": true,
+	"license": "Apache-2.0",
+	"type": "module",
+	"description": "LINA — Lifelong Intelligent Networked Agent",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/lina-web/client/tsconfig.json",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"ci:validate": "bun scripts/ci/validate.ts",
+		"ci:build": "bun scripts/ci/build.ts",
+		"start": "bun packages/lina-runtime/scripts/start-codex.ts",
+		"web": "bun packages/lina-web/scripts/start.ts",
+		"lina": "bun packages/lina-runtime/scripts/lina.ts",
+		"install:local": "bun scripts/install.ts"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.12",
+		"bun-types": "latest",
+		"typescript": "^5.9.0"
+	}
+}

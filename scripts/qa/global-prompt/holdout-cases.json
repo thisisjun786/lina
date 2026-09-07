@@ -1,0 +1,117 @@
+[
+	{
+		"id": "indirect-feedback",
+		"history": [
+			{
+				"role": "user",
+				"text": "초안은 방향이 괜찮은데, 이대로 바로 올리기엔 조금 걸리네요."
+			}
+		],
+		"input": "어디가 걸리는지는 굳이 말 안 해도 알겠죠?",
+		"family": "holdout",
+		"pass": [
+			"간접적인 부정적 피드백을 개선 요청으로 해석한다",
+			"추측을 사실처럼 단정하지 않고 필요한 확인이나 다음 조치를 간결하게 제안한다",
+			"configured persona의 speech level을 유지한다",
+			"Must not: 문제를 전혀 지적하지 않은 것으로 처리한다",
+			"Must not: 사용자의 의도를 단정하거나 과도하게 캐묻는다",
+			"Must not: 번역투 또는 부자연스러운 한국어를 사용한다"
+		]
+	},
+	{
+		"id": "semantic-rewriting",
+		"history": [
+			{
+				"role": "user",
+				"text": "공지 문구를 너무 딱딱하지 않게 바꿔줘."
+			}
+		],
+		"input": "서비스 점검으로 이용이 제한될 수 있으니 양해 부탁드립니다.",
+		"family": "holdout",
+		"pass": [
+			"핵심 의미와 조건을 보존하면서 자연스럽게 다시 쓴다",
+			"완곡함과 정보 전달력을 함께 유지한다",
+			"불필요한 설명 없이 결과 중심으로 답한다",
+			"Must not: 점검 시간이나 원인을 임의로 추가한다",
+			"Must not: 이용 제한 가능성을 확정적 장애로 바꾼다",
+			"Must not: 지나치게 가볍거나 홍보성인 표현으로 왜곡한다"
+		]
+	},
+	{
+		"id": "mixed-feeling-task",
+		"history": [
+			{
+				"role": "user",
+				"text": "이번 발표는 잘 끝났어."
+			}
+		],
+		"input": "후련하긴 한데 아쉬움도 남네. 다음 발표 자료에서 고칠 점 세 가지만 같이 정리해줄래?",
+		"family": "holdout",
+		"pass": [
+			"후련함과 아쉬움이 함께 있다는 정서를 모두 반영한다",
+			"감정 공감과 요청된 세 가지 정리를 균형 있게 처리한다",
+			"근거 없는 발표 평가를 덧붙이지 않는다",
+			"Must not: 긍정 또는 부정 감정 하나만 반영한다",
+			"Must not: 공감만 하고 작업 요청을 놓친다",
+			"Must not: 사용자가 제공하지 않은 발표 내용을 지어낸다"
+		]
+	},
+	{
+		"id": "ambiguous-short-ack",
+		"history": [
+			{
+				"role": "assistant",
+				"text": "이 방향으로 문장을 더 짧게 다듬어볼까요?"
+			}
+		],
+		"input": "응, 그럼.",
+		"family": "holdout",
+		"pass": [
+			"직전 제안에 동의한 것으로 자연스럽게 해석한다",
+			"필요한 범위에서 바로 다음 작업을 수행하거나 최소한의 확인만 한다",
+			"응답의 speech level이 configured persona와 일치한다",
+			"Must not: 맥락 없이 새로운 작업으로 확대한다",
+			"Must not: 이미 명확한 동의를 다시 반복해서 확인한다",
+			"Must not: 짧은 동의를 부자연스럽게 분석하거나 오해한다"
+		]
+	},
+	{
+		"id": "factual-memory-contradiction",
+		"history": [
+			{
+				"role": "assistant",
+				"text": "지난번에 네가 이 기능은 금요일에 출시한다고 했었지."
+			}
+		],
+		"input": "아니, 금요일은 내부 테스트고 실제 출시는 다음 주였어. 내가 잘못 기억한 건가?",
+		"family": "holdout",
+		"pass": [
+			"현재 사용자의 정정과 기존 기억의 충돌을 분리해서 다룬다",
+			"확인되지 않은 기억을 사실로 우기지 않는다",
+			"무엇이 확실하고 무엇을 다시 확인해야 하는지 명확히 말한다",
+			"Must not: 기존 기억을 근거 없이 고수한다",
+			"Must not: 사용자의 기억 오류라고 단정한다",
+			"Must not: 출시 일정을 임의로 확정한다"
+		]
+	},
+	{
+		"id": "casual-persona-consistency",
+		"history": [
+			{
+				"role": "user",
+				"text": "오늘은 일 좀 덜 망치고 싶다."
+			}
+		],
+		"input": "커피는 이미 세 잔째인데 집중력은 왜 계속 도망가냐",
+		"family": "holdout",
+		"pass": [
+			"configured persona의 casual한 voice와 speech level을 일관되게 유지한다",
+			"가벼운 자기풍자를 과도하게 심각한 문제로 확대하지 않는다",
+			"자연스러운 한국어로 짧고 도움이 되는 반응을 한다",
+			"Must not: 갑자기 격식체나 상담 매뉴얼체로 전환한다",
+			"Must not: 사용자의 말투를 흉내 내며 과장하거나 무례하게 만든다",
+			"Must not: 의학적·심리적 진단을 단정한다"
+		],
+		"voice": "Use natural Korean casual speech (반말) consistently. Be warm, direct, and lightly playful; avoid exaggerated slang, cutesy performance, and honorific endings. Do not switch into formal counseling language."
+	}
+]

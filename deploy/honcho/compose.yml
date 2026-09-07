@@ -1,0 +1,59 @@
+name: lina-honcho
+services:
+  database:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: lina_honcho
+      POSTGRES_USER: lina_honcho
+      POSTGRES_PASSWORD: ${LINA_HONCHO_DB_PASSWORD:?Set database password}
+    ports: ["127.0.0.1:15431:5432"]
+    volumes: [lina-honcho-db:/var/lib/postgresql/data]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U lina_honcho -d lina_honcho]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:8.2
+    ports: ["127.0.0.1:16381:6379"]
+    volumes: [lina-honcho-cache:/data]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    image: lina-honcho:3.1.0
+    command: [fastapi, run, --host, 127.0.0.1, --port, "8010", src/main.py]
+    network_mode: host
+    depends_on:
+      database: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    env_file: [./runtime/service.env]
+    environment:
+      DB_CONNECTION_URI: postgresql+psycopg://lina_honcho:${LINA_HONCHO_DB_PASSWORD}@127.0.0.1:15431/lina_honcho
+      CACHE_URL: redis://127.0.0.1:16381/0?suppress=true
+      CACHE_ENABLED: 'true'
+    volumes: [./config.toml:/app/config.toml:ro]
+    restart: unless-stopped
+  deriver:
+    image: lina-honcho:3.1.0
+    entrypoint: [/app/.venv/bin/python, -m, src.deriver]
+    profiles: [inference]
+    network_mode: host
+    depends_on:
+      database: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    env_file: [./runtime/service.env]
+    environment:
+      DB_CONNECTION_URI: postgresql+psycopg://lina_honcho:${LINA_HONCHO_DB_PASSWORD}@127.0.0.1:15431/lina_honcho
+      CACHE_URL: redis://127.0.0.1:16381/0?suppress=true
+      CACHE_ENABLED: 'true'
+      METRICS_ENABLED: 'false'
+    volumes: [./config.toml:/app/config.toml:ro]
+    restart: unless-stopped
+volumes:
+  lina-honcho-db:
+  lina-honcho-cache:
