@@ -1,6 +1,6 @@
 # Validation scope
 
-This page defines reproducible checks and acceptance boundaries for the source candidate. It does not carry forward private session reports or assert that historical test totals, hosted checks, installed services or provider behavior validate this candidate. Publication remains pending under [PUBLICATION](PUBLICATION.md).
+This page defines reproducible checks and acceptance boundaries for a source revision. Record results for the exact code and environment tested, and limit release claims to that evidence. [PUBLICATION](PUBLICATION.md) covers source review and publication requirements.
 
 ## Source checks
 
@@ -16,7 +16,7 @@ bun scripts/ci/audit.ts
 bash scripts/ci/secrets.sh
 ```
 
-The history scanner requires readable Git history; a disconnected candidate without its first reviewed commit cannot use an empty history scan as proof. Scan candidate files separately during preparation, then scan the final export history and metadata. Dependency auditing queries the configured advisory source. Source tests use synthetic temporary data and local fakes; they do not qualify live model services.
+The history scanner requires readable Git history; an empty or incomplete scan is not proof of a clean history. Inspect the final tracked files and metadata as well as the commits being published. Dependency auditing queries the configured advisory source. Source tests use synthetic temporary data and local fakes; they do not qualify live model services.
 
 Record the exact source revision or file digest set, command, exit code and material warnings with each result. Failed, skipped and unrun checks remain distinct. Hosted checks validate their combined merge candidate; local results do not activate GitHub protections.
 
@@ -38,18 +38,13 @@ Live scripts under [scripts/qa](../scripts/qa) may require accounts, inference a
 
 ## Documentation and provenance
 
-Check every local Markdown file target after moving plans. Persona source records keep the original `sha256` and verify current bytes against `currentSha256`; see the runnable check in [PUBLICATION](PUBLICATION.md). Preserve image and license bytes. Review identifying strings in context: synthetic examples, loopback/default configuration and public third-party attribution differ from personal environment records.
+Check local Markdown targets and section anchors in changed documents. Persona source records keep the original `sha256` and verify current bytes against `currentSha256`; use the [reproducible check](PUBLICATION.md#reproducible-documentation-checks) for persona, avatar and icon digests. Preserve image and license bytes. Review identifying strings in context: synthetic examples, loopback/default configuration and public third-party attribution differ from personal environment records.
 
 Automatic semantic history, selective live restore, external-service export, the Electron redesign, multi-message delivery, clipboard additions, desktop provisioning, image integration and the world/feed engine require their own implementation evidence. Planning documents are acceptance requirements, not evidence that these features ran.
 
-## Local source preparation, 2026-09-07
+## Upgrade checks
 
-The public candidate removes personal source identifiers and uses configured
-Honcho user peers rather than a maintainer-specific override. Fleet-derived peer
-configuration is validated so the user cannot alias the agent observer.
-[Existing Honcho installations](../deploy/honcho/README.md#agent-scopes-and-readiness)
-retain their actual peer ID when upgrading; no external data migration is included.
-
-Final source commands, export identity, privacy findings and private-backup
-receipts are recorded by the preparing maintainer. New GitHub checks and settings
-must be verified on the actual new repository before public activation.
+For [existing Honcho installations](../deploy/honcho/README.md#agent-scopes-and-readiness),
+verify that upgrades retain the configured user peer ID and reject an ID that
+aliases the agent observer. Source installation does not migrate external memory
+data; test any migration separately within its authorized scope.

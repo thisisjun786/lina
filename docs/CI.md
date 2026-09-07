@@ -1,7 +1,8 @@
 # CI operation and activation
 
 [POLICY.md](../POLICY.md) owns the rules. This page maps those rules to commands
-and GitHub settings. It is not evidence that remote protection is already active.
+and GitHub settings. Keep verification evidence with the corresponding PR or
+release record.
 
 ## Checks
 
@@ -59,42 +60,47 @@ JavaScript or prove live exploitability.
 
 ## Activation
 
-The local source candidate has no newly activated GitHub settings or hosted CI
-results. For an explicitly authorized repository, configure and verify the
-following target settings after the checked-in workflow is available:
+`dev` is the default branch and the target for normal contributions. `main` has
+not been created; it is reserved for a future owner-authorized release promotion.
+Public source activation does not include creating `main` or promoting a release.
+
+Keep the following protection settings in place and verify them from GitHub
+after any settings or visibility change:
 
 | Setting | `dev` | `main` |
 | --- | --- | --- |
+| Protection mechanism | Classic branch protection | Active ruleset targeting `refs/heads/main` |
 | Required check | `dev-gate` | `release-gate` |
 | Check producer | GitHub Actions, app ID `15368` | GitHub Actions, app ID `15368` |
 | Up-to-date base and PR required | Yes | Yes |
 | Required approving reviews | 0 | 0 |
-| Resolved conversations and admin enforcement | Yes | Yes |
+| Resolved conversations | Required | Required |
+| Bypass | Admin enforcement; no bypass | Zero bypass actors |
 | Force pushes and branch deletion | Blocked | Blocked |
 
-Merge commits are enabled; squash/rebase merging and automatic merge are disabled.
-Required linear history is off. These are intended settings; their presence in
-this document does not establish remote enforcement or a green candidate.
+The ruleset for future `main` is active even while the branch is absent. Its strict
+`release-gate` requirement also applies when creating the branch; there is no
+first-branch exemption or bypass procedure.
 
-For a newly created repository, land the CI contribution files through a checked
-PR, then apply the settings above and re-read them from GitHub. Bind checks to
-GitHub Actions rather than accepting a matching check name from any producer.
-Do not bypass a required check to bootstrap it. Setting the default to `dev`
-exposes its contribution templates and makes integration the ordinary PR base.
+Merge commits are the only enabled merge method. Squash/rebase merging, automatic
+merge and required linear history are off. Actions use a read-only default token
+and cannot create or approve pull requests. Bind required checks to GitHub Actions
+so a matching name from another producer cannot satisfy protection.
 
-Visibility remains a separate owner decision. Public activation must enable and
-verify the confidential reporting route immediately;
-see [publication preparation](PUBLICATION.md) and [SECURITY.md](../SECURITY.md).
-Re-read protection after a visibility change. Admins who can edit repository
-settings can change the policy itself; the restrictions above are not immutable.
+Verify hosted checks against the actual PR candidate; checked-in workflows and
+local results do not establish a hosted result. Public activation also requires
+reporter-visible access to the private route in [SECURITY.md](../SECURITY.md), as
+described in [publication guidance](PUBLICATION.md). Administrators with settings
+access can change the rules themselves; the protections are not immutable.
 
 Before any merge, re-read the PR head/base, required checks, draft status,
 mergeability and unresolved conversations. Match the reviewed head when invoking
 the merge action (`gh pr merge --merge --match-head-commit <SHA>` is one option).
 Strict status checks cover target-branch movement; an expected-head argument
 alone protects only the source branch. Refresh checks when either input changes.
-After promotion, reconcile the new `main` merge commit into `dev` through a PR
-before the next promotion; do not use a direct push to synchronize branches.
+After a future authorized promotion, reconcile the new `main` merge commit into
+`dev` through a PR before the next promotion; do not use a direct push to
+synchronize branches.
 
 ## Failures and changes to CI
 
