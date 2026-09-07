@@ -136,6 +136,18 @@ function appendInline(
 			parent.append(link);
 			continue;
 		}
+		if (token.type === "attachment-image") {
+			if (sessionId !== undefined && token.sessionId === sessionId) {
+				const image = dom.createElement("img");
+				image.className = "markdown-attachment-image";
+				image.setAttribute("alt", token.alt);
+				image.setAttribute("loading", "lazy");
+				image.setAttribute("decoding", "async");
+				image.setAttribute("src", token.src);
+				parent.append(image);
+			} else parent.append(dom.createTextNode(token.source));
+			continue;
+		}
 		if (sessionId !== undefined && token.sessionId === sessionId) {
 			const link = dom.createElement("a");
 			link.className = "markdown-attachment-link";

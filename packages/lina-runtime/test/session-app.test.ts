@@ -169,3 +169,46 @@ test("failed native shutdown retains ownership until a successful retry", async 
 	const lease = acquireSessionLease(config.stateRoot, "lina", config.workspace);
 	lease.close();
 });
+
+test("image tools register in the Codex app with isolated state and no provider call at startup", async () => {
+	const config = options();
+	let host: CodexHost | undefined;
+	let requests = 0;
+	const create = config.createSession;
+	config.createSession = async (sdkOptions) => {
+		host = new CodexHost(config.workspace, () => ({ action: "allow" }));
+		sdkOptions.register?.(
+			host.asLinaHost(),
+			{
+				estimateText: (text) => text.length,
+				estimateMessages: (messages) => messages.length,
+				systemTokens: 0,
+				contextWindow: 96000,
+				reserveTokens: 1000,
+				summarize: async () => "",
+				prepare: () => {
+					throw Error("unused");
+				},
+			},
+			() => ({ action: "allow" }),
+		);
+		return create(sdkOptions);
+	};
+	const app = await startPersistentApp({
+		...config,
+		imageEngine: {
+			baseUrl: "http://127.0.0.1:45678",
+			fetch: async () => {
+				requests++;
+				throw Error("must not call on startup");
+			},
+		},
+	});
+	cleanups.push(app.stop);
+	expect(host?.tools.has("lina_image_models")).toBe(true);
+	expect(host?.tools.has("lina_image_generate")).toBe(true);
+	expect(host?.tools.has("lina_image_edit")).toBe(true);
+	expect(app.images?.list()).toEqual([]);
+	expect(existsSync(join(config.stateRoot, "images/jobs.json"))).toBe(true);
+	expect(requests).toBe(0);
+});

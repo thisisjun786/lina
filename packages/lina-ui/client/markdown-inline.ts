@@ -7,6 +7,10 @@ import {
 
 const UUID =
 	"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+const IMAGE_PREVIEW = new RegExp(
+	`^/api/attachments/${UUID}/preview\\?sessionId=(${UUID})$`,
+	"u",
+);
 type LinkMatch = {
 	readonly end: number;
 	readonly label: string;
@@ -35,6 +39,24 @@ export function parseInline(
 		if (source[index] === "!" && source[index + 1] === "[") {
 			const image = linkAt(source, index + 1);
 			if (image !== undefined) {
+				const preview = IMAGE_PREVIEW.exec(image.destination);
+				// Match the raw URL exactly: never normalize paths, queries or whitespace.
+				if (
+					preview !== null &&
+					preview[0] === image.destination &&
+					preview[1] !== undefined
+				) {
+					flushPlain(index);
+					budget.take();
+					tokens.push({
+						type: "attachment-image",
+						src: image.destination,
+						alt: image.label,
+						sessionId: preview[1],
+						source: `!${image.source}`,
+					});
+					plainStart = image.end;
+				}
 				index = image.end;
 				continue;
 			}
@@ -80,7 +102,7 @@ export function parseInline(
 		if (source[index] === "[") {
 			const link = linkAt(source, index);
 			if (link !== undefined) {
-				const kind = classifyDestination(link.destination);
+				const kind = classifyDestination(link.destination.trim());
 				if (kind !== undefined) {
 					flushPlain(index);
 					const children = parseInline(link.label, budget, depth + 1);
@@ -126,7 +148,7 @@ function linkAt(source: string, start: number): LinkMatch | undefined {
 	return {
 		end: end + 1,
 		label: source.slice(start + 1, labelEnd),
-		destination: source.slice(labelEnd + 2, end).trim(),
+		destination: source.slice(labelEnd + 2, end),
 		source: source.slice(start, end + 1),
 	};
 }

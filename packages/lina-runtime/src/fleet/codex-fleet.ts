@@ -214,6 +214,14 @@ async function startUnlocked(
 						].filter(existsSync);
 					const app = await startPersistentApp({
 						...appOptions,
+						imageEngine: {
+							...(env["LINA_IMA2_URL"]
+								? { baseUrl: env["LINA_IMA2_URL"] }
+								: {}),
+							serverFile:
+								env["LINA_IMA2_SERVER_FILE"] ??
+								join(home, ".ima2", "server.json"),
+						},
 						engine: createCodexEngine({
 							services: hub.createContextServices(
 								getSettings,
