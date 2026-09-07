@@ -558,6 +558,46 @@ test("a successful LIFE tool result persists trusted intent before its serialize
 	await pending;
 });
 
+test("revocation after a tool handler returns blocks its actual serialized RPC delivery", async () => {
+	const f = setupNative();
+	f.state.policy = revised(f.state.policy, { purpose: "life" });
+	const session = await createCodexSession({
+		...f.options,
+		contextPolicy: f.state.policy,
+		contextExposure(source) {
+			if (source.kind !== "tool") return [];
+			queueMicrotask(() => {
+				f.state.policy = revised(f.state.policy, { disclosureRevision: 2 });
+			});
+			return [{ kind: "disclosed-life", sourceId: "private-1" }];
+		},
+		register(host) {
+			host.registerTool({
+				name: "fixture_read",
+				label: "read",
+				description: "read",
+				parameters: Type.Object({}),
+				execute: () => ({
+					content: [{ type: "text", text: "PRIVATE BODY" }],
+					details: {},
+				}),
+			});
+		},
+	});
+	cleanup.push(() => session.close());
+	const pending = session.prompt("hi", admission());
+	void pending.catch(() => {});
+	await f.rpc.next("turn/start");
+	const response = await f.rpc.tool(session.threadId, "fixture_read", {});
+	expect(f.state.policy.disclosureRevision).toBe(2);
+	expect(JSON.stringify(response)).not.toContain("PRIVATE BODY");
+	expect(response.error).toBeDefined();
+	expect(
+		session.contextLineage().find((r) => r.source.kind === "tool"),
+	).toMatchObject({ outcome: "planned" });
+	await expect(pending).rejects.toThrow(/scope changed/i);
+});
+
 test("unresolved active native run prevents scope migration before start or resume", async () => {
 	const f = setupNative();
 	const session = await createCodexSession(f.options);

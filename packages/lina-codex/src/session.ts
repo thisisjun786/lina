@@ -456,71 +456,80 @@ async function startSession(
 		}
 	});
 
-	const unsubscribeRequests = rpc.onRequest(async (method, params) => {
-		const source = threadIdOf(params);
-		if (contextPolicy.explicit && source !== boundThreadId)
-			throw new Error("Foreign native context request");
-		if (boundThreadId && source && source !== boundThreadId) return;
-		const signal = turnAbort?.signal;
-		const epoch = contextPolicy.nativeEpoch;
-		const guard = (): void => {
-			if (closed || ended || epoch !== contextPolicy.nativeEpoch)
-				throw new Error("Native context is no longer active");
-			signal?.throwIfAborted();
-			try {
-				contextPolicy.assertCurrent();
-			} catch {
-				failRun(new Error("Context scope changed; attention required"));
-				throw new Error("Context scope changed; delivery blocked");
+	const unsubscribeRequests = rpc.onRequest(
+		async (method, params, beforeSend) => {
+			const source = threadIdOf(params);
+			if (contextPolicy.explicit && source !== boundThreadId)
+				throw new Error("Foreign native context request");
+			if (boundThreadId && source && source !== boundThreadId) return;
+			const signal = turnAbort?.signal;
+			const epoch = contextPolicy.nativeEpoch;
+			const guard = (): void => {
+				if (closed || ended || epoch !== contextPolicy.nativeEpoch)
+					throw new Error("Native context is no longer active");
+				signal?.throwIfAborted();
+				try {
+					contextPolicy.assertCurrent();
+				} catch {
+					failRun(new Error("Context scope changed; attention required"));
+					throw new Error("Context scope changed; delivery blocked");
+				}
+			};
+			if (contextPolicy.explicit) beforeSend(guard);
+			guard();
+			if (!signal) throw new Error("No active Codex turn for native request");
+			if (method === "item/tool/call" && isRecord(params)) {
+				const tool = typeof params["tool"] === "string" ? params["tool"] : "";
+				const callId =
+					typeof params["callId"] === "string"
+						? params["callId"]
+						: randomUUID();
+				const result = await host.invokeTool(
+					tool,
+					callId,
+					params["arguments"],
+					signal,
+					contextPolicy.explicit ? guard : undefined,
+				);
+				guard();
+				contextPolicy.plan({
+					kind: "tool",
+					requestId: contextPolicy.requestId ?? randomUUID(),
+					toolName: tool,
+					callId,
+				});
+				guard();
+				return result;
 			}
-		};
-		guard();
-		if (!signal) throw new Error("No active Codex turn for native request");
-		if (method === "item/tool/call" && isRecord(params)) {
-			const tool = typeof params["tool"] === "string" ? params["tool"] : "";
-			const callId =
-				typeof params["callId"] === "string" ? params["callId"] : randomUUID();
-			const result = await host.invokeTool(
-				tool,
-				callId,
-				params["arguments"],
-				signal,
-				contextPolicy.explicit ? guard : undefined,
-			);
-			guard();
-			contextPolicy.plan({
-				kind: "tool",
-				requestId: contextPolicy.requestId ?? randomUUID(),
-				toolName: tool,
-				callId,
-			});
-			guard();
-			return result;
-		}
-		if (
-			method === "item/commandExecution/requestApproval" &&
-			isRecord(params)
-		) {
-			const allow = await host.authorizeNative(
-				"bash",
-				typeof params["itemId"] === "string" ? params["itemId"] : randomUUID(),
-				{ command: params["command"], cwd: params["cwd"] },
-				signal,
-			);
-			guard();
-			return { decision: allow ? "accept" : "decline" };
-		}
-		if (method === "item/fileChange/requestApproval" && isRecord(params)) {
-			const allow = await host.authorizeNative(
-				"edit",
-				typeof params["itemId"] === "string" ? params["itemId"] : randomUUID(),
-				{ reason: params["reason"] },
-				signal,
-			);
-			guard();
-			return { decision: allow ? "accept" : "decline" };
-		}
-	});
+			if (
+				method === "item/commandExecution/requestApproval" &&
+				isRecord(params)
+			) {
+				const allow = await host.authorizeNative(
+					"bash",
+					typeof params["itemId"] === "string"
+						? params["itemId"]
+						: randomUUID(),
+					{ command: params["command"], cwd: params["cwd"] },
+					signal,
+				);
+				guard();
+				return { decision: allow ? "accept" : "decline" };
+			}
+			if (method === "item/fileChange/requestApproval" && isRecord(params)) {
+				const allow = await host.authorizeNative(
+					"edit",
+					typeof params["itemId"] === "string"
+						? params["itemId"]
+						: randomUUID(),
+					{ reason: params["reason"] },
+					signal,
+				);
+				guard();
+				return { decision: allow ? "accept" : "decline" };
+			}
+		},
+	);
 
 	const abortActiveTurn = async (waitForSettle = true): Promise<void> => {
 		abortRequested = true;

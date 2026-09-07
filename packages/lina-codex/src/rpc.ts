@@ -12,6 +12,8 @@ export type CodexRpcNotification = {
 export type CodexRpcRequestHandler = (
 	method: string,
 	params: unknown,
+	/** Register trusted checks to run after serialization, immediately before writing. */
+	beforeSend: (check: () => void) => void,
 ) => Promise<unknown>;
 
 export type CodexRpcStdio = {
@@ -136,10 +138,19 @@ export async function createCodexRpc(
 		pending.clear();
 	};
 
-	const writeSafe = (value: unknown): boolean => {
+	const writeSafe = (value: unknown, beforeSend?: () => void): boolean => {
+		if (closed) return false;
+		let frame: string;
+		try {
+			frame = `${JSON.stringify(value)}\n`;
+		} catch {
+			return false;
+		}
+		// No await or user-controlled serialization between authorization and transport.
+		beforeSend?.();
 		if (closed) return false;
 		try {
-			input.write(`${JSON.stringify(value)}\n`);
+			input.write(frame);
 			return true;
 		} catch {
 			return false;
@@ -193,11 +204,14 @@ export async function createCodexRpc(
 		method: string,
 		params: unknown,
 	): Promise<void> => {
+		const deliveryChecks: Array<() => void> = [];
 		try {
 			let handled = false;
 			let result: unknown;
 			for (const handler of requestHandlers) {
-				const value = await handler(method, params);
+				const value = await handler(method, params, (check) =>
+					deliveryChecks.push(check),
+				);
 				if (value !== undefined) {
 					result = value;
 					handled = true;
@@ -213,14 +227,19 @@ export async function createCodexRpc(
 				});
 				return;
 			}
-			writeSafe({ id, result });
+			writeSafe({ id, result }, () => {
+				for (const check of deliveryChecks) check();
+			});
 		} catch (error) {
 			writeSafe({
 				id,
 				error: {
 					code: INTERNAL_ERROR,
-					message:
-						error instanceof Error ? error.message : "Codex request failed",
+					message: deliveryChecks.length
+						? "Codex request delivery blocked"
+						: error instanceof Error
+							? error.message
+							: "Codex request failed",
 				},
 			});
 		}

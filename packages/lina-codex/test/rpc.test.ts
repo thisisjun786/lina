@@ -109,6 +109,38 @@ test("server request id 0 is answered and unknown methods are denied", async () 
 	expect(denied.error.message).toContain("mystery/request");
 });
 
+test("response delivery guards run after serialization and redact their errors", async () => {
+	const io = fakeStdio();
+	const rpc = await createCodexRpc({
+		stdio: { input: io.input, output: io.output },
+		ownsProcess: false,
+	});
+	cleanup.push(() => rpc.close());
+	const order: string[] = [];
+	let allowed = true;
+	rpc.onRequest(async (_method, _params, beforeSend) => {
+		beforeSend(() => {
+			order.push("guard");
+			if (!allowed) throw Error("PRIVATE GUARD REASON");
+		});
+		return {
+			toJSON() {
+				order.push("serialized");
+				allowed = false;
+				return { text: "PRIVATE BODY" };
+			},
+		};
+	});
+	io.reply({ id: "guarded", method: "fixture/read", params: {} });
+	const response = await io.next();
+	expect(order).toEqual(["serialized", "guard"]);
+	expect(response).toEqual({
+		id: "guarded",
+		error: { code: -32603, message: "Codex request delivery blocked" },
+	});
+	expect(JSON.stringify(response)).not.toContain("PRIVATE");
+});
+
 test("pending requests reject on EOF and on timeout", async () => {
 	const eof = fakeStdio();
 	const rpc = await createCodexRpc({
