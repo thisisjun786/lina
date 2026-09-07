@@ -28,6 +28,13 @@ export type MarkdownInlineToken =
 	| { readonly type: "inline-code"; readonly value: string }
 	| { readonly type: "strong"; readonly children: MarkdownInlineToken[] }
 	| {
+			readonly type: "attachment-image";
+			readonly src: string;
+			readonly alt: string;
+			readonly sessionId: string;
+			readonly source: string;
+	  }
+	| {
 			readonly type: "link";
 			readonly href: string;
 			readonly children: MarkdownInlineToken[];

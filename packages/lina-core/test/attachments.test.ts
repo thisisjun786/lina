@@ -38,6 +38,25 @@ function fixture() {
 	return { dir, binding };
 }
 
+test("a stable artifact ID imports once across restart and rejects conflicting bytes", () => {
+	const { dir, binding } = fixture();
+	const id = "11111111-1111-4111-8111-111111111111";
+	const bytes = new TextEncoder().encode("immutable result");
+	const first = new AttachmentStore(dir, binding);
+	const receipt = first.put("result.txt", bytes, id);
+	expect(receipt.id).toBe(id);
+	first.close();
+	const second = new AttachmentStore(dir, binding);
+	expect(second.put("result.txt", bytes, id)).toEqual(receipt);
+	expect(readdirSync(join(dir, "attachments/files"))).toEqual([id]);
+	expect(() =>
+		second.put("result.txt", new TextEncoder().encode("changed"), id),
+	).toThrow("conflict");
+	expect(() => second.put("different.txt", bytes, id)).toThrow("conflict");
+	expect(second.bytes(id)).toEqual(bytes);
+	second.close();
+});
+
 test("stores immutable typed bytes and reads UTF-8 in surrogate-safe pages", () => {
 	const { dir, binding } = fixture();
 	const store = new AttachmentStore(dir, binding);
@@ -191,5 +210,26 @@ test("retains unreferenced crash files without adopting them or blocking committ
 	expect(readFileSync(join(dir, "attachments", "files", orphan), "utf8")).toBe(
 		"uncommitted",
 	);
+	reopened.close();
+});
+
+test("stable import recovers its own pre-manifest crash file without overwriting a conflict", () => {
+	const { dir, binding } = fixture();
+	const store = new AttachmentStore(dir, binding);
+	const id = "22222222-2222-4222-8222-222222222222";
+	const bytes = new TextEncoder().encode("retained result");
+	writeFileSync(join(dir, "attachments/files", id), bytes);
+	store.close();
+	const recovered = new AttachmentStore(dir, binding);
+	expect(() =>
+		recovered.put("result.txt", new TextEncoder().encode("different"), id),
+	).toThrow("conflict");
+	expect(readFileSync(join(dir, "attachments/files", id))).toEqual(
+		Buffer.from(bytes),
+	);
+	expect(recovered.put("result.txt", bytes, id).id).toBe(id);
+	recovered.close();
+	const reopened = new AttachmentStore(dir, binding);
+	expect(reopened.bytes(id)).toEqual(bytes);
 	reopened.close();
 });
