@@ -1,4 +1,4 @@
-# Contributing to Lina
+# Contributing to LINA
 
 Read [POLICY.md](POLICY.md) for development, CI and merge rules and
 [AGENTS.md](AGENTS.md) for package boundaries. Product setup is in
