@@ -93,6 +93,16 @@ export async function installRelease(input: InstallInput) {
 					walk(join(packageRoot, entry));
 			}
 		}
+		const vendor = "packages/lina-runtime/vendor";
+		if (lstatSync(join(source, vendor), { throwIfNoEntry: false })) {
+			checkedDirectory(join(source, vendor), false);
+			const ensemble = join(vendor, "ensemble");
+			if (lstatSync(join(source, ensemble), { throwIfNoEntry: false })) {
+				checkedDirectory(join(source, ensemble), false);
+				// Only the reviewed bundle; keep the normal state/file checks.
+				walk(ensemble);
+			}
+		}
 		for (const entry of [
 			"data/app-system-prompt.md",
 			"data/system-prompt.md",

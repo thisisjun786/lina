@@ -16,6 +16,7 @@ import {
 	nullableId,
 	revision,
 } from "./life-json.ts";
+import { parseSocialMigrationPreview } from "./social-receipt-validation.ts";
 import { fields, text, unique } from "./validation.ts";
 
 function string(value: unknown): string {
@@ -145,6 +146,11 @@ export function parseEvaluationReceipt(value: unknown): EvaluationReceipt {
 
 export function parseWorldDraftPreview(value: unknown): WorldDraftPreview {
 	jsonBoundary(value);
+	const current =
+		!!value &&
+		typeof value === "object" &&
+		"version" in value &&
+		value["version"] === 2;
 	fields(value, [
 		"version",
 		"draftId",
@@ -157,14 +163,25 @@ export function parseWorldDraftPreview(value: unknown): WorldDraftPreview {
 		"evaluation",
 		"canActivate",
 		"digest",
+		...(current ? ["socialMigration"] : []),
 	]);
-	if (value.version !== 1) throw Error("Unsupported world preview version");
-	identifier(value.draftId);
-	revision(value.draftRevision, 1);
-	identifier(value.worldId);
-	if (value.packDigest !== null) digest(value.packDigest);
-	const options = parseWorldPreviewOptions(value.options);
-	const questions = array(value.unresolved, (question) => {
+	if (!current && value["version"] !== 1)
+		throw Error("Unsupported world preview version");
+	identifier(value["draftId"]);
+	revision(value["draftRevision"], 1);
+	identifier(value["worldId"]);
+	if (value["packDigest"] !== null) digest(value["packDigest"]);
+	const options = parseWorldPreviewOptions(value["options"]);
+	if (current && value["socialMigration"] !== null) {
+		const migration = parseSocialMigrationPreview(value["socialMigration"]);
+		if (
+			migration.toPackDigest !== value["packDigest"] ||
+			options.expectedWorldRevision !== migration.worldRevision - 1 ||
+			options.simulationTime !== migration.simulationTime
+		)
+			throw Error("Social migration preview boundary mismatch");
+	}
+	const questions = array(value["unresolved"], (question) => {
 		fields(question, ["id", "question", "blocking"]);
 		identifier(question.id);
 		text(question.question, "preview question");
@@ -175,28 +192,30 @@ export function parseWorldDraftPreview(value: unknown): WorldDraftPreview {
 		questions.map((question) => question.id as string),
 		"preview question",
 	);
-	fields(value.changes, [
+	fields(value["changes"], [
 		"addedAgents",
 		"retiredAgents",
 		"removedScenes",
 		"changedPlaces",
 		"changedRuleIds",
 	]);
-	for (const list of Object.values(value.changes)) ids(list);
+	for (const list of Object.values(value["changes"])) ids(list);
 	const evaluation =
-		value.evaluation === null ? null : parseEvaluationReceipt(value.evaluation);
-	const active = flag(value.canActivate);
+		value["evaluation"] === null
+			? null
+			: parseEvaluationReceipt(value["evaluation"]);
+	const active = flag(value["canActivate"]);
 	if (
 		active &&
-		(value.packDigest === null ||
+		(value["packDigest"] === null ||
 			evaluation === null ||
 			questions.some((question) => question.blocking))
 	)
 		throw Error("Impossible world preview readiness");
 	if (
 		evaluation &&
-		(evaluation.worldId !== value.worldId ||
-			evaluation.evaluationId !== value.draftId ||
+		(evaluation.worldId !== value["worldId"] ||
+			evaluation.evaluationId !== value["draftId"] ||
 			evaluation.agentId !== options.agentId ||
 			evaluation.recipientId !== null ||
 			evaluation.seed !== options.seed)

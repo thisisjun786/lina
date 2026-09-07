@@ -1,3 +1,4 @@
+import { knowsClaimAt } from "./life-knowledge.ts";
 import type {
 	AuthorInspection,
 	AuthorScope,
@@ -47,12 +48,9 @@ function statement(
 	world: WorldSnapshot,
 	life: LifeState,
 ): string | undefined {
-	if (ref.kind === "world_fact")
-		return world.facts.find(
-			(x) => x.id === ref.id && x.knownTo.includes(agentId),
-		)?.text;
-	return life.claims.find(
-		(x) => x.id === ref.id && x.disclosure.knowers.includes(agentId),
+	if (!knowsClaimAt(ref, agentId, world, life)) return undefined;
+	return (ref.kind === "world_fact" ? world.facts : life.claims).find(
+		(x) => x.id === ref.id,
 	)?.text;
 }
 function sceneFor(
@@ -154,10 +152,12 @@ export function projectLifePerception(
 		)
 	)
 		collect.scene(view, scene);
-	for (const fact of world.facts.filter((x) => x.knownTo.includes(agentId)))
+	for (const fact of world.facts.filter((x) =>
+		knowsClaimAt({ kind: "world_fact", id: x.id }, agentId, world, life),
+	))
 		collect.add(view.facts, { id: fact.id, text: fact.text });
 	const visibleClaims = life.claims.filter((x) =>
-		x.disclosure.knowers.includes(agentId),
+		knowsClaimAt({ kind: "life_claim", id: x.id }, agentId, world, life),
 	);
 	const supersededClaims = new Set(
 		visibleClaims.flatMap((x) => (x.supersedes === null ? [] : [x.supersedes])),
@@ -351,13 +351,23 @@ export function projectPublication(
 			summary: event.summary,
 		});
 	for (const fact of world.facts.filter(
-		(x) => x.knownTo.includes(checked.agentId) && allowed("world_fact", x.id),
+		(x) =>
+			knowsClaimAt(
+				{ kind: "world_fact", id: x.id },
+				checked.agentId,
+				world,
+				life,
+			) && allowed("world_fact", x.id),
 	))
 		collect.add(view.facts, { id: fact.id, text: fact.text });
 	for (const claim of life.claims.filter(
 		(x) =>
-			x.disclosure.knowers.includes(checked.agentId) &&
-			allowed("life_claim", x.id),
+			knowsClaimAt(
+				{ kind: "life_claim", id: x.id },
+				checked.agentId,
+				world,
+				life,
+			) && allowed("life_claim", x.id),
 	))
 		collect.add(view.claims, { id: claim.id, text: claim.text });
 	const scene = sceneFor(world, checked.agentId);

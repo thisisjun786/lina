@@ -6,6 +6,10 @@ import {
 	revision,
 } from "./life-json.ts";
 import {
+	assertKnowledgeGrantTransition,
+	knowsClaimAt,
+} from "./life-knowledge.ts";
+import {
 	emptyCheckpoint,
 	growthAgent,
 	growthKey,
@@ -123,11 +127,15 @@ function experienceRefs(
 			)
 				throw Error("LIFE experience references a future fact");
 		}
-		const knowers =
-			ref.kind === "world_fact"
-				? world.facts.find((x) => x.id === ref.id)?.knownTo
-				: state.claims.find((x) => x.id === ref.id)?.disclosure.knowers;
-		if (!knowers?.includes(experience.agentId))
+		if (
+			!knowsClaimAt(
+				ref,
+				experience.agentId,
+				world,
+				state,
+				Number(experience.eventId.split(":")[1]),
+			)
+		)
 			throw Error("LIFE experience exceeds statement knowledge");
 	}
 }
@@ -136,6 +144,16 @@ function validateKnowledge(
 	world: WorldSnapshot,
 	def: LifeDefinition,
 ): void {
+	if (state.version === 2)
+		for (const grant of state.knowledgeGrants) {
+			knownAgents([grant.fromAgentId, grant.toAgentId], def.participants);
+			const before = state.baseWorldRevision + grant.lifeRevision - 1;
+			if (
+				!knowsClaimAt(grant.claim, grant.fromAgentId, world, state, before) ||
+				knowsClaimAt(grant.claim, grant.toAgentId, world, state, before)
+			)
+				throw Error("Invalid LIFE grant prior knowledge");
+		}
 	// Intrinsic claim/belief/supersession links were already checked by parseLifeState.
 	for (const claim of state.claims) {
 		knownAgents(claim.disclosure.knowers, def.participants);
@@ -312,10 +330,29 @@ export function applyLifeTransition(
 			proposal.beliefs.length ||
 			proposal.experiences.length ||
 			proposal.growth.length ||
-			proposal.effects.length)
+			proposal.effects.length ||
+			(proposal.version === 2 && proposal.knowledgeGrants.length))
 	)
 		throw Error("Quiet tick cannot contain LIFE activity");
-	const next = parseLifeState(previousLife);
+	if (
+		(previousLife.version === 2 && proposal.version !== 2) ||
+		(previousLife.checkpoint.engineId === "ensemble" &&
+			proposal.checkpoint.engineId !== "ensemble")
+	)
+		throw Error("LIFE social checkpoint downgrade");
+	assertKnowledgeGrantTransition(proposal, previousLife, previousWorld, def);
+	const previous = parseLifeState(previousLife);
+	const next: LifeState =
+		proposal.version === 2
+			? {
+					...previous,
+					version: 2,
+					knowledgeGrants: [
+						...(previous.version === 2 ? previous.knowledgeGrants : []),
+						...proposal.knowledgeGrants,
+					],
+				}
+			: previous;
 	next.revision = revision(next.revision + 1, 1);
 	next.worldRevision = nextWorld.revision;
 	next.claims.push(...proposal.claims);

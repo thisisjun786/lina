@@ -27,6 +27,8 @@ import {
 	parseLifeInput,
 } from "./life-validation.ts";
 import { initializeWorldSchema } from "./schema.ts";
+import { SocialPersistence } from "./social-persistence.ts";
+import type { WorldSocialPort } from "./social-store-types.ts";
 import { eventId, initialSnapshot, transition } from "./transition.ts";
 import type {
 	WorldContext,
@@ -95,12 +97,32 @@ function stateJson(snapshot: WorldSnapshot): string {
 }
 
 /** Trusted application API. Bind agent views in the runtime; never expose this store as an agent tool. */
-export class WorldStore implements WorldAuthoringPort {
+export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 	private readonly db: DatabaseSync;
 	private readonly life: LifePersistence;
+	private readonly social: SocialPersistence;
 	private readonly author: AuthoringPersistence;
 	private readonly suggestions: AuthoringRequests;
 	private closed = false;
+	readonly prepareSocialResolution: WorldSocialPort["prepareSocialResolution"] =
+		(...args) => this.transaction(() => this.social.prepare(...args));
+	readonly socialResolution: WorldSocialPort["socialResolution"] = (...args) =>
+		this.transaction(() => this.social.get(...args), false);
+	readonly finishSocialResolution: WorldSocialPort["finishSocialResolution"] = (
+		...args
+	) => this.transaction(() => this.social.finish(...args));
+	readonly acceptSocialResolution: WorldSocialPort["acceptSocialResolution"] = (
+		worldId,
+		requestId,
+		identity,
+	) =>
+		this.transaction(() => {
+			const parsed = parseIdentityPolicy(identity);
+			return this.life.accept(
+				this.social.commit(worldId, requestId, parsed),
+				parsed,
+			);
+		});
 	readonly draftWorld: WorldAuthoringPort["draftWorld"] = (...args) =>
 		this.transaction(() => this.author.draftWorld(...args), true);
 	readonly worldDraft: WorldAuthoringPort["worldDraft"] = (...args) =>
@@ -158,7 +180,28 @@ export class WorldStore implements WorldAuthoringPort {
 			path === ":memory:"
 				? new DatabaseSync(path)
 				: openCheckedDatabase(path).db;
+		this.social = new SocialPersistence(this.db, {
+			source: (worldId) => ({
+				world: this.snapshot(worldId),
+				life: this.life.snapshot(worldId),
+			}),
+			sourceAt: (worldId, lifeRevision) => {
+				const life = this.life.snapshotAt(worldId, lifeRevision);
+				return {
+					life,
+					world: this.rebuild(
+						this.snapshot(worldId).definition,
+						life.worldRevision,
+					),
+				};
+			},
+			pack: (worldId, version) => this.author.worldPack(worldId, version),
+		});
 		this.life = new LifePersistence(this.db, {
+			pack: (worldId, version) => this.author.worldPack(worldId, version),
+			assertSocialCommit: (commit, identity, source, historical) =>
+				this.social.assertCommit(commit, identity, source, historical),
+			markSocialAccepted: (commit) => this.social.markAccepted(commit),
 			assertActors: (proposal) => this.author.assertActors(proposal),
 			snapshot: (worldId) => this.snapshot(worldId),
 			snapshotAt: (worldId, revision) =>
@@ -191,7 +234,8 @@ export class WorldStore implements WorldAuthoringPort {
 			initializeWorldSchema(
 				this.db,
 				() => this.auditWorld(),
-				() => this.audit(false),
+				() => this.audit(false, false),
+				() => this.audit(true, false),
 			);
 			this.audit();
 			this.suggestions.recover();
@@ -400,7 +444,7 @@ export class WorldStore implements WorldAuthoringPort {
 		}, false);
 	}
 	/** Re-open audits atomic state against accepted events, without replaying any external effect. */
-	private audit(includeAuthor = true): void {
+	private audit(includeAuthor = true, includeSocial = true): void {
 		this.auditWorld();
 		const definitions = this.db
 			.prepare(
@@ -444,6 +488,7 @@ export class WorldStore implements WorldAuthoringPort {
 				throw Error("Corrupt world definition registry");
 		}
 		this.life.audit();
+		if (includeSocial) this.social.audit();
 		if (includeAuthor) {
 			this.author.audit();
 			this.suggestions.audit();

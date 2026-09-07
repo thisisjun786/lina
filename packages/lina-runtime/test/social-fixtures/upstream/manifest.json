@@ -1,0 +1,37 @@
+[
+	{
+		"file": "schema.json.txt",
+		"upstreamPath": "tests/externalApplicationFiles/dataLoversAndRivals/schema.json",
+		"sha256": "ddd165d1640fcea6b5b84a08668b527a4a07dca392f744153ed2da0c9f784e9e"
+	},
+	{
+		"file": "cast.json.txt",
+		"upstreamPath": "tests/externalApplicationFiles/dataLoversAndRivals/cast.json",
+		"sha256": "ff022e810853163a9f1248e3c139c1c500d81a983cd24e309783569d05076fa5"
+	},
+	{
+		"file": "actions.json.txt",
+		"upstreamPath": "tests/externalApplicationFiles/dataLoversAndRivals/actions.json",
+		"sha256": "1ed8afeaee7fe2b3530d8f4f77e2ece7d41726350fcb3b94abf262e8809bb696"
+	},
+	{
+		"file": "history.json.txt",
+		"upstreamPath": "tests/externalApplicationFiles/dataLoversAndRivals/history.json",
+		"sha256": "d2d1b322a3297cf4d66672cd531ea5520a318a9a75aca264fc01d6dc18caf225"
+	},
+	{
+		"file": "triggerRules.json.txt",
+		"upstreamPath": "tests/externalApplicationFiles/dataLoversAndRivals/triggerRules.json",
+		"sha256": "2e124b3198d2663eaacb8ae2f5250b440f98606665e42fa6c9f57fe395e3c5d3"
+	},
+	{
+		"file": "volitionRules.json.txt",
+		"upstreamPath": "tests/externalApplicationFiles/dataLoversAndRivals/volitionRules.json",
+		"sha256": "3d1c99abea3603aff6860f20ebf6e81bfdcb47f0554dd4782ec74fcbfb51f3f6"
+	},
+	{
+		"file": "underscore-1.6.0.js.txt",
+		"upstreamPath": "ensemble/jslib/underscore-min.js",
+		"sha256": "163189ef69a3c210a04bb4cac2c336119d78b576fb84b4231977514419eb0faf"
+	}
+]

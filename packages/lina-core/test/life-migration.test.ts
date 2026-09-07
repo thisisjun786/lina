@@ -73,7 +73,7 @@ test("v1 migration preserves event bytes and starts no implicit LIFE history", (
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 3,
+			user_version: 4,
 		});
 		expect(raw.prepare("SELECT event_json FROM world_events").get()).toEqual({
 			event_json: before.eventJson,
@@ -107,7 +107,7 @@ test("v1 migration preserves event bytes and starts no implicit LIFE history", (
 	expect(reopened.snapshot("test-world")).toEqual(before.snapshot);
 });
 
-test("new database uses v3 and records each world's immutable definition", () => {
+test("new database uses v4 and records each world's immutable definition", () => {
 	const path = databasePath();
 	const store = new WorldStore(path);
 	stores.push(store);
@@ -116,7 +116,7 @@ test("new database uses v3 and records each world's immutable definition", () =>
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 3,
+			user_version: 4,
 		});
 		expect(
 			raw.prepare("SELECT count(*) AS n FROM world_definition_versions").get(),
@@ -127,7 +127,7 @@ test("new database uses v3 and records each world's immutable definition", () =>
 					"SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT GLOB 'sqlite_*'",
 				)
 				.all(),
-		).toHaveLength(16);
+		).toHaveLength(18);
 	} finally {
 		raw.close();
 	}

@@ -12,6 +12,7 @@ import type {
 	VariableDefinition,
 	WorldDraftPatch,
 	WorldPack,
+	WorldPackV1,
 } from "./authoring-types.ts";
 import {
 	array,
@@ -25,6 +26,8 @@ import {
 	revision,
 } from "./life-json.ts";
 import { parseLifeDefinition } from "./life-validation.ts";
+import { assertSocialPackSemantics } from "./social-compile.ts";
+import { parseSocialDefinition } from "./social-definition-validation.ts";
 import { fields, parseDefinition } from "./validation.ts";
 
 export {
@@ -95,6 +98,11 @@ function predicate(value: unknown): PredicateDefinition {
 }
 export function parseWorldPack(value: unknown): WorldPack {
 	jsonBoundary(value);
+	const current =
+		!!value &&
+		typeof value === "object" &&
+		"schemaVersion" in value &&
+		value["schemaVersion"] === 2;
 	fields(value, [
 		"schemaVersion",
 		"worldId",
@@ -111,29 +119,30 @@ export function parseWorldPack(value: unknown): WorldPack {
 		"eventFamilies",
 		"unresolved",
 		"importReport",
+		...(current ? ["social"] : []),
 	]);
-	if (value.schemaVersion !== 1)
+	if (!current && value["schemaVersion"] !== 1)
 		throw Error("Unsupported authoring schema version");
-	fields(value.background, [
+	fields(value["background"], [
 		"authoredText",
 		"era",
 		"environment",
 		"description",
 	]);
-	const pack: WorldPack = {
+	const legacy: WorldPackV1 = {
 		schemaVersion: 1,
-		worldId: identifier(value.worldId),
-		version: revision(value.version, 1),
+		worldId: identifier(value["worldId"]),
+		version: revision(value["version"], 1),
 		background: {
-			authoredText: authoringText(value.background.authoredText),
-			era: nullableText(value.background.era),
-			environment: nullableText(value.background.environment),
-			description: nullableText(value.background.description),
+			authoredText: authoringText(value["background"].authoredText),
+			era: nullableText(value["background"].era),
+			environment: nullableText(value["background"].environment),
+			description: nullableText(value["background"].description),
 		},
-		world: parseDefinition(value.world),
-		life: parseLifeDefinition(value.life),
+		world: parseDefinition(value["world"]),
+		life: parseLifeDefinition(value["life"]),
 		constraints: keyed(
-			array(value.constraints, (item) => {
+			array(value["constraints"], (item) => {
 				fields(item, ["id", "description", "condition"]);
 				return {
 					id: identifier(item.id),
@@ -144,7 +153,7 @@ export function parseWorldPack(value: unknown): WorldPack {
 			(x) => x.id,
 		),
 		roles: keyed(
-			array(value.roles, (item) => {
+			array(value["roles"], (item) => {
 				fields(item, ["agentId", "roleId", "description", "status"]);
 				return {
 					agentId: identifier(item.agentId),
@@ -155,12 +164,12 @@ export function parseWorldPack(value: unknown): WorldPack {
 			}),
 			(x) => x.agentId,
 		),
-		variables: keyed(array(value.variables, variable), (x) => x.id),
-		predicates: keyed(array(value.predicates, predicate), (x) => x.id),
-		lore: keyed(array(value.lore, parseLoreEntry), (x) => x.id),
-		rules: keyed(array(value.rules, parseDeclarativeRule), (x) => x.id),
+		variables: keyed(array(value["variables"], variable), (x) => x.id),
+		predicates: keyed(array(value["predicates"], predicate), (x) => x.id),
+		lore: keyed(array(value["lore"], parseLoreEntry), (x) => x.id),
+		rules: keyed(array(value["rules"], parseDeclarativeRule), (x) => x.id),
 		eventFamilies: keyed(
-			array(value.eventFamilies, (item) => {
+			array(value["eventFamilies"], (item) => {
 				fields(item, [
 					"id",
 					"description",
@@ -183,7 +192,7 @@ export function parseWorldPack(value: unknown): WorldPack {
 			(x) => x.id,
 		),
 		unresolved: keyed(
-			array(value.unresolved, (item) => {
+			array(value["unresolved"], (item) => {
 				fields(item, ["id", "question", "blocking"]);
 				return {
 					id: identifier(item.id),
@@ -193,7 +202,7 @@ export function parseWorldPack(value: unknown): WorldPack {
 			}),
 			(x) => x.id,
 		),
-		importReport: array(value.importReport, (item) => {
+		importReport: array(value["importReport"], (item) => {
 			fields(item, ["sourceId", "reason", "rawJson"]);
 			const rawJson = authoringText(item.rawJson);
 			jsonBoundary(JSON.parse(rawJson));
@@ -204,6 +213,14 @@ export function parseWorldPack(value: unknown): WorldPack {
 			};
 		}),
 	};
+	const pack: WorldPack = current
+		? {
+				...legacy,
+				schemaVersion: 2,
+				social: parseSocialDefinition(value["social"]),
+			}
+		: legacy;
+	if (pack.schemaVersion === 2) assertSocialPackSemantics(pack);
 	validateWorldSemantics(pack);
 	return pack;
 }

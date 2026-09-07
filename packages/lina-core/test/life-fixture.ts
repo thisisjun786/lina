@@ -1,6 +1,6 @@
 import type {
 	IdentityPolicySnapshot,
-	LifeCommit,
+	LifeCommitV1 as LifeCommit,
 	LifeDefinition,
 } from "../src/world/life-types.ts";
 import { worldActivity } from "./world-fixture.ts";

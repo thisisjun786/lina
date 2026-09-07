@@ -3,8 +3,9 @@
 Lina's original work uses [Apache-2.0](LICENSE); dependencies and external
 projects retain their own copyrights and licenses. This file records the scoped
 OpenViking, Honcho, and lossless-claw review inherited from the runtime adapter
-work. The pinned declarations below were rechecked on 2026-09-07. All evidence
-links are self-contained; no private or missing audit document is required.
+work, plus the pinned Ensemble source adoption. The pinned declarations below
+were rechecked on 2026-09-07. All evidence links are self-contained; no private
+or missing audit document is required.
 
 This is not a complete dependency inventory, source-ancestry audit, or notice
 bundle for a released installer/container. Package versions come from `bun.lock`
@@ -53,6 +54,33 @@ Preserve those texts with any distributed copies and review the actual artifact.
   removed notices. The reviewed Lina implementation adopts the memory-management
   pattern; it is not a plugin port. This is not a complete ancestry certification;
   preserve upstream copyright and license if code is copied later.
+
+## Ensemble social engine
+
+- Source: [ensemble-engine/ensemble at the reviewed pin](https://github.com/ensemble-engine/ensemble/tree/8b74bdec4ba2ef4e14795b7591df3b5d73f283e3).
+- Reviewed pin: `8b74bdec4ba2ef4e14795b7591df3b5d73f283e3`.
+- BSD-4-Clause (University of California-Specific); Copyright (c) 2019,
+  The Regents of the University of California. All rights reserved.
+  The [complete retained license](packages/lina-runtime/vendor/ensemble/LICENSE.md)
+  matches the [pinned upstream license](https://github.com/ensemble-engine/ensemble/blob/8b74bdec4ba2ef4e14795b7591df3b5d73f283e3/LICENSE.md),
+  including its source/binary notice, advertising acknowledgement, nonendorsement
+  condition and disclaimer.
+- Included source: `util`, `socialRecord`, `ruleLibrary`, `actionLibrary`,
+  `volition`, `validate` and `ensemble`. The
+  [manifest](packages/lina-runtime/vendor/ensemble/manifest.json) records their
+  upstream paths, load order, source and patched hashes, and exact local patches.
+  These patches expose checkpoint state and constrain resolution to the requested
+  root and validated bindings. Original upstream bytes are retained as `.js.txt`;
+  Lina applies the recorded patches when loading them.
+- The small [compatibility helper](packages/lina-runtime/vendor/ensemble/underscore.ts)
+  is independently authored Lina code. It supplies only the required key, size,
+  stable-sort and integer-random operations; upstream Underscore is not vendored.
+- The local release installer includes this reviewed vendor subtree together with
+  the root LICENSE, NOTICE and THIRD_PARTY_NOTICES.md. Preserve these files in
+  redistributed artifacts and this acknowledgement in materials mentioning
+  Ensemble features or use:
+
+This product includes software developed by the University of California, Santa Cruz and its contributors.
 
 ## Distribution and remaining provenance review
 

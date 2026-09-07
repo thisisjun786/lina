@@ -198,6 +198,10 @@ Lina의 자체 소스 코드·문서·유지관리자가 작성한 페르소나 
 **Copyright 2026 Lina contributors**이며 [NOTICE](NOTICE)에 기록했습니다.
 외부 라이브러리와 서비스에는 각각의 라이선스가 적용됩니다.
 
+포함된 Ensemble 사회 엔진의 고정 소스·변경 내역과 UC BSD-4 라이선스는
+[외부 소프트웨어 고지](THIRD_PARTY_NOTICES.md#ensemble-social-engine)에 기록했습니다.
+This product includes software developed by the University of California, Santa Cruz and its contributors.
+
 소유자는 2026-09-07 해당 이미지 11개를 직접 제작·생성했고 입력 자료에 대한
 권리를 보유한다고 확인했습니다. 대상 파일과 해시를 포함한 소유자 확인 기록은
 [페르소나 출처](data/personas/README.md)에 있습니다.

@@ -1,7 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
+import type { WorldPack } from "./authoring-types.ts";
 import { initialLifeState, validateLifeState } from "./life-transition.ts";
 import type { LifeDefinition, LifeState } from "./life-types.ts";
 import { parseLifeDefinition, parseLifeState } from "./life-validation.ts";
+import { migrateSocialCheckpoint } from "./social.ts";
+import type { SocialMigrationPreview } from "./social-types.ts";
 import type { WorldSnapshot } from "./types.ts";
 import { knownAgents } from "./validation.ts";
 
@@ -12,7 +15,26 @@ export function migrateLifeDefinition(
 	nextWorld: WorldSnapshot,
 	oldDefinition: LifeDefinition,
 	input: LifeDefinition,
+	packs?: { old: WorldPack; next: WorldPack },
 ): LifeState {
+	return migrateLifeDefinitionResult(
+		previous,
+		oldWorld,
+		nextWorld,
+		oldDefinition,
+		input,
+		packs,
+	).state;
+}
+
+export function migrateLifeDefinitionResult(
+	previous: LifeState,
+	oldWorld: WorldSnapshot,
+	nextWorld: WorldSnapshot,
+	oldDefinition: LifeDefinition,
+	input: LifeDefinition,
+	packs?: { old: WorldPack; next: WorldPack },
+): { state: LifeState; socialMigration: SocialMigrationPreview | null } {
 	const definition = parseLifeDefinition(input);
 	validateLifeState(previous, oldWorld, oldDefinition);
 	if (
@@ -21,8 +43,32 @@ export function migrateLifeDefinition(
 		nextWorld.revision !== oldWorld.revision + 1
 	)
 		throw Error("LIFE definition revision conflict");
-	if (previous.checkpoint.engineId !== "empty")
-		throw Error("No compatible LIFE checkpoint migration");
+	let checkpoint = previous.checkpoint;
+	let socialMigration: SocialMigrationPreview | null = null;
+	if (
+		packs &&
+		(!isDeepStrictEqual(packs.old.world, oldWorld.definition) ||
+			!isDeepStrictEqual(packs.next.world, nextWorld.definition) ||
+			!isDeepStrictEqual(packs.old.life, oldDefinition) ||
+			!isDeepStrictEqual(packs.next.life, definition))
+	)
+		throw Error("LIFE migration world pack mismatch");
+	if (checkpoint.engineId === "ensemble") {
+		if (packs?.old.schemaVersion !== 2 || packs.next.schemaVersion !== 2)
+			throw Error("No compatible LIFE checkpoint migration");
+		const migrated = migrateSocialCheckpoint(
+			checkpoint,
+			packs.old,
+			packs.next,
+			{
+				worldRevision: nextWorld.revision,
+				lifeRevision: previous.revision + 1,
+				simulationTime: nextWorld.simulationTime,
+			},
+		);
+		checkpoint = migrated.checkpoint;
+		socialMigration = migrated.migration;
+	}
 	knownAgents(oldDefinition.participants, definition.participants);
 	for (const group of ["traits", "habits", "attitudes"] as const)
 		for (const old of oldDefinition[group]) {
@@ -43,6 +89,7 @@ export function migrateLifeDefinition(
 		throw Error("LIFE projection revision conflict");
 	const baseline = initialLifeState(nextWorld, definition);
 	const next = structuredClone(previous);
+	next.checkpoint = checkpoint;
 	next.revision++;
 	next.worldRevision = nextWorld.revision;
 	next.definitionRevision = definition.revision;
@@ -72,5 +119,5 @@ export function migrateLifeDefinition(
 			next.attitudes.push(row);
 	const parsed = parseLifeState(next);
 	validateLifeState(parsed, nextWorld, definition);
-	return parsed;
+	return { state: parsed, socialMigration };
 }

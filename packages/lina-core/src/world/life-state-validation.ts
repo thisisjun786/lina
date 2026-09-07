@@ -7,6 +7,7 @@ import {
 	keyed,
 	revision,
 } from "./life-json.ts";
+import { knowsLifeClaimAt } from "./life-knowledge.ts";
 import {
 	growthAgent,
 	parseBelief,
@@ -14,9 +15,10 @@ import {
 	parseClaim,
 	parseExperience,
 	parseGrowth,
+	parseKnowledgeGrant,
 	refKey,
 } from "./life-record-validation.ts";
-import type { LifeState } from "./life-types.ts";
+import type { LifeState, LifeStateV1 } from "./life-types.ts";
 import { fields } from "./validation.ts";
 
 function stateVersion(value: unknown): 1 {
@@ -28,6 +30,11 @@ function profileRevision(value: unknown): number | null {
 }
 export function parseLifeState(value: unknown): LifeState {
 	jsonBoundary(value);
+	const current =
+		!!value &&
+		typeof value === "object" &&
+		"version" in value &&
+		value["version"] === 2;
 	fields(value, [
 		"version",
 		"worldId",
@@ -43,23 +50,24 @@ export function parseLifeState(value: unknown): LifeState {
 		"attitudes",
 		"growthHistory",
 		"checkpoint",
+		...(current ? ["knowledgeGrants"] : []),
 	]);
-	const state: LifeState = {
-		version: stateVersion(value.version),
-		worldId: identifier(value.worldId),
-		revision: revision(value.revision),
-		worldRevision: revision(value.worldRevision),
-		definitionRevision: revision(value.definitionRevision, 1),
-		baseWorldRevision: revision(value.baseWorldRevision),
-		claims: keyed(array(value.claims, parseClaim), (x) => x.id, false),
-		beliefs: keyed(array(value.beliefs, parseBelief), (x) => x.id, false),
+	const legacy: LifeStateV1 = {
+		version: current ? 1 : stateVersion(value["version"]),
+		worldId: identifier(value["worldId"]),
+		revision: revision(value["revision"]),
+		worldRevision: revision(value["worldRevision"]),
+		definitionRevision: revision(value["definitionRevision"], 1),
+		baseWorldRevision: revision(value["baseWorldRevision"]),
+		claims: keyed(array(value["claims"], parseClaim), (x) => x.id, false),
+		beliefs: keyed(array(value["beliefs"], parseBelief), (x) => x.id, false),
 		experiences: keyed(
-			array(value.experiences, parseExperience),
+			array(value["experiences"], parseExperience),
 			(x) => x.id,
 			false,
 		),
 		traits: keyed(
-			array(value.traits, (entry) => {
+			array(value["traits"], (entry) => {
 				fields(entry, ["agentId", "axisId", "value", "profileRevision"]);
 				return {
 					agentId: identifier(entry.agentId),
@@ -71,7 +79,7 @@ export function parseLifeState(value: unknown): LifeState {
 			(x) => `${x.agentId}:${x.axisId}`,
 		),
 		habits: keyed(
-			array(value.habits, (entry) => {
+			array(value["habits"], (entry) => {
 				fields(entry, ["agentId", "habitId", "value", "profileRevision"]);
 				return {
 					agentId: identifier(entry.agentId),
@@ -83,7 +91,7 @@ export function parseLifeState(value: unknown): LifeState {
 			(x) => `${x.agentId}:${x.habitId}`,
 		),
 		attitudes: keyed(
-			array(value.attitudes, (entry) => {
+			array(value["attitudes"], (entry) => {
 				fields(entry, [
 					"fromAgentId",
 					"toAgentId",
@@ -101,7 +109,7 @@ export function parseLifeState(value: unknown): LifeState {
 			}),
 			(x) => `${x.fromAgentId}:${x.toAgentId}:${x.axisId}`,
 		),
-		growthHistory: array(value.growthHistory, (entry) => {
+		growthHistory: array(value["growthHistory"], (entry) => {
 			fields(entry, ["lifeRevision", "profileRevision", "delta"]);
 			return {
 				lifeRevision: revision(entry.lifeRevision, 1),
@@ -109,8 +117,21 @@ export function parseLifeState(value: unknown): LifeState {
 				delta: parseGrowth(entry.delta),
 			};
 		}),
-		checkpoint: parseCheckpoint(value.checkpoint),
+		checkpoint: parseCheckpoint(value["checkpoint"]),
 	};
+	const state: LifeState = current
+		? {
+				...legacy,
+				version: 2,
+				knowledgeGrants: keyed(
+					array(value["knowledgeGrants"], parseKnowledgeGrant),
+					(x) => x.id,
+					false,
+				),
+			}
+		: legacy;
+	if (!current && state.checkpoint.engineId !== "empty")
+		throw Error("Legacy LIFE state cannot contain an ensemble checkpoint");
 	if (
 		!Number.isSafeInteger(state.baseWorldRevision + state.revision) ||
 		state.worldRevision !== state.baseWorldRevision + state.revision
@@ -130,7 +151,8 @@ function validateLocalReferences(state: LifeState): void {
 		(state.claims.length ||
 			state.beliefs.length ||
 			state.experiences.length ||
-			state.growthHistory.length)
+			state.growthHistory.length ||
+			(state.version === 2 && state.knowledgeGrants.length))
 	)
 		throw Error("LIFE baseline cannot contain invented history");
 	const eventRevision = (event: string): number => {
@@ -155,6 +177,41 @@ function validateLocalReferences(state: LifeState): void {
 		}
 		priorClaims.add(claim.id);
 	}
+	if (state.version === 2) {
+		const learned = new Set<string>();
+		let priorRevision = 0;
+		for (const grant of state.knowledgeGrants) {
+			const event = eventRevision(grant.sourceEventId);
+			const experience = experiences.get(grant.experienceId);
+			const key = `${refKey(grant.claim)}:${grant.toAgentId}`;
+			if (
+				grant.lifeRevision < priorRevision ||
+				grant.lifeRevision > state.revision ||
+				event !== state.baseWorldRevision + grant.lifeRevision ||
+				grant.definitionRevision > state.definitionRevision ||
+				learned.has(key) ||
+				!experience ||
+				experience.agentId !== grant.toAgentId ||
+				experience.channel === "inferred" ||
+				experience.eventId !== grant.sourceEventId ||
+				!experience.claims.some((x) => refKey(x) === refKey(grant.claim))
+			)
+				throw Error("Invalid LIFE knowledge grant reference");
+			if (
+				grant.claim.kind === "life_claim" &&
+				(!knowsLifeClaimAt(
+					grant.claim.id,
+					grant.fromAgentId,
+					state,
+					event - 1,
+				) ||
+					knowsLifeClaimAt(grant.claim.id, grant.toAgentId, state, event - 1))
+			)
+				throw Error("Invalid LIFE grant prior knowledge");
+			learned.add(key);
+			priorRevision = grant.lifeRevision;
+		}
+	}
 	for (const experience of state.experiences) {
 		const event = eventRevision(experience.eventId);
 		for (const ref of experience.claims)
@@ -162,7 +219,7 @@ function validateLocalReferences(state: LifeState): void {
 				const claim = claims.get(ref.id);
 				if (!claim || eventRevision(claim.sourceEventId) > event)
 					throw Error("Unknown or future LIFE claim reference");
-				if (!claim.disclosure.knowers.includes(experience.agentId))
+				if (!knowsLifeClaimAt(ref.id, experience.agentId, state, event))
 					throw Error("LIFE experience exceeds statement knowledge");
 			}
 	}

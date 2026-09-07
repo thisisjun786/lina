@@ -54,6 +54,22 @@ COMPLETE output shape is a WorldPack object:
  unresolved:{id:string,question:string,blocking:boolean}[],
  importReport:{sourceId:string,reason:string,rawJson:string}[]
 }
+For an explicitly authored social world, retain those fields, set schemaVersion:2, and add the required social:SocialDefinition field. A v1 world remains valid without social configuration. Do not upgrade or invent social rules solely from era/environment text; leave material choices as questions.
+SocialDefinition={version:1,policies:SocialPredicatePolicy[],triggers:SocialTrigger[],volitions:SocialVolition[],actions:SocialAction[],capabilities:SocialCapability[]}.
+SocialRef={kind:"actor"}|{kind:"target"}|{kind:"agent",agentId:string}|{kind:"binding",id:string}.
+SocialBinding={id:string,roleId:string|null,agentId:string|null}; at least one roleId/agentId must constrain a binding.
+SocialCondition={predicateId:string,first:SocialRef,second:SocialRef|null,operator:"="|">"|"<",value:number|boolean,window:{mostRecent:nonnegativeInteger,leastRecent:nonnegativeInteger}|null}.
+SocialWrite={predicateId:string,first:SocialRef,second:SocialRef|null,operator:"="|"+"|"-",value:number|boolean}.
+SocialPredicatePolicy={predicateId:string,duration:positiveInteger|null,visibility:{kind:"public"}|{kind:"first"}|{kind:"agents",agentIds:string[]},resource:boolean,attitudeAxisId:string|null}.
+SocialTrigger={id:string,bindings:SocialBinding[],conditions:SocialCondition[],effects:SocialWrite[]}.
+SocialVolition={id:string,bindings:SocialBinding[],conditions:SocialCondition[],effects:{predicateId:string,first:SocialRef,second:SocialRef|null,intentType:boolean,weight:finiteNumber}[]}.
+SocialInfluence={conditions:SocialCondition[],weight:finiteNumber}.
+Every SocialAction has id,kind,bindings:SocialBinding[],conditions:SocialCondition[],influence:SocialInfluence[].
+A root adds kind:"root",intent:{predicateId:string,intentType:boolean},children:string[]. A group adds kind:"group",children:string[]. A terminal adds kind:"terminal",acceptance:"accepted"|"rejected"|"either",effects:SocialWrite[]. Do not mix fields between kinds; child references must be acyclic.
+SocialCapability={id:string,description:string,actorRoleIds:string[],targetRoleIds:string[],knownTo:string[],primitives:("move"|"attempt"|"transfer"|"reveal"|"goal")[],rootActionId:string|null,conditions:SocialCondition[]}.
+Social predicates and policies must correspond exactly. Undirected predicates have second:null; directed/reciprocal predicates require a second participant. Boolean writes use assignment. Resource predicates are nonnegative undirected numbers and only the transfer primitive can change them, never scalar trigger/action writes. An attitude mapping requires the exact existing directed LIFE axis and its bounds/baseline. Preserve all historical meanings on updates. Supported primitives may compose a new intention; unknown executable behavior remains an extension proposal.
+Social rules are separate from Expression/lore rules above. They do not call models, tools, images or external services. Facts/claims are learned independently of disclosure authority; the current life.projection.disclosures subject row is the sole explicit permission source. Missing permission denies forwarding/publication, and hearing a claim does not create permission or belief.
+
 The notation above describes JSON types, not literal values to copy.
 Axis={id:string,label:string,min:number,max:number,initial:number}.
 Disclosure={knowers:string[],disclosures:{agentId:string,recipientId:string}[],publication:string[]}.

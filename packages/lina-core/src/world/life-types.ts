@@ -1,3 +1,4 @@
+import type { EnsembleCheckpoint } from "./social-types.ts";
 import type {
 	WorldContext,
 	WorldEvent,
@@ -55,6 +56,19 @@ export interface LifeClaim {
 	disclosure: DisclosurePolicy;
 }
 export type KnowledgeClaim = LifeClaim;
+/** Learning and disclosure authority have separate, immutable provenance. */
+export interface KnowledgeGrant {
+	id: string;
+	claim: ClaimRef;
+	fromAgentId: string;
+	toAgentId: string;
+	sourceEventId: string;
+	experienceId: string;
+	lifeRevision: number;
+	definitionRevision: number;
+	projectionRevision: number;
+	policyDigest: string;
+}
 export interface AgentBelief {
 	id: string;
 	agentId: string;
@@ -111,8 +125,7 @@ export interface IdentityPolicySnapshot {
 	version: 1;
 	profiles: IdentityProfilePolicy[];
 }
-/** Engine adoption is a later unit: only a verifiably empty checkpoint is restorable. */
-export interface EngineCheckpoint {
+export interface EmptyEngineCheckpoint {
 	version: 1;
 	engineId: "empty";
 	engineRevision: 0;
@@ -121,6 +134,7 @@ export interface EngineCheckpoint {
 	dataDigest: string;
 	data: null;
 }
+export type EngineCheckpoint = EmptyEngineCheckpoint | EnsembleCheckpoint;
 export interface TraitState {
 	agentId: string;
 	axisId: string;
@@ -151,7 +165,7 @@ export interface GrowthState {
 	attitudes: AttitudeState[];
 	growthHistory: GrowthRecord[];
 }
-export interface LifeState extends GrowthState {
+export interface LifeStateV1 extends GrowthState {
 	version: 1;
 	worldId: string;
 	revision: number;
@@ -163,6 +177,11 @@ export interface LifeState extends GrowthState {
 	experiences: AgentExperience[];
 	checkpoint: EngineCheckpoint;
 }
+export type LifeStateV2 = Omit<LifeStateV1, "version"> & {
+	version: 2;
+	knowledgeGrants: KnowledgeGrant[];
+};
+export type LifeState = LifeStateV1 | LifeStateV2;
 export interface SideEffectIntent {
 	version: 1;
 	worldId: string;
@@ -171,7 +190,7 @@ export interface SideEffectIntent {
 	payload: { kind: "publication_candidate"; eventId: string };
 	payloadDigest: string;
 }
-export interface LifeCommit {
+export interface LifeCommitV1 {
 	version: 1;
 	world: WorldProposal;
 	expectedLifeRevision: number;
@@ -184,6 +203,12 @@ export interface LifeCommit {
 	consumedInputIds: string[];
 	effects: SideEffectIntent[];
 }
+export type LifeCommitV2 = Omit<LifeCommitV1, "version"> & {
+	version: 2;
+	socialResolutionId: string;
+	knowledgeGrants: KnowledgeGrant[];
+};
+export type LifeCommit = LifeCommitV1 | LifeCommitV2;
 export interface LifeInput {
 	version: 1;
 	worldId: string;

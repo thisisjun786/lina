@@ -30,8 +30,10 @@ import {
 	parseWorldPreviewOptions,
 } from "./authoring-validation.ts";
 import { projectContext } from "./context.ts";
+import { migrateLifeDefinitionResult } from "./life-definition.ts";
 import { canonicalLifeJson, lifeDigest } from "./life-json.ts";
 import type { LifePersistence } from "./life-persistence.ts";
+import type { SocialMigrationPreview } from "./social-types.ts";
 import { initialSnapshot, transition } from "./transition.ts";
 import type {
 	WorldDefinition,
@@ -431,6 +433,7 @@ export class AuthoringPersistence {
 		const pack = draft.pack,
 			previousPack = current ? this.currentPack(draft.worldId) : null;
 		let selected: WorldSnapshot | null = null;
+		let socialMigration: SocialMigrationPreview | null = null;
 		if (pack) {
 			if (!current) {
 				if (
@@ -464,7 +467,11 @@ export class AuthoringPersistence {
 					"preview-definition",
 				);
 				selected = transition(current, proposal);
-				this.world.life.previewDefinition(proposal, pack.life);
+				socialMigration = this.world.life.previewDefinitionResult(
+					proposal,
+					pack.life,
+					pack,
+				).socialMigration;
 			}
 			for (const role of pack.roles.filter(
 				(role) => role.status === "retired",
@@ -584,7 +591,14 @@ export class AuthoringPersistence {
 			canActivate:
 				!!pack && !draft.unresolved.some((question) => question.blocking),
 		};
-		return parseWorldDraftPreview({ ...body, digest: lifeDigest(body) });
+		const versioned =
+			pack?.schemaVersion === 2
+				? { ...body, version: 2 as const, socialMigration }
+				: body;
+		return parseWorldDraftPreview({
+			...versioned,
+			digest: lifeDigest(versioned),
+		});
 	}
 	activateWorldDraft(
 		input: WorldConfirmation,
@@ -630,7 +644,7 @@ export class AuthoringPersistence {
 				confirmation.options,
 				activationEventKey(pack.worldId, confirmation.idempotencyKey),
 			);
-			const state = this.world.life.changeDefinition(proposal, pack.life);
+			const state = this.world.life.changeDefinition(proposal, pack.life, pack);
 			eventId = `${pack.worldId}:${state.worldRevision}`;
 		}
 		const world = this.world.snapshot(pack.worldId),
@@ -646,8 +660,7 @@ export class AuthoringPersistence {
 				canonicalLifeJson(pack),
 				lifeDigest(pack),
 			);
-		const receipt: WorldActivationReceipt = {
-			version: 1,
+		const receiptBody = {
 			worldId: pack.worldId,
 			worldVersion: pack.version,
 			worldRevision: world.revision,
@@ -659,6 +672,10 @@ export class AuthoringPersistence {
 			preview,
 			replayed: false,
 		};
+		const receipt: WorldActivationReceipt =
+			preview.version === 2
+				? { ...receiptBody, version: 2, preview }
+				: { ...receiptBody, version: 1, preview };
 		this.db
 			.prepare(
 				"INSERT INTO world_activations (world_id, idempotency_key, input_digest, draft_id, draft_revision, confirmation_json, receipt_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -709,7 +726,7 @@ export class AuthoringPersistence {
 		if (registered?.effective_revision !== receipt.worldRevision)
 			throw Error("Corrupt activation effective boundary");
 		if (
-			receipt.version !== 1 ||
+			![1, 2].includes(receipt.version) ||
 			receipt.replayed !== false ||
 			receipt.worldId !== row.world_id ||
 			receipt.draftId !== row.draft_id ||
@@ -723,21 +740,11 @@ export class AuthoringPersistence {
 		)
 			throw Error("Corrupt world activation provenance");
 		const preview = parseWorldDraftPreview(receipt.preview);
-		fields(preview, [
-			"version",
-			"draftId",
-			"draftRevision",
-			"worldId",
-			"packDigest",
-			"options",
-			"unresolved",
-			"changes",
-			"evaluation",
-			"canActivate",
-			"digest",
-		]);
+
 		const { digest, ...body } = preview;
 		if (
+			receipt.version !== preview.version ||
+			preview.version !== pack.schemaVersion ||
 			digest !== lifeDigest(body) ||
 			digest !== confirmation.previewDigest ||
 			preview.packDigest !== confirmation.packDigest ||
@@ -768,6 +775,36 @@ export class AuthoringPersistence {
 			)
 		)
 			throw Error("Corrupt activated world state");
+		if (preview.version === 2) {
+			let migration: SocialMigrationPreview | null = null;
+			if (receipt.eventId !== null) {
+				const previousWorld = this.world.snapshotAt(
+					pack.worldId,
+					receipt.worldRevision - 1,
+				);
+				const previousLife = this.world.life.snapshotAt(
+					pack.worldId,
+					receipt.lifeRevision - 1,
+				);
+				const oldPack = this.worldPack(
+					pack.worldId,
+					previousWorld.definition.version,
+				);
+				const rebuilt = migrateLifeDefinitionResult(
+					previousLife,
+					previousWorld,
+					historical,
+					oldPack.life,
+					pack.life,
+					{ old: oldPack, next: pack },
+				);
+				migration = rebuilt.socialMigration;
+				if (!isDeepStrictEqual(rebuilt.state, historicalLife))
+					throw Error("Corrupt activation social state");
+			}
+			if (!isDeepStrictEqual(preview.socialMigration, migration))
+				throw Error("Corrupt activation social migration preview");
+		}
 		const event = this.db
 			.prepare(
 				"SELECT event_json FROM world_events WHERE world_id = ? AND revision = ?",

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorldSuggestionRequest } from "../../lina-core/src/world/authoring-types.ts";
 import { WorldStore } from "../../lina-core/src/world/store.ts";
+import { socialPack } from "../../lina-core/test/life-social-pack-fixture.ts";
 import { WorldAuthoring } from "../src/life/authoring.ts";
 import { lifeConfigReadiness } from "../src/life/config.ts";
 import type { ModelControl } from "../src/models/port.ts";
@@ -49,6 +50,24 @@ function fixture(authoring: NonNullable<ModelControl["authoring"]>) {
 	};
 }
 const signal = () => new AbortController().signal;
+
+test("author suggestions describe and retain explicit v2 social rules without activating them", async () => {
+	let prompt = "";
+	const f = fixture(async (input) => {
+		prompt = input.systemPrompt;
+		return {
+			provider: "synthetic",
+			model: "author",
+			text: JSON.stringify(socialPack()),
+		};
+	});
+	const result = await f.service.suggest(f.input, signal());
+	expect(result.status).toBe("succeeded");
+	expect(result.result?.draft.pack?.schemaVersion).toBe(2);
+	expect(prompt).toContain("schemaVersion:2");
+	expect(prompt).toContain("SocialDefinition");
+	expect(f.store.worldCatalog({ afterId: null, limit: 10 }).items).toEqual([]);
+});
 
 test("suggestion dispatch is durable, pins settings, deduplicates keys and retains authored text", async () => {
 	const returned = Promise.withResolvers<{

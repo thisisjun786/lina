@@ -37,13 +37,16 @@ function v2() {
 		"life_runtime_config",
 	])
 		raw.exec(`DROP TABLE ${table}`);
+	raw.exec(
+		"DROP TABLE world_social_resolutions; DROP TABLE world_social_bootstraps",
+	);
 	raw.exec("PRAGMA user_version = 2");
 	const events = raw.prepare("SELECT event_json FROM world_events").all(),
 		commits = raw.prepare("SELECT envelope_json FROM life_commits").all();
 	raw.close();
 	return { path, events, commits };
 }
-test("actual v2 file upgrades to v3 without rewriting accepted world/LIFE bytes", () => {
+test("actual v2 file upgrades through v3 to v4 without rewriting accepted world/LIFE bytes", () => {
 	const { path, events, commits } = v2();
 	const store = new WorldStore(path);
 	expect(store.lifeSnapshot("test-world").experiences).toHaveLength(2);
@@ -51,7 +54,7 @@ test("actual v2 file upgrades to v3 without rewriting accepted world/LIFE bytes"
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 3,
+			user_version: 4,
 		});
 		expect(raw.prepare("SELECT event_json FROM world_events").all()).toEqual(
 			events,

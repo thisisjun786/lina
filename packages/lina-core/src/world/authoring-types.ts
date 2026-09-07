@@ -3,6 +3,10 @@ import type {
 	LifeDefinition,
 	LifeViewLimits,
 } from "./life-types.ts";
+import type {
+	SocialDefinition,
+	SocialMigrationPreview,
+} from "./social-types.ts";
 import type { WorldDefinition } from "./types.ts";
 
 export type Scalar = string | number | boolean;
@@ -137,7 +141,7 @@ export type ImportReport = {
 	reason: string;
 	rawJson: string;
 };
-export type WorldPack = {
+export type WorldPackV1 = {
 	schemaVersion: 1;
 	worldId: string;
 	version: number;
@@ -159,6 +163,11 @@ export type WorldPack = {
 	unresolved: AuthoringQuestion[];
 	importReport: ImportReport[];
 };
+export type WorldPackV2 = Omit<WorldPackV1, "schemaVersion"> & {
+	schemaVersion: 2;
+	social: SocialDefinition;
+};
+export type WorldPack = WorldPackV1 | WorldPackV2;
 export type EvaluationLimits = LifeViewLimits & {
 	maxDepth: number;
 	maxOperations: number;
@@ -280,7 +289,7 @@ export type WorldPreviewOptions = {
 	limits: EvaluationLimits;
 	relocations: Array<{ agentId: string; sceneId: string | null }>;
 };
-export type WorldDraftPreview = {
+export type WorldDraftPreviewV1 = {
 	version: 1;
 	draftId: string;
 	draftRevision: number;
@@ -299,6 +308,11 @@ export type WorldDraftPreview = {
 	canActivate: boolean;
 	digest: string;
 };
+export type WorldDraftPreviewV2 = Omit<WorldDraftPreviewV1, "version"> & {
+	version: 2;
+	socialMigration: SocialMigrationPreview | null;
+};
+export type WorldDraftPreview = WorldDraftPreviewV1 | WorldDraftPreviewV2;
 export type WorldConfirmation = {
 	draftId: string;
 	expectedRevision: number;
@@ -307,7 +321,7 @@ export type WorldConfirmation = {
 	previewDigest: string;
 	options: WorldPreviewOptions;
 };
-export type WorldActivationReceipt = {
+export type WorldActivationReceiptV1 = {
 	version: 1;
 	worldId: string;
 	worldVersion: number;
@@ -317,9 +331,16 @@ export type WorldActivationReceipt = {
 	draftRevision: number;
 	eventId: string | null;
 	inputDigest: string;
-	preview: WorldDraftPreview;
+	preview: WorldDraftPreviewV1;
 	replayed: boolean;
 };
+export type WorldActivationReceiptV2 = Omit<
+	WorldActivationReceiptV1,
+	"version" | "preview"
+> & { version: 2; preview: WorldDraftPreviewV2 };
+export type WorldActivationReceipt =
+	| WorldActivationReceiptV1
+	| WorldActivationReceiptV2;
 export type WorldAuthorGrant = {
 	version: 1;
 	id: string;

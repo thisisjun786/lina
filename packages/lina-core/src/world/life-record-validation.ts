@@ -20,9 +20,11 @@ import type {
 	DisclosureSubject,
 	EngineCheckpoint,
 	GrowthDelta,
+	KnowledgeGrant,
 	LifeClaim,
 	SideEffectIntent,
 } from "./life-types.ts";
+import { parseEnsembleCheckpoint } from "./social-checkpoint-validation.ts";
 import { fields, text } from "./validation.ts";
 
 export function parseClaimRef(value: unknown): ClaimRef {
@@ -84,6 +86,35 @@ export function parseClaim(value: unknown): LifeClaim {
 		supersedes: nullableId(value.supersedes),
 		disclosure: parseDisclosurePolicy(value.disclosure),
 	};
+}
+export function parseKnowledgeGrant(value: unknown): KnowledgeGrant {
+	fields(value, [
+		"id",
+		"claim",
+		"fromAgentId",
+		"toAgentId",
+		"sourceEventId",
+		"experienceId",
+		"lifeRevision",
+		"definitionRevision",
+		"projectionRevision",
+		"policyDigest",
+	]);
+	const grant: KnowledgeGrant = {
+		id: identifier(value.id),
+		claim: parseClaimRef(value.claim),
+		fromAgentId: identifier(value.fromAgentId),
+		toAgentId: identifier(value.toAgentId),
+		sourceEventId: eventReference(value.sourceEventId),
+		experienceId: identifier(value.experienceId),
+		lifeRevision: revision(value.lifeRevision, 1),
+		definitionRevision: revision(value.definitionRevision, 1),
+		projectionRevision: revision(value.projectionRevision, 1),
+		policyDigest: digest(value.policyDigest),
+	};
+	if (grant.fromAgentId === grant.toAgentId)
+		throw Error("LIFE grant requires another recipient");
+	return grant;
 }
 export function parseBelief(value: unknown): AgentBelief {
 	fields(value, [
@@ -219,6 +250,13 @@ export function emptyCheckpoint(): EngineCheckpoint {
 	};
 }
 export function parseCheckpoint(value: unknown): EngineCheckpoint {
+	if (
+		value &&
+		typeof value === "object" &&
+		"engineId" in value &&
+		value.engineId === "ensemble"
+	)
+		return parseEnsembleCheckpoint(value);
 	fields(value, [
 		"version",
 		"engineId",

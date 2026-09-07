@@ -27,6 +27,14 @@ Product contracts and future scope are documented in [runtime](CODEX_RUNTIME.md)
 - User conversations, memory, credentials, and adopted/customized personas in a
   user's installation are outside the project license grant and source export.
 
+Ensemble's pinned source, local patches and UC-specific BSD-4-Clause terms are
+recorded in [third-party notices](../THIRD_PARTY_NOTICES.md#ensemble-social-engine).
+Redistributed artifacts must retain its complete vendor license and manifest
+alongside the root notices. Materials mentioning Ensemble features or use must
+include the following acknowledgement:
+
+This product includes software developed by the University of California, Santa Cruz and its contributors.
+
 ## Source and history boundary
 
 Publish portable product plans, authored source resources and public third-party

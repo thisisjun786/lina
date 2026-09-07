@@ -1,7 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
-import { migrateLifeDefinition } from "./life-definition.ts";
-import { canonicalLifeJson, lifeDigest } from "./life-json.ts";
+import type { WorldPack } from "./authoring-types.ts";
+import { migrateLifeDefinitionResult } from "./life-definition.ts";
+import { canonicalLifeJson, lifeDigest, revision } from "./life-json.ts";
 import { parseEffect } from "./life-record-validation.ts";
 import {
 	applyLifeTransition,
@@ -29,6 +30,8 @@ import {
 	parseLifeState,
 	parseWorldBinding,
 } from "./life-validation.ts";
+import { parseSocialMigrationPreview } from "./social-receipt-validation.ts";
+import type { SocialMigrationPreview } from "./social-types.ts";
 import { eventId, transition } from "./transition.ts";
 import type {
 	WorldDefinitionProposal,
@@ -80,6 +83,14 @@ const INPUT_COLUMNS =
 const EFFECT_COLUMNS =
 	"world_id, intent_id, life_revision, payload_digest, intent_json, consumer_receipt_json";
 type WorldAccess = {
+	pack(worldId: string, version: number): WorldPack;
+	assertSocialCommit(
+		commit: LifeCommit,
+		identity: IdentityPolicySnapshot,
+		source: { world: WorldSnapshot; life: LifeState },
+		historical: boolean,
+	): void;
+	markSocialAccepted(commit: LifeCommit): void;
 	assertActors(proposal: WorldProposal): void;
 	snapshot(worldId: string): WorldSnapshot;
 	snapshotAt(worldId: string, revision: number): WorldSnapshot;
@@ -91,7 +102,7 @@ type Envelope = {
 	commit: LifeCommit;
 	identity: IdentityPolicySnapshot;
 };
-type DefinitionEnvelope = {
+type DefinitionEnvelopeV2 = {
 	version: 2;
 	kind: "definition";
 	world: WorldDefinitionProposal;
@@ -100,14 +111,23 @@ type DefinitionEnvelope = {
 	definition: LifeDefinition;
 };
 
+type DefinitionEnvelopeV3 = Omit<DefinitionEnvelopeV2, "version"> & {
+	version: 3;
+	fromPackVersion: number;
+	toPackVersion: number;
+	socialMigration: SocialMigrationPreview | null;
+};
+type DefinitionEnvelope = DefinitionEnvelopeV2 | DefinitionEnvelopeV3;
+
 function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
 	const value: unknown = JSON.parse(row.envelope_json);
 	if (
 		value &&
 		typeof value === "object" &&
 		"version" in value &&
-		value.version === 2
+		(value["version"] === 2 || value["version"] === 3)
 	) {
+		const social = value["version"] === 3;
 		fields(value, [
 			"version",
 			"kind",
@@ -115,24 +135,39 @@ function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
 			"expectedLifeRevision",
 			"previousDefinitionRevision",
 			"definition",
+			...(social
+				? (["fromPackVersion", "toPackVersion", "socialMigration"] as const)
+				: []),
 		]);
-		const world = parseProposal(value.world);
-		integer(value.expectedLifeRevision, "previous LIFE revision");
+		const world = parseProposal(value["world"]);
+		integer(value["expectedLifeRevision"], "previous LIFE revision");
 		integer(
-			value.previousDefinitionRevision,
+			value["previousDefinitionRevision"],
 			"previous LIFE definition revision",
 			1,
 		);
-		if (value.kind !== "definition" || world.kind !== "definition")
+		if (value["kind"] !== "definition" || world.kind !== "definition")
 			throw Error("Invalid LIFE configuration envelope");
-		const envelope: DefinitionEnvelope = {
+		const legacy: DefinitionEnvelopeV2 = {
 			version: 2,
 			kind: "definition",
 			world,
-			expectedLifeRevision: value.expectedLifeRevision,
-			previousDefinitionRevision: value.previousDefinitionRevision,
-			definition: parseLifeDefinition(value.definition),
+			expectedLifeRevision: value["expectedLifeRevision"],
+			previousDefinitionRevision: value["previousDefinitionRevision"],
+			definition: parseLifeDefinition(value["definition"]),
 		};
+		const envelope: DefinitionEnvelope = social
+			? {
+					...legacy,
+					version: 3,
+					fromPackVersion: revision(value["fromPackVersion"], 1),
+					toPackVersion: revision(value["toPackVersion"], 1),
+					socialMigration:
+						value["socialMigration"] === null
+							? null
+							: parseSocialMigrationPreview(value["socialMigration"]),
+				}
+			: legacy;
 		integer(row.life_revision, "LIFE commit revision", 1);
 		integer(row.world_revision, "LIFE world revision", 1);
 		if (
@@ -146,11 +181,11 @@ function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
 		return envelope;
 	}
 	fields(value, ["version", "commit", "identity"]);
-	if (value.version !== 1) throw Error("Unsupported LIFE commit envelope");
+	if (value["version"] !== 1) throw Error("Unsupported LIFE commit envelope");
 	const envelope: Envelope = {
 		version: 1,
-		commit: parseLifeCommit(value.commit),
-		identity: parseIdentityPolicy(value.identity),
+		commit: parseLifeCommit(value["commit"]),
+		identity: parseIdentityPolicy(value["identity"]),
 	};
 	if (envelope.commit.world.kind === "definition")
 		throw Error("Unsupported LIFE configuration in activity envelope");
@@ -338,6 +373,12 @@ export class LifePersistence {
 		this.world.assertActors(commit.world);
 		const previous = this.snapshot(commit.world.worldId);
 		const world = this.world.snapshot(commit.world.worldId);
+		this.world.assertSocialCommit(
+			commit,
+			identity,
+			{ world, life: previous },
+			false,
+		);
 		const nextWorld = transition(world, commit.world);
 		const next = applyLifeTransition(
 			previous,
@@ -444,28 +485,46 @@ export class LifePersistence {
 					intent.payloadDigest,
 					canonicalLifeJson(intent),
 				);
+		this.world.markSocialAccepted(commit);
 		return receipt(row, false);
 	}
 	previewDefinition(
 		proposal: WorldDefinitionProposal,
 		definition: LifeDefinition,
+		nextPack?: WorldPack,
 	): LifeState {
+		return this.previewDefinitionResult(proposal, definition, nextPack).state;
+	}
+	previewDefinitionResult(
+		proposal: WorldDefinitionProposal,
+		definition: LifeDefinition,
+		nextPack?: WorldPack,
+	) {
 		const world = this.world.snapshot(proposal.worldId);
-		return migrateLifeDefinition(
+		const packs = nextPack
+			? {
+					old: this.world.pack(proposal.worldId, world.definition.version),
+					next: nextPack,
+				}
+			: undefined;
+		return migrateLifeDefinitionResult(
 			this.snapshot(proposal.worldId),
 			world,
 			transition(world, proposal),
 			this.definition(proposal.worldId),
 			definition,
+			packs,
 		);
 	}
 	changeDefinition(
 		proposal: WorldDefinitionProposal,
 		definition: LifeDefinition,
+		nextPack?: WorldPack,
 	): LifeState {
 		const old = this.definition(proposal.worldId),
-			next = this.previewDefinition(proposal, definition);
-		const envelope: DefinitionEnvelope = {
+			migration = this.previewDefinitionResult(proposal, definition, nextPack),
+			next = migration.state;
+		const legacy: DefinitionEnvelopeV2 = {
 			version: 2,
 			kind: "definition",
 			world: proposal,
@@ -473,6 +532,17 @@ export class LifePersistence {
 			previousDefinitionRevision: old.revision,
 			definition,
 		};
+		const envelope: DefinitionEnvelope =
+			nextPack?.schemaVersion === 2
+				? {
+						...legacy,
+						version: 3,
+						fromPackVersion: this.world.snapshot(proposal.worldId).definition
+							.version,
+						toPackVersion: nextPack.version,
+						socialMigration: migration.socialMigration,
+					}
+				: legacy;
 		this.db
 			.prepare(
 				"INSERT INTO life_config (world_id, revision, definition_json, digest) VALUES (?, ?, ?, ?)",
@@ -686,7 +756,7 @@ export class LifePersistence {
 				row.world_id,
 				entry.world_revision,
 			);
-			if (envelope.version === 2) {
+			if (envelope.version !== 1) {
 				if (
 					!isDeepStrictEqual(
 						envelope.world,
@@ -700,13 +770,32 @@ export class LifePersistence {
 					)
 				)
 					throw Error("Corrupt paired LIFE configuration event");
-				state = migrateLifeDefinition(
+				const packs =
+					envelope.version === 3
+						? {
+								old: this.world.pack(row.world_id, envelope.fromPackVersion),
+								next: this.world.pack(row.world_id, envelope.toPackVersion),
+							}
+						: undefined;
+				const migration = migrateLifeDefinitionResult(
 					state,
 					oldWorld,
 					nextWorld,
 					definition,
 					envelope.definition,
+					packs,
 				);
+				if (
+					envelope.version === 3 &&
+					(envelope.fromPackVersion !== oldWorld.definition.version ||
+						envelope.toPackVersion !== nextWorld.definition.version ||
+						!isDeepStrictEqual(
+							envelope.socialMigration,
+							migration.socialMigration,
+						))
+				)
+					throw Error("Corrupt LIFE social migration receipt");
+				state = migration.state;
 				definition = envelope.definition;
 				configs.add(definition.revision);
 				if (
@@ -723,6 +812,12 @@ export class LifePersistence {
 				)
 			)
 				throw Error("Corrupt paired LIFE event");
+			this.world.assertSocialCommit(
+				envelope.commit,
+				envelope.identity,
+				{ world: oldWorld, life: state },
+				true,
+			);
 			state = applyLifeTransition(
 				state,
 				oldWorld,

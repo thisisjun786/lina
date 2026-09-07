@@ -22,6 +22,7 @@ import {
 	parseEffect,
 	parseExperience,
 	parseGrowth,
+	parseKnowledgeGrant,
 	refKey,
 } from "./life-record-validation.ts";
 import type {
@@ -29,6 +30,7 @@ import type {
 	BindingSelection,
 	IdentityPolicySnapshot,
 	LifeCommit,
+	LifeCommitV1,
 	LifeDefinition,
 	LifeInput,
 	LifeViewLimits,
@@ -176,6 +178,11 @@ export function parseIdentityPolicy(value: unknown): IdentityPolicySnapshot {
 }
 export function parseLifeCommit(value: unknown): LifeCommit {
 	jsonBoundary(value);
+	const current =
+		!!value &&
+		typeof value === "object" &&
+		"version" in value &&
+		value["version"] === 2;
 	fields(value, [
 		"version",
 		"world",
@@ -188,27 +195,43 @@ export function parseLifeCommit(value: unknown): LifeCommit {
 		"checkpoint",
 		"consumedInputIds",
 		"effects",
+		...(current ? ["socialResolutionId", "knowledgeGrants"] : []),
 	]);
-	const world = parseProposal(value.world);
+	const world = parseProposal(value["world"]);
 	world.actorIds.sort();
 	world.audience.sort();
 	for (const fact of world.facts) fact.knownTo.sort();
-	return {
-		version: version(value.version),
+	const legacy: LifeCommitV1 = {
+		version: current ? 1 : version(value["version"]),
 		world,
-		expectedLifeRevision: revision(value.expectedLifeRevision),
-		definitionRevision: revision(value.definitionRevision, 1),
-		claims: keyed(array(value.claims, parseClaim), (x) => x.id, false),
-		beliefs: keyed(array(value.beliefs, parseBelief), (x) => x.id, false),
+		expectedLifeRevision: revision(value["expectedLifeRevision"]),
+		definitionRevision: revision(value["definitionRevision"], 1),
+		claims: keyed(array(value["claims"], parseClaim), (x) => x.id, false),
+		beliefs: keyed(array(value["beliefs"], parseBelief), (x) => x.id, false),
 		experiences: keyed(
-			array(value.experiences, parseExperience),
+			array(value["experiences"], parseExperience),
 			(x) => x.id,
 			false,
 		),
-		growth: keyed(array(value.growth, parseGrowth), growthKey, false),
-		checkpoint: parseCheckpoint(value.checkpoint),
-		consumedInputIds: identifiers(value.consumedInputIds),
-		effects: keyed(array(value.effects, parseEffect), (x) => x.id),
+		growth: keyed(array(value["growth"], parseGrowth), growthKey, false),
+		checkpoint: parseCheckpoint(value["checkpoint"]),
+		consumedInputIds: identifiers(value["consumedInputIds"]),
+		effects: keyed(array(value["effects"], parseEffect), (x) => x.id),
+	};
+	if (!current) {
+		if (legacy.checkpoint.engineId !== "empty")
+			throw Error("Legacy LIFE commit cannot contain an ensemble checkpoint");
+		return legacy;
+	}
+	return {
+		...legacy,
+		version: 2,
+		socialResolutionId: identifier(value["socialResolutionId"]),
+		knowledgeGrants: keyed(
+			array(value["knowledgeGrants"], parseKnowledgeGrant),
+			(x) => x.id,
+			false,
+		),
 	};
 }
 export function parseLifeInput(value: unknown): LifeInput {

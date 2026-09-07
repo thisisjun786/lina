@@ -38,7 +38,11 @@ export type {
 	WorldDraftPage,
 	WorldDraftPatch,
 	WorldDraftPreview,
+	WorldDraftPreviewV1,
+	WorldDraftPreviewV2,
 	WorldPack,
+	WorldPackV1,
+	WorldPackV2,
 	WorldPreviewOptions,
 	WorldRole,
 	WorldSuggestion,
@@ -77,14 +81,19 @@ export type {
 	GrowthState,
 	IdentityPolicySnapshot,
 	KnowledgeClaim,
+	KnowledgeGrant,
 	LifeClaim,
 	LifeCommit,
+	LifeCommitV1,
+	LifeCommitV2,
 	LifeDefinition,
 	LifeInput,
 	LifePerception,
 	LifePreview,
 	LifeReceipt,
 	LifeState,
+	LifeStateV1,
+	LifeStateV2,
 	LifeViewLimits,
 	PerceptionScope,
 	ProjectionPolicy,
@@ -108,6 +117,33 @@ export {
 	parseProjectionPolicy,
 	parseWorldBinding,
 } from "./life-validation.ts";
+export { compileSocialPack } from "./social-compile.ts";
+export type {
+	SocialPreparedResolution,
+	SocialPrepareRequest,
+	WorldSocialPort,
+} from "./social-store-types.ts";
+export type {
+	CompiledSocialPack,
+	EnsembleCheckpoint,
+	SocialActorView,
+	SocialDefinition,
+	SocialIntent,
+	SocialIntentInspection,
+	SocialLimits,
+	SocialMigrationPreview,
+	SocialPrimitive,
+	SocialResolution,
+	SocialResolveInput,
+	TargetResponse,
+} from "./social-types.ts";
+export {
+	inspectSocialIntent,
+	parseSocialDefinition,
+	parseSocialResolution,
+	parseSocialResolveInput,
+} from "./social-validation.ts";
+export { projectSocialActorView } from "./social-views.ts";
 export { WorldStore } from "./store.ts";
 export type {
 	WorldActivityProposal,
