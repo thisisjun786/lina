@@ -51,7 +51,7 @@ process.on("SIGUSR1", () => {
 	void (async () => {
 		await web.stop(true);
 		const original = await loadWebAssets();
-		const client = new URL("../client/", import.meta.url);
+		const client = new URL("../../lina-ui/client/", import.meta.url);
 		const fresh = {
 			...original,
 			...createPwaAssets(

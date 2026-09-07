@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DraftStore } from "../client/draft.ts";
+import { DraftStore } from "../../lina-client/src/draft.ts";
 
 test("agent drafts and unresolved sends stay separate while legacy Lina keys remain", () => {
 	const data = new Map<string, string>();

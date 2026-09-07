@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
+import { ContextModel } from "../../lina-client/src/context-model.ts";
+import { parseServerFrame } from "../../lina-client/src/protocol.ts";
 import type { ContextSnapshot } from "../../lina-core/src/context-wire.ts";
-import { ContextModel } from "../client/context-model.ts";
-import { parseServerFrame } from "../src/protocol.ts";
 
 const snapshot = (epoch = "one", revision = 2): ContextSnapshot => ({
 	sessionId: "s",

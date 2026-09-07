@@ -158,6 +158,8 @@ Codex 작업은 설치된 스킬과 플러그인을 사용합니다. 에이전�
 첨부 파일, API 응답을 캐시하지 않습니다. 공개 호스팅, macOS·iOS 네이티브 실행 파일,
 앱 자체의 계정 관리는 이번 구현 범위에 포함하지 않습니다.
 
+공통 화면은 메신저형 에이전트 목록, 모바일 목록·대화 전환, 파일 선택·붙여넣기 큐를 제공합니다. [구현·검증 범위](docs/plans/codex-ui/010_implementation.md)와 [Electron 실행 안내](packages/lina-desktop/README.md)를 참고하세요. 실제 모델·다른 OS 연결 검증은 소스 테스트와 구분합니다.
+
 ## 디렉터리 구성
 
 - `packages/lina-codex`: Codex RPC, 세션 상태 반영, 권한, 작업 상태의 영속 관리.
@@ -165,7 +167,10 @@ Codex 작업은 설치된 스킬과 플러그인을 사용합니다. 에이전�
 - `packages/lina-core`: 대화·요청의 영속 처리 규약, 원문 보관, 컨텍스트 저장.
 - `packages/lina-history`: 비공개 체크포인트 명세, 데이터 객체, 검증, 복구 준비.
 - `packages/lina-runtime`: 앱·에이전트 집합 컨트롤러와 Codex 실행 구성.
-- `packages/lina-web`: 브라우저 작업 화면과 동일 출처 게이트웨이.
+- `packages/lina-client`: 공통 대화 상태·명령·초안·탐색 계약.
+- `packages/lina-ui`: 웹과 Electron이 함께 사용하는 화면과 디자인 토큰.
+- `packages/lina-web`: 동일 출처 게이트웨이와 웹/PWA 자산.
+- `packages/lina-desktop`: 동봉 화면과 제한된 서버 연결을 제공하는 Electron 앱.
 - `packages/lina-memory`: 내장·Honcho 메모리와 접근 범위를 제한한 OpenViking 파일 클라이언트.
 - `packages/lina-channels`: 채널 연동.
 - `data/personas`: 작성된 페르소나와 출처 기록.

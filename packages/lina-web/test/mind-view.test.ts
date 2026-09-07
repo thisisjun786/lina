@@ -4,7 +4,7 @@ import {
 	createMindView,
 	type MindResponse,
 	recordPresentation,
-} from "../client/mind-view.ts";
+} from "../../lina-ui/client/mind-view.ts";
 
 const available: MindResponse = {
 	available: true,
@@ -87,7 +87,9 @@ it("discards a retraction response after closing or switching agents", async () 
 });
 
 it("distinguishes changed, unchanged and historical failures without claiming records from receipts", async () => {
-	const { processingPresentation } = await import("../client/mind-view.ts");
+	const { processingPresentation } = await import(
+		"../../lina-ui/client/mind-view.ts"
+	);
 	const text = processingPresentation({
 		error: null,
 		pending: 2,

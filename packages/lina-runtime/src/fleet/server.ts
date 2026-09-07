@@ -10,6 +10,7 @@ import {
 import { inspectContent } from "../../../lina-core/src/attachments/validation.ts";
 import { HonchoClient } from "../../../lina-memory/src/honcho/client.ts";
 import { defaultConversation } from "../persona/conversation.ts";
+import { agentSummaries } from "./agent-summaries.ts";
 import { companionRoutes } from "./companion-routes.ts";
 import { introRoutes } from "./intro-routes.ts";
 import { type AgentFleet, validAgentId } from "./manager.ts";
@@ -112,7 +113,11 @@ export async function startFleetServer(
 							(primary ?? fleet.opened(primaryId))?.binding.sessionId ?? null,
 					});
 				if (url.pathname === "/api/agents" && request.method === "GET")
-					return response({ agents: fleet.summary(), presets: fleet.presets });
+					return response({
+						agents: fleet.summary(),
+						summaries: agentSummaries(fleet),
+						presets: fleet.presets,
+					});
 				if (url.pathname === "/api/agents" && request.method === "POST") {
 					const value = await json(request),
 						preset =

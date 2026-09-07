@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DraftStore } from "../client/draft.ts";
+import { DraftStore } from "../../lina-client/src/draft.ts";
 
 test("draft and pending ID survive reload without executing a send", () => {
 	const values = new Map<string, string>();

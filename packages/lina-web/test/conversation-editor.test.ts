@@ -5,7 +5,7 @@ import {
 	conversationPreferenceLabel,
 	conversationPreferenceValue,
 	validateConversationExamples,
-} from "../client/conversation-draft.ts";
+} from "../../lina-ui/client/conversation-draft.ts";
 
 test("builds the scoped conversation endpoint", () => {
 	expect(conversationEndpoint("lina")).toBe("/api/agents/lina/conversation");

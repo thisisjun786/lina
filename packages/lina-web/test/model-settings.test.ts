@@ -10,7 +10,7 @@ import {
 	createProfile,
 	profileFor,
 	settingsInput,
-} from "../client/model-settings.ts";
+} from "../../lina-ui/client/model-settings.ts";
 
 const settings: ModelSettings = {
 	revision: 4,

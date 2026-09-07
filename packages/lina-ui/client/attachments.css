@@ -1,0 +1,28 @@
+#draft-files .file-chip {
+	flex-wrap: wrap;
+	max-width: min(100%, 360px);
+}
+#draft-files .attachment-name {
+	flex: 1 1 100px;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+#draft-files .attachment-status {
+	flex: 1 0 100%;
+	order: 1;
+	overflow-wrap: anywhere;
+	word-break: keep-all;
+	color: var(--muted);
+}
+#draft-files .file-chip button {
+	flex: 0 0 auto;
+	min-width: 24px;
+	white-space: nowrap;
+}
+#draft-files .file-chip img,
+#draft-files .file-chip canvas {
+	flex: 0 0 40px;
+	object-fit: contain;
+}

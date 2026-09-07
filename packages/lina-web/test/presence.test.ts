@@ -7,7 +7,7 @@ import {
 	activityStatus,
 	elapsedText,
 	operationLabel,
-} from "../client/presence.ts";
+} from "../../lina-ui/client/presence.ts";
 
 const started = "2026-09-06T01:00:00Z";
 const tool: ToolRun = {

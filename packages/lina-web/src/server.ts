@@ -1,11 +1,11 @@
 import type { ServerWebSocket } from "bun";
+import { parseServerFrame } from "../../lina-client/src/protocol.ts";
 import { parseContextClient } from "../../lina-core/src/context-wire.ts";
 import { parseControlClient } from "../../lina-core/src/control-wire.ts";
 import { parseWireClient } from "../../lina-core/src/wire.ts";
 import { createAccessPolicy } from "./access.ts";
 import { proxyAgents } from "./agent-proxy.ts";
 import { proxyAttachment } from "./attachment-proxy.ts";
-import { parseServerFrame } from "./protocol.ts";
 
 import type { PwaAssets } from "./pwa-assets.ts";
 

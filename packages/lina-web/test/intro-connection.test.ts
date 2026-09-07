@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { checkIntroConnection } from "../client/intro-connection.ts";
+import { checkIntroConnection } from "../../lina-ui/client/intro-connection.ts";
 
 const profile = {
 	id: "default",

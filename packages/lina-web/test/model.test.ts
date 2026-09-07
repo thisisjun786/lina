@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ChatModel } from "../client/model.ts";
+import { ChatModel } from "../../lina-client/src/model.ts";
 
 describe("web conversation", () => {
 	it("allows only one unresolved request when sending", () => {

@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
+import { DurableChatModel } from "../../lina-client/src/durable-model.ts";
 import type {
 	SessionSnapshot,
 	TimelineEntry,
 } from "../../lina-core/src/protocol.ts";
-import { DurableChatModel } from "../client/durable-model.ts";
 
 const row = (
 	seq: number,

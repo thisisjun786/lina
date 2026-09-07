@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import type { AgentInput } from "../../lina-core/src/agents/types.ts";
-import { createOnboardingWizard } from "../client/onboarding.ts";
-import { OnboardingHttpError } from "../client/onboarding-api.ts";
+import { createOnboardingWizard } from "../../lina-ui/client/onboarding.ts";
+import { OnboardingHttpError } from "../../lina-ui/client/onboarding-api.ts";
 import {
 	type AgentDraft,
 	emptyChapters,
 	emptyUserAnswers,
 	UNSPECIFIED,
 	type UserState,
-} from "../client/onboarding-types.ts";
+} from "../../lina-ui/client/onboarding-types.ts";
 
 type Listener = (event: FakeEvent) => void;
 class FakeEvent {

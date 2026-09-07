@@ -11,6 +11,8 @@ async function buildClientEntry(entry: URL): Promise<string> {
 			fileURLToPath(entry),
 			"--target=browser",
 			"--minify",
+			"--define",
+			'process.env.NODE_ENV="production"',
 		],
 		{
 			cwd: fileURLToPath(new URL(".", entry)),
@@ -30,14 +32,23 @@ async function buildClientEntry(entry: URL): Promise<string> {
 }
 
 export async function loadWebAssets(): Promise<WebAssets> {
-	const client = new URL("../client/", import.meta.url);
-	const [script, css, themeScript] = await Promise.all(
+	const client = new URL("../../lina-ui/client/", import.meta.url);
+	const [builtScript, css, themeScript] = await Promise.all(
 		["app.ts", "styles.css", "theme-boot.ts"].map((entry) =>
 			buildClientEntry(new URL(entry, client)),
 		),
 	);
-	if (script === undefined || css === undefined || themeScript === undefined)
+	if (
+		builtScript === undefined ||
+		css === undefined ||
+		themeScript === undefined
+	)
 		throw new Error("Missing web assets");
+	const licenses = await Bun.file(
+		new URL("../THIRD_PARTY_LICENSES.txt", client),
+	).text();
+	// The same output is served on web and bundled into Electron's ASAR.
+	const script = `/*!\n${licenses.replaceAll("*/", "* /")}\n*/\n${builtScript}`;
 	const base = {
 		icon: await Bun.file(new URL("favicon.svg", client)).text(),
 		html: await Bun.file(new URL("index.html", client)).text(),

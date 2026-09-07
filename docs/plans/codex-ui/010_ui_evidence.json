@@ -1,0 +1,14 @@
+{
+  "capturedAt": "2026-09-07",
+  "kind": "actual web screenshots with synthetic fixture data",
+  "baseCommit": "cd74c89",
+  "rendererVersion": "8b7f0710d8fa18e241fa",
+  "screenshots": {
+    "010_ui_desktop.png": "ec0275c03bd92c888974ec49063e5194cb6709283be7344307fb0ecb79631e8b",
+    "010_ui_mobile.png": "da6b03621ca3c1dbe2fa3eca7b63190be9d0ddd61381e71f22bc816b9b100b53",
+    "010_ui_models.png": "d56dc4752bb01ac371c1696c082e32d2a79c70946c0521b3c0b1080bfec9e38b",
+    "010_ui_task_layout.png": "afb5b56c106c9f24df435c7f3c1d38c26ef0c06af5b1ff85010a41dba3a9adb8"
+  },
+  "externalProviderCalls": 0,
+  "electronGuiVerified": false
+}

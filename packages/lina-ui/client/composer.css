@@ -1,0 +1,124 @@
+.composer-area {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	padding: 12px 24px 24px;
+	width: 100%;
+	max-width: var(--conversation-width);
+	align-self: center;
+}
+.composer {
+	flex-shrink: 0;
+	border: 1px solid transparent;
+	border-radius: var(--composer-radius);
+	padding: 12px;
+	background: var(--surface-raised);
+}
+.composer:focus-within {
+	border-color: var(--line-strong);
+}
+textarea {
+	display: block;
+	width: 100%;
+	border: none;
+	outline: none;
+	resize: none;
+	min-height: 44px;
+	max-height: none;
+	background: transparent;
+	color: inherit;
+	font-size: var(--chat-text-size, 0.9375rem);
+	line-height: 1.7;
+}
+#message {
+	padding: 2px 4px 8px;
+}
+textarea:focus-visible {
+	outline: none;
+}
+textarea::placeholder {
+	color: var(--muted);
+}
+.composer-bottom {
+	display: flex;
+	gap: 4px;
+	align-items: center;
+	margin-top: 8px;
+}
+#attach-file,
+:is(#send, #task-send) {
+	display: inline-grid;
+	place-items: center;
+	flex-shrink: 0;
+	width: var(--control-size);
+	height: var(--control-size);
+	min-height: var(--control-size);
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+}
+#attach-file {
+	background: transparent;
+	color: var(--text);
+}
+#attach-file:hover:not(:disabled) {
+	background: var(--hover);
+}
+#attach-file:disabled {
+	opacity: 0.5;
+}
+#composer-model {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: auto;
+	min-height: var(--control-size);
+	padding: 4px 8px;
+	color: var(--muted);
+	font-size: var(--font-caption);
+}
+#composer-model svg {
+	width: 14px;
+	height: 14px;
+}
+:is(#send, #task-send) {
+	margin-left: 4px;
+	color: var(--button-text);
+	background: var(--button-bg);
+}
+:is(#send, #task-send):hover:not(:disabled) {
+	background: var(--button-hover);
+}
+:is(#send, #task-send):disabled {
+	background: var(--disabled-bg);
+	color: var(--muted);
+}
+.work-panels {
+	min-height: 0;
+	max-height: 40dvh;
+	overflow: auto;
+}
+.execution-bar {
+	flex-shrink: 0;
+}
+.composer-expand {
+	color: var(--muted);
+	white-space: nowrap;
+}
+.intro-active #send {
+	margin-left: auto;
+}
+@media (max-width: 767px) {
+	.composer-area {
+		padding: 8px 12px max(12px, env(safe-area-inset-bottom));
+	}
+	.composer {
+		padding: 10px;
+	}
+	.composer-bottom {
+		margin-top: 4px;
+	}
+	#message {
+		font-size: max(16px, var(--chat-text-size, 16px));
+	}
+}

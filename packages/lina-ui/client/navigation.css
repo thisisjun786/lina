@@ -1,0 +1,228 @@
+.workspace {
+	grid-template-rows: minmax(0, 1fr);
+}
+.sidebar {
+	min-height: 0;
+}
+.list-switch {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 8px 8px 12px;
+	border-bottom: 1px solid var(--line);
+}
+.list-switch button {
+	min-height: var(--control-size);
+	padding: 6px 10px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--muted);
+}
+.list-switch button[aria-pressed="true"] {
+	color: var(--text);
+	background: var(--selection);
+}
+/* Layout controls belong to the task list, with visible action names. */
+.task-list-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 4px;
+	margin: 4px 8px 8px;
+}
+.task-list-toolbar #task-reload {
+	margin: 0 0 0 auto;
+	padding: 6px 8px;
+}
+.task-list-toolbar .ui-button {
+	font-weight: 400;
+	color: var(--muted);
+}
+.task-list-toolbar .ui-button:hover,
+.task-list-toolbar .ui-button[aria-pressed="true"] {
+	color: var(--text);
+}
+.task-column {
+	position: relative;
+	width: 280px;
+	min-width: 0;
+	background: var(--surface-sidebar);
+	border-right: 1px solid var(--line);
+	overflow-y: auto;
+}
+.task-column .tasks-heading {
+	min-height: 56px;
+	padding: 8px 12px;
+}
+.task-column .tasks-heading .section-label {
+	font-size: var(--font-ui);
+	font-weight: 500;
+	color: var(--text);
+}
+.mobile-navigation {
+	display: none;
+}
+html[data-layout="dual"] .workspace {
+	grid-template-columns: var(--sidebar-width) 280px minmax(0, 1fr);
+}
+html[data-layout="single"] #task-pane {
+	flex: 1;
+}
+#task-pane {
+	min-width: 0;
+}
+.sidebar-content {
+	min-height: 0;
+}
+[hidden] {
+	display: none !important;
+}
+@media (min-width: 768px) {
+	#close-sidebar {
+		display: none;
+	}
+	html[data-sidebar-collapsed="true"] .list-switch {
+		flex-direction: column;
+		padding: 4px;
+	}
+	html[data-sidebar-collapsed="true"] .sidebar .task-list-toolbar {
+		display: none;
+	}
+	html[data-sidebar-collapsed="true"] .agent-filter-field {
+		display: none;
+	}
+}
+@media (max-width: 767px) {
+	.workspace {
+		display: block;
+		height: var(--visible-height, 100dvh);
+		padding-bottom: calc(60px + env(safe-area-inset-bottom));
+	}
+	.sidebar,
+	html[data-sidebar-collapsed="true"] .sidebar {
+		display: flex;
+		width: 100%;
+		height: 100%;
+		border: 0;
+	}
+	.sidebar .sidebar-label,
+	html[data-sidebar-collapsed="true"] .sidebar-label {
+		display: initial;
+	}
+	.sidebar-content {
+		overflow-y: auto;
+		flex: 1;
+	}
+	.sidebar .account-area,
+	#collapse-sidebar,
+	#close-sidebar,
+	#sidebar-resizer,
+	.sidebar-search,
+	.list-switch {
+		display: none;
+	}
+	.sidebar-top {
+		min-height: 56px;
+		padding-top: env(safe-area-inset-top);
+	}
+	.main {
+		height: 100%;
+	}
+	html[data-screen="agents"] .main,
+	html[data-screen="tasks"] .main,
+	html[data-screen="settings"] .main {
+		display: none;
+	}
+	html[data-screen="conversation"] .sidebar {
+		display: none;
+	}
+	html[data-screen="conversation"] .workspace {
+		padding-bottom: 0;
+	}
+	#open-sidebar {
+		display: inline-flex;
+	}
+	.mobile-navigation {
+		position: fixed;
+		bottom: 0;
+		inset-inline: 0;
+		display: flex;
+		padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+		min-height: 60px;
+		background: var(--surface-sidebar);
+		border-top: 1px solid var(--line);
+	}
+	.mobile-navigation button {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 4px;
+		min-height: 52px;
+		border: 0;
+		background: transparent;
+		color: var(--muted);
+		font: inherit;
+		font-size: var(--font-caption);
+		border-radius: var(--control-radius);
+	}
+	.mobile-navigation button[aria-pressed="true"] {
+		color: var(--text);
+		background: transparent;
+		font-weight: 600;
+	}
+	html[data-screen="conversation"] .mobile-navigation,
+	.intro-active .mobile-navigation,
+	.boot-pending .mobile-navigation {
+		display: none;
+	}
+	.settings-dialog,
+	.task-dialog,
+	.search-dialog {
+		width: 100%;
+		max-width: 100%;
+		height: var(--visible-height, 100dvh);
+		max-height: var(--visible-height, 100dvh);
+		margin: 0;
+		border-radius: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto !important;
+		animation-duration: 0s !important;
+		transition-duration: 0s !important;
+	}
+}
+
+.intro-active #composer-model {
+	display: none;
+}
+@media (max-width: 767px) {
+	.intro-active .workspace {
+		padding-bottom: 0;
+	}
+}
+html[data-layout="dual"][data-sidebar-collapsed="true"] .workspace {
+	grid-template-columns: 76px 280px minmax(0, 1fr);
+}
+
+#mobile-search {
+	display: none;
+}
+@media (max-width: 767px) {
+	#mobile-search {
+		display: inline-grid;
+		margin-left: auto;
+	}
+	#current-agent-settings {
+		margin-left: 0;
+	}
+}
+.intro-active #mobile-search {
+	display: none;
+}

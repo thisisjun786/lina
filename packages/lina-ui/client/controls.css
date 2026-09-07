@@ -1,0 +1,125 @@
+/* Shared shadcn/Base UI skin. All surfaces use the same semantic design tokens. */
+.ui-tabs-list {
+	display: flex;
+	gap: inherit;
+	width: 100%;
+	min-width: 0;
+}
+.ui-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: var(--control-size);
+	padding: 6px 10px;
+	border: 1px solid transparent;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: var(--text);
+	font: inherit;
+	font-weight: 500;
+	line-height: 20px;
+	white-space: nowrap;
+	user-select: none;
+}
+.ui-button:hover,
+.ui-button[aria-expanded="true"] {
+	background: var(--selection);
+}
+.ui-button[data-variant="default"] {
+	background: var(--button-bg);
+	color: var(--button-text);
+}
+.ui-button[data-variant="default"]:hover {
+	background: var(--button-hover);
+}
+.ui-button[data-variant="secondary"] {
+	background: var(--surface-raised);
+}
+.ui-button[data-variant="outline"] {
+	border-color: var(--line-strong);
+}
+.ui-button[data-variant="destructive"] {
+	color: var(--danger);
+}
+.ui-button[data-size="icon"] {
+	width: var(--control-size);
+	height: var(--control-size);
+	padding: 0;
+	flex-shrink: 0;
+}
+.ui-button:disabled,
+.ui-button[data-disabled] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+:is(.ui-button, .ui-menu-item) svg {
+	width: var(--icon-size);
+	height: var(--icon-size);
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	flex-shrink: 0;
+	pointer-events: none;
+}
+.ui-menu-positioner {
+	z-index: 50;
+	outline: none;
+	isolation: isolate;
+}
+.ui-menu {
+	min-width: 224px;
+	max-width: min(320px, calc(100vw - 16px));
+	max-height: var(--available-height);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 6px;
+	border: 1px solid var(--line);
+	border-radius: var(--menu-radius);
+	background: var(--surface-raised);
+	color: var(--text);
+	box-shadow: 0 8px 32px #0003;
+	outline: none;
+}
+.ui-menu-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	min-height: 36px;
+	padding: 8px 10px;
+	border: 0;
+	border-radius: var(--control-radius);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-weight: 400;
+	line-height: 20px;
+	text-align: left;
+	cursor: default;
+	outline: none;
+	user-select: none;
+}
+.ui-menu-item[data-highlighted] {
+	background: var(--selection);
+}
+.ui-menu-item svg,
+.ui-menu-item kbd {
+	color: var(--muted);
+}
+.ui-menu-item kbd {
+	margin-left: auto;
+	font: inherit;
+	font-size: var(--font-caption);
+}
+.ui-menu-item:focus-visible {
+	outline: 1px solid var(--line-strong);
+	outline-offset: -1px;
+}
+@media (max-width: 767px) {
+	.ui-menu-item {
+		min-height: var(--control-size);
+	}
+}

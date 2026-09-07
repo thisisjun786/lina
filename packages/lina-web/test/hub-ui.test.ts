@@ -6,9 +6,9 @@ import {
 	installHubSettings,
 	parseHubStatus,
 	safeHubGuiUrl,
-} from "../client/hub-settings.ts";
-import { installModelSettings } from "../client/model-settings.ts";
-import { nextSettingsTab } from "../client/settings-tab-model.ts";
+} from "../../lina-ui/client/hub-settings.ts";
+import { installModelSettings } from "../../lina-ui/client/model-settings.ts";
+import { comboboxFixture } from "./fixtures/model-combobox.ts";
 
 class Node {
 	id = "";
@@ -209,15 +209,6 @@ function modelFixture() {
 	};
 }
 
-test("settings tabs wrap with arrows and support Home/End without consuming unrelated keys", () => {
-	expect(nextSettingsTab("general", "ArrowRight")).toBe("connections");
-	expect(nextSettingsTab("models", "ArrowDown")).toBe("general");
-	expect(nextSettingsTab("general", "ArrowLeft")).toBe("models");
-	expect(nextSettingsTab("models", "Home")).toBe("general");
-	expect(nextSettingsTab("general", "End")).toBe("models");
-	expect(nextSettingsTab("connections", "Enter")).toBeNull();
-});
-
 test("only https Tailscale GUI URLs can be opened in a new tab", () => {
 	expect(safeHubGuiUrl("https://hub.example.ts.net:10100/")).toBe(
 		"https://hub.example.ts.net:10100/",
@@ -344,8 +335,10 @@ test("role dropdowns hide unsupported catalog models and refresh keeps the draft
 		defaultProfileId: null,
 	};
 	let loads = 0;
+	const combos = comboboxFixture();
 	const view = installModelSettings(
 		f.dialog,
+		combos.factory,
 		f.document,
 		async (_path, method, body) => {
 			if (method === "GET") {
@@ -368,25 +361,22 @@ test("role dropdowns hide unsupported catalog models and refresh keeps the draft
 		},
 	);
 	await view.open();
-	const conversation = f.find("model-conversation-input");
-	await conversation.fire("focus");
-	expect(f.find("model-conversation-list").textContent).toContain("GLM Flash");
-	expect(f.find("model-conversation-list").textContent).not.toContain(
-		"Summary Only",
+	expect(
+		combos.get("model-conversation").items.map((item) => item.label),
+	).toContain("GLM Flash · opencodex");
+	expect(
+		combos.get("model-conversation").items.map((item) => item.label),
+	).not.toContain("Summary Only · opencodex");
+	expect(
+		combos.get("model-conversation").items.map((item) => item.label),
+	).not.toContain("Vision · opencodex");
+	expect(combos.get("model-summary").items.map((item) => item.label)).toContain(
+		"Summary Only · opencodex",
 	);
-	expect(f.find("model-conversation-list").textContent).not.toContain("Vision");
-	await conversation.fire("keydown", "Escape");
-	const summary = f.find("model-summary-input");
-	await summary.fire("focus");
-	expect(f.find("model-summary-list").textContent).toContain("Summary Only");
-	expect(f.find("model-summary-list").textContent).toContain("GLM Flash");
-	await summary.fire("keydown", "Escape");
-	const def = f.find("model-default-input");
-	await def.fire("focus");
-	def.value = "glm";
-	await def.fire("input");
-	await def.fire("keydown", "ArrowDown");
-	await def.fire("keydown", "Enter");
+	expect(combos.get("model-summary").items.map((item) => item.label)).toContain(
+		"GLM Flash · opencodex",
+	);
+	combos.get("model-default").choose("opencodex/glm-flash");
 	expect(f.find("model-save").disabled).toBe(false);
 	await f.find("model-reload").fire("click");
 	expect(f.find("model-save").disabled).toBe(false);

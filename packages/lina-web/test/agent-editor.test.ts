@@ -9,7 +9,7 @@ import {
 	createAgentPicker,
 	type EditorDependencies,
 	type EditorNode,
-} from "../client/agent-editor.ts";
+} from "../../lina-ui/client/agent-editor.ts";
 
 type Listener = (event: FakeEvent) => void;
 class FakeEvent {

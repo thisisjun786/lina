@@ -4,7 +4,7 @@ import {
 	COMMAND_DETAIL_MAX_CHARS,
 	toolLabel,
 	toolSummary,
-} from "../client/tool-label.ts";
+} from "../../lina-ui/client/tool-label.ts";
 
 test("tool labels map known tools and bound unknown names", () => {
 	for (const name of [

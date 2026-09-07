@@ -2,8 +2,11 @@ import { expect, test } from "bun:test";
 import presets from "../../../data/personas/presets.json";
 import { validateAgentInput } from "../../lina-core/src/agents/validation.ts";
 import { unspecifiedProfile } from "../../lina-core/src/onboarding/helpers.ts";
-import type { IntroRoom } from "../client/intro-types.ts";
-import { type IntroNode, renderPanel } from "../client/intro-view.ts";
+import type { IntroRoom } from "../../lina-ui/client/intro-types.ts";
+import {
+	type IntroNode,
+	renderPanel,
+} from "../../lina-ui/client/intro-view.ts";
 
 class Node implements IntroNode {
 	textContent: string | null = "";

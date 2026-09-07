@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readTheme, saveTheme } from "../client/theme.ts";
+import { readTheme, saveTheme } from "../../lina-ui/client/theme.ts";
 
 test("appearance defaults to dark and preserves an explicit light preference", () => {
 	let value: string | null = null;
