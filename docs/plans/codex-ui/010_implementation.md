@@ -66,9 +66,11 @@ HttpOnly 인증, 정확한 Host/Origin, 메서드·경로 허용 목록과 프�
 
 ## 검증
 
-구현 후보에서 전체 테스트 1,353개, 타입 검사, lint와 CI build가 통과했다.
-이후 작업 보기 UX 변경은 관련 테스트 32개와 실제 Chromium 회귀 10개로
-재검증했다. PR 후보의 최신 dev 통합과 CI 결과는 PR의 Verification 기록을 따른다.
+`dev`의 이미지 엔진 변경까지 통합한 PR 후보에서 `bun test` 1,495개가
+통과했다. `bun run typecheck`, `bun run lint`, `bun run ci:validate`,
+`bun run ci:build`, `bun scripts/ci/audit.ts`와 전체 Git 기록 비밀정보 검사도
+통과했다. 실제 Chromium 전체 앱 시나리오 11개와 작업 보기 UX를 재검증했다.
+CI 상태는 PR의 Verification 기록을 따른다.
 
 | 실제 UI 검사 | 증명한 범위 |
 | --- | --- |
@@ -85,6 +87,10 @@ HttpOnly 인증, 정확한 Host/Origin, 메서드·경로 허용 목록과 프�
 기록하고 고쳤다. Bun의 minify만으로 React 개발 코드가 포함되는 오류도
 production 정의와 자산 테스트로 막았다. 의존성/소스 라이선스는 JS에 포함해
 웹과 Electron 양쪽 결과물에 보존한다.
+
+Linux ZIP을 생성했고 세 QA 서버의 JS/CSS/theme이 ASAR의 동봉 자산과
+바이트 단위로 일치했다. rendererVersion은 `8b7f0710d8fa18e241fa`다.
+ZIP은 로컬 빌드 산출물이며 이 PR이 릴리스로 배포하지 않는다.
 
 ## 격리와 재현
 
@@ -116,8 +122,10 @@ Playwright 모듈과 실행 파일은 `LINA_QA_PLAYWRIGHT_MODULE`, `LINA_QA_CHRO
   GUI·재시작·OS 파일 대화상자·알림·프로토콜 실행을 확인해야 한다.
 - macOS/Windows 패키징·서명, 업데이트 배포, 물리 모바일 IME/OS 파일 복사는
   별도 검증 범위다. Linux ZIP 생성은 출시/설치 검증을 뜻하지 않는다.
-- 실모델과 외부 이미지 서비스의 생성·편집 품질은 모의 서버 결과로 주장하지
-  않는다. 새 이미지/세계관 엔진은 해당 작업이 소유하며 기존 공개 계약을 쓴다.
+- 이미지 엔진의 `dev` 변경을 공통 renderer에 통합했다. 모의 생성·편집 결과가
+  세션 소유권을 유지한 320×200 미리보기로 표시되는 흐름을 확인했다. 엔진 내부를
+  수정하지 않았고 외부 provider 호출은 0회다. 실제 서비스의 생성·편집 품질과
+  세계관 엔진의 최종 연결은 이 검증으로 주장하지 않는다.
 - 연속 발화·중간 입력의 엔진 정책은 [별도 설계](002_conversation_delivery.md)다.
 - 기존 `render.ts ↔ attachments.ts` 참조는 남아 있다. 새 컴포넌트 경로는
   순환하지 않으며, 기존 첨부 렌더링의 추가 분리는 이번 범위에 포함하지 않았다.
