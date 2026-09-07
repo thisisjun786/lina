@@ -1,39 +1,26 @@
 # Security reporting
 
-This source candidate is prepared locally and has not been published by this preparation. There is no public security-support release
-matrix or guaranteed response time. Include the affected commit or installed
-release ID so the maintainer can reproduce a report against the right version.
+Include the affected commit or installed release ID so the maintainer can
+reproduce a report against the right version. There is no guaranteed response time
+or security-support release matrix.
 
 ## Reporting route
 
-When **Security → Advisories → Report a vulnerability** is available on this
-repository's GitHub page, use it to submit a private report. GitHub documents the
-[enablement requirement](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).
+Submit vulnerabilities through GitHub's
+[private reporting form](https://github.com/thisisjun786/lina/security/advisories/new),
+also reached through **Security → Advisories → Report a vulnerability**.
 
-No newly hosted repository or reporting feature has been activated by this local
-preparation. A dedicated security email address is not designated here.
-
-Existing collaborators should contact the repository owner through the private
-channel used to arrange their repository access and request a confidential
-handoff before sending vulnerability details. If you have no such channel, do
-not guess an address from commit metadata. This interim route applies during
-private development; a public reporting feature is not required to continue
-private preparation.
-
-At an explicitly authorized public visibility change, the maintainer must
-immediately enable GitHub private vulnerability reporting, read back its enabled
-state, and verify that the **Report a vulnerability** button is available to
-reporters. These are coupled activation steps, not a promise that the feature is
-already active. Do not announce public activation as complete until they pass.
-If enablement fails, report public activation as incomplete and resolve the
-failure before declaring it complete. See the
-[publication checklist](docs/PUBLICATION.md) for the owner-controlled sequence.
+If the form is unavailable, open an
+[issue requesting a private contact route](https://github.com/thisisjun786/lina/issues/new)
+without vulnerability details. Wait for a confidential handoff before sharing the
+report. No dedicated security email address is designated here; do not infer one
+from commit metadata.
 
 Do not put exploit details, credentials, private transcripts, or user data in
 public issues, pull requests, discussions, or CI logs. A repository issue is
 visible to its readers and is not a dedicated confidential reporting channel.
 
-## What to include after arranging private contact
+## What to include in a private report
 
 - Affected revision, operating system, runtime mode, and relevant dependency versions.
 - Minimal reproduction using synthetic data, expected and observed behavior,

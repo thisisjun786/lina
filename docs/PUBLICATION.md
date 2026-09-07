@@ -1,13 +1,10 @@
-# Publication preparation
+# Public source and publication
 
-Status: **LOCAL CANDIDATE — PREPARED FOR REVIEW, NOT PUBLISHED**.
-This preparation does not create a GitHub repository, activate its settings or CI,
-change visibility, publish an artifact, or deploy a service. Final candidate checks
-and the exact publication action remain separate under [POLICY](../POLICY.md).
-
-Codex is the sole supported execution engine. Product contracts and future scope
-are documented in [runtime](CODEX_RUNTIME.md), [plans](PLANNING.md) and
-[validation](VALIDATION.md).
+Lina is an independent Apache-2.0 project with Codex as its sole execution engine.
+[POLICY](../POLICY.md) owns publication and release authority. This guide defines
+what belongs in the public source and what evidence to retain when publishing it.
+Product contracts and future scope are documented in [runtime](CODEX_RUNTIME.md),
+[plans](PLANNING.md) and [validation](VALIDATION.md).
 
 ## License and provenance
 
@@ -19,65 +16,62 @@ are documented in [runtime](CODEX_RUNTIME.md), [plans](PLANNING.md) and
   nine avatars and two app icons in the owner's 2026-09-07 attestation, to the
   extent of the rights held. Dependencies, upstream services, and third-party
   material retain their own terms.
-- [Third-party notices](../THIRD_PARTY_NOTICES.md) pin the reviewed upstream
+- [Third-party notices](../THIRD_PARTY_NOTICES.md) identify reviewed upstream
   sources and distinguish HTTP integration from copying or distributing software.
   They are a scoped record, not a complete transitive dependency or ancestry audit.
-- [Persona provenance](../data/personas/README.md) explains the 18 original
-  source digests, current content digests, and the authored SOUL and CHARACTER modifications.
-  It also records the owner's explicit confirmation of directly creating/generating
-  all nine avatars and both app icons and holding their input rights. That
-  attestation and the scoped Apache-2.0 grant resolve the recorded image blocker.
-  Hashes identify the covered files; no creation tool or specific input is inferred.
+- [Persona provenance](../data/personas/README.md) preserves original source
+  digests, current content digests, and authored SOUL and CHARACTER modifications.
+  It records the owner's confirmation of directly creating/generating all nine
+  avatars and both app icons and holding their input rights. Hashes identify the
+  covered files; no creation tool or specific input is inferred.
 - User conversations, memory, credentials, and adopted/customized personas in a
   user's installation are outside the project license grant and source export.
 
 ## Source and history boundary
 
-This candidate contains portable product plans under `docs/plans`, authored source
-resources and public third-party notices. Private operational records, session
-handoffs, screenshots and archival repository references are excluded. Persona
-provenance keeps original import digests; current digests identify edited bytes.
-Synthetic fixtures and documented default/loopback configuration are examples,
-not disclosures of a private installation.
+Publish portable product plans, authored source resources and public third-party
+notices. Keep private operational records, session handoffs, screenshots and
+personal environment metadata out of the source and hosting attachments.
+Synthetic fixtures and documented default or loopback configuration must remain
+clearly identifiable as examples. Preserve required copyright, licensing and
+public source attribution.
 
-A clean working tree does not erase existing Git or hosting history. The export
-must start from a separately reviewed root, without inherited commits, branches,
-tags, reflogs, remotes, PRs, issues or Actions records. Preserve the original
-private source and its backup separately. Do not merge, fetch or copy private
-history or operational records into the public candidate. Ignore rules do not
-untrack files already in the index: inspect the final tracked-file set explicitly.
+Public source history begins at an independently reviewed root. Do not import
+private history or operational records into it. A clean working tree does not
+establish that history is safe to publish: inspect the tracked-file set, commits,
+identities, branches and tags, as well as PRs, issues, Actions logs and attachments.
+Ignore rules do not remove already tracked files.
 
-Detailed privacy scans, metadata comparisons and backup receipts stay outside
-the candidate. Pattern scans are leads for contextual review, not proof that all
-unknown identifiers or secrets are absent. Review all selected blobs, commit
-identities, image metadata and any new hosting attachments before publication.
-Keep required copyright, licensing and public source attribution intact.
+Review selected files and binary metadata in context. Pattern scans identify
+items for review; they cannot prove the absence of every unknown identifier or
+secret. Keep detailed privacy findings and backup records outside the public
+repository. Public evidence must be redacted without losing the information
+needed to assess the result.
 
-## Final review and activation
+## Review and activation
 
-Each unchecked item needs evidence for the exact final candidate. This page does
-not inherit earlier test totals, hosted results or repository settings.
+Before publishing source or changing visibility:
 
-- [ ] Verify source files, all local Markdown targets, 18 current persona digests,
-  retained original digests, image identity and distribution notices.
-- [ ] Review current files and binary metadata for secrets and private identifiers;
-  verify generated operational records are excluded from the tracked export.
-- [ ] Create and inspect the independent root history and commit identity; verify
-  no private history, remotes or additional refs enter the export.
-- [ ] Run source, dependency, secret and isolated installation checks from
-  [VALIDATION](VALIDATION.md); retain exact-candidate evidence privately.
-- [ ] Present the exact new-repository/publication operation for explicit owner
-  approval, preserving the original repository's private history.
-- [ ] On authorized hosting, apply and read back default branch, merge methods,
-  required checks and protections using [CI activation](CI.md#activation).
-  New hosted checks must run against their actual candidate.
-- [ ] At public activation, enable and verify the confidential reporting route
-  described in [SECURITY](../SECURITY.md), including reporter-visible access.
-- [ ] Verify the published files and settings, and keep release promotion,
-  package/container publication and deployment within their separately approved scope.
+1. Review the exact files and history being published. Verify Markdown links,
+   persona digests, image identity, redistribution rights and retained notices
+   using [VALIDATION](VALIDATION.md).
+2. Record source, dependency, secret and applicable installation checks against
+   that revision. Include commands, outcomes and limits; distinguish local checks
+   from hosted checks on the PR's combined merge candidate.
+3. Confirm owner authorization for the publication action. Apply and read back
+   the default branch, merge methods, required checks and protections described
+   in [CI activation](CI.md#activation); recheck them after visibility changes.
+4. Enable GitHub private vulnerability reporting and verify reporter-visible
+   access to the form linked in [SECURITY](../SECURITY.md). A configured setting
+   alone does not prove that a reporter can submit privately.
+5. Inspect the published files and contributor entry points. Record the relevant
+   hosted results and settings verification without exposing private records.
 
-No new GitHub repository, settings, hosted CI result or public reporting route is
-claimed by this local preparation. A failed activation step remains incomplete.
+Retain evidence with the corresponding PR or release record. Report failed,
+skipped and unrun checks distinctly; this guide does not replace those results.
+Source publication does not authorize a release promotion, tag, package or
+container publication, deployment, provider calls or changes to installed data.
+Any such action follows its own owner authorization and acceptance evidence.
 
 ## Reproducible documentation checks
 
