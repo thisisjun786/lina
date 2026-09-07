@@ -1,6 +1,6 @@
 # 012 — First-unit context transport and activation boundary
 
-Status: transport implemented locally for [010](010_state_and_views.md), 2026-09-07; independent review in progress. Uses the scope/stop contract in [011](011_state_contract.md). Installed runtime activation still requires 050.
+Status: transport implemented locally for [010](010_state_and_views.md), 2026-09-07; independent review PASS. Uses the scope/stop contract in [011](011_state_contract.md). Installed runtime activation still requires 050.
 
 ## What the first unit closes
 
@@ -133,7 +133,7 @@ Core `IdentityPolicySnapshot` tests prove supplied-policy validation. A live run
 | MODIFY runtime `test/session-app.test.ts`; configured LIFE without ready consumers | Explicit unavailable integration before capture/observer/archive activity; ordinary non-LIFE configuration remains usable |
 | 050 gate tests in `test/life-memory.test.ts` | Drive actual Companion/Honcho/archive paths and profile-edit races; fixture-only input tests cannot activate installed sharing |
 
-Implemented coverage is in Codex `context-policy.test.ts` (23 cases), runtime `context-policy`, `world-app`, `life-context` and the combined `life-session` tests, alongside existing adapter/session/approval regressions. The native lane passed 112 tests/580 assertions; the combined accepted-state/persona/serialized-RPC/reopen tests passed 2 tests/46 assertions. Both are included in the root pass in [010](010_state_and_views.md). Bootstrap observers remain unused, actual policy changes rotate native epochs, and pending acknowledgment/exposure metadata survives reopen without blind replacement. Current-policy and exposure callbacks are required whenever an explicit policy is supplied.
+Implemented coverage is in Codex `context-policy.test.ts` (24 cases after the RPC delivery-race regression), runtime `context-policy`, `world-app`, `life-context` and the combined `life-session` tests, alongside existing adapter/session/approval regressions. The native lane passed 112 tests/580 assertions; the combined accepted-state/persona/serialized-RPC/reopen tests passed 2 tests/46 assertions. Both are included in the root pass in [010](010_state_and_views.md). Bootstrap observers remain unused, actual policy changes rotate native epochs, and pending acknowledgment/exposure metadata survives reopen without blind replacement. Current-policy and exposure callbacks are required whenever an explicit policy is supplied. RPC request handlers register a trusted `beforeSend` check; response serialization completes before that check and the synchronous write follows without an intervening await. Microtask revocation and revocation during serialization both suppress the private body and redact guard errors.
 
 Image test paths exist in the image-integrated `dev` source, not the current world checkout; do not report them run here. Existing world/approval/session 25-test evidence at the unchanged world revision is reusable. Future QA must record exact combined source revision, test activation and runtime/SQLite versions. A successful fake-RPC migration is not proof of the real server's behavior; live acceptance remains in 080 with an explicit provider budget.
 

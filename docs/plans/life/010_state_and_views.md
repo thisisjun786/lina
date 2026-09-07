@@ -1,6 +1,6 @@
 # 010 — Accepted state, knowledge and shared growth
 
-Status: implemented locally; independent review in progress. Parent: [whole plan](000_plan.md). Depends on the existing world ledger. Scope: one durable authority and explicit consumers; excludes scheduling and engine adoption. Installed activation remains gated on 050.
+Status: implemented locally; independent review PASS. Parent: [whole plan](000_plan.md). Depends on the existing world ledger. Scope: one durable authority and explicit consumers; excludes scheduling and engine adoption. Installed activation remains gated on 050.
 
 P concretization: [011 storage/projection contract](011_state_contract.md) and [012 context migration/activation contract](012_context_migration.md) own the exact first-unit design. They keep original world event JSON stable, specify the LIFE sidecar transaction and defer installed activation until the later memory/identity-owner gates exist. This preserves all requirements in 020–080.
 
@@ -76,7 +76,7 @@ The reuse key also includes trusted agent/world binding and disclosure-policy re
 
 The acceptance tests now exist in core `life-state`, `life-store`, `life-views`, `life-migration`; runtime `life-context`, `life-session`, `world-app`, `world-approval`; and Codex `context-policy`/existing regression suites. `life-session` composes accepted SQLite state, the actual persona compiler and actual serialized `turn/start` requests, then reopens the same Lina/native session. Historical direct/observed experience also checks the original event's actors/audience and time. No activity/tick variants were added. Future purpose values fail closed on decode.
 
-First-unit source verification on 2026-09-07: root `bun test` passed 1,414 tests (6,846 assertions); root/browser typecheck, lint and `ci:build` passed. Lint retains existing nonblocking warnings/information. All data and native transports were synthetic and isolated. This is not evidence of live model behavior, installed memory safety, SNS, UI or image generation. [012](012_context_migration.md) preserves those later gates.
+Initial source verification on 2026-09-07: root `bun test` passed 1,414 tests (6,846 assertions); root/browser typecheck, lint and `ci:build` passed. Lint retains existing nonblocking warnings/information. Independent review then reproduced one RPC delivery race after handler completion. Commit `42c9cec` closes it with a post-serialization guard immediately before the synchronous write; its red/green regression and serialization-side-effect case passed. The reviewer independently reran 30 tests/147 assertions; the combined Codex/LIFE-session regression passed 88 tests/523 assertions. All data and native transports were synthetic and isolated. This is not evidence of live model behavior, installed memory safety, SNS, UI or image generation. [012](012_context_migration.md) preserves those later gates.
 
 ## Controls and residual limits
 
