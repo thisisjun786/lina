@@ -79,6 +79,14 @@ export class ConsolidationQueue {
 			if (prior) {
 				if (hash(prior.seed) !== hash(seed))
 					throw Error("reasoning job binding conflict");
+				if (prior.state === "withheld" && prior.error === "superseded") {
+					this.db
+						.prepare(
+							"UPDATE engine_reasoning_jobs SET state='pending',error=NULL,retry_at=0 WHERE id=?",
+						)
+						.run(id);
+					return this.required(id);
+				}
 				return prior;
 			}
 			this.db

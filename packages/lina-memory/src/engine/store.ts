@@ -7,10 +7,25 @@ import {
 } from "../../../lina-core/src/session-binding.ts";
 import type { SourceProof } from "../../../lina-core/src/source-policy.ts";
 import {
+	type ConsolidationClaim,
+	ConsolidationQueue,
+	type ConsolidationSeed,
+} from "./consolidation.ts";
+import {
 	eligibleRecord,
 	mergeProofs,
 	requireCurrentProofs,
 } from "./provenance.ts";
+import {
+	contentHash,
+	parseConclusions,
+	prepareConclusions,
+} from "./reasoning.ts";
+import {
+	parseReasoningInput,
+	type ReasoningInput,
+	readReasoningReceipt,
+} from "./reasoning-receipts.ts";
 import { readEngineReceipt, validateRecordReceipt } from "./receipts.ts";
 import { deriveRecord, mergeSources, sameValue } from "./records.ts";
 import { initializeEngine } from "./schema.ts";
@@ -135,7 +150,12 @@ export class EngineStore {
 			)
 			.iterate(this.agentId, now, query.trim(), query.trim())) {
 			const record = this.decode(row["data"]);
-			if (!eligibleRecord(record, this.lookup)) continue;
+			if (
+				record.reasoning
+					? !this.reasoningEligible(record)
+					: !eligibleRecord(record, this.lookup)
+			)
+				continue;
 			records.push(record);
 			if (records.length === limit) break;
 		}
@@ -235,6 +255,364 @@ export class EngineStore {
 		});
 		return this.snapshot();
 	}
+	beginReasoning(seed: ConsolidationSeed, recordIds: string[]) {
+		this.assertOpen();
+		return this.transaction(() => {
+			const queue = new ConsolidationQueue(this.db, this.now);
+			const job = queue.enqueue(seed);
+			const claim = queue.claim(job.id);
+			if (!claim) return undefined;
+			const records = recordIds.map((id) => {
+				const record = this.get(engineIdSchema.parse(id));
+				if (!record || !this.reasoningEligible(record))
+					throw Error("ineligible reasoning input");
+				return record;
+			});
+			const input = parseReasoningInput({
+				agentId: this.agentId,
+				expectedRevision: this.revision(),
+				policyRevision: seed.policyRevision,
+				modelSettingsRevision: seed.modelSettingsRevision,
+				stage: seed.stage,
+				claimToken: claim.token,
+				attempt: claim.attempt,
+				records,
+				promptProofs: mergeProofs(...records.map((r) => r.sourceProofs)),
+				searches: [],
+			});
+			this.freezeReasoningInput(claim.id, input);
+			return { claim, input };
+		});
+	}
+	/** Host-only planning view; includes all eligible direct records without snapshot truncation. */
+	reasoningCandidates(): EngineRecord[] {
+		this.assertOpen();
+		return this.transaction(
+			() =>
+				this.db
+					.prepare("SELECT data FROM engine_records ORDER BY id")
+					.all()
+					.map((row) => this.decode(row["data"]))
+					.filter((record) => this.reasoningEligible(record)),
+			false,
+		);
+	}
+	reasoningJobs() {
+		this.assertOpen();
+		const queue = new ConsolidationQueue(this.db, this.now);
+		return this.db
+			.prepare("SELECT id FROM engine_reasoning_jobs ORDER BY rowid")
+			.all()
+			.map((row) => queue.get(String(row["id"])))
+			.filter((job) => job !== undefined);
+	}
+	recoverReasoning(): void {
+		this.assertOpen();
+		this.transaction(() =>
+			new ConsolidationQueue(this.db, this.now).recover(
+				(id) => readReasoningReceipt(this.db, id)?.revision,
+			),
+		);
+	}
+	supersedeReasoning(trigger: string): void {
+		this.assertOpen();
+		this.transaction(() =>
+			new ConsolidationQueue(this.db, this.now).supersede(trigger),
+		);
+	}
+	finishReasoning(
+		claim: ConsolidationClaim,
+		error:
+			| "provider_failed"
+			| "stale_revision"
+			| "source_withheld"
+			| "cancelled"
+			| "invalid_output",
+	): void {
+		this.assertOpen();
+		this.transaction(() =>
+			new ConsolidationQueue(this.db, this.now).finish(
+				claim,
+				error === "source_withheld" ? "withheld" : "failed",
+				null,
+				error,
+			),
+		);
+	}
+	expandReasoning(
+		claim: ConsolidationClaim,
+		queries: string[],
+		recordIds: string[],
+	) {
+		this.assertOpen();
+		return this.transaction(() => {
+			new ConsolidationQueue(this.db, this.now).assertClaim(claim);
+			const row = this.db
+				.prepare(
+					"SELECT data FROM engine_reasoning_inputs WHERE request_id=? AND attempt=?",
+				)
+				.get(claim.id, claim.attempt);
+			if (!row) throw Error("missing reasoning frozen input");
+			const input = parseReasoningInput(JSON.parse(String(row["data"])));
+			this.checkRevision(input.expectedRevision);
+			const records = new Map(
+				input.records.map((record) => [record.id, record]),
+			);
+			for (const id of recordIds) {
+				const record = this.get(id);
+				if (!record || !this.reasoningEligible(record))
+					throw Error("ineligible reasoning search record");
+				records.set(id, record);
+			}
+			const proofs = mergeProofs(
+				input.promptProofs,
+				...[...records.values()].map((record) => record.sourceProofs),
+			);
+			const next = parseReasoningInput({
+				...input,
+				records: [...records.values()],
+				promptProofs: proofs,
+				searches: [
+					...input.searches,
+					{ queries, recordIds, sourceProofs: proofs },
+				],
+			});
+			for (const record of next.records)
+				this.db
+					.prepare("INSERT OR IGNORE INTO engine_record_history VALUES (?,?,?)")
+					.run(record.id, record.revision, JSON.stringify(record));
+			this.db
+				.prepare(
+					"UPDATE engine_reasoning_inputs SET data=?,fingerprint=? WHERE request_id=? AND attempt=?",
+				)
+				.run(JSON.stringify(next), hash(next), claim.id, claim.attempt);
+			return next;
+		});
+	}
+	applyConclusions(
+		input: {
+			requestId: string;
+			expectedRevision: number;
+			proposals: unknown;
+			claim: ConsolidationClaim;
+		},
+		signal?: AbortSignal,
+	): EngineSnapshot {
+		this.assertOpen();
+		signal?.throwIfAborted();
+		const proposals = parseConclusions(input.proposals);
+		if (input.requestId !== input.claim.id)
+			throw Error("reasoning claim identity conflict");
+		return this.transaction(() => {
+			const replay = readReasoningReceipt(this.db, input.requestId);
+			if (replay) {
+				if (
+					!isDeepStrictEqual(replay.output.proposals, proposals) ||
+					replay.input.expectedRevision !== input.expectedRevision ||
+					replay.input.claimToken !== input.claim.token
+				)
+					throw Error("reasoning receipt conflict");
+				return this.read(false);
+			}
+			const queue = new ConsolidationQueue(this.db, this.now);
+			queue.assertClaim(input.claim);
+			const row = this.db
+				.prepare(
+					"SELECT data,fingerprint FROM engine_reasoning_inputs WHERE request_id=? AND attempt=?",
+				)
+				.get(input.requestId, input.claim.attempt);
+			if (!row) throw Error("missing reasoning frozen input");
+			const frozen = parseReasoningInput(JSON.parse(String(row["data"])));
+			if (
+				hash(frozen) !== row["fingerprint"] ||
+				frozen.claimToken !== input.claim.token ||
+				frozen.expectedRevision !== input.expectedRevision
+			)
+				throw Error("invalid reasoning frozen input");
+			this.checkRevision(input.expectedRevision);
+			const prepared = prepareConclusions({
+				agentId: this.agentId,
+				proposals,
+				resolve: (id) => {
+					const allowed = frozen.records.find((r) => r.id === id);
+					return allowed ? this.get(id) : undefined;
+				},
+				promptProofs: frozen.promptProofs,
+				lookup: this.lookup,
+				now: validTime(this.now),
+			});
+			if (proposals.some((p) => p.reasoningKind !== frozen.stage))
+				throw Error("reasoning stage mismatch");
+			const revision = revisionSchema.parse(input.expectedRevision + 1),
+				now = validTime(this.now);
+			const records: EngineRecord[] = [];
+			for (const item of prepared) {
+				const id = recordId(this.agentId, item.proposal),
+					previous = this.get(id);
+				if (
+					previous?.evidence === "explicit" &&
+					this.reasoningEligible(previous)
+				)
+					continue;
+				if (
+					item.sourceProofs.some((p) => this.sourceInvalidated(p.entryId)) ||
+					item.sources.some((source) =>
+						this.db
+							.prepare(
+								"SELECT 1 FROM engine_slot_fences WHERE record_id=? AND entry_id=?",
+							)
+							.get(id, source.entryId),
+					)
+				)
+					throw Error("invalidated conclusion evidence");
+				const record: EngineRecord = {
+					...deriveRecord(
+						this.agentId,
+						{
+							subject: item.proposal.subject,
+							kind: item.proposal.kind,
+							key: item.proposal.key,
+							text: item.proposal.text,
+							evidence: "inferred",
+							sources: item.sources,
+						},
+						undefined,
+						revision,
+						now,
+						this.lookup,
+					),
+					generation: previous ? previous.generation + 1 : 0,
+					createdAt: previous?.createdAt ?? now,
+					sourceRequestId: input.requestId,
+					sourceProofs: item.sourceProofs,
+					reasoning: item.reasoning,
+					support: item.support,
+				};
+				records.push(parseRecord(record));
+			}
+			signal?.throwIfAborted();
+			requireCurrentProofs(frozen.promptProofs, this.lookup);
+			this.checkRevision(input.expectedRevision);
+			for (const record of records) {
+				this.invalidateDescendants(record.id, revision, now);
+				this.save(record);
+				this.db
+					.prepare(
+						"INSERT OR REPLACE INTO engine_record_history VALUES (?,?,?)",
+					)
+					.run(record.id, record.revision, JSON.stringify(record));
+				for (const premise of record.reasoning?.premises ?? []) {
+					this.db
+						.prepare("INSERT INTO engine_premises VALUES (?,?,?,?,?)")
+						.run(
+							record.id,
+							record.revision,
+							premise.recordId,
+							premise.revision,
+							premise.contentHash,
+						);
+				}
+			}
+			const output = { proposals, records };
+			this.db
+				.prepare("INSERT INTO engine_reasoning_receipts VALUES (?,?,?,?,?,?)")
+				.run(
+					input.requestId,
+					hash({ input: frozen, output }),
+					JSON.stringify(frozen),
+					JSON.stringify(output),
+					revision,
+					records.length ? "changed" : "unchanged",
+				);
+			queue.finish(input.claim, "committed", revision);
+			if (frozen.stage === "deduction")
+				queue.enqueue({ ...input.claim.seed, stage: "induction" });
+			this.setRevision(revision);
+			return this.read(false);
+		});
+	}
+	private freezeReasoningInput(requestId: string, input: ReasoningInput): void {
+		for (const record of input.records) {
+			const old = this.db
+				.prepare(
+					"SELECT data FROM engine_record_history WHERE id=? AND revision=?",
+				)
+				.get(record.id, record.revision);
+			if (
+				old &&
+				!isDeepStrictEqual(parseRecord(JSON.parse(String(old["data"]))), record)
+			)
+				throw Error("ambiguous legacy reasoning premise history");
+			this.db
+				.prepare("INSERT OR IGNORE INTO engine_record_history VALUES (?,?,?)")
+				.run(record.id, record.revision, JSON.stringify(record));
+		}
+		this.db
+			.prepare("INSERT INTO engine_reasoning_inputs VALUES (?,?,?,?)")
+			.run(requestId, input.attempt, hash(input), JSON.stringify(input));
+	}
+	private reasoningEligible(
+		record: EngineRecord,
+		visiting = new Set<string>(),
+	): boolean {
+		if (
+			record.status !== "active" ||
+			(record.expiresAt !== null && record.expiresAt <= validTime(this.now)) ||
+			!eligibleRecord(record, this.lookup) ||
+			visiting.has(record.id)
+		)
+			return false;
+		visiting.add(record.id);
+		for (const ref of record.reasoning?.premises ?? []) {
+			const premise = this.get(ref.recordId);
+			if (
+				!premise ||
+				contentHash(premise) !== ref.contentHash ||
+				!this.reasoningEligible(premise, visiting)
+			) {
+				visiting.delete(record.id);
+				return false;
+			}
+		}
+		visiting.delete(record.id);
+		return true;
+	}
+	private invalidateDescendants(
+		id: string,
+		revision: number,
+		now: number,
+	): void {
+		const pending = [id],
+			seen = new Set<string>([id]);
+		while (pending.length) {
+			const premise = pending.shift();
+			for (const row of this.db
+				.prepare(
+					"SELECT DISTINCT conclusion_id FROM engine_premises WHERE premise_id=?",
+				)
+				.all(premise ?? "")) {
+				const childId = String(row["conclusion_id"]);
+				if (seen.has(childId)) continue;
+				const child = this.get(childId);
+				if (
+					!child?.reasoning ||
+					child.status === "retracted" ||
+					!child.reasoning.premises.some((p) => p.recordId === premise)
+				)
+					continue;
+				seen.add(childId);
+				pending.push(childId);
+				this.save({
+					...child,
+					status: "retracted",
+					revision,
+					generation: child.generation + 1,
+					updatedAt: now,
+					invalidatedAt: now,
+				});
+			}
+		}
+	}
 	retract(id: string, expectedRevision: number): EngineSnapshot {
 		this.assertOpen();
 		engineIdSchema.parse(id);
@@ -312,6 +690,7 @@ export class EngineStore {
 		)
 			return;
 		if (old && !same) {
+			this.invalidateDescendants(old.id, revision, now);
 			// A correction must carry fresh evidence, not reinterpret any old citation.
 			if (
 				candidate.sources.some((s) =>
@@ -339,6 +718,24 @@ export class EngineStore {
 		revision: number,
 		now: number,
 	): void {
+		if (record.reasoning) {
+			for (const source of record.sources)
+				this.db
+					.prepare(
+						"INSERT INTO engine_slot_fences VALUES (?,?,?) ON CONFLICT(record_id,entry_id) DO UPDATE SET revision=excluded.revision",
+					)
+					.run(record.id, source.entryId, revision);
+			this.invalidateDescendants(record.id, revision, now);
+			this.save({
+				...record,
+				status: "retracted",
+				revision,
+				generation: record.generation + 1,
+				updatedAt: now,
+				invalidatedAt: now,
+			});
+			return;
+		}
 		const affected = new Set<string>([record.id]);
 		for (const source of record.sources) {
 			this.db
@@ -352,6 +749,7 @@ export class EngineStore {
 				affected.add(String(row["record_id"]));
 		}
 		for (const id of affected) {
+			this.invalidateDescendants(id, revision, now);
 			const dependent = this.get(id);
 			if (dependent && dependent.status !== "retracted")
 				this.save({
@@ -418,7 +816,12 @@ export class EngineStore {
 						.iterate(this.agentId);
 			for (const row of query) {
 				const record = this.decode(row["data"]);
-				if (!eligibleRecord(record, this.lookup)) continue;
+				if (
+					record.reasoning
+						? !this.reasoningEligible(record)
+						: !eligibleRecord(record, this.lookup)
+				)
+					continue;
 				rows.push(record);
 				if (rows.length > ENGINE_READ_MAX) break;
 			}
@@ -475,6 +878,7 @@ export class EngineStore {
 		if (this.closed) throw new Error("engine store is closed");
 	}
 	private transaction<T>(action: () => T, write = true): T {
+		if (this.db.isTransaction) return action();
 		this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
 		try {
 			const value = action();

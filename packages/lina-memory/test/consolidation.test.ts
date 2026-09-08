@@ -135,3 +135,29 @@ test("job transitions join an outer owner transaction and roll back with its rec
 	expect(queue.get(job.id)?.state).toBe("running");
 	expect(queue.get(job.id)?.resultRevision).toBeNull();
 });
+
+test("a superseded trigger can reappear without recycling its consumed attempts", () => {
+	const { queue } = fixture().open(true);
+	const job = queue.enqueue(seed);
+	expect(queue.claim(job.id)).toBeDefined();
+	queue.supersede("b".repeat(64));
+	expect(queue.enqueue(seed).state).toBe("pending");
+	expect(queue.claim(job.id)?.attempt).toBe(2);
+});
+
+test("an unknown final attempt stays visibly failed instead of granting unlimited restart calls", () => {
+	const f = fixture(),
+		{ queue } = f.open(true);
+	const job = queue.enqueue({ ...seed, maxAttempts: 1 });
+	expect(queue.claim(job.id)).toBeDefined();
+	const reopened = f.open().queue;
+	reopened.recover(() => undefined);
+	expect(reopened.get(job.id)).toMatchObject({
+		state: "failed",
+		attempts: 1,
+		error: "interrupted_outcome_unknown",
+		resultRevision: null,
+	});
+	f.advance();
+	expect(reopened.claim(job.id)).toBeUndefined();
+});

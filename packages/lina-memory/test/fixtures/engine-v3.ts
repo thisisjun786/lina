@@ -5,6 +5,7 @@ export function removeReasoningSchema(db: DatabaseSync): void {
 	db.exec(`
 		DROP TABLE engine_premises;
 		DROP TABLE engine_reasoning_receipts;
+		DROP TABLE engine_reasoning_inputs;
 		DROP TABLE engine_reasoning_jobs;
 		DROP TABLE engine_reasoning_checkpoint;
 		DELETE FROM engine_meta WHERE key='reasoning_migration_revision';

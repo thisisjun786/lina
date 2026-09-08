@@ -2,9 +2,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { mergeProofs } from "./provenance.ts";
-import { contentHash, parseConclusions } from "./reasoning.ts";
+import {
+	conclusionSources,
+	contentHash,
+	parseConclusions,
+} from "./reasoning.ts";
 import { validateRecordReceipt } from "./receipts.ts";
-import { mergeSources } from "./records.ts";
 import {
 	ENGINE_BATCH_MAX,
 	ENGINE_READ_MAX,
@@ -104,6 +107,20 @@ export function readReasoningReceipt(
 		};
 		const revision = revisionSchema.parse(row["revision"]);
 		const fingerprint = hash({ input, output });
+		const frozen = db
+			.prepare(
+				"SELECT data,fingerprint FROM engine_reasoning_inputs WHERE request_id=? AND attempt=?",
+			)
+			.get(requestId, input.attempt);
+		if (
+			!frozen ||
+			frozen["fingerprint"] !== hash(input) ||
+			!isDeepStrictEqual(
+				parseReasoningInput(JSON.parse(String(frozen["data"]))),
+				input,
+			)
+		)
+			throw Error("reasoning receipt differs from frozen input");
 		if (
 			revision !== input.expectedRevision + 1 ||
 			row["fingerprint"] !== fingerprint ||
@@ -181,9 +198,13 @@ export function readReasoningReceipt(
 				)
 					? "supported"
 					: "provisional";
-			const sources = mergeSources(premises.flatMap((p) => p.sources));
+			const sources = conclusionSources(premises);
 			const userSourceIds = [
-				...new Set(premises.flatMap((p) => p.userSourceIds ?? [])),
+				...new Set(
+					premises
+						.flatMap((p) => p.userSourceIds ?? [])
+						.filter((id) => sources.some((source) => source.entryId === id)),
+				),
 			].sort();
 			if (
 				record.agentId !== input.agentId ||

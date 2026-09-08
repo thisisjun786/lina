@@ -90,6 +90,13 @@ export interface PreparedConclusion {
 	support: EngineRecord["support"];
 }
 
+/** The complete evidence remains in premise history and proofs; excerpts stay bounded. */
+export function conclusionSources(
+	premises: readonly EngineRecord[],
+): EngineRecord["sources"] {
+	return mergeSources(premises.flatMap((p) => p.sources.slice(0, 1)));
+}
+
 /** Called by the checked store owner using receipt-validated bound records. No writes. */
 export function prepareConclusions(input: {
 	agentId: string;
@@ -100,6 +107,17 @@ export function prepareConclusions(input: {
 	now: number;
 }): PreparedConclusion[] {
 	const proposals = parseConclusions(input.proposals);
+	const targets = new Set(proposals.map((p) => recordId(input.agentId, p)));
+	if (
+		proposals.some((p) =>
+			p.premises.some(
+				(ref) =>
+					targets.has(ref.recordId) &&
+					ref.recordId !== recordId(input.agentId, p),
+			),
+		)
+	)
+		throw Error("conclusion batch replaces a premise");
 	requireCurrentProofs(input.promptProofs, input.lookup);
 	const eligible = (record: EngineRecord | undefined): record is EngineRecord =>
 		!!record &&
@@ -146,7 +164,7 @@ export function prepareConclusions(input: {
 					contentHash: contentHash(p),
 				})),
 			},
-			sources: mergeSources(premises.flatMap((p) => p.sources)),
+			sources: conclusionSources(premises),
 			sourceProofs: proofs,
 			support:
 				proposal.reasoningKind === "deduction" &&

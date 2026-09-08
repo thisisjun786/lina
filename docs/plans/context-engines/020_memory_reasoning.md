@@ -140,3 +140,11 @@ A 잔여 수정: 관찰 결과의 retracted 상태로 inferred slot을 잊는 �
 11588d4는 동일 근거 재처리 시 premise revision을 보존한다. 2916005는 정정 뒤 cached recall을 거부한다. 35f3b7f의 전제 검증과7975195의 내구 작업 큐는 단위 검증을 마쳤다. 13bd989는 전용 consolidate 서비스와 정책 저장 owner다. child의 실제 loopback HTTP 검증과 로컬 타입 검사는 통과했으며 유료 모델을 호출하지 않았다.
 
 v4 migration/checkpoint 및 receipt audit를 연결하는 작업은 계속 진행 중이다. 같은 transaction에서 record를 여러 번 바꿀 때 중간 상태를 history에 잘못 남기는 사례는 red로 재현하고 수정했다. 기존 v3의 같은 형태는 migration revision 경계로 보존한다. memory-v4-scope.log는144 pass/0 fail/680 assertions, memory-v4-types.log는 exit0다. 이 증거는 결론 apply·실제 Companion 재검토·다음 답변·재시작 end-to-end 완료를 뜻하지 않는다. 해당 연결은 아직 남아 있으며 memory-proof를 충족했다고 표시하지 않는다.
+
+## B 검토 수정과 남은 연결
+
+독립 코드 검토는 구현된 기초 범위 PASS였다. 재등장한 superseded trigger 재개, batch 안에서 다른 결론의 전제를 바꾸는 입력 거부, 넓은 전제의 대표 인용을 고쳤다. 결론 sources에는 전제별 대표 인용 한 개를 담고 전체 원문은 premise history/sourceProofs에 유지한다. 출처 노출 권한을 인용 수에 맞춰 축소하지 않는다. 반영 전13 pass/3 fail, 반영 후16 pass/0 fail이었다.
+
+재시작 중 결과 unknown인 모델 호출도 소비한 attempt로 센다. 마지막 attempt에서 중단되면 interrupted_outcome_unknown/failed를 유지하며 자동으로 호출 한도를 늘리지 않는다. 기존 observation queue의 allowance 증가를 그대로 복제하지 않기로 했다. 완료 receipt가 있으면 재호출 없이 복구한다. 이 차이는 무한 crash 재시도의 호출 증가를 막기 위한 결정이며 새 정책 revision 또는 후속 명시적 retry가 필요하다. closed status는 기존 queue도 DB를 읽어 실패하므로 지원된 API라는 검토 전제를 반박했다. close에서는 cached text/proofs를 지운다.
+
+새 `engine_reasoning_inputs(request_id,attempt,fingerprint,data)`는 claim 당시 실제 입력을 내구 저장한다. 검색 확장도 해당 attempt 입력과 provenance를 함께 갱신한다. receipt는 이 row와 완전히 같은 입력인지 audit한다. beginReasoning/applyConclusions는 현재 저장·재열기·정정·추론 망각·대화형 망각·uncited revocation 테스트를 통과했으나 runtime 자동 처리 연결과 end-to-end 검증은 아직 진행 중이다.

@@ -521,6 +521,9 @@ export class CompanionMemory {
 	close(): Promise<void> {
 		if (this.closing) return this.closing;
 		this.closed = true;
+		this.recallText = "";
+		this.recallProofs = [];
+		this.recallRevision = undefined;
 		this.cancelWake?.();
 		this.controller.abort();
 		this.closing = (async () => {

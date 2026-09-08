@@ -23,6 +23,7 @@ CREATE TABLE engine_record_history (id TEXT NOT NULL, revision INTEGER NOT NULL,
 `;
 const REASONING_SCHEMA = `${CONSOLIDATION_SCHEMA}
 CREATE TABLE engine_reasoning_checkpoint (id INTEGER PRIMARY KEY CHECK(id=1), dirty_revision INTEGER NOT NULL) STRICT;
+CREATE TABLE engine_reasoning_inputs (request_id TEXT NOT NULL REFERENCES engine_reasoning_jobs(id), attempt INTEGER NOT NULL, fingerprint TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(request_id,attempt)) STRICT;
 CREATE TABLE engine_reasoning_receipts (request_id TEXT PRIMARY KEY REFERENCES engine_reasoning_jobs(id), fingerprint TEXT NOT NULL, input_json TEXT NOT NULL, output_json TEXT NOT NULL, revision INTEGER NOT NULL, outcome TEXT NOT NULL CHECK(outcome IN ('changed','unchanged'))) STRICT;
 CREATE TABLE engine_premises (conclusion_id TEXT NOT NULL, conclusion_revision INTEGER NOT NULL, premise_id TEXT NOT NULL, premise_revision INTEGER NOT NULL, content_hash TEXT NOT NULL, PRIMARY KEY(conclusion_id,conclusion_revision,premise_id), FOREIGN KEY(conclusion_id,conclusion_revision) REFERENCES engine_record_history(id,revision), FOREIGN KEY(premise_id,premise_revision) REFERENCES engine_record_history(id,revision)) STRICT;
 `;

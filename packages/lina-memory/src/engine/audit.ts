@@ -1,10 +1,18 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
-import { readReasoningReceipt } from "./reasoning-receipts.ts";
+import {
+	parseReasoningInput,
+	readReasoningReceipt,
+} from "./reasoning-receipts.ts";
 import { readEngineReceipt, validateRecordReceipt } from "./receipts.ts";
 import { mergeSources } from "./records.ts";
 import { ENGINE_SOURCES_MAX } from "./types.ts";
-import { engineIdSchema, parseRecord, revisionSchema } from "./validation.ts";
+import {
+	engineIdSchema,
+	hash,
+	parseRecord,
+	revisionSchema,
+} from "./validation.ts";
 
 /** Refuse corrupt projections and unknown stored values before enabling writes. */
 export function auditEngineData(
@@ -126,6 +134,18 @@ export function auditEngineData(
 			throw Error("invalid engine receipt revision");
 	}
 	if (version >= 4) {
+		for (const row of db
+			.prepare("SELECT * FROM engine_reasoning_inputs")
+			.iterate()) {
+			const input = parseReasoningInput(JSON.parse(String(row["data"])));
+			if (
+				input.agentId !== agentId ||
+				input.expectedRevision > current ||
+				input.attempt !== row["attempt"] ||
+				hash(input) !== row["fingerprint"]
+			)
+				throw Error("invalid frozen reasoning input");
+		}
 		let expectedEdges = 0;
 		for (const row of db
 			.prepare("SELECT request_id FROM engine_reasoning_receipts")

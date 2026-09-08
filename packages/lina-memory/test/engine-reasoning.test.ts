@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { captureSourceProofs } from "../../lina-core/src/source-policy.ts";
 import {
 	contentHash,
@@ -6,8 +9,56 @@ import {
 	prepareConclusions,
 } from "../src/engine/reasoning.ts";
 import { deriveRecord } from "../src/engine/records.ts";
+import { EngineStore } from "../src/engine/store.ts";
 import type { EngineRecord, SourceEntry } from "../src/engine/types.ts";
 import { ordinarySource, restrictSource } from "./fixtures/native-sources.ts";
+
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+	for (const fn of cleanups.splice(0).reverse()) fn();
+});
+function persistentFixture() {
+	const f = fixture();
+	const root = mkdtempSync(join(tmpdir(), "lina-conclusions-"));
+	cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+	const binding = {
+		version: 1 as const,
+		botId: "lina",
+		sessionId: "test",
+		sessionFile: join(root, "session.jsonl"),
+		workspace: root,
+	};
+	const open = () => {
+		const store = new EngineStore(join(root, "memory.sqlite"), binding, {
+			lookup: f.lookup,
+		});
+		cleanups.push(() => store.close());
+		return store;
+	};
+	const store = open();
+	store.apply({
+		requestId: "initial",
+		expectedRevision: 0,
+		sourceProofs: captureSourceProofs([...f.entries.keys()], f.lookup),
+		observations: [f.a, f.b].map((r) => ({
+			subject: r.subject,
+			kind: r.kind,
+			key: r.key,
+			text: r.text,
+			evidence: r.evidence,
+			sources: r.sources,
+		})),
+	});
+	const seed = {
+		trigger: "a".repeat(64),
+		stage: "induction" as const,
+		page: 0,
+		policyRevision: 0,
+		modelSettingsRevision: 0,
+		maxAttempts: 3,
+	};
+	return { ...f, store, open, seed };
+}
 
 function fixture() {
 	const entries = new Map<string, SourceEntry>(
@@ -194,4 +245,226 @@ test("a premise chain cannot hide a corrected ancestor or a cycle through an old
 	expect(() => f.prepare([proposal])).toThrow(/content/);
 	f.records.set(f.a.id, f.a);
 	expect(() => f.prepare([{ ...proposal, key: f.a.key }])).toThrow(/cycle/);
+});
+
+test("a batch cannot replace a premise used by another proposal", () => {
+	const f = fixture();
+	expect(() =>
+		f.prepare([
+			{
+				...f.proposal,
+				key: f.a.key,
+				premises: [{ recordId: f.b.id, revision: f.b.revision }],
+			},
+			f.proposal,
+		]),
+	).toThrow(/batch/);
+});
+
+test("wide ancestry keeps bounded representative quotes and complete source proofs", () => {
+	const f = fixture();
+	const many = [];
+	for (let i = 0; i < 65; i++) {
+		const id = `wide-${i}`;
+		f.entries.set(
+			id,
+			ordinarySource({ entryId: id, role: "user", text: "walking" }),
+		);
+		many.push({ entryId: id, quote: "walking" });
+	}
+	f.a.sources = many.slice(0, 64);
+	f.a.sourceProofs = captureSourceProofs(
+		many.slice(0, 64).map((s) => s.entryId),
+		f.lookup,
+	);
+	f.b.sources = many.slice(64);
+	f.b.sourceProofs = captureSourceProofs(
+		many.slice(64).map((s) => s.entryId),
+		f.lookup,
+	);
+	const prepared = f.prepare()[0];
+	expect(prepared?.sources).toHaveLength(2);
+	expect(prepared?.sourceProofs).toHaveLength(68);
+});
+
+test("a claimed conclusion commits once with its complete evidence and survives reopening", () => {
+	const f = persistentFixture();
+	const started = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!started) throw Error("missing claim");
+	const input = {
+		requestId: started.claim.id,
+		expectedRevision: started.input.expectedRevision,
+		proposals: [f.proposal],
+		claim: started.claim,
+	};
+	const result = f.store.applyConclusions(input);
+	expect(result.records.find((r) => r.key === "parks")).toMatchObject({
+		support: "provisional",
+		reasoning: { kind: "induction" },
+	});
+	expect(f.store.applyConclusions(input).revision).toBe(result.revision);
+	expect(() =>
+		f.store.applyConclusions({
+			...input,
+			proposals: [{ ...f.proposal, text: "different" }],
+		}),
+	).toThrow(/conflict/);
+	f.store.close();
+	expect(f.open().state().records).toEqual(result.records);
+});
+
+test("correcting a premise retracts its conclusion without forgetting the sibling premise", () => {
+	const f = persistentFixture();
+	const started = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!started) throw Error("missing claim");
+	f.store.applyConclusions({
+		requestId: started.claim.id,
+		expectedRevision: started.input.expectedRevision,
+		proposals: [f.proposal],
+		claim: started.claim,
+	});
+	f.entries.set(
+		"correction",
+		ordinarySource({
+			entryId: "correction",
+			role: "user",
+			text: "I dislike walking now.",
+		}),
+	);
+	f.store.apply({
+		requestId: "correction",
+		expectedRevision: f.store.currentRevision(),
+		sourceProofs: captureSourceProofs(["correction"], f.lookup),
+		observations: [
+			{
+				subject: "user",
+				kind: "interest",
+				key: f.a.key,
+				text: "Dislikes walking",
+				evidence: "explicit",
+				sources: [{ entryId: "correction", quote: "dislike walking" }],
+			},
+		],
+	});
+	expect(f.store.state().records.some((r) => r.key === "parks")).toBe(false);
+	expect(f.store.state().records.some((r) => r.id === f.b.id)).toBe(true);
+	f.store.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.some((r) => r.key === "parks"),
+	).toBe(false);
+});
+
+test("forgetting one inference leaves its premises available and blocks same-evidence relearning", () => {
+	const f = persistentFixture();
+	const started = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!started) throw Error("missing claim");
+	const result = f.store.applyConclusions({
+		requestId: started.claim.id,
+		expectedRevision: started.input.expectedRevision,
+		proposals: [f.proposal],
+		claim: started.claim,
+	});
+	const conclusion = result.records.find((r) => r.key === "parks");
+	if (!conclusion) throw Error("missing conclusion");
+	f.store.retract(conclusion.id, result.revision);
+	expect(
+		f.store
+			.state()
+			.records.map((r) => r.id)
+			.sort(),
+	).toEqual([f.a.id, f.b.id].sort());
+	expect(f.store.sourceInvalidated("u1")).toBe(false);
+	const retry = f.store.beginReasoning({ ...f.seed, trigger: "b".repeat(64) }, [
+		f.a.id,
+		f.b.id,
+	]);
+	if (!retry) throw Error("missing claim");
+	expect(() =>
+		f.store.applyConclusions({
+			requestId: retry.claim.id,
+			expectedRevision: retry.input.expectedRevision,
+			proposals: [f.proposal],
+			claim: retry.claim,
+		}),
+	).toThrow(/invalidated/);
+	f.store.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.map((r) => r.id)
+			.sort(),
+	).toEqual([f.a.id, f.b.id].sort());
+});
+
+test("revoking uncited context during reasoning rejects commit without partial conclusions", () => {
+	const f = persistentFixture();
+	const started = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!started) throw Error("missing claim");
+	const uncited = f.entries.get("uncited");
+	if (!uncited) throw Error("fixture");
+	restrictSource(uncited);
+	expect(() =>
+		f.store.applyConclusions({
+			requestId: started.claim.id,
+			expectedRevision: started.input.expectedRevision,
+			proposals: [f.proposal],
+			claim: started.claim,
+		}),
+	).toThrow();
+	expect(f.store.currentRevision()).toBe(started.input.expectedRevision);
+	expect(f.store.recordCount()).toBe(2);
+});
+
+test("a conversational withdrawal of an inferred slot preserves original premises", () => {
+	const f = persistentFixture();
+	const started = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!started) throw Error("missing claim");
+	f.store.applyConclusions({
+		requestId: started.claim.id,
+		expectedRevision: started.input.expectedRevision,
+		proposals: [f.proposal],
+		claim: started.claim,
+	});
+	f.entries.set(
+		"forget",
+		ordinarySource({
+			entryId: "forget",
+			role: "user",
+			text: "Forget that I like parks.",
+		}),
+	);
+	f.store.apply({
+		requestId: "forget",
+		expectedRevision: f.store.currentRevision(),
+		sourceProofs: captureSourceProofs(["forget"], f.lookup),
+		observations: [
+			{
+				subject: "user",
+				kind: "interest",
+				key: "parks",
+				text: "Forget parks",
+				evidence: "explicit",
+				status: "retracted",
+				sources: [{ entryId: "forget", quote: "Forget" }],
+			},
+		],
+	});
+	expect(
+		f.store
+			.state()
+			.records.map((r) => r.id)
+			.sort(),
+	).toEqual([f.a.id, f.b.id].sort());
+	f.store.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.map((r) => r.id)
+			.sort(),
+	).toEqual([f.a.id, f.b.id].sort());
 });
