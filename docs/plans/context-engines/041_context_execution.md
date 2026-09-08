@@ -73,3 +73,15 @@ A 통과 후 core generation owner와 fileDB tests를 executor에 위임하고, 
 최근 원문도 ContextStore의 ordinary eligibility와 source proof를 통과한 항목만 쓴다. native message에 같은 안정 ID가 있으면 중복 주입하지 않는다. 메시지 ID를 확인할 수 없을 때 텍스트가 같다는 이유로 임의 중복 판정하지 않는다. 전체 envelope가 한도에 맞지 않으면 omission을 남긴다. 중요한 결정을 text 잘라내기로 보존했다고 주장하지 않는다.
 
 정책·route·추정기가 변경되면 새 대화가 없어도 기존 generation과 비교해 재구성을 시도한다. freshTailEntries가 늘면 이전 checkpoint가 이미 포함한 최근 항목을 분리해야 하므로 원문에서 재구성한다. 새 root를 만들기 전에는 기존 활성 root를 지우지 않고, 그 root가 현재 출처/주입 예산 안에 있으면 읽을 수 있다. legacy active는 읽기 호환성을 유지하되 새 metadata 기준 cache hit으로 취급하지 않는다. source 참조만 같고 요약 입력이 달라진 경우를 막으려면 실제 input digest도 generation 식별에 포함한다.
+
+## A에서 반영한 독립 검토
+
+독립 검토는 GO-WITH-FIXES로 판정했다. 주입 경로와 정책 소유권 보완을 수용한다.
+
+정책은 기존 `EnginePolicyInput.context`에 지금 포함한다. 새 설정 DB나 독립 revision을 만들지 않는다. 추가 MODIFY `runtime/context/policy-settings.ts`가 versioned 입력의 이전과 전체 snapshot을 소유하고, `context/policy.ts`는 중첩 context 값의 검증/측정 계약만 소유한다. 기존 v1 memory 설정은 같은 저장소에서 v2 context 기본값을 붙여 읽고 기존 memory 값과 revision을 보존한다. unknown payload/schema는 거부한다. session-app은 기존 enginePolicy getter를 소비한다. 신규 입력의 저장·다시 열기·memory 보존·실패 rollback 테스트를 추가한다. 이는 위의 “integration070에서 정책 저장” 초안을 대체한다. UI/API 편집 표면의 조립은 070에 남는다.
+
+한 요청의 raw tail은 external checkpoint 이후의 적격 ordinary entry 중 native 입력에 없는 안정 ID만 주입한다. native ID를 확인할 수 없으면 중복 여부를 텍스트로 추측하지 않고 tail을 제외하며 `tail_dedup_unavailable`을 표시한다. 이 경로는 native cut을 제어하거나 최근 원문 존재를 보장한다는 약속이 아니다. source refs의 guard는 readInjection.beforeDeliver에 합성한다.
+
+주입 diagnostic은 기존 boolean omitted와 함께 working/recall/external/tail 중 제외된 부분을 구분한다. JSON working capsule은 필드/항목 단위로 줄여 유효 구조를 유지하고, 개별 문자열의 발췌는 surrogate-safe 경계와 명시적 abridged 표시를 사용한다. 2048 기술 상한과 현재 전체 요청 budget을 넘지 않으며 정책 expansionTokens를 작업 맥락 주입에도 적용한다. 기존 context-injection 테스트와 실제 session 입력 캡처 테스트를 회귀 범위에 포함한다.
+
+A closure PASS: 추정기는 summary packing, ContextServices.estimateText/estimateMessages, persona systemTokens 검사와 주입에서 동일한 구현을 쓴다. estimator ID는 services/coordinator/generation에 남긴다. native `prepared.fits`는 root 수용의 최종 조건이며 추정으로 대체하지 않는다. 보수적 byte 추정은 기존 문자/4보다 큰 입력량을 계산하므로 더 많은 청크/요약 호출 또는 주입 생략이 생길 수 있다. 실제 증가율은 텍스트에 따라 달라지며 모델 비용 개선으로 주장하지 않는다. 검증은 tree뿐 아니라 injection/coordinator/native/tools/policy와 persona 예산 회귀까지 포함한다. 존재하지 않는 테스트 이름은 기존 glob 및 새 직접 경로로 조정한다.
