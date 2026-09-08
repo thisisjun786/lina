@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -723,4 +723,47 @@ test("consolidation does not silently replace an eligible direct inferred observ
 	expect(result.records.find((record) => record.key === "parks")).toMatchObject(
 		{ text: "Prefers quiet parks", sourceRequestId: "direct-inference" },
 	);
+});
+
+test("one read validates a shared receipt once and the next read detects disk corruption", () => {
+	const f = persistentFixture();
+	const started = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!started) throw Error("claim");
+	f.store.applyConclusions({
+		requestId: started.claim.id,
+		expectedRevision: started.input.expectedRevision,
+		claim: started.claim,
+		proposals: [
+			f.proposal,
+			{
+				...f.proposal,
+				key: "parks.other",
+				text: "Another tentative conclusion",
+			},
+		],
+	});
+	const original = DatabaseSync.prototype.prepare;
+	let queries = 0;
+	const spy = spyOn(DatabaseSync.prototype, "prepare").mockImplementation(
+		function (this: DatabaseSync, sql: string) {
+			if (sql === "SELECT * FROM engine_reasoning_receipts WHERE request_id=?")
+				queries++;
+			return original.call(this, sql);
+		},
+	);
+	try {
+		expect(f.store.state().records).toHaveLength(4);
+		expect(queries).toBe(1);
+	} finally {
+		spy.mockRestore();
+	}
+	const db = new DatabaseSync(f.path);
+	try {
+		db.prepare("UPDATE engine_reasoning_receipts SET fingerprint=?").run(
+			"0".repeat(64),
+		);
+	} finally {
+		db.close();
+	}
+	expect(() => f.store.state()).toThrow(/fingerprint/);
 });
