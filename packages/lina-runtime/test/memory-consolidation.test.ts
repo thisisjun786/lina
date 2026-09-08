@@ -297,3 +297,126 @@ test("missing consolidation route does not stop observation retry scheduling", a
 		await f.close();
 	}
 });
+
+test("search exhaustion is withheld without automatic paid retry", async () => {
+	const f = createRuntimeFixture();
+	trustNativeFixture(f.store, f.runtime.binding);
+	let now = 1800000000000,
+		calls = 0;
+	const memory = new CompanionMemory({
+		path: join(f.root, "mind.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		now: () => now,
+		schedule: () => () => {},
+	});
+	const defaults = defaultEnginePolicy();
+	memory.configure(
+		async () =>
+			JSON.stringify([
+				{
+					subject: "user",
+					kind: "interest",
+					key: "walking",
+					text: "Likes walking",
+					evidence: "explicit",
+					sources: [{ entryId: "u", quote: "walking" }],
+				},
+			]),
+		undefined,
+		{
+			policy: () => ({
+				...defaults,
+				memory: { ...defaults.memory, maxSearchRounds: 0 },
+			}),
+			modelSettingsRevision: () => 0,
+			consolidate: async () => {
+				calls++;
+				return '{"queries":["walking"]}';
+			},
+		},
+	);
+	try {
+		f.store.createRequest("r", "walking");
+		f.store.appendEntry({
+			entryId: "u",
+			role: "user",
+			text: "walking",
+			timestamp: new Date(now).toISOString(),
+			raw: {},
+		});
+		f.store.setRequest("r", "accepted", { entryId: "u" });
+		f.store.setRequest("r", "settled");
+		await memory.refresh();
+		now += 30000;
+		await memory.refresh();
+		expect(calls).toBe(1);
+		expect(memory.mind.reasoningJobs()[0]).toMatchObject({
+			state: "withheld",
+			error: "search_budget_exhausted",
+		});
+	} finally {
+		await memory.close();
+		await f.close();
+	}
+});
+
+test("a record larger than the policy input budget is visibly withheld instead of pending forever", async () => {
+	const f = createRuntimeFixture();
+	trustNativeFixture(f.store, f.runtime.binding);
+	const memory = new CompanionMemory({
+		path: join(f.root, "mind.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		schedule: () => () => {},
+	});
+	const policy = defaultEnginePolicy();
+	let calls = 0;
+	memory.configure(
+		async () =>
+			JSON.stringify([
+				{
+					subject: "user",
+					kind: "interest",
+					key: "walking",
+					text: "walking ".repeat(150),
+					evidence: "explicit",
+					sources: [{ entryId: "u", quote: "walking" }],
+				},
+			]),
+		undefined,
+		{
+			modelSettingsRevision: () => 0,
+			policy: () => ({
+				...policy,
+				memory: { ...policy.memory, inputChars: 1024 },
+			}),
+			consolidate: async () => {
+				calls++;
+				return '{"proposals":[]}';
+			},
+		},
+	);
+	try {
+		f.store.createRequest("r", "walking");
+		f.store.appendEntry({
+			entryId: "u",
+			role: "user",
+			text: "walking",
+			timestamp: new Date().toISOString(),
+			raw: {},
+		});
+		f.store.setRequest("r", "accepted", { entryId: "u" });
+		f.store.setRequest("r", "settled");
+		await memory.refresh();
+		expect(calls).toBe(0);
+		expect(memory.status().consolidation).toMatchObject({
+			state: "withheld",
+			incomplete: true,
+			error: "input_budget_insufficient",
+		});
+	} finally {
+		await memory.close();
+		await f.close();
+	}
+});

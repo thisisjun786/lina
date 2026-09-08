@@ -8,6 +8,7 @@ import {
 import type { SourceProof } from "../../../lina-core/src/source-policy.ts";
 import {
 	type ConsolidationClaim,
+	type ConsolidationError,
 	ConsolidationQueue,
 	type ConsolidationSeed,
 } from "./consolidation.ts";
@@ -333,20 +334,20 @@ export class EngineStore {
 			new ConsolidationQueue(this.db, this.now).supersede(trigger),
 		);
 	}
-	finishReasoning(
-		claim: ConsolidationClaim,
-		error:
-			| "provider_failed"
-			| "stale_revision"
-			| "source_withheld"
-			| "cancelled"
-			| "invalid_output",
-	): void {
+	finishReasoning(claim: ConsolidationClaim, error: ConsolidationError): void {
 		this.assertOpen();
 		this.transaction(() =>
 			new ConsolidationQueue(this.db, this.now).finish(
 				claim,
-				error === "source_withheld" ? "withheld" : "failed",
+				[
+					"source_withheld",
+					"configuration_changed",
+					"search_budget_exhausted",
+					"input_budget_insufficient",
+					"character_growth_disabled",
+				].includes(error)
+					? "withheld"
+					: "failed",
 				null,
 				error,
 			),

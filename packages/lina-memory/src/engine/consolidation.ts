@@ -51,7 +51,12 @@ const errors = z.enum([
 	"source_withheld",
 	"cancelled",
 	"invalid_output",
+	"configuration_changed",
+	"search_budget_exhausted",
+	"input_budget_insufficient",
+	"character_growth_disabled",
 ]);
+export type ConsolidationError = z.infer<typeof errors>;
 
 /** No connection, lease or timer ownership. EngineStore owns the enclosing transaction. */
 export class ConsolidationQueue {

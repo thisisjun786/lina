@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { sourceProofsCurrent } from "../../../lina-core/src/source-policy.ts";
 import type { DurableStore } from "../../../lina-core/src/store.ts";
+import type { ConsolidationError } from "../../../lina-memory/src/engine/consolidation.ts";
 import {
 	contentHash,
 	parseConclusions,
@@ -8,6 +9,7 @@ import {
 import type { EngineStore } from "../../../lina-memory/src/engine/store.ts";
 import type { EngineRecord } from "../../../lina-memory/src/engine/types.ts";
 import { hash } from "../../../lina-memory/src/engine/validation.ts";
+import { ModelRequestError } from "../models/errors.ts";
 import {
 	defaultEnginePolicy,
 	type EnginePolicySnapshot,
@@ -103,7 +105,10 @@ export class MemoryConsolidation {
 						? "running"
 						: counts.failed
 							? "failed"
-							: counts.withheld
+							: counts.withheld ||
+									(this.coverageIncomplete &&
+										!counts.pending &&
+										!counts.running)
 								? "withheld"
 								: counts.pending || completedPages < this.totalPages
 									? "pending"
@@ -431,23 +436,23 @@ export class MemoryConsolidation {
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : "invalid_output";
-					this.error =
-						message === "source_withheld"
-							? message
-							: signal.aborted
-								? "cancelled"
-								: message === "stale_revision"
-									? message
-									: "invalid_output";
+					const code: ConsolidationError = signal.aborted
+						? "cancelled"
+						: error instanceof ModelRequestError
+							? "provider_failed"
+							: [
+										"source_withheld",
+										"stale_revision",
+										"configuration_changed",
+										"search_budget_exhausted",
+										"input_budget_insufficient",
+										"character_growth_disabled",
+									].includes(message)
+								? (message as ConsolidationError)
+								: "invalid_output";
+					this.error = code;
 					try {
-						this.mind.finishReasoning(
-							started.claim,
-							this.error as
-								| "source_withheld"
-								| "cancelled"
-								| "stale_revision"
-								| "invalid_output",
-						);
+						this.mind.finishReasoning(started.claim, code);
 					} catch {
 						this.error = "claim_superseded";
 					}
