@@ -11,13 +11,14 @@
 | 작업 | 경로 | 책임 |
 | --- | --- | --- |
 | MODIFY | `packages/lina-memory/src/resources/schema.ts` | schema1 검증 후 transaction 안에서 schema2 기억·작업 테이블 추가; 실패 시 원본 유지 |
-| MODIFY | `packages/lina-memory/src/resources/codec.ts` | host scope agentId를 nullable로 확장; principal과 visibility 검증 유지 |
+| MODIFY | `packages/lina-memory/src/resources/codec.ts` | host scope agentId를 nullable로 확장; create/update/savedInput의 선택적 capture 입력과 구버전 receipt 보존 |
 | NEW | `packages/lina-memory/src/resources/memories.ts` | 자료 기억, 명시적 capture 요청, attempt/claim/receipt, 근거 검증과 재시작 감사 |
 | MODIFY | `packages/lina-memory/src/resources/store.ts` | memories 소유·감사·복구; 자료 변경과 활성 기억 무효화 연결 |
 | MODIFY | `packages/lina-memory/src/resources/index.ts` | 자체 기억 타입과 저장 API export |
 | NEW | `packages/lina-runtime/src/resources/context.ts` | 읽기 전용 자료 기억 선택과 한도 내 source-qualified context; 최종 전달 guard |
 | NEW | `packages/lina-runtime/src/resources/memory-worker.ts` | 허용된 capture만 생성; 실제 요청 직전 claim, 구조·근거 검증 후 원자적 저장 |
 | MODIFY | `packages/lina-runtime/src/resources/tools.ts` | put의 deriveMemory, 기억 읽기 접점; 모델이 scope를 만들지 못함 |
+| MODIFY | `packages/lina-runtime/src/execution.ts` | 새 기억 읽기 도구 자동 허용, capture는 기존 쓰기 승인 |
 | MODIFY | `packages/lina-runtime/src/resources/services.ts` | capture worker 수명·취소·복구와 설치 가능한 consumer 조립 |
 | MODIFY | `packages/lina-runtime/src/context/port.ts` | 자료 기억용 선택적 callback과 실제 input overhead 계약 |
 | MODIFY | `packages/lina-opencodex/src/services.ts` | observation 역할, standard tier 기본 요청의 실제 provider body; 출력·입력 한도와 dispatch guard |
@@ -67,3 +68,13 @@ memory/capture 필드는 strict 입력 schema → transaction JSON/명시 열 �
 - TaskManager 도구 await 중 인계 → 응답에서 비공개 결과 없음; 미확인 owner shared-only, 모델 args의 owner 위조 거부.
 
 문서 검증은 evidence/check-plan.py를 실제 실행하며 번호/경로/의존성만 검사한다. 의미 완전성은 독립 검토가 맡는다. C에서 000/004/060/061을 최종 계약에 맞춘다. 최종 layer는 host code와 저장 감사이며 임의 DB/host 코드 수정은 우회 가능하다. 악성 로컬 관리자를 막는 보안 경계라고 주장하지 않는다.
+
+## 주 에이전트 사전 점검 보완
+
+자료 저장과 capture intent를 원자적으로 묶으려면 tools만 수정해서는 안 된다. codec의 createSchema/updateSchema/savedInputSchema에 선택적 capture 메타데이터를 추가하고 ResourceStore.record가 같은 transaction에서 처리한다. 기존 receipt는 필드 부재를 그대로 유지하여 fingerprint를 바꾸지 않는다. deriveMemory=false는 기존 intent의 명시적 취소로 정의하고, 부재는 기존 intent 유지다. 취소 시 pending/prepared 결과 활성화를 차단한다. capture는 document만 허용하고 collection은 거부한다. activityKind는 명시값을 저장하며 생략은 other다.
+
+메모리 근거는 추출 텍스트 snapshot과 extraction 결과 식별자/hash도 기록한다. PDF/Office/vision 결과의 인용은 원본 binary byte offset이라고 표시하지 않는다. 추출이 없거나 incomplete면 해당 상태를 전달하고 확인하지 못한 전체 원문 근거를 주장하지 않는다. 기억 생성 도중 extraction generation이 바뀌면 commit을 거부한다. 재시작 감사는 저장된 input snapshot hash와 quote 일치, source version blob hash, job receipt 연결을 검증한다.
+
+null-agent scope에 private가 포함되면 parser에서 거부한다. index 내부 owner scope는 기존 non-null id를 유지한다. 이 변경은 기존 private 접근을 임의로 넓히지 않는다. 자료 기억 읽기는 새 lina_resource_memory_read 도구로 등록하며 execution.ts 자동 허용 목록과 실제 확인 모드 회귀 테스트를 함께 수정한다. capture 요청은 쓰기 도구 승인 경로를 따른다.
+
+P 기준선: `bun test packages/lina-memory/test/resources-store.test.ts packages/lina-runtime/test/resources-tools.test.ts packages/lina-codex/test/tasks.test.ts` → exit0, 17 pass/0 fail, 3 files/104 assertions. 세 경로를 직접 관찰하며 새 기억 구현을 증명하지는 않는다. 최초 명령의 단수 resource-store 오타는 자료 테스트를 실행하지 못했으므로 증거에서 제외하고 복수 경로로 바로잡아 실행했다. 출력은 session evidence/shared-memory-baseline.log다. 구조 검사도 18문서/108경로/9단계 errors[] exit0다.
