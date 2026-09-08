@@ -15,6 +15,11 @@ and the resulting patched hash. The runtime loader checks both hashes and each
 unique patch anchor before assembling a private instance. No authored text is
 compiled as source. The research checkout is never needed at runtime.
 
+Root `.gitattributes` preserves original line endings and trailing spaces only for
+the seven named upstream modules and two original comparison fixtures. Their
+verbatim hashes remain enforced; application files retain normal whitespace
+checks. Reformatting these inputs would change pinned source/engine identity.
+
 `underscore.ts` is an independently written four-function compatibility subset
 (keys, size, stable sortBy and inclusive random), under Lina's Apache-2.0 license.
 It is not copied from Underscore. The pinned original Underscore and Lovers and

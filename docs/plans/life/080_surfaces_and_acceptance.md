@@ -187,3 +187,15 @@ passed 3,363 tests / 17,847 assertions across 480 files in 363 seconds. Source
 hashes were unchanged before and after the run; type, lint, build, CI validation
 and dependency audit receipts match the same source. Hosted CI is a separate PR
 result and is not inferred from this local gate.
+
+PR delivery follow-up: hosted full-range diff validation exposed CRLF/trailing
+spaces in nine verbatim Ensemble inputs. Exact-path Git attributes preserve
+those original bytes instead of rewriting their source/engine hashes. No CI
+workflow or application whitespace rule changed. Verify the complete dev-to-head
+diff, unchanged pinned hashes, and a failing application-whitespace contrast.
+
+The follow-up review passed with no blockers. `git diff --check origin/dev...HEAD`
+and the actual CI selector passed. In a separate temporary Git repository, an
+application file with trailing space or CRLF still failed (exit 2). Six vendor
+source/parity tests passed with 32 assertions; all 1,234 previously tested
+non-Markdown files remained byte-identical to the 3,363-test source gate.

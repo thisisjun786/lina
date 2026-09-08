@@ -1,0 +1,11 @@
+# Verbatim, hash-checked upstream inputs. Preserve original CRLF and spaces.
+# Application source and all other files retain the default whitespace checks.
+packages/lina-runtime/test/social-fixtures/upstream/actions.json.txt -text whitespace=-trailing-space
+packages/lina-runtime/test/social-fixtures/upstream/schema.json.txt -text whitespace=-trailing-space
+packages/lina-runtime/vendor/ensemble/upstream/actionLibrary.js.txt -text whitespace=-trailing-space
+packages/lina-runtime/vendor/ensemble/upstream/ensemble.js.txt -text whitespace=-trailing-space
+packages/lina-runtime/vendor/ensemble/upstream/ruleLibrary.js.txt -text whitespace=-trailing-space,-space-before-tab
+packages/lina-runtime/vendor/ensemble/upstream/socialRecord.js.txt -text whitespace=-trailing-space
+packages/lina-runtime/vendor/ensemble/upstream/util.js.txt -text whitespace=-trailing-space
+packages/lina-runtime/vendor/ensemble/upstream/validate.js.txt -text whitespace=-trailing-space
+packages/lina-runtime/vendor/ensemble/upstream/volition.js.txt -text whitespace=-trailing-space
