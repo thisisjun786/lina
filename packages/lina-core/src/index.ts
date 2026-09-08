@@ -17,4 +17,25 @@ export {
 	acquireSessionLease,
 	acquireTranscriptLease,
 } from "./session-binding.ts";
+export type {
+	SourceContextOptions,
+	SourceEntry,
+	SourceLookup,
+	SourceMaterialKind,
+	SourcePolicy,
+	SourceProof,
+	SourceScope,
+} from "./source-policy.ts";
+export {
+	captureSourceProofs,
+	isOrdinarySource,
+	parseSourcePolicy,
+	parseSourceProof,
+	sourcePolicyDigest,
+	sourceProofsCurrent,
+} from "./source-policy.ts";
+export type {
+	SourceExposure,
+	SourceRequestOrigin,
+} from "./source-policy-origin.ts";
 export { DurableStore } from "./store.ts";

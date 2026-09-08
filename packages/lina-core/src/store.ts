@@ -11,9 +11,16 @@ import type {
 } from "./protocol.ts";
 import { type RequestDetails, Requests } from "./requests.ts";
 import { openCheckedDatabase, validateBinding } from "./session-binding.ts";
+import type { SourceEntry, SourcePolicy } from "./source-policy.ts";
+import type {
+	SourceExposure,
+	SourceRequestOrigin,
+} from "./source-policy-origin.ts";
+import { SOURCE_SCHEMA } from "./source-policy-schema.ts";
+import { SourcePolicyStore } from "./source-policy-store.ts";
 
-const SCHEMA_VERSION = 1;
-const SCHEMA = `
+const SCHEMA_VERSION = 2;
+const LEGACY_SCHEMA = `
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE entries (
 	seq INTEGER PRIMARY KEY AUTOINCREMENT, entry_id TEXT NOT NULL UNIQUE,
@@ -30,10 +37,11 @@ CREATE TABLE requests (
 ) STRICT;
 CREATE INDEX pending_requests ON requests(status) WHERE status IN ('queued','accepted');
 `;
+const SCHEMA = LEGACY_SCHEMA + SOURCE_SCHEMA;
 
-function verifySchema(db: DatabaseSync): void {
+function verifySchema(db: DatabaseSync, schema = SCHEMA): void {
 	const normalize = (sql: string) => sql.trim().replace(/\s+/g, " ");
-	const expected = SCHEMA.split(";").map(normalize).filter(Boolean).sort();
+	const expected = schema.split(";").map(normalize).filter(Boolean).sort();
 	const actual = db
 		.prepare("SELECT sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
 		.all()
@@ -62,13 +70,13 @@ function initialize(
 		.prepare("SELECT name FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
 		.all();
 	if (version !== 0 || tables.length > 0) {
-		if (version !== SCHEMA_VERSION) throw new Error("unknown store schema");
-		verifySchema(db);
+		if (version !== 1 && version !== SCHEMA_VERSION)
+			throw new Error("unknown store schema");
+		verifySchema(db, version === 1 ? LEGACY_SCHEMA : SCHEMA);
 		const schema = db
 			.prepare("SELECT value FROM meta WHERE key = 'schema_version'")
 			.get()?.["value"];
-		if (schema !== String(SCHEMA_VERSION))
-			throw new Error("unknown store schema");
+		if (schema !== String(version)) throw new Error("unknown store schema");
 		const saved = db
 			.prepare("SELECT value FROM meta WHERE key = 'binding'")
 			.get()?.["value"];
@@ -77,6 +85,17 @@ function initialize(
 			!isDeepStrictEqual(JSON.parse(saved), binding)
 		)
 			throw new Error("foreign store binding");
+		if (version === 1) {
+			validateJournalRows(db, binding.sessionId);
+			db.exec(SOURCE_SCHEMA);
+			db.prepare("UPDATE meta SET value=? WHERE key='schema_version'").run(
+				String(SCHEMA_VERSION),
+			);
+			db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+		}
+		verifySchema(db);
+		validateJournalRows(db, binding.sessionId);
+		new SourcePolicyStore(db, binding.sessionId).validate();
 		return;
 	}
 	if (!fresh) throw new Error("unknown store schema");
@@ -86,12 +105,42 @@ function initialize(
 	insert.run("binding", JSON.stringify(binding));
 	insert.run("revision", "0");
 	db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+	verifySchema(db);
+	new SourcePolicyStore(db, binding.sessionId).validate();
+}
+
+function validateJournalRows(db: DatabaseSync, sessionId: string): void {
+	if (db.prepare("PRAGMA foreign_key_check").all().length)
+		throw Error("Invalid journal source references");
+	for (const row of db
+		.prepare("SELECT seq,session_id,raw_json FROM entries")
+		.all()) {
+		if (
+			row["session_id"] !== sessionId ||
+			typeof row["seq"] !== "number" ||
+			!Number.isSafeInteger(row["seq"]) ||
+			row["seq"] < 1
+		)
+			throw Error("Invalid journal source row");
+		try {
+			JSON.parse(String(row["raw_json"]));
+		} catch {
+			throw Error("Invalid journal source JSON");
+		}
+	}
+	if (
+		db
+			.prepare("SELECT 1 FROM requests WHERE session_id != ? LIMIT 1")
+			.get(sessionId)
+	)
+		throw Error("Invalid journal source request owner");
 }
 
 export class DurableStore {
 	private readonly db: DatabaseSync;
 	private readonly entries: Entries;
 	private readonly journal: Requests;
+	private readonly sources: SourcePolicyStore;
 	private closed = false;
 
 	constructor(path: string, binding: BotBinding) {
@@ -108,6 +157,7 @@ export class DurableStore {
 			this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
 			this.entries = new Entries(this.db, binding.sessionId);
 			this.journal = new Requests(this.db, binding.sessionId);
+			this.sources = new SourcePolicyStore(this.db, binding.sessionId);
 		} catch (error) {
 			if (transaction) this.db.exec("ROLLBACK");
 			this.db.close();
@@ -121,6 +171,44 @@ export class DurableStore {
 
 	entry(entryId: string): EntryInput | undefined {
 		return this.entries.entry(entryId);
+	}
+	/** Model/memory consumers use this trusted association, never source fields in raw. */
+	sourceEntry(entryId: string): (EntryInput & SourceEntry) | undefined {
+		const entry = this.entries.entry(entryId);
+		if (!entry) return;
+		const requestId = this.sources.entryRequest(entryId);
+		if (!requestId) return entry;
+		const sourcePolicy = this.sources.policy(requestId),
+			request = this.journal.request(requestId);
+		if (!sourcePolicy || !request)
+			throw Error("Missing journal source association");
+		return { ...entry, sourcePolicy, requestStatus: request.status };
+	}
+	requestSourcePolicy(requestId: string): SourcePolicy | undefined {
+		return this.sources.policy(requestId);
+	}
+	/** Trusted native transport sink. These methods are not model or HTTP operations. */
+	recordSourceExposure(receipt: SourceExposure): boolean {
+		return this.mutate(() => this.sources.exposure(receipt), Number);
+	}
+	registerRequestSource(origin: SourceRequestOrigin): boolean {
+		return this.mutate(() => this.sources.register(origin), Number);
+	}
+	extendRequestSource(
+		requestId: string,
+		receiptIds: readonly string[],
+	): boolean {
+		return this.mutate(
+			() => this.sources.extend(requestId, receiptIds),
+			Number,
+		);
+	}
+	appendSourceEntry(input: EntryInput, requestId: string): boolean {
+		return this.mutate(() => {
+			const appended = this.entries.append(input);
+			const associated = this.sources.associate(input.entryId, requestId);
+			return appended || associated;
+		}, Number);
 	}
 	entrySequence(entryId: string): number | undefined {
 		const seq = this.db
