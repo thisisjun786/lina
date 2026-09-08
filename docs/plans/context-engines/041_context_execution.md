@@ -1,6 +1,6 @@
 # 041 — 컨텍스트 정책의 실제 실행 경로
 
-상태: context P. 040의 변경 지도를 실제 소스에 맞춰 보완한다. 구현 전 A 검토가 필요하다.
+상태: context 구현 및 독립 B 검토 통과, C 검증 대상. 040의 변경 지도를 실제 소스에 맞춰 보완한다. 구현 전 A 검토가 필요하다.
 
 ## 실행 범위
 
@@ -85,3 +85,15 @@ A 통과 후 core generation owner와 fileDB tests를 executor에 위임하고, 
 주입 diagnostic은 기존 boolean omitted와 함께 working/recall/external/tail 중 제외된 부분을 구분한다. JSON working capsule은 필드/항목 단위로 줄여 유효 구조를 유지하고, 개별 문자열의 발췌는 surrogate-safe 경계와 명시적 abridged 표시를 사용한다. 2048 기술 상한과 현재 전체 요청 budget을 넘지 않으며 정책 expansionTokens를 작업 맥락 주입에도 적용한다. 기존 context-injection 테스트와 실제 session 입력 캡처 테스트를 회귀 범위에 포함한다.
 
 A closure PASS: 추정기는 summary packing, ContextServices.estimateText/estimateMessages, persona systemTokens 검사와 주입에서 동일한 구현을 쓴다. estimator ID는 services/coordinator/generation에 남긴다. native `prepared.fits`는 root 수용의 최종 조건이며 추정으로 대체하지 않는다. 보수적 byte 추정은 기존 문자/4보다 큰 입력량을 계산하므로 더 많은 청크/요약 호출 또는 주입 생략이 생길 수 있다. 실제 증가율은 텍스트에 따라 달라지며 모델 비용 개선으로 주장하지 않는다. 검증은 tree뿐 아니라 injection/coordinator/native/tools/policy와 persona 예산 회귀까지 포함한다. 존재하지 않는 테스트 이름은 기존 glob 및 새 직접 경로로 조정한다.
+
+
+## 구현 결과와 초기 설계의 변경
+
+- 기존 EnginePolicySettingsStore가 memory/context를 함께 소유한다. v1 payload는 읽기 정규화로 v2 snapshot을 제공하며 원문 JSON/revision을 바꾸지 않는다. v1 memory-only 쓰기는 이미 저장된 context 값을 유지한다.
+- 최종 기본 추정기는 `utf8-half-heuristic-v1` (`ceil(UTF-8 bytes / 2)`)이다. raw bytes 초안은 긴 한글 입력에서 불필요한 omission을 만들어 폐기했다. 정확한 tokenizer나 보장된 상한이 아니다. 같은 인스턴스를 서비스·페르소나·요약·주입에서 쓴다.
+- generation은 `{version:1, policyDigest, routeKey, estimatorId, inputDigest}`다. policyDigest는 전체 엔진 정책 snapshot을 묶는다. 옛 정책을 재실행하는 기능은 아니므로 정책 원문을 core에 중복 저장하지 않는다. source refs/proofs는 기존 소유자를 재사용한다.
+- 새로운 core expansion 옵션은 추가하지 않았다. runtime이 기존 page를 예산에 맞게 줄이고 text/source continuation을 유지한다. source가 있으면 최소 한 링크를 남기며, envelope 자체가 한도를 넘으면 실패한다.
+- raw tail은 stable ID로 현재 native 입력과 비교할 수 있을 때만 보낸다. 실제 native 메시지가 opaque이면 `tail_dedup_unavailable`이다. request ID가 없는 직접 도구 호출은 같은 익명 search bucket을 공유하며 한도가 자동 초기화되지 않는다.
+- source별 고정 proof를 각 청크에서 검사하고 부모/최종 root에서 전체 ancestry를 검사한다. 1MB/1,000개 원문 회귀는 기존 30초 제한을 유지했다. 전체 proof를 모든 작은 청크에서 반복 검사하던 초안의 시간 초과를 이 방식으로 해결했다.
+
+검증 증거는 세션 evidence의 `context-audit.md`, `context-checkpoint2.log`, `context-session-budget.log` 및 최종 C 영수증에 남긴다. B 범위 226개 통과, 실제 SessionApp fake Codex RPC 입력 검사, 구버전 이전 rollback, 출처 revision 캐시 무효화, 정책/route 변경 중 활성화 거부를 포함한다. 실제 모델 요약 품질·장기 대화·UI·설치 데이터·배포 검증은 별도다.

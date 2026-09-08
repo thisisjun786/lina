@@ -1,6 +1,6 @@
 # 040 — 원문 보존과 단계별 컨텍스트
 
-상태: P 재검토. 실제 실행 계획은 [041](041_context_execution.md)을 함께 따른다. 구현 전이다. 단위 `context`, 선행 `routing + memory`.
+상태: 구현 및 검증 진행. 실제 실행 계획은 [041](041_context_execution.md)을 함께 따른다. 041의 구현 보완을 우선한다. 단위 `context`, 선행 `routing + memory`.
 
 ## 변경 지도
 
