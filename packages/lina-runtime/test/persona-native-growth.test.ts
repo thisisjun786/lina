@@ -176,3 +176,47 @@ test("invalid interpretation JSON records invalid_output instead of provider fai
 		f.close();
 	}
 });
+
+test("input budgets omit whole records and expose incomplete coverage without dispatch", async () => {
+	const f = fixture();
+	let inputChars = defaultEnginePolicy().memory.inputChars;
+	let calls = 0;
+	let submittedLength = 0;
+	try {
+		const runner = new NativePersonaGrowth({
+			agents: f.agents,
+			agentId: "lina",
+			source: f.source,
+			definition: () => f.definition,
+			policy: () => ({
+				...defaultEnginePolicy(),
+				memory: { ...defaultEnginePolicy().memory, inputChars },
+			}),
+			modelRevision: () => 1,
+			interpret: async (text) => {
+				calls++;
+				submittedLength = text.length;
+				return JSON.stringify({ traits: [], habits: [] });
+			},
+		});
+		await runner.run(new AbortController().signal);
+		expect(runner.detail()).toEqual({
+			selectedRecords: 1,
+			omittedRecords: 0,
+			inputChars: submittedLength,
+		});
+		inputChars = submittedLength - 1;
+		await runner.run(new AbortController().signal);
+		expect(calls).toBe(1);
+		expect(runner.detail().selectedRecords).toBe(0);
+		expect(runner.detail().omittedRecords).toBe(1);
+		expect(runner.detail().inputChars).toBeLessThanOrEqual(inputChars);
+		inputChars = 1;
+		await expect(runner.run(new AbortController().signal)).rejects.toThrow(
+			/input budget exceeded/,
+		);
+		expect(calls).toBe(1);
+	} finally {
+		f.close();
+	}
+});
