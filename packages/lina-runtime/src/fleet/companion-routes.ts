@@ -1,11 +1,32 @@
 import { CompanionMemory } from "../context/companion.ts";
 import { ModelRequestError } from "../models/errors.ts";
 import type { CatalogModel } from "../models/port.ts";
-import type { ModelRole, ModelSettingsInput } from "../models/types.ts";
+import type {
+	ModelReasoning,
+	ModelRole,
+	ModelSettingsInput,
+} from "../models/types.ts";
 import { parseModelSettingsInput } from "../models/validation.ts";
 import type { AgentFleet } from "./manager.ts";
 
 const busyTests = new WeakSet<AgentFleet>();
+function publicTestMessage(error: unknown): string {
+	if (error instanceof ModelRequestError) return error.message;
+	const code =
+		error instanceof Error &&
+		"code" in error &&
+		typeof (error as { code?: unknown }).code === "string"
+			? (error as { code: string }).code
+			: undefined;
+	if (code === "reasoning_unsupported")
+		return "선택한 추론 수준을 이 모델이 지원하지 않습니다.";
+	if (code === "output_budget_exceeded")
+		return "설정한 출력 한도가 현재 모델 한도를 넘습니다.";
+	if (code === "not_configured")
+		return "시험할 모델과 열린 대화방을 확인해주세요.";
+	if (code === "model_unavailable") return "선택한 모델의 연결을 확인해주세요.";
+	return "모델이 시험 응답을 완료하지 못했습니다. 운영 기억은 변경하지 않았습니다.";
+}
 const reply = (data: unknown, status = 200) =>
 	Response.json(data, {
 		status,
@@ -21,12 +42,87 @@ function fields(input: Record<string, unknown>, keys: string[]) {
 	)
 		throw Error("Invalid request fields");
 }
+function catalogModel(
+	catalog: CatalogModel[],
+	profile: { provider: string; model: string },
+) {
+	return catalog.find(
+		(item) => item.provider === profile.provider && item.id === profile.model,
+	);
+}
+function profileOf(settings: ModelSettingsInput, id: string) {
+	return settings.profiles.find((profile) => profile.id === id);
+}
+function referencedAuthBudget(
+	settings: ModelSettingsInput,
+	catalog: CatalogModel[],
+	id: string,
+	extraBudget?: number,
+) {
+	const profile = profileOf(settings, id);
+	const model = profile && catalogModel(catalog, profile);
+	if (!profile || !model?.authenticated) return false;
+	if (
+		profile.maxOutputTokens !== undefined &&
+		profile.maxOutputTokens > model.maxOutputTokens
+	)
+		return false;
+	return extraBudget === undefined || extraBudget <= model.maxOutputTokens;
+}
+function advertisedEffortOk(
+	settings: ModelSettingsInput,
+	catalog: CatalogModel[],
+	id: string,
+	requested?: ModelReasoning,
+) {
+	const profile = profileOf(settings, id);
+	const model = profile && catalogModel(catalog, profile);
+	if (!profile || !model) return false;
+	if (!model.reasoning) return true;
+	const effort = requested ?? profile.reasoning;
+	return (
+		effort === "off" ||
+		!model.reasoningEfforts ||
+		model.reasoningEfforts.includes(effort)
+	);
+}
+function referencedRoleCapable(
+	settings: ModelSettingsInput,
+	catalog: CatalogModel[],
+	id: string,
+	role: ModelRole | null,
+) {
+	const profile = profileOf(settings, id);
+	const model = profile && catalogModel(catalog, profile);
+	if (!profile || !model) return false;
+	return (
+		(!model.supportedRoles ||
+			model.supportedRoles.includes(role ?? "conversation")) &&
+		(role !== "vision" || model.imageInput === true)
+	);
+}
+function referencedBindingOk(
+	settings: ModelSettingsInput,
+	catalog: CatalogModel[],
+	id: string,
+	role: ModelRole | null,
+) {
+	return (
+		referencedAuthBudget(settings, catalog, id) &&
+		advertisedEffortOk(settings, catalog, id) &&
+		referencedRoleCapable(settings, catalog, id, role)
+	);
+}
 /**
  * Validates only profiles a binding actually references, so stale unused
  * profiles never block unrelated saves. Explicit vision bindings need an
  * image-capable model; an inherited text-only default is allowed and the
  * runtime reports a clear error instead. Desired reasoning is kept even on
  * non-reasoning models; the host normalizes the actual call to off.
+ * Tier profiles are checked for auth, catalog presence, output budget and
+ * advertised effort even when no roleTiers entry is active. Unbound tiers
+ * do not inherit a conversation supportedRoles requirement. Active roleTiers
+ * enforce the named role, including vision image input.
  */
 function referencedBindingsValid(
 	settings: ModelSettingsInput,
@@ -39,25 +135,46 @@ function referencedBindingsValid(
 	for (const map of maps)
 		for (const [role, id] of Object.entries(map))
 			if (id !== undefined) bindings.push([role as ModelRole, id]);
-	return bindings.every(([role, id]) => {
-		const profile = settings.profiles.find((p) => p.id === id);
-		const model =
-			profile &&
-			catalog.find(
-				(m) => m.provider === profile.provider && m.id === profile.model,
-			);
-		if (!profile || !model?.authenticated) return false;
+	if (
+		!bindings.every(([role, id]) =>
+			referencedBindingOk(settings, catalog, id, role),
+		)
+	)
+		return false;
+	const routes = settings.routes;
+	if (!routes) return true;
+	for (const binding of Object.values(routes.tiers)) {
 		if (
-			profile.maxOutputTokens !== undefined &&
-			profile.maxOutputTokens > model.maxOutputTokens
+			!referencedAuthBudget(
+				settings,
+				catalog,
+				binding.profileId,
+				binding.maxOutputTokens,
+			) ||
+			!advertisedEffortOk(
+				settings,
+				catalog,
+				binding.profileId,
+				binding.reasoning,
+			)
 		)
 			return false;
-		return (
-			(!model.supportedRoles ||
-				model.supportedRoles.includes(role ?? "conversation")) &&
-			(role !== "vision" || model.imageInput === true)
-		);
-	});
+	}
+	for (const role of Object.getOwnPropertyNames(routes.roleTiers)) {
+		if (role === "conversation") return false;
+		const tier = routes.roleTiers[role as Exclude<ModelRole, "conversation">];
+		if (!tier) return false;
+		if (
+			!referencedRoleCapable(
+				settings,
+				catalog,
+				routes.tiers[tier].profileId,
+				role as ModelRole,
+			)
+		)
+			return false;
+	}
+	return true;
 }
 export async function companionRoutes(
 	request: Request,
@@ -129,10 +246,7 @@ export async function companionRoutes(
 			} catch (error) {
 				return reply(
 					{
-						error:
-							error instanceof ModelRequestError
-								? error.message
-								: "모델이 시험 응답을 완료하지 못했습니다. 운영 기억은 변경하지 않았습니다.",
+						error: publicTestMessage(error),
 					},
 					502,
 				);

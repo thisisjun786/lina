@@ -4,7 +4,11 @@ import type {
 	ModelTrial,
 } from "../../lina-runtime/src/models/port.ts";
 import type { ModelSettings } from "../../lina-runtime/src/models/types.ts";
-import { installModelSettings } from "../client/model-settings.ts";
+import {
+	installModelSettings,
+	profileFor,
+	settingsInput,
+} from "../client/model-settings.ts";
 
 // Structural DOM fixture exercises real event handlers without a server or inference.
 class Node {
@@ -407,4 +411,94 @@ test("model role scope includes unopened agents from the fleet catalog", async (
 		f.find("model-scope").children.some((option) => option.value === "kai"),
 	).toBe(true);
 	view.close();
+});
+
+const routed: ModelSettings = {
+	revision: 3,
+	profiles: [
+		{ id: "one", provider: "ollama", model: "glm-flash", reasoning: "low" },
+		{ id: "two", provider: "codex", model: "vision", reasoning: "medium" },
+	],
+	defaultProfileId: "one",
+	roles: {},
+	agentRoles: { alpha: { summary: "one" } },
+	routes: {
+		version: 1,
+		tiers: {
+			quick: { profileId: "one" },
+			standard: { profileId: "two", reasoning: "low" },
+			deep: { profileId: "two" },
+			intensive: { profileId: "two" },
+		},
+		roleTiers: { summary: "standard" },
+	},
+};
+
+test("settings clone and save keep routes while role rows show the effective tier model", async () => {
+	expect(settingsInput(routed).routes).toEqual(routed.routes);
+	expect(profileFor(routed, "conversation")?.model).toBe("glm-flash");
+	expect(profileFor(routed, "summary")?.model).toBe("vision");
+	expect(profileFor(routed, "summary", "alpha")?.model).toBe("glm-flash");
+	expect(
+		profileFor(
+			{
+				...routed,
+				agentRoles: {},
+				agentRoleReasoning: { alpha: { summary: "high" } },
+			},
+			"summary",
+			"alpha",
+		),
+	).toMatchObject({ model: "vision", reasoning: "high" });
+	const f = setup(routed);
+	await f.view.open();
+	expect(f.find("model-conversation-input").value).toContain("전역 모델 사용");
+	expect(f.find("model-conversation-input").value).toContain("GLM Flash");
+	expect(f.find("model-summary-input").value).toContain("등급 설정 사용");
+	expect(f.find("model-summary-input").value).toContain("Vision");
+	expect(f.find("model-summary-input").value).not.toContain("전역 모델 사용");
+	expect(f.find("model-summary-hint").textContent).toContain("등급");
+	expect(f.find("model-effective").textContent).toContain("Vision");
+	expect(f.find("model-effective").textContent).toContain("등급");
+	await choose(f, "conversation", "vision");
+	await f.find("model-save").fire("click");
+	expect(f.stored().routes).toEqual(routed.routes);
+	expect(f.stored().roles.conversation).toBeDefined();
+});
+
+test("agent scope keeps an explicit summary binding instead of the global tier model", async () => {
+	const f = setup(routed);
+	await f.view.open("alpha");
+	expect(f.find("model-summary-input").value).toContain("GLM Flash");
+	expect(f.find("model-summary-input").value).not.toContain("등급 설정 사용");
+	await f.find("model-save").fire("click");
+	expect(f.find("model-save").disabled).toBe(true);
+	expect(f.stored().routes).toEqual(routed.routes);
+	expect(f.stored().agentRoles["alpha"]?.summary).toBe("one");
+});
+
+test("global role binding stays shadowed by an active tier and does not look selected", async () => {
+	const coexist: ModelSettings = {
+		...routed,
+		roles: { summary: "one" },
+		agentRoles: {},
+	};
+	expect(profileFor(coexist, "summary")?.model).toBe("vision");
+	expect(profileFor(coexist, "conversation")?.model).toBe("glm-flash");
+	const f = setup(coexist);
+	await f.view.open();
+	expect(f.find("model-summary-input").value).toContain("등급 설정 사용");
+	expect(f.find("model-summary-input").value).toContain("Vision");
+	expect(f.find("model-summary-input").disabled).toBe(true);
+	expect(f.find("model-summary-hint").textContent).toContain("등급");
+	expect(f.find("model-summary-reasoning").disabled).toBe(true);
+	await choose(f, "summary", "glm");
+	expect(f.find("model-save").disabled).toBe(true);
+	await f.view.open("alpha");
+	expect(f.find("model-summary-input").disabled).toBe(false);
+	await choose(f, "summary", "glm");
+	await f.find("model-save").fire("click");
+	expect(f.stored().routes).toEqual(coexist.routes);
+	expect(f.stored().roles.summary).toBe("one");
+	expect(f.stored().agentRoles["alpha"]?.summary).toBeDefined();
 });

@@ -3,6 +3,7 @@ import type {
 	ModelControl,
 	ModelTrial,
 } from "../../lina-runtime/src/models/port.ts";
+import { resolveModelRoute } from "../../lina-runtime/src/models/routes.ts";
 import type {
 	ModelProfile,
 	ModelRole,
@@ -68,6 +69,12 @@ const REASONING_LABELS = {
 	low: "낮음",
 	medium: "보통",
 	high: "높음",
+};
+const TIER_LABELS = {
+	quick: "빠름",
+	standard: "표준",
+	deep: "깊음",
+	intensive: "집중",
 };
 const keyOf = (m: Pick<CatalogModel, "provider" | "id">) =>
 	`${m.provider}/${m.id}`;
@@ -165,29 +172,49 @@ export function installModelSettings(
 		role: RowRole,
 		agent = scope.value,
 	): ModelProfile | null => {
-		const id =
-			role === "default"
-				? settings.defaultProfileId
-				: (agent && settings.agentRoles[agent]?.[role]) ||
-					settings.roles[role] ||
-					settings.defaultProfileId;
-		return settings.profiles.find((p) => p.id === id) ?? null;
+		if (role === "default")
+			return (
+				settings.profiles.find((p) => p.id === settings.defaultProfileId) ??
+				null
+			);
+		return profileFor(
+			{
+				revision: model.snapshot?.settings.revision ?? 0,
+				...settings,
+			},
+			role,
+			agent || undefined,
+		);
+	};
+	const routeOf = (
+		settings: ModelSettingsInput,
+		role: ModelRole,
+		agent = scope.value,
+	) => {
+		try {
+			return resolveModelRoute(
+				{
+					revision: model.snapshot?.settings.revision ?? 0,
+					...settings,
+				},
+				role,
+				agent || undefined,
+			);
+		} catch {
+			return null;
+		}
 	};
 	const desiredReason = (
 		settings: ModelSettingsInput,
 		role: RowRole,
 	): ModelProfile["reasoning"] =>
-		role === "default"
-			? (getProfile(settings, role)?.reasoning ?? "low")
-			: (scope.value && settings.agentRoleReasoning?.[scope.value]?.[role]) ||
-				settings.roleReasoning?.[role] ||
-				getProfile(settings, role)?.reasoning ||
-				"low";
+		getProfile(settings, role)?.reasoning ?? "low";
 	const bind = (settings: ModelSettingsInput, role: RowRole, id: string) => {
 		if (role === "default") {
 			settings.defaultProfileId = id || null;
 			return;
 		}
+		if (!scope.value && routeOf(settings, role, "")?.mode === "tier") return;
 		if (scope.value) settings.agentRoles[scope.value] ??= {};
 		const bindings = scope.value
 			? settings.agentRoles[scope.value]
@@ -232,7 +259,14 @@ export function installModelSettings(
 		reload.disabled = loading || model.saving || testing;
 		discard.disabled = loading || model.saving || testing || !model.dirty;
 		test.disabled = loading || testing || !trialId;
-		for (const row of rows.values()) row.combo.disable(loading);
+		for (const [role, row] of rows)
+			row.combo.disable(
+				loading ||
+					(role !== "default" &&
+						!scope.value &&
+						!!model.draft &&
+						routeOf(model.draft, role)?.mode === "tier"),
+			);
 	};
 	const changed = () => {
 		render();
@@ -252,6 +286,12 @@ export function installModelSettings(
 			`${label} 모델`,
 			(value) => {
 				if (loading || !model.draft) return;
+				if (
+					role !== "default" &&
+					!scope.value &&
+					routeOf(model.draft, role)?.mode === "tier"
+				)
+					return;
 				if (!value) {
 					const draft = model.draft;
 					const bound =
@@ -291,6 +331,13 @@ export function installModelSettings(
 		reason.addEventListener("change", () => {
 			const value = REASONING_LEVELS.find((v) => v === reason.value);
 			if (!value || loading) return;
+			if (
+				role !== "default" &&
+				!scope.value &&
+				model.draft &&
+				routeOf(model.draft, role)?.mode === "tier"
+			)
+				return;
 			model.edit((s) => {
 				if (role === "default") {
 					const current = getProfile(s, role);
@@ -339,13 +386,18 @@ export function installModelSettings(
 						? draft.agentRoles[scope.value]?.[role]
 						: draft.roles[role];
 			const inherited = role !== "default" && !ownId;
+			const route = role === "default" ? null : routeOf(draft, role);
+			const inheritRoute = role === "default" ? null : routeOf(draft, role, "");
 			const parent =
-				role === "default"
+				role === "default" || inheritRoute?.mode === "tier"
 					? null
 					: scope.value
 						? getProfile(draft, role, "")
 						: draft.profiles.find((p) => p.id === draft.defaultProfileId);
-			const inheritLabel = `${scope.value ? "전역 역할 설정 사용" : "전역 모델 사용"}${parent ? ` · ${profileLabel(parent, snapshot.catalog)}` : ""}`;
+			const inheritLabel =
+				inheritRoute?.mode === "tier" && inheritRoute.tier
+					? `등급 설정 사용 · ${TIER_LABELS[inheritRoute.tier]} · ${profileLabel(inheritRoute.profile, snapshot.catalog)}`
+					: `${scope.value ? "전역 역할 설정 사용" : "전역 모델 사용"}${parent ? ` · ${profileLabel(parent, snapshot.catalog)}` : ""}`;
 			const choices: ModelChoice[] = snapshot.catalog
 				.filter((m) => m.authenticated && modelSupportsRole(m, role))
 				.map((m) => ({
@@ -355,36 +407,39 @@ export function installModelSettings(
 				}));
 			if (role !== "default")
 				choices.unshift({ value: "", label: inheritLabel, inherited: true });
+			const shadowedByTier = route?.mode === "tier" && !scope.value;
 			row.combo.set(
 				choices,
-				inherited
+				inherited || shadowedByTier
 					? ""
 					: item
 						? keyOf(item)
 						: current
 							? `${current.provider}/${current.model}`
 							: "",
-				inherited
+				inherited || shadowedByTier
 					? inheritLabel
 					: current
 						? profileLabel(current, snapshot.catalog)
 						: "모델 선택…",
-				loading,
+				loading || shadowedByTier,
 			);
 			row.reason.value =
 				item && !item.reasoning ? "off" : desiredReason(draft, role);
-			row.reason.disabled = loading || !item?.reasoning;
+			row.reason.disabled = loading || !item?.reasoning || shadowedByTier;
 			row.hint.textContent =
-				role === "default"
-					? "전체 에이전트에 공통으로 적용됩니다."
-					: role === "vision"
-						? "대화 모델이 이미지를 읽지 못할 때 사용합니다." +
-							(item?.imageInput
-								? ""
-								: " 이미지 입력을 지원하는 모델을 선택하세요.")
-						: item && !item.reasoning
-							? "이 모델은 추론 수준을 지원하지 않습니다."
-							: "";
+				shadowedByTier && route.tier
+					? `실제 사용 모델은 ${TIER_LABELS[route.tier]} 등급 설정입니다.`
+					: role === "default"
+						? "전체 에이전트에 공통으로 적용됩니다."
+						: role === "vision"
+							? "대화 모델이 이미지를 읽지 못할 때 사용합니다." +
+								(item?.imageInput
+									? ""
+									: " 이미지 입력을 지원하는 모델을 선택하세요.")
+							: item && !item.reasoning
+								? "이 모델은 추론 수준을 지원하지 않습니다."
+								: "";
 		}
 		effective.replaceChildren();
 		for (const item of snapshot.active.filter(
@@ -396,6 +451,14 @@ export function installModelSettings(
 			);
 			p.textContent = `${item.agentId} 현재 대화: ${entry ? modelLabel(entry) : `${item.model} · ${item.provider}`} · ${item.settingsRevision === snapshot.settings.revision ? "적용됨" : "다음 대화부터 적용"}${item.error ? ` · ${item.error}` : ""}`;
 			effective.append(p);
+		}
+		for (const role of MODEL_ROLES) {
+			if (role === "conversation") continue;
+			const route = routeOf(draft, role);
+			if (route?.mode !== "tier" || !route.tier) continue;
+			const line = doc.createElement("p");
+			line.textContent = `${scope.value ? `${scope.value} ` : ""}${ROLE_LABELS[role]} 현재: ${profileLabel(route.profile, snapshot.catalog)} · ${TIER_LABELS[route.tier]} 등급`;
+			effective.append(line);
 		}
 		const trialChoices = snapshot.settings.profiles
 			.filter((p) =>
@@ -540,20 +603,11 @@ export function profileFor(
 	role: ModelRole,
 	agentId?: string,
 ): ModelProfile | null {
-	const id =
-		(agentId && settings.agentRoles[agentId]?.[role]) ||
-		settings.roles[role] ||
-		settings.defaultProfileId;
-	const selected = settings.profiles.find((profile) => profile.id === id);
-	return selected
-		? {
-				...selected,
-				reasoning:
-					(agentId && settings.agentRoleReasoning?.[agentId]?.[role]) ||
-					settings.roleReasoning?.[role] ||
-					selected.reasoning,
-			}
-		: null;
+	try {
+		return resolveModelRoute(settings, role, agentId)?.profile ?? null;
+	} catch {
+		return null;
+	}
 }
 export function settingsInput(settings: ModelSettings): ModelSettingsInput {
 	const { revision: _revision, ...input } = settings;

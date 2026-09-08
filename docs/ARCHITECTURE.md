@@ -26,6 +26,8 @@ Codex and auxiliary model requests -> OpenCodex
 
 Each agent has its own persistent conversation and state. Current authored identity and confirmed user context are assembled for the actual model input; learned state and retrieved material do not grant permissions. [Persona/context](PERSONA_CONTEXT.md) describes the boundary. [Onboarding](plans/onboarding.md) preserves one-time introduction, guide/target separation and confirmed-only sharing.
 
+Internal model calls can use four shared tiers (`quick`, `standard`, `deep`, `intensive`) in optional versioned model settings. Explicit agent model selections remain ahead of global tier bindings; agent effort overrides also remain effective. Conversation selection stays fixed. The OpenCodex adapter checks current capabilities and configured output limits, applies caller budgets, and reports requested versus applied options. Tier configuration currently uses the existing settings PATCH API; the settings screen preserves and displays it but does not create or remove tier bindings. See [model routes](plans/context-engines/010_model_routes.md).
+
 Lina request identity and native Codex task identity remain distinct. Persist requests before dispatch, preserve original text, reject changed payloads under the same ID and reconcile uncertain outcomes before any retry. Native task access uses the original task ID and current owner/revision. An acknowledgement is receipt, not completion. Cancellation cannot undo completed external effects.
 
 ## Context and memory

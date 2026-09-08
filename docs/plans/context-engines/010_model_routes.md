@@ -1,6 +1,6 @@
 # 010 — 공통 처리 등급과 실제 모델 요청
 
-상태: P 초안, 감사 전. 선행: 전체 roadmap 잠금. 분류 C4(settings persistence/consumer contract).
+상태: B 구현·독립 검토 완료, C 통합 검사 대상. 선행: 전체 roadmap 잠금. 분류 C4(settings persistence/consumer contract).
 
 ## 목적
 
@@ -81,3 +81,5 @@ B 추가 red/green: advertised effort mismatch는 8pass/1fail 뒤 검사 추가�
 B 연결 검증: main이 지연된 core 구현 범위를 회수했다. types/validation/routes를 구현하고 ContextServices와 SummaryCall을 연결했다. 모델 라우트 테스트는 모듈 부재 red 후 4pass, 실제 SQLite 재열기·손상·CAS 검증 추가 후 기존 저장 테스트와 합쳐40pass/0fail/107assertions. services16pass/0fail/55assertions는 명시 tier, 역할 tier, cache revision, actual loopback responses/chat, observe/recall/reflect guard 보존, requested/applied 지원 상태를 포함한다. bun install --frozen-lockfile로 작업트리의 누락된 node_modules를 준비했고 lockfile 변경은 없다. 테스트 fixture readonly-array 타입을 수정한 뒤 bun run typecheck(root+browser) exit0. API/browser 단위는 별도 executor가 계속 작성 중이므로 전체 routing 완료는 아니다.
 
 B 독립 검토 PASS(core/service) 후 추가 결정: 전역 roleTiers만 활성화했을 때 에이전트별 추론 설정도 보존한다. tier model은 유지하고 agentRoleReasoning[agent][role]을 tier reasoning 위에 적용한다. 호출자가 직접 지정한 tier/시험 override는 이 overlay를 적용하지 않는다. 전역 roleReasoning은 tier 활성화를 사용자가 명시 저장한 경우 tier 정책으로 대체되며, tier 비활성 역할은 기존 규칙을 유지한다. 회귀 테스트에서 agent high가 medium으로 바뀌는 red를 확인하고 수정했다.
+
+B API/browser 구현은 Hand가 완료했다. main이 diff를 확인하고 전역 tier에 가려지는 legacy 편집 차단, resolver 오류 시 거짓 legacy 표시 제거, 알려진 모델 오류의 고정 안내 문구를 반영했다. Inspector가 API/browser PASS와 5폭 visual functional-integrity PASS, 별도 Critic이 CJK/reflow PASS를 반환했다. 브라우저의 tier 활성/해제 UI는 만들지 않았으며 기존 PATCH API로 구성한다. 화면은 저장된 tier를 보존·표시하고 에이전트별 override를 편집한다. manual QA에서 실제 브라우저 저장 후 revision1→2, routes 보존, lina summary effort high, 저장 완료 문구를 확인했다. 스크립트의 대기 대상 ID 오타는 저장 후 조회로 완료를 확인해 중복 저장 없이 처리했다. 전체 모델 응답·업무 화면·LIFE UI 검증은 아니다.

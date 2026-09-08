@@ -155,6 +155,7 @@ it("reopens legacy and tier settings and rejects corrupted routes at startup", (
 it("rejects malformed tier bindings without mutating the input", () => {
 	const { revision: _revision, ...input } = settings();
 	if (!input.routes) throw Error("missing routes fixture");
+	const routes = input.routes;
 	const baseline = structuredClone(input);
 	for (const binding of [
 		{ profileId: "missing" },
@@ -170,8 +171,8 @@ it("rejects malformed tier bindings without mutating the input", () => {
 			parseModelSettingsInput({
 				...input,
 				routes: {
-					...input.routes,
-					tiers: { ...input.routes.tiers, deep: binding },
+					...routes,
+					tiers: { ...routes.tiers, deep: binding },
 				},
 			}),
 		).toThrow();
