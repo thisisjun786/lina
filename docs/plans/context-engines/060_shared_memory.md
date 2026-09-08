@@ -1,6 +1,6 @@
 # 060 — 자료 기반 공통 기억과 소비
 
-상태: 061 독립 A 통과 후 구현, C 검증 중. 설치 연결은 070이 맡는다. 단위 `shared-memory`, 선행 `resources + memory`.
+상태: 061 독립 A 통과 후 구현, C 통과. 설치 연결은 070이 맡는다. 단위 `shared-memory`, 선행 `resources + memory`.
 
 ## 변경 지도
 

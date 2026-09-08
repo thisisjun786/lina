@@ -1,6 +1,6 @@
 # 061 — 자료 기반 기억과 공통 소비 실행 계약
 
-상태: B 독립 검토 PASS, C 검증 중. c6fcad7 계획 독립 A PASS. 선행 resources는 fd4d1e7에서 종료했다. 515개 관련 테스트와 독립 검토가 통과했다. 다음 방향은 원문 권한과 revision을 유지하는 공통 기억이다. 전체 설치 연결은 070이 맡는다.
+상태: 독립 검토 PASS, C 통과. c6fcad7 계획 독립 A PASS. 선행 resources는 fd4d1e7에서 종료했다. 515개 관련 테스트와 독립 검토가 통과했다. 다음 방향은 원문 권한과 revision을 유지하는 공통 기억이다. 전체 설치 연결은 070이 맡는다.
 
 유형 satisfy-spec, 계기 060 실행. 목표는 에이전트 A/B와 Codex가 같은 자료와 자료 기반 기억을 이어 쓰되 개인 직접경험으로 오인하지 않는 것이다. 사용자 대화 모델 선택, UI, 설치 데이터 변경, 외부 호출, 푸시·머지는 범위 밖이다. 성공 조건은 아래 시나리오와 관련 타입·린트 검증 통과 및 독립 검토다. 기록은 이 문서와 세션 evidence/shared-memory-*에 남긴다. 로컬 완료 뒤 070으로 진행하며 라이브 검증은 별도 허가가 필요하다. 사용자가 지정하지 않은 시간·토큰 예산은 만들지 않는다. 두 실행자가 같은 위임 작업에 실패하면 주 에이전트가 회수한다. 새 위임은 P 수정으로 범위를 먼저 고정한다.
 
@@ -109,3 +109,5 @@ TaskManager owner 인자는 실제 task에서만 생성한다. 도구 실행은 
 
 
 C 잔여 조건 수정: 제목·폴더 등 메타데이터만 바뀐 연속 기록은 같은 원문 version의 이전 기억을 stale로 읽을 수 있다. 중간 operation에 bytes·visibility·deriveMemory·activityKind·deleted 변경이 하나라도 있으면 이 경로를 거부한다. 최신 resource 권한과 역사 version 권한은 그대로 검사한다. 따라서 반복 제목 변경은 기억을 없애지 않고, 취소 후 재활성화나 공개 범위 변경은 옛 기억을 자동 복원하지 않는다. 초기 C는 560개 테스트와 타입·린트·문서·CI·빌드를 통과했고, 이 추가 변경 뒤 새 receipt를 발급한다.
+
+최종 C: 11f02e4 기준 561 pass/0 fail, 79 files/2672 assertions. 루트·브라우저 타입, 린트, 문서 구조, CI 구성, 빌드·무상태 CLI smoke 모두 exit0. metadata 잔여 조건도 독립 재검토 PASS. 증거는 session evidence/shared-memory-test-receipt.json 및 shared-memory-c-*.log, shared-memory-done.md다. 다음은 070 설치 통합이다.
