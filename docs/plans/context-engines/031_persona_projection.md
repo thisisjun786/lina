@@ -1,6 +1,6 @@
 # 031 — 개인 성장 투영의 생성과 소비
 
-상태: persona B 구현 및 검증 중. 구현 체크포인트 `dc1a0a9`. 030의 revision-only 설계를 이 문서로 대체한다. 수용 조건과 실행 범위는 030을 따른다.
+상태: persona C 검사 통과. 구현·회귀 체크포인트 `d54a3af`. 030의 revision-only 설계를 이 문서로 대체한다. 수용 조건과 실행 범위는 030을 따른다.
 
 ## 소유권과 데이터
 
@@ -131,3 +131,10 @@ sourceStamp는 opaque content digest와 receipt/profile/definition/projection re
 
 검증 기록: `.codexclaw/evidence/01a08149-2fcd-7b83-b427-a104f083df05/persona-audit.md`.
 전체 source 검사는 진행 중이며 이 문서의 B 기록은 최종 수용 판정이 아니다.
+
+
+## C 검증 결과
+
+`d54a3af`의 `persona-check.sh`: 247 pass, 4 skip, 0 fail, 1,709 assertions. 타입(root/browser)·lint·문서 구조·runtime asset build와 상태 쓰기 없는 CLI smoke도 exit 0이다. 실행 영수증은 세션 evidence의 `persona-test-receipt.json`에 보존한다. 기존 v1 작업과 unversioned 게시글을 실제 file DB에서 다시 열어 같은 입력으로 실행하는 테스트 2개가 포함된다. 변경된 author 거부는 `runtime/test/life-publication.test.ts`의 기존 출처·작성자 변경 회귀가 소유한다.
+
+앞선 넓은 core/runtime 검사에서는 2,394 pass·6 skip·4 fail이었다. 이번 변경과 관련된 3개 실패는 수정 후 해당 회귀 19개가 통과했다. 남은 기존 이미지 시간 초과는 PR #3과 함께 070에서 해결한다. 이 단위는 실제 모델 품질·이미지 전체·UI·배포·설치 데이터 검증을 완료했다고 주장하지 않는다.
