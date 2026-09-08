@@ -1,5 +1,9 @@
 import type { WorkingState } from "../../../lina-core/src/context/index.ts";
-import { type ContextEstimator, takeBudgetPrefix } from "./budget.ts";
+import {
+	type ContextEstimator,
+	characterPrefix,
+	takeBudgetPrefix,
+} from "./budget.ts";
 import type { ContextServices } from "./port.ts";
 
 export type ContextOmittedPart = "working" | "recall" | "external" | "tail";
@@ -26,7 +30,6 @@ export function contextInjection(
 	if (!content && !recall)
 		return { text: "", tokens: 0, omitted: false, omittedParts };
 	const budget = Math.min(
-		2048,
 		maxTokens,
 		services.contextWindow -
 			services.reserveTokens -
@@ -42,7 +45,7 @@ export function contextInjection(
 	const prefix =
 		"[Reference data from prior work and memory. Latest user instructions override it.]\n";
 	const state = structuredClone(working);
-	let recalled = recall.slice(0, 4096);
+	let recalled = characterPrefix(recall, 4096);
 	if (recalled.length < recall.length) omittedParts.push("recall");
 	const render = (goal = state.goal) =>
 		prefix +
@@ -79,6 +82,8 @@ export function contextInjection(
 			}
 		}
 	}
+	if (!content && !recalled)
+		return { text: "", tokens: 0, omitted: true, omittedParts };
 	const text = render(),
 		tokens = services.estimateText(text);
 	if (!Number.isSafeInteger(tokens) || tokens < 0)

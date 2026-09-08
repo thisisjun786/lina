@@ -97,3 +97,10 @@ A closure PASS: 추정기는 summary packing, ContextServices.estimateText/estim
 - source별 고정 proof를 각 청크에서 검사하고 부모/최종 root에서 전체 ancestry를 검사한다. 1MB/1,000개 원문 회귀는 기존 30초 제한을 유지했다. 전체 proof를 모든 작은 청크에서 반복 검사하던 초안의 시간 초과를 이 방식으로 해결했다.
 
 검증 증거는 세션 evidence의 `context-audit.md`, `context-checkpoint2.log`, `context-session-budget.log` 및 최종 C 영수증에 남긴다. B 범위 226개 통과, 실제 SessionApp fake Codex RPC 입력 검사, 구버전 이전 rollback, 출처 revision 캐시 무효화, 정책/route 변경 중 활성화 거부를 포함한다. 실제 모델 요약 품질·장기 대화·UI·설치 데이터·배포 검증은 별도다.
+
+
+## C 회귀 수정: 도구 읽기와 대화 주입 예산 분리
+
+실제 SessionApp의 재시작 회상 테스트에서 expansionTokens=1024를 주입에도 재사용하면 기존 기억이 제외되는 회귀를 확인했다. 새 `injectionTokens`(기본2048, 허용128~8192)는 working/recall/external/tail을 합친 전체 맥락의 한도다. `expansionTokens`는 개별 원문 도구 페이지 한도로 유지한다. 실제 모델 창의 남은 공간도 동시에 적용한다. 필드를 저장만 하고 기존2048 상수로 무시하지 않는다. 아직 설치/게시하지 않은 context policy 계약의 필드이며 구버전 memory-only 정책은 보존한다.
+
+회귀 결과: 기존 기억이 실제 RPC 요청으로 돌아왔고, 별도 테스트에서 external summary도 전체 injection 한도를 넘으면 제외된다. 기억 문자열의4096자 경계에서 이모지를 나누지 않도록 발췌와 dispatch 재검사를 같은 함수로 맞췄다. 관련 원문과 이전 checkpoint는 삭제하지 않는다.

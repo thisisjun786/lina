@@ -58,3 +58,18 @@ export function takeBudgetPrefix(
 		throw Error("Context framing exceeds budget");
 	return result;
 }
+
+export function characterPrefix(text: string, maxChars: number): string {
+	let end = Math.min(text.length, maxChars);
+	const last = text.charCodeAt(end - 1),
+		next = text.charCodeAt(end);
+	if (
+		end < text.length &&
+		last >= 0xd800 &&
+		last <= 0xdbff &&
+		next >= 0xdc00 &&
+		next <= 0xdfff
+	)
+		end--;
+	return text.slice(0, end);
+}

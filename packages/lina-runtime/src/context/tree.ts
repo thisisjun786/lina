@@ -6,6 +6,7 @@ import type {
 } from "../../../lina-core/src/context/index.ts";
 import {
 	type ContextEstimator,
+	characterPrefix,
 	conservativeEstimator,
 	measuredTokens,
 	takeBudgetPrefix,
@@ -178,15 +179,17 @@ export async function createSummaryTree(
 			for (let offset = 0; offset < text.length; ) {
 				const label = (value: string) =>
 					`[Source ${ref.kind}:${ref.id}, characters ${offset}-${offset + value.length}]\n`;
-				let available = text.slice(offset, offset + INPUT_CHARS - 512);
-				if (/[\uD800-\uDBFF]/.test(available.at(-1) ?? ""))
-					available = available.slice(0, -1);
+				const available = characterPrefix(
+					text.slice(offset),
+					INPUT_CHARS - 512,
+				);
 				const chunk = takeBudgetPrefix(
 					available,
 					budget.leafInputTokens,
 					estimator,
 					(v) => PREFIX + label(v) + v,
 				);
+				if (!chunk.length) throw Error("Summary source chunk did not advance");
 				const node = await generate(
 					PREFIX + label(chunk) + chunk,
 					[ref],

@@ -7,6 +7,7 @@ export interface ContextBudgetPolicy {
 	condensedOutputTokens: number;
 	freshTailEntries: number;
 	expansionTokens: number;
+	injectionTokens: number;
 	refreshThresholdTokens: number;
 	maxSearchCalls: number;
 }
@@ -18,6 +19,7 @@ export const DEFAULT_CONTEXT_POLICY: Readonly<ContextBudgetPolicy> =
 		condensedOutputTokens: 512,
 		freshTailEntries: 4,
 		expansionTokens: 1024,
+		injectionTokens: 2048,
 		refreshThresholdTokens: 3000,
 		maxSearchCalls: 8,
 	});
@@ -30,6 +32,7 @@ const ranges: Record<
 	condensedOutputTokens: [1, 8192],
 	freshTailEntries: [0, 100],
 	expansionTokens: [128, 8192],
+	injectionTokens: [128, 8192],
 	refreshThresholdTokens: [1, 1048576],
 	maxSearchCalls: [1, 100],
 };

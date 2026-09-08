@@ -2,7 +2,11 @@ import type {
 	ContextStore,
 	SourceRef,
 } from "../../../lina-core/src/context/index.ts";
-import { type ContextEstimator, conservativeEstimator } from "./budget.ts";
+import {
+	type ContextEstimator,
+	characterPrefix,
+	conservativeEstimator,
+} from "./budget.ts";
 import type { ExternalContext } from "./external.ts";
 import { type ContextInjection, contextInjection } from "./injection.ts";
 import type { CompactSourceEvent } from "./native.ts";
@@ -106,7 +110,7 @@ export class ContextCoordinator {
 		if (!this.closed) for (const listener of this.listeners) listener();
 	}
 	setRecall(text: string, current: () => string = () => ""): void {
-		this.recall = text.slice(0, 4096);
+		this.recall = characterPrefix(text, 4096);
 		this.currentRecall = current;
 		this.changed();
 	}
@@ -140,7 +144,7 @@ export class ContextCoordinator {
 				tailGuard();
 				working.beforeDeliver();
 				active?.beforeDeliver();
-				if (recall && currentRecall().slice(0, 4096) !== recall)
+				if (recall && characterPrefix(currentRecall(), 4096) !== recall)
 					throw Error("Recall source changed before delivery");
 			},
 		};
@@ -156,8 +160,18 @@ export class ContextCoordinator {
 						Math.max(0, used - this.services.systemTokens),
 				}
 			: this.services;
+		const injectionTokens = (this.options.policy ?? defaultEnginePolicy)()
+			.context.injectionTokens;
+		const available = Math.min(
+			injectionTokens,
+			services.contextWindow -
+				services.reserveTokens -
+				services.systemTokens -
+				services.estimateMessages(messages),
+		);
 		const requestId = this.options.activeRequestId?.();
-		if (this.currentRecall().slice(0, 4096) !== this.recall) this.recall = "";
+		if (characterPrefix(this.currentRecall(), 4096) !== this.recall)
+			this.recall = "";
 		this.lastInjection = contextInjection(
 			this.options.store.working(
 				requestId ? { activeRequestId: requestId } : {},
@@ -165,7 +179,7 @@ export class ContextCoordinator {
 			this.recall,
 			messages,
 			services,
-			(this.options.policy ?? defaultEnginePolicy)().context.expansionTokens,
+			injectionTokens,
 		);
 		const external = this.options.external?.injection();
 		if (external) {
@@ -173,11 +187,7 @@ export class ContextCoordinator {
 				.filter(Boolean)
 				.join("\n\n");
 			const tokens = this.services.estimateText(text);
-			const available =
-				services.contextWindow -
-				this.services.reserveTokens -
-				this.services.systemTokens -
-				this.services.estimateMessages(messages);
+
 			if (tokens <= available)
 				this.lastInjection = { ...this.lastInjection, text, tokens };
 			else {
@@ -192,12 +202,7 @@ export class ContextCoordinator {
 			const text = [this.lastInjection.text, tail.text]
 					.filter(Boolean)
 					.join("\n\n"),
-				tokens = services.estimateText(text),
-				available =
-					services.contextWindow -
-					services.reserveTokens -
-					services.systemTokens -
-					services.estimateMessages(messages);
+				tokens = services.estimateText(text);
 			if (tokens <= available)
 				this.lastInjection = { ...this.lastInjection, text, tokens };
 			else this.tailReason = "tail_budget_exceeded";

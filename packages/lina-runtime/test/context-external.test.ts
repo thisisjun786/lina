@@ -424,3 +424,50 @@ test("route changes after staging cannot activate a summary from the previous ge
 		external.close();
 	}
 });
+
+test("the injection policy also bounds external summaries rather than only working memory", async () => {
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const { conservativeEstimator } = await import("../src/context/budget.ts");
+	const f = setup();
+	f.add("large", "Original detail. ".repeat(200));
+	const policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			injectionTokens: 128,
+			refreshThresholdTokens: 1,
+			freshTailEntries: 0,
+		},
+	};
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async () => "SUMMARY".repeat(100),
+		{ policy: () => policy },
+	);
+	await external.refresh(new AbortController().signal);
+	const coordinator = new ContextCoordinator({
+		store: f.context,
+		external,
+		policy: () => policy,
+		busy: () => false,
+		compact: async () => {},
+	});
+	coordinator.configure({
+		estimator: conservativeEstimator,
+		estimateText: conservativeEstimator.text,
+		estimateMessages: conservativeEstimator.messages,
+		systemTokens: 0,
+		contextWindow: 10000,
+		reserveTokens: 0,
+		summarize: async () => "",
+		prepare() {
+			throw Error("unused");
+		},
+	});
+	expect(coordinator.injection([])).toBe("");
+	expect(coordinator.state().omittedParts).toContain("external");
+	coordinator.close();
+});

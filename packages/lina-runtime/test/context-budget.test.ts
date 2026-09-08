@@ -153,3 +153,35 @@ test("a Korean persona of 10k characters fits a 32k token conversation budget", 
 		f.close();
 	}
 });
+
+test("recall truncation does not split an emoji at the character ceiling", async () => {
+	const { contextInjection } = await import("../src/context/injection.ts");
+	const recall = "x".repeat(4095) + "😀";
+	const result = contextInjection(
+		{
+			revision: 0,
+			goal: "",
+			decisions: [],
+			openItems: [],
+			nextSteps: [],
+			sourceEntryIds: [],
+		},
+		recall,
+		[],
+		{
+			estimateText: conservativeEstimator.text,
+			estimateMessages: () => 0,
+			contextWindow: 10000,
+			reserveTokens: 0,
+			systemTokens: 0,
+			summarize: async () => "",
+			prepare() {
+				throw Error("unused");
+			},
+		},
+		8192,
+	);
+	expect(result.text).not.toBe("");
+	expect(result.text.isWellFormed()).toBe(true);
+	expect(result.omittedParts).toContain("recall");
+});
