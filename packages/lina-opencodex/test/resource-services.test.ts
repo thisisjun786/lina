@@ -79,7 +79,7 @@ function catalog(extra: Record<string, unknown> = {}) {
 		contextWindow: 128000,
 		maxOutputTokens: 8192,
 		reasoning: true,
-		reasoningEfforts: ["low", "medium", "high"] as const,
+		reasoningEfforts: ["low", "medium", "high"],
 		authenticated: true,
 		endpoint: "responses" as const,
 		imageInput: true,
