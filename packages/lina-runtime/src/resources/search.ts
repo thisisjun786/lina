@@ -91,7 +91,12 @@ export class ResourceSearch {
 								limit: 1024,
 							})
 						: null;
-			if (brief.text !== item.brief || (content?.text ?? null) !== item.content)
+			if (
+				brief.text !== item.brief ||
+				(content?.text ?? null) !== item.content ||
+				(brief.stale || (content?.stale ?? false)) !== item.stale ||
+				(brief.complete && (content?.complete ?? true)) !== item.complete
+			)
 				throw Error("resource search derivation changed");
 		}
 	}

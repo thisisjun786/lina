@@ -431,3 +431,69 @@ test("opaque continuation pages reuse rank order without calls and recheck scope
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("cursor rejects changed derivation coverage even when the text is identical", async () => {
+	const root = mkdtempSync(
+			join(tmpdir(), "lina-resource-search-cursor-generation-"),
+		),
+		svc = services(),
+		policy = defaultEnginePolicy();
+	let generation = {
+		policyRevision: 0,
+		modelSettingsRevision: 0,
+		routeKey: "first",
+		estimatorId: "test",
+		maxAttempts: 3,
+	};
+	const store = new ResourceStore(root, limits, () => generation);
+	try {
+		const docs = ["a", "b"].map((operationId) =>
+			store.create(scope, {
+				operationId,
+				kind: "document",
+				title: `자료 ${operationId}`,
+				visibility: "shared",
+				mediaType: "text/plain",
+				bytes: new Uint8Array(),
+			}),
+		);
+		for (const doc of docs) {
+			const job = store.indexing
+				.list(scope, doc.id)
+				.find((j) => j.kind === "brief");
+			if (!job) throw Error("missing job");
+			store.indexing.complete(
+				scope,
+				store.indexing.prepare(scope, job.id),
+				"same hint",
+				true,
+			);
+		}
+		svc.planResources = async () => "{}";
+		svc.rankResources = async (_t, _s, before) => {
+			before?.();
+			return JSON.stringify({ ids: docs.map((d) => d.id) });
+		};
+		const search = new ResourceSearch({
+			store,
+			scope: () => scope,
+			services: () => svc,
+			policy: () => policy,
+		});
+		const first = await search.search(
+			{ query: "자료 찾기", limit: 1 },
+			new AbortController().signal,
+		);
+		if (!first.nextCursor) throw Error("missing cursor");
+		generation = { ...generation, routeKey: "second" };
+		await expect(
+			search.search(
+				{ query: "자료 찾기", cursor: first.nextCursor },
+				new AbortController().signal,
+			),
+		).rejects.toThrow(/changed/);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
