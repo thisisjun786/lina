@@ -146,6 +146,7 @@ export class TaskManager {
 	private readonly unsubRequests: (() => void) | undefined;
 	private readonly listeners = new Set<(notice: TaskNotice) => void>();
 	private readonly tails = new Map<string, Promise<void>>();
+	private readonly inflightTools = new Set<Promise<void>>();
 	private readonly attached = new Set<string>();
 	private readonly controller = new AbortController();
 	private closed = false;
@@ -532,7 +533,7 @@ export class TaskManager {
 			pending.reject(new TaskError("closed", "task manager is closed"));
 		this.pendingApprovals.clear();
 		this.closing = (async () => {
-			await Promise.allSettled([...this.tails.values()]);
+			await Promise.allSettled([...this.tails.values(), ...this.inflightTools]);
 			await this.notifying;
 			this.listeners.clear();
 			this.store.close();
@@ -742,13 +743,12 @@ export class TaskManager {
 			const task = threadId ? this.store.byThreadId(threadId) : undefined;
 			if (!task) return;
 			const run = this.handleToolCall(request);
-			this.tails.set(
-				`tool:${String(request.id)}`,
-				run.then(
-					() => undefined,
-					() => undefined,
-				),
+			const joined = run.then(
+				() => undefined,
+				() => undefined,
 			);
+			this.inflightTools.add(joined);
+			void joined.finally(() => this.inflightTools.delete(joined));
 			await run;
 			return;
 		}

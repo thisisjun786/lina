@@ -281,3 +281,79 @@ test("closed manager fails the in-flight tool without leaking payload", async ()
 		f.close();
 	}
 });
+
+test("overlapping duplicate tool request ids keep both close joins", async () => {
+	const f = fixture();
+	const rpc = new FakeCodexRpc();
+	const first = Promise.withResolvers<void>();
+	const second = Promise.withResolvers<void>();
+	const firstEntered = Promise.withResolvers<void>();
+	const secondEntered = Promise.withResolvers<void>();
+	let calls = 0;
+	const manager = new TaskManager({
+		path: f.path,
+		rpc,
+		dynamicTools: [tool],
+		executeTool: async (_tool, _callId, _args, _signal, context) => {
+			if (!context) throw Error("missing host task context");
+			const n = ++calls;
+			if (n === 1) {
+				firstEntered.resolve();
+				await first.promise;
+			} else {
+				secondEntered.resolve();
+				await second.promise;
+			}
+			context.assertCurrent();
+			return secretResult();
+		},
+	});
+	try {
+		const created = await manager.create({
+			ownerAgentId: "kai",
+			title: "overlap-owner",
+			cwd: f.cwd,
+			prompt: "use the tool",
+			requestId: "c-overlap",
+		});
+		if (!created.threadId) throw Error("missing thread");
+		const request = {
+			id: "tool-dup",
+			method: "item/tool/call",
+			params: {
+				threadId: created.threadId,
+				turnId: "turn-1",
+				callId: "call-dup",
+				namespace: null,
+				tool: "lina_work_read",
+				arguments: { uri: "viking://work/a.md" },
+			},
+		};
+		rpc.emitRequest(request);
+		await firstEntered.promise;
+		rpc.emitRequest(request);
+		await secondEntered.promise;
+		const closing = manager.close();
+		second.resolve();
+		let closed = false;
+		void closing.then(() => {
+			closed = true;
+		});
+		for (let i = 0; i < 8; i++) await Promise.resolve();
+		expect(closed).toBe(false);
+		first.resolve();
+		await closing;
+		expect(closed).toBe(true);
+		expect(rpc.responses.filter((item) => item.id === "tool-dup")).toHaveLength(
+			2,
+		);
+		for (const response of rpc.responses.filter(
+			(item) => item.id === "tool-dup",
+		)) {
+			expect(response).toMatchObject({ result: { success: false } });
+			expect(JSON.stringify(response)).not.toContain("PRIVATE_TASK_PAYLOAD");
+		}
+	} finally {
+		f.close();
+	}
+});
