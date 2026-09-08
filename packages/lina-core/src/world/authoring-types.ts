@@ -12,6 +12,7 @@ import type {
 	SocialMigrationPreview,
 } from "./social-types.ts";
 import type { WorldDefinition } from "./types.ts";
+import type { WorkConfig } from "./work-types.ts";
 
 export type Scalar = string | number | boolean;
 export type Expression =
@@ -220,7 +221,7 @@ export type ImportedWorldData = {
 	report: ImportReport[];
 };
 
-export type LifeConfigInput = {
+export type LifeConfigInputV1 = {
 	version: 1;
 	clock: {
 		stepSize: number;
@@ -251,6 +252,19 @@ export type LifeConfigInput = {
 		intervalMs: number | null;
 		maxPerWindow: number;
 	} | null;
+};
+export type LifeConfigInputV2 = Omit<LifeConfigInputV1, "version"> & {
+	version: 2;
+	work: WorkConfig | null;
+};
+export type LifeConfigInput = LifeConfigInputV1 | LifeConfigInputV2;
+export type LifeConfigV1 = LifeConfigInputV1 & {
+	worldId: string;
+	revision: number;
+};
+export type LifeConfigV2 = LifeConfigInputV2 & {
+	worldId: string;
+	revision: number;
 };
 export type LifeConfig = LifeConfigInput & {
 	worldId: string;

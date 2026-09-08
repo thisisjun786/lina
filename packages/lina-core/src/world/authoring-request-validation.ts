@@ -8,6 +8,7 @@ import type {
 	EvaluationInput,
 	EvaluationLimits,
 	LifeConfigInput,
+	LifeConfigInputV1,
 	WorldConfirmation,
 	WorldDraftCursor,
 	WorldDraftInput,
@@ -27,6 +28,7 @@ import {
 } from "./life-json.ts";
 import { parseLifeViewLimits } from "./life-validation.ts";
 import { fields } from "./validation.ts";
+import { parseWorkConfig } from "./work-validation.ts";
 
 export function parseEvaluationLimits(value: unknown): EvaluationLimits {
 	jsonBoundary(value);
@@ -94,6 +96,24 @@ function mode(value: unknown): "manual" | "automatic" {
 	return enumeration(value, ["manual", "automatic"]);
 }
 export function parseLifeConfigInput(value: unknown): LifeConfigInput {
+	jsonBoundary(value);
+	if (
+		typeof value === "object" &&
+		value !== null &&
+		"version" in value &&
+		value.version === 2
+	) {
+		if (!("work" in value)) throw Error("Missing work configuration");
+		const { work, version: _version, ...rest } = value;
+		return {
+			...parseLifeConfigV1({ ...rest, version: 1 }),
+			version: 2,
+			work: work === null ? null : parseWorkConfig(work),
+		};
+	}
+	return parseLifeConfigV1(value);
+}
+function parseLifeConfigV1(value: unknown): LifeConfigInputV1 {
 	jsonBoundary(value);
 	fields(value, [
 		"version",

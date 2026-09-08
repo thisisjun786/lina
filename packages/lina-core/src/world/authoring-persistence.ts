@@ -46,6 +46,7 @@ import type {
 	WorldSnapshot,
 } from "./types.ts";
 import { fields, id, integer, text } from "./validation.ts";
+import { assertWorkConfigReferences } from "./work-validation.ts";
 
 export type AuthorWorldAccess = {
 	exists(worldId: string): boolean;
@@ -904,6 +905,8 @@ export class AuthoringPersistence {
 		const config = parseLifeConfigInput(input),
 			current = this.lifeConfig(worldId, scope);
 		integer(expectedRevision, "runtime config revision");
+		if (config.version === 2 && config.work)
+			assertWorkConfigReferences(config.work, this.currentPack(worldId));
 		if (current.revision !== expectedRevision)
 			throw Error("LIFE runtime configuration revision conflict");
 		integer(expectedRevision + 1, "runtime config revision", 1);
