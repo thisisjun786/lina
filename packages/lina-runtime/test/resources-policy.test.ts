@@ -89,3 +89,27 @@ test("v2 policy read adds resources without rewriting stored JSON or revision", 
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("invalid persisted resource limits fail on reopen without rewriting data", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-invalid-"));
+	const path = join(root, "policy.sqlite");
+	new EnginePolicySettingsStore(path).close();
+	const db = new DatabaseSync(path);
+	try {
+		const { revision: _revision, ...defaults } = defaultEnginePolicy();
+		const raw = JSON.stringify({
+			...defaults,
+			resources: { ...defaults.resources, maxVisits: Number.MAX_SAFE_INTEGER },
+		});
+		db.prepare("UPDATE engine_policy_settings SET settings_json=?").run(raw);
+		expect(() => new EnginePolicySettingsStore(path)).toThrow();
+		expect(
+			db.prepare("SELECT settings_json FROM engine_policy_settings").get()?.[
+				"settings_json"
+			],
+		).toBe(raw);
+	} finally {
+		db.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

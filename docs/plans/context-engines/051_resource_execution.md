@@ -1,6 +1,6 @@
 # 051 — 자료 공간의 저장·탐색·실행 계약
 
-상태: resources P. 050/004의 초안을 현재 소스에 맞춰 구체화한다. 구현은 독립 A 이후 시작한다.
+상태: resources B. 050/004의 초안을 현재 소스에 맞춰 구체화했다. adda116 독립 A PASS 후 구현 시작. 445cb2f에서 정책 저장만 구현됐으며 자료 저장/도구/검색은 진행 전이다.
 
 ## 실행 범위
 
@@ -30,7 +30,7 @@ ResourceScope는 host가 공급하는 principalId/agentId/allowedVisibilities다
 
 설치별 SQLite catalog와 불변 hash blob 디렉터리다. 현재 resourceRoot 변수는 배포 asset root이므로 재사용하지 않는다. 새 owner는 명시적 전용 state root를 받는다. Scope는 DB 경로가 아니라 같은 catalog의 접근 범위다.
 
-필수 테이블은 resources, resource_versions, resource_memberships, resource_operations, resource_jobs, resource_derivations, resource_meta와 FTS다. jobs/derivations의 입력 JSON은 현재 resource refs와 policy/model revision을 묶는다. collection 개요는 현재 읽을 수 있는 하위 버전 집합에서 파생한다. shared collection 개요에는 shared 하위만 쓰고 private 하위의 존재/수/제목을 공개하지 않는다.
+필수 테이블은 resources, resource_versions, resource_memberships, resource_operations, resource_jobs, resource_job_attempts, resource_derivations, resource_meta와 FTS다. jobs/derivations의 입력 JSON은 현재 resource refs와 policy/model revision을 묶는다. collection 개요는 현재 읽을 수 있는 하위 버전 집합에서 파생한다. shared collection 개요에는 shared 하위만 쓰고 private 하위의 존재/수/제목을 공개하지 않는다.
 
 Blob은 해시·길이를 검증한 staging 파일에서 atomic rename 및 directory fsync를 마친 후 DB version/current pointer와 operation receipt를 같은 transaction에 commit한다. DB 실패 시 생긴 미참조 blob은 성공으로 기록하지 않으며 다음 동일 hash 저장에서 검증 후 재사용할 수 있다. 시작 시 참조된 모든 blob의 누락/변조를 거부한다. 무관한 사용자 파일을 자동 삭제하지 않는다. operation receipt와 최종 resource/version/projection 정합을 감사하며 unknown schema/enum, unsafe counter, orphan DB reference를 거부한다.
 
@@ -56,7 +56,7 @@ worker는 pending→prepared claim과 소비 attempt를 먼저 저장하고 tran
 
 기존 EnginePolicySettingsStore에 version3의 resources 항목을 추가한다. memory.enabled가 자료 읽기나 자료 색인을 끄지는 않는다. resources는 enabled(파생 모델 작업), maxVisits, maxCalls, inputTokens, outputTokens, maxAttempts를 소유한다. 기존 v1/v2를 읽을 때만 기본 항목을 보충하고 저장 bytes/revision은 유지한다. 구형 memory/context 쓰기는 현재 resources를 보존한다. source/jobs에는 이 owner의 revision과 resource policy digest, 각 호출의 route key, estimator id를 함께 고정한다. 모델 설정이 바뀌면 prepared 결과는 현재 파생물로 commit하지 않는다.
 
-기술 기본값 후보는 maxVisits32, maxCalls3(planning+overview 선택+rank), inputTokens7000, outputTokens1024, maxAttempts3이며 새 제품 과금·주기 결정을 뜻하지 않는다. enabled 기본값은 true지만 등록된 provider가 없으면 호출하지 않는다. 명시적 owner 설정으로 변경 가능하고 호출별 모델 capability 한도가 다시 상한을 적용한다. 자동 정기 스케줄은 추가하지 않는다. job 재시도 횟수는 source fingerprint에 귀속하며 policy/route 변경만으로 횟수를 초기화하지 않는다. 새 근거 버전은 별도 작업이다. extraction은 모델 예산과 분리하지만 동일 durable claim/outcome 검사를 따른다.
+기술 기본값 후보는 maxVisits32, maxCalls3(planning+overview 선택+rank), inputTokens7000, outputTokens1024, maxAttempts3이며 새 제품 과금·주기 결정을 뜻하지 않는다. enabled 기본값은 true지만 등록된 provider가 없으면 호출하지 않는다. 명시적 owner 설정으로 변경 가능하고 호출별 모델 capability 한도가 다시 상한을 적용한다. 자동 정기 스케줄은 추가하지 않는다. job 재시도 횟수는 resource_job_attempts의 (resource_id, source_digest, kind)에 귀속하며 policy/route 변경만으로 횟수를 초기화하지 않는다. 새 근거 버전은 별도 작업이다. extraction은 모델 예산과 분리하지만 동일 durable claim/outcome 검사를 따른다.
 
 ## 전체 연결과 변경 지도
 
@@ -84,3 +84,12 @@ file DB reopen에서 stable ID/rename/move/history, 같은op replay/conflict, �
 최근 두 executor 구현은 진행이 없어 main이 회수했다. 이 단위의 긴 저장·권한 경로는 main이 구현하고, 경계가 고정된 후 독립 검토를 사용한다. 단순 탐색 위임으로 구현 위임을 가장하지 않는다. A 전에 코드 변경은 없다.
 
 최종 C는 resource tests, 기존 parser/permission/contracts와 types/lint/docs/build로 검증한다. 실제 모델 의미 회수 품질은080의 별도 승인된 자격 검증 대상이다. 같은 OS의 privileged 코드/DB 재작성 자체를 막는 보안 격리라고 주장하지 않는다.
+
+## 추가 저장 검토 반영
+
+- tombstone 자료는 history를 포함해 모델/API 읽기 모두 거부한다. bytes 보존은 향후 별도 승인 복구의 기반이며 숨은 읽기 경로가 아니다. shared grant는 조회 당시 현재 권한이고 소급 grant snapshot을 만들지 않는다. 각 버전의 visibility AND 현재 resource 권한은 계속 검사한다.
+- NEW content.ts가 node:fs renameSync를 사용한 bytes staging primitive를 소유한다. writeExclusive는 최종 hash 경로가 아닌 고유 staging 경로에 쓴다. 이미 존재하는 hash blob은 길이/hash를 검증한 뒤 재사용한다. readRegular에는 owner maxFileBytes를 명시하며 기본2MiB를 그대로 적용하지 않는다. blob 최대 개수는 기술 상한4096, 전체 bytes는64MiB 이하로 제한하므로 시작 시 전량 hash 검증을 유지한다. 보안 검증을 verified-at timestamp로 대체하지 않는다.
+- dispatch 전 권한/정책 검사 실패는 모델 호출 소비 횟수에 포함하지 않는다. provider dispatch를 준비한 뒤의 crash/취소/권한/설정 변경은 호출 여부나 과금 부재를 단정할 수 없으므로 소비 횟수를 환불하지 않는다. source/kind의 maxAttempts가 소진되면 exhausted와 원인을 노출하고 해당 근거의 추가 자동 호출을 중지한다. 정책 토글로 다시 충전하지 않는다. 원문 읽기/lexical 검색은 계속 가능하다.
+- 중복 worker owner는 계약 밖이다. explicit recovery는 설치 owner의 exclusive lease를 획득한 host만 호출하며 일반 catalog 연결은 호출하지 않는다.070에서 실제 installation lease 조립을 검증한다.
+
+Blob put의 quota 검사는 catalog BEGIN IMMEDIATE 안에서 staging 이전에 수행한다. 실패한 호출의 고유 staging 파일은 해당 호출이 정리하고, 이미 rename된 hash blob은 보존/합산한다. resource_job_attempts도 schema와 unsafe counter audit 대상이다.
