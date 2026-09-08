@@ -99,6 +99,34 @@ export class ResourceIndex {
 	refresh(): void {
 		this.tx(() => this.changed());
 	}
+	matching(scope: ResourceScope, query: string): Set<string> {
+		const parsed = scopeSchema.parse(scope),
+			needle = query.toLocaleLowerCase();
+		const rows =
+			[...query].length >= 3
+				? this.db
+						.prepare(
+							"SELECT DISTINCT resource_id FROM resource_fts WHERE resource_fts MATCH ?",
+						)
+						.all(`"${query.replaceAll('"', '""')}"`)
+				: this.db
+						.prepare("SELECT DISTINCT resource_id FROM resource_fts")
+						.all();
+		const result = new Set<string>();
+		for (const row of rows) {
+			const id = String(row["resource_id"]),
+				r = resource(this.db, id);
+			if (!r || r.deleted || !permitted(parsed, r)) continue;
+			for (const kind of ["extract", "brief", "overview"] as const) {
+				const output = this.read(parsed, id, kind);
+				if (output?.text.toLocaleLowerCase().includes(needle)) {
+					result.add(id);
+					break;
+				}
+			}
+		}
+		return result;
+	}
 	changed(): void {
 		if (!this.db.isTransaction)
 			throw Error("resource indexing needs writer transaction");

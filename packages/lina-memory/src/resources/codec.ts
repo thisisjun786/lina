@@ -5,6 +5,13 @@ export const counter = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 export const identity = z.string().min(1).max(160);
 export const uuid = z.uuid();
 export const visibility = z.enum(["private", "shared"]);
+const bytesSchema = z
+	.custom<Uint8Array>((value) => value instanceof Uint8Array)
+	.refine(
+		(value) => value.byteLength <= 64 * 1024 * 1024,
+		"resource input limit exceeded",
+	)
+	.transform((value) => Uint8Array.from(value));
 export const scopeSchema = z.strictObject({
 	principalId: identity,
 	agentId: identity,
@@ -64,7 +71,7 @@ export const createSchema = z.strictObject({
 	visibility,
 	parentId: uuid.nullable().default(null),
 	mediaType: z.string().min(1).max(128).optional(),
-	bytes: z.instanceof(Uint8Array).optional(),
+	bytes: bytesSchema.optional(),
 });
 export const updateSchema = z.strictObject({
 	operationId: identity,
@@ -76,7 +83,7 @@ export const updateSchema = z.strictObject({
 	visibility: visibility.optional(),
 	deleted: z.literal(true).optional(),
 	mediaType: z.string().min(1).max(128).optional(),
-	bytes: z.instanceof(Uint8Array).optional(),
+	bytes: bytesSchema.optional(),
 });
 export function canonical(value: unknown): string {
 	if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;

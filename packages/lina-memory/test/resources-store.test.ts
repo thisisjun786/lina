@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ResourceContent } from "../src/resources/content.ts";
 import { ResourceStore } from "../src/resources/store.ts";
 
 const a = {
@@ -156,6 +157,42 @@ test("sharing does not publish private history, and collection restrictions are 
 		).toThrow(/unavailable/);
 	} finally {
 		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("a concurrent visibility restriction is checked again after reading bytes", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-read-race-"));
+	const store = new ResourceStore(root, limits),
+		other = new ResourceStore(root, limits);
+	const original = ResourceContent.prototype.read;
+	try {
+		const doc = store.create(a, {
+			operationId: "d",
+			kind: "document",
+			title: "문서",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: text("private after race"),
+		});
+		let armed = true;
+		ResourceContent.prototype.read = function (blob) {
+			if (armed) {
+				armed = false;
+				other.update(a, {
+					operationId: "restrict",
+					id: doc.id,
+					expectedRevision: 1,
+					visibility: "private",
+				});
+			}
+			return original.call(this, blob);
+		};
+		expect(() => store.read(b, doc.id)).toThrow(/unavailable/);
+	} finally {
+		ResourceContent.prototype.read = original;
+		store.close();
+		other.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });

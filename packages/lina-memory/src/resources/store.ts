@@ -104,9 +104,14 @@ export class ResourceStore {
 	}
 	current(scope: ResourceScope, refs: readonly ResourceVersionRef[]): boolean {
 		try {
-			return refs.every(
-				(ref) => canonical(this.ref(scope, ref.resourceId)) === canonical(ref),
-			);
+			const parsed = scopeSchema.parse(scope);
+			return refs.every((ref) => {
+				if (canonical(this.ref(parsed, ref.resourceId)) !== canonical(ref))
+					return false;
+				if (!ref.versionId) return true;
+				const v = version(this.db, ref.versionId);
+				return Boolean(v && permitted(parsed, v));
+			});
 		} catch {
 			return false;
 		}
@@ -123,7 +128,10 @@ export class ResourceStore {
 			);
 		if (!v || v.resourceId !== r.id || !permitted(scopeSchema.parse(scope), v))
 			throw Error("resource version unavailable");
-		return { resource: r, version: v, bytes: this.content.read(v) };
+		const bytes = this.content.read(v);
+		if (this.get(scope, id).revision !== r.revision)
+			throw Error("resource changed during read; unavailable");
+		return { resource: r, version: v, bytes };
 	}
 	list(
 		scope: ResourceScope,
@@ -153,6 +161,28 @@ export class ResourceStore {
 			items,
 			nextCursor: candidates.length > limit ? (items.at(-1)?.id ?? null) : null,
 		};
+	}
+	find(scope: ResourceScope, query: string, limit = 50): Resource[] {
+		const parsed = scopeSchema.parse(scope);
+		if (
+			typeof query !== "string" ||
+			!query.trim() ||
+			query.length > 1024 ||
+			query.includes("\0")
+		)
+			throw Error("invalid resource query");
+		counter.min(1).max(100).parse(limit);
+		const text = query.trim(),
+			matches = this.indexing.matching(parsed, text),
+			needle = text.toLocaleLowerCase();
+		return allResources(this.db)
+			.filter(
+				(r) =>
+					!r.deleted &&
+					permitted(parsed, r) &&
+					(matches.has(r.id) || r.title.toLocaleLowerCase().includes(needle)),
+			)
+			.slice(0, limit);
 	}
 	private replay(
 		scope: ResourceScope,

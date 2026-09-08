@@ -148,6 +148,14 @@ export function auditResources(
 			)
 				throw Error("corrupt resource request identity");
 			if (
+				input.bytes !== (result.version?.hash ?? null) ||
+				("id" in input
+					? input.id !== current.id ||
+						input.expectedRevision !== current.revision - 1
+					: current.revision !== 1)
+			)
+				throw Error("corrupt resource request result");
+			if (
 				current.id !== r.id ||
 				current.revision !== (previous?.revision ?? 0) + 1 ||
 				row["revision"] !== current.revision ||

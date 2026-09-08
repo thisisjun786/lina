@@ -1,6 +1,6 @@
 # 051 — 자료 공간의 저장·탐색·실행 계약
 
-상태: resources B. 050/004의 초안을 현재 소스에 맞춰 구체화했다. adda116 독립 A PASS 후 구현 시작. 445cb2f에서 정책 저장만 구현됐으며 자료 저장/도구/검색은 진행 전이다.
+상태: resources B. 050/004의 초안을 현재 소스에 맞춰 구체화했다. adda116 독립 A PASS 후 구현 시작. 정책·catalog·job 상태·추출·점진 읽기·빠른 검색을 구현했다. 모델 worker·계층 탐색/재정렬·도구/API 조립은 진행 전이다.
 
 ## 실행 범위
 
@@ -65,6 +65,7 @@ worker는 pending→prepared claim과 소비 attempt를 먼저 저장하고 tran
 | 추가 변경 | 경로 | 전체 연결 |
 | --- | --- | --- |
 | NEW | `packages/lina-runtime/src/resources/tools.ts` | host scope→catalog mutation/read→typed result/current guard |
+| NEW | `packages/lina-runtime/src/resources/worker.ts` | durable claim→실제 dispatch guard→근거/정책 재검사→결과 receipt |
 | NEW | `packages/lina-runtime/src/resources/services.ts` | permitted frozen text/IDs→공통 summary/recall route→strict model outputs |
 | MODIFY | `packages/lina-runtime/src/context/policy-settings.ts` | v1/v2 읽기 호환과 resources 정책 v3/공통 revision |
 | MODIFY | `packages/lina-runtime/src/context/port.ts` | 전용 resource summary/planning/rank callbacks |
@@ -97,3 +98,5 @@ Blob put의 quota 검사는 catalog BEGIN IMMEDIATE 안에서 staging 이전에 
 원문 부품 BUILD 감사 수정: startup hash audit와 put quota 계산을 분리한다. put은 NOFOLLOW/fstat의 크기 합만 계산하며 전체 재해시를 반복하지 않는다. 기존 bytes의 읽기/감사는 기술 상한64MiB를 사용하고, 줄어든 owner 한도는 신규 수용에 적용한다. recoverStaging은 exclusive recovery host만 호출하는 명시 API로 strict UUID staging 파일만 정리하고 완성 hash blob을 삭제하지 않는다. 이 caller 권한 조립은070의 검증 대상이다.
 
 BUILD의 설정 복구 보강: jobs/derivations UNIQUE에는 generation_key=hash(정책 revision·모델 revision·routeKey·estimatorId·maxAttempts)을 추가한다. 외부 route/estimator가 설정 revision 없이 바뀌어도 새 작업을 만들 수 있다. 소비 횟수 키는 (resource_id,source_digest,kind) 그대로여서 설정 변경으로 재충전되지 않는다.
+
+추출/읽기 BUILD 감사 반영: 공유 grant는 host가 공급하는 allowedVisibilities의 shared 권한이다. 자료별 별도 ACL 테이블은 이 계약에 없다. vision callback은 명시적 output token 상한을 전달하며 runtime에서 resources.outputTokens를 연결한다. 비 UTF-8은 undecodable_text, 손상된 문서 컨테이너는 invalid_document로 원문과 별도 상태를 반환한다. 취소/실행 환경 오류는 성공이나 영구 입력 오류로 바꾸지 않는다. async 추출의 현재 근거 검사는 당시 version 권한도 포함하고, 동시 DB 변경이 bytes 읽기 중 발생하면 마지막 resource revision/권한 재검사에서 응답을 거부한다.
