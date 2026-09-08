@@ -151,3 +151,46 @@ it("reopens legacy and tier settings and rejects corrupted routes at startup", (
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+it("rejects malformed tier bindings without mutating the input", () => {
+	const { revision: _revision, ...input } = settings();
+	if (!input.routes) throw Error("missing routes fixture");
+	const baseline = structuredClone(input);
+	for (const binding of [
+		{ profileId: "missing" },
+		{ profileId: "tier", reasoning: "ultra" },
+		{ profileId: "tier", maxOutputTokens: 0 },
+		{ profileId: "tier", maxOutputTokens: 1.5 },
+		{ profileId: "tier", maxOutputTokens: 1048577 },
+		{ profileId: "tier", reasoning: undefined },
+		{ profileId: "tier", [Symbol("hidden")]: true },
+		{ profileId: "tier", unknown: true },
+	])
+		expect(() =>
+			parseModelSettingsInput({
+				...input,
+				routes: {
+					...input.routes,
+					tiers: { ...input.routes.tiers, deep: binding },
+				},
+			}),
+		).toThrow();
+	expect(input).toEqual(baseline);
+});
+
+it("preserves agent effort overrides on global tiers without replacing the tier model", () => {
+	const saved = settings();
+	saved.agentRoleReasoning = { lina: { summary: "high" } };
+	expect(resolveModelRoute(saved, "summary", "lina")).toMatchObject({
+		mode: "tier",
+		tier: "deep",
+		profile: { id: "tier", reasoning: "high" },
+	});
+	expect(resolveModelRoute(saved, "summary", "other")?.profile.reasoning).toBe(
+		"medium",
+	);
+	expect(
+		resolveModelRoute(saved, "summary", "lina", { tier: "quick" })?.profile
+			.reasoning,
+	).toBe("off");
+});

@@ -532,3 +532,38 @@ test("internal observe recall and reflect accept a tier and retain dispatch guar
 	]);
 	expect(JSON.stringify(posts)).not.toContain("beforeDispatch");
 });
+
+test("saved tier settings drive the next request after database reopen", async () => {
+	const { ModelSettingsStore } = await import(
+		"../../lina-runtime/src/models/settings.ts"
+	);
+	const { rmSync } = await import("node:fs");
+	const root = mkdtempSync(join(tmpdir(), "lina-tier-restart-"));
+	const path = join(root, "models.db");
+	let store = new ModelSettingsStore(path);
+	const { hub, posts } = await connectedHub();
+	try {
+		const { revision: _revision, ...input } = tierSettings();
+		store.replace(0, input);
+		const service = hub.createContextServices(() => store.snapshot());
+		await service.summarize("before", 2048, new AbortController().signal);
+		const oldKey = service.summaryCacheKey?.();
+		store.close();
+		store = new ModelSettingsStore(path);
+		await service.summarize("after", 2048, new AbortController().signal);
+		expect(service.summaryCacheKey?.()).toBe(oldKey);
+		expect(posts[1]?.body["reasoning"]).toEqual({ effort: "medium" });
+		expect(posts[1]?.body["max_output_tokens"]).toBe(512);
+		const changed = tierSettings();
+		if (!changed.routes) throw Error("missing routes fixture");
+		changed.routes.roleTiers.summary = "intensive";
+		const { revision: _next, ...next } = changed;
+		store.replace(1, next);
+		await service.summarize("updated", 2048, new AbortController().signal);
+		expect(posts[2]?.body["reasoning"]).toEqual({ effort: "high" });
+		expect(service.summaryCacheKey?.()).not.toBe(oldKey);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

@@ -75,6 +75,19 @@ export function resolveModelRoute(
 		throw new ModelRequestError("Unknown tier profile", "not_configured");
 	const profile = { ...selected };
 	if (binding.reasoning !== undefined) profile.reasoning = binding.reasoning;
+	const agentReasoning =
+		agentId !== undefined &&
+		settings.agentRoleReasoning &&
+		Object.hasOwn(settings.agentRoleReasoning, agentId)
+			? settings.agentRoleReasoning[agentId]
+			: undefined;
+	if (
+		request?.tier === undefined &&
+		agentReasoning &&
+		Object.hasOwn(agentReasoning, role) &&
+		agentReasoning[role] !== undefined
+	)
+		profile.reasoning = agentReasoning[role];
 	if (binding.maxOutputTokens !== undefined)
 		profile.maxOutputTokens = binding.maxOutputTokens;
 	return { mode: "tier", settingsRevision: settings.revision, tier, profile };
