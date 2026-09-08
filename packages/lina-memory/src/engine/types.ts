@@ -26,6 +26,7 @@ export interface EngineOptions {
 	sourceSequence?: (entryId: string) => number | undefined;
 }
 export interface EngineRecord extends Omit<Observation, "status"> {
+	reasoning?: RecordReasoning;
 	/** Originating processing receipt; omission keeps old records unqualified. */
 	sourceRequestId?: string;
 	/** Absent only on preserved legacy records; those are never model eligible. */
@@ -43,6 +44,24 @@ export interface EngineRecord extends Omit<Observation, "status"> {
 	validFrom: number;
 	expiresAt: number | null;
 	invalidatedAt: number | null;
+}
+export interface PremiseRef {
+	recordId: string;
+	revision: number;
+	/** Host-computed semantic identity, independent of later corroborating evidence. */
+	contentHash: string;
+}
+export interface RecordReasoning {
+	kind: "deduction" | "induction";
+	premises: PremiseRef[];
+}
+export interface ConclusionProposal {
+	subject: Observation["subject"];
+	kind: Observation["kind"];
+	key: string;
+	text: string;
+	reasoningKind: RecordReasoning["kind"];
+	premises: Pick<PremiseRef, "recordId" | "revision">[];
 }
 export interface EngineSnapshot {
 	agentId: string;
