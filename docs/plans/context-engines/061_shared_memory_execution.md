@@ -1,6 +1,6 @@
 # 061 — 자료 기반 기억과 공통 소비 실행 계약
 
-상태: B 구현·독립 검토 중. c6fcad7 계획 독립 A PASS. 선행 resources는 fd4d1e7에서 종료했다. 515개 관련 테스트와 독립 검토가 통과했다. 다음 방향은 원문 권한과 revision을 유지하는 공통 기억이다. 전체 설치 연결은 070이 맡는다.
+상태: B 독립 검토 PASS, C 검증 중. c6fcad7 계획 독립 A PASS. 선행 resources는 fd4d1e7에서 종료했다. 515개 관련 테스트와 독립 검토가 통과했다. 다음 방향은 원문 권한과 revision을 유지하는 공통 기억이다. 전체 설치 연결은 070이 맡는다.
 
 유형 satisfy-spec, 계기 060 실행. 목표는 에이전트 A/B와 Codex가 같은 자료와 자료 기반 기억을 이어 쓰되 개인 직접경험으로 오인하지 않는 것이다. 사용자 대화 모델 선택, UI, 설치 데이터 변경, 외부 호출, 푸시·머지는 범위 밖이다. 성공 조건은 아래 시나리오와 관련 타입·린트 검증 통과 및 독립 검토다. 기록은 이 문서와 세션 evidence/shared-memory-*에 남긴다. 로컬 완료 뒤 070으로 진행하며 라이브 검증은 별도 허가가 필요하다. 사용자가 지정하지 않은 시간·토큰 예산은 만들지 않는다. 두 실행자가 같은 위임 작업에 실패하면 주 에이전트가 회수한다. 새 위임은 P 수정으로 범위를 먼저 고정한다.
 
@@ -103,7 +103,7 @@ TaskManager owner 인자는 실제 task에서만 생성한다. 도구 실행은 
 
 ## B 독립 검토 수정
 
-설정 변경 누적 후 교체 호출 한도가 소진되더라도 원문과 권한이 같은 기존 지식은 사라지지 않는다. 현재 generation의 ready 결과가 있으면 우선 쓰고, 없으면 동일 intent/source의 최신 ready 결과를 stale=true로 전달한다. 실패/성공 시도 누적 한도는 유지한다. 원문 revision·intent 또는 공개 범위가 바뀐 기억은 이 fallback에 포함하지 않는다. 이는 이전 초안의 generation 불일치 무조건 비노출을 대체한다.
+설정 변경 누적 후 교체 호출 한도가 소진되더라도 원문과 권한이 같은 기존 지식은 사라지지 않는다. 현재 generation의 ready 결과가 있으면 우선 쓰고, 없으면 동일 intent/source의 최신 ready 결과를 stale=true로 전달한다. 실패/성공 시도 누적 한도는 유지한다. 원문 version·공개 범위·capture 취소/재활성화가 바뀐 기억은 이 fallback에 포함하지 않는다. 제목·폴더만 바뀐 연속 operation은 C 보완 규칙으로 제한적으로 허용한다. 이는 이전 초안의 generation 불일치 무조건 비노출을 대체한다.
 
 모델 전달값은 id/kind/text/quote/stale/complete/activityKind와 공통 URI/ref만 포함한다. 내부 generation/hash/claim/proposer 데이터는 host ledger에 남기고 context에서는 제외한다. 16개 짧은 기억이 기본 context 한도 안에 모두 들어가는 검사를 추가했다. pre-claim 실패는 저장된 pending/exhausted 상태를 그대로 보고하며 cancellation 이유를 따로 표시한다. ephemeral task consumer의 CodexHost는 외부 세션/서버를 만들지 않고 호출별 scope를 분리하는 도구 registry로 사용한다.
 

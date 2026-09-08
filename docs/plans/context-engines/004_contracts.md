@@ -115,3 +115,10 @@ CREATE TABLE resource_memories (
 job kind는 `capture` 하나다. data는 claim token/attempt/state, input snapshot/hash, generation, source refs, output hash와 memory ID 목록을 strict schema로 저장한다. intent data는 enabled/activityKind/proposer/source revision을 저장한다. evidence_json은 version blob hash, 추출 snapshot/hash, 원문 인용, generation, job id를 포함한다. 열과 JSON, job 완료 receipt와 기억 목록을 재개방에서 대조한다. 의도 revision 변경으로 attempt 행을 새로 만들지 않는다.
 
 버전별 expected DDL을 별도로 만든다. 기존 user_version1/format=lina-resources-v1과 새 user_version2/format=lina-resources-v2만 open에서 허용한다. resource_meta는 각 버전 모두 format 한 행이다. open transaction 순서는 기존 버전 DDL/meta/FK 검사 → auditResources와 기존 ResourceIndex/auditJobs 검사 → v1이면 위 테이블 추가 및 format/user_version2 변경 → v2 DDL/meta/FK와 기억 전체 감사 → COMMIT이다. 새 DB는 v2로 생성한다. mutation의 verifyResourceSchema는 v2만 허용한다. unknown 버전/손상은 migration 전에 거부하고, migration 후 감사 실패도 transaction 전체를 rollback한다.
+
+
+### 자료 기억의 현재 조회 계약
+
+모델 입력은 공통 URI/ref와 기억의 id/kind/text/quote/stale/complete/activityKind로 제한한다. 해시·generation·claim·완료 receipt는 host ledger에 보관한다. 현재 ready generation이 없으면 source와 권한이 유효한 최신 과거 결과를 stale로 읽는다. 메타데이터만 바뀐 경우도 중간 operation 전체에 원문 bytes·visibility·deriveMemory·activityKind·deleted 변경이 없을 때만 허용한다. 현재 resource 및 역사 version의 권한 검사는 생략하지 않는다. 생성 시도 한도는 계속 원문 digest별 누적이며 metadata/정책 변경으로 초기화하지 않는다.
+
+job에는 completedToken과 inputComplete를 저장한다. 완료 출력 hash는 completedToken+순서 있는 kind/text/quote 목록에서 재계산하고 memoryIds와 정확히 대조한다. evidence의 source는 blobHash/extractionId/textHash/complete로 원문 또는 기존 extraction을 식별하며, inputComplete는 실제 모델에 제공한 입력이 전체 추출을 포함하는지 따로 표시한다. 기억 state는 active, revision은1인 불변 결과이며, 현재 조회 자격과 stale는 저장 상태를 바꾸지 않고 계산한다.
