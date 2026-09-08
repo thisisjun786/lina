@@ -135,6 +135,19 @@ export function auditEngineData(
 	}
 	if (version >= 4) {
 		for (const row of db
+			.prepare("SELECT * FROM engine_reasoning_history")
+			.iterate()) {
+			const record = parseRecord(JSON.parse(String(row["data"])));
+			if (
+				record.id !== row["id"] ||
+				record.revision !== row["revision"] ||
+				record.agentId !== agentId ||
+				record.revision > current ||
+				!validateRecordReceipt(db, record)
+			)
+				throw Error("invalid reasoning premise history");
+		}
+		for (const row of db
 			.prepare("SELECT * FROM engine_reasoning_inputs")
 			.iterate()) {
 			const input = parseReasoningInput(JSON.parse(String(row["data"])));

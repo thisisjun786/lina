@@ -190,7 +190,7 @@ export function readReasoningReceipt(
 		for (const record of input.records) {
 			const archived = db
 				.prepare(
-					"SELECT data FROM engine_record_history WHERE id=? AND revision=?",
+					"SELECT data FROM engine_reasoning_history WHERE id=? AND revision=?",
 				)
 				.get(record.id, record.revision);
 			const current = db

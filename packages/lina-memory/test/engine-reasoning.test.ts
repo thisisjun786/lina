@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { captureSourceProofs } from "../../lina-core/src/source-policy.ts";
 import {
 	contentHash,
@@ -11,6 +12,7 @@ import {
 import { deriveRecord } from "../src/engine/records.ts";
 import { EngineStore } from "../src/engine/store.ts";
 import type { EngineRecord, SourceEntry } from "../src/engine/types.ts";
+import { removeReasoningSchema } from "./fixtures/engine-v3.ts";
 import { ordinarySource, restrictSource } from "./fixtures/native-sources.ts";
 
 const cleanups: (() => void)[] = [];
@@ -57,7 +59,7 @@ function persistentFixture() {
 		modelSettingsRevision: 0,
 		maxAttempts: 3,
 	};
-	return { ...f, store, open, seed };
+	return { ...f, store, open, seed, path: join(root, "memory.sqlite") };
 }
 
 function fixture() {
@@ -634,4 +636,61 @@ test("a cited deduction can validate ancestors outside the supplied prompt page"
 			})
 			.records.some((r) => r.key === "park.visits"),
 	).toBe(true);
+});
+
+test("reasoning over migrated current evidence preserves a divergent legacy history row", () => {
+	const f = persistentFixture();
+	const current = f.store.state().records[0];
+	if (!current) throw Error("record");
+	f.store.close();
+	const db = new DatabaseSync(f.path);
+	let legacy = "";
+	try {
+		removeReasoningSchema(db);
+		const older = {
+			...current,
+			status: "retracted",
+			generation: current.generation + 1,
+			invalidatedAt: 1800000000000,
+		};
+		legacy = JSON.stringify(older);
+		db.prepare(
+			"INSERT OR REPLACE INTO engine_record_history VALUES (?,?,?)",
+		).run(current.id, current.revision, legacy);
+	} finally {
+		db.close();
+	}
+	const reopened = f.open();
+	const started = reopened.beginReasoning(f.seed, [current.id]);
+	if (!started) throw Error("claim");
+	reopened.applyConclusions({
+		requestId: started.claim.id,
+		expectedRevision: started.input.expectedRevision,
+		claim: started.claim,
+		proposals: [
+			{
+				...f.proposal,
+				premises: [{ recordId: current.id, revision: current.revision }],
+			},
+		],
+	});
+	reopened.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.some((record) => record.key === "parks"),
+	).toBe(true);
+	const inspect = new DatabaseSync(f.path);
+	try {
+		expect(
+			inspect
+				.prepare(
+					"SELECT data FROM engine_record_history WHERE id=? AND revision=?",
+				)
+				.get(current.id, current.revision)?.["data"],
+		).toBe(legacy);
+	} finally {
+		inspect.close();
+	}
 });

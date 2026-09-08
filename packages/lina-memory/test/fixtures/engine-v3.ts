@@ -4,6 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 export function removeReasoningSchema(db: DatabaseSync): void {
 	db.exec(`
 		DROP TABLE engine_premises;
+ DROP TABLE engine_reasoning_history;
 		DROP TABLE engine_reasoning_receipts;
 		DROP TABLE engine_reasoning_inputs;
 		DROP TABLE engine_reasoning_jobs;

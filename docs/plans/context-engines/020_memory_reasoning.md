@@ -151,3 +151,7 @@ v4 migration/checkpoint 및 receipt audit를 연결하는 작업은 계속 진�
 새 `engine_reasoning_inputs(request_id,attempt,fingerprint,data)`는 claim 당시 실제 입력을 내구 저장한다. 검색 확장도 해당 attempt 입력과 provenance를 함께 갱신한다. receipt는 이 row와 완전히 같은 입력인지 audit한다. beginReasoning/applyConclusions는 현재 저장·재열기·정정·추론 망각·대화형 망각·uncited revocation 테스트를 통과했으나 runtime 자동 처리 연결과 end-to-end 검증은 아직 진행 중이다.
 
 02b5e94에서 Companion lifecycle과 session-app의 실제 consolidate 공급을 연결했다. 합성 Codex RPC 세션이 전용 서비스를 호출하며, 단위 흐름은 관찰→연역→귀납→저장→재열기 후 재호출 없음까지 확인했다. 입력이 달라지지 않은 반복 처리와 새 대화의 재확인은 구분한다. 원본 정정은 손자 결론까지 제외하며 같은 내용의 추가 근거는 기존 결론을 유지한다. 종료/정책 변경 중 늦은 응답은 저장하지 않는다. 반복 query 확장, 페이지 경계, 최종 독립 review 및 C 검증은 아직 남았다.
+
+후속 B review 반영: 재검토 route 미설정은 해당 service만 unavailable로 남기고 관찰 스케줄을 중단하지 않는다. 전제의 조상 탐색은 host의 현재 store를 사용하며 모델이 직접 인용할 전제는 frozen 입력으로 제한한다. 검색/입력 예산·성장 제한·설정 변경은 withheld로 종료한다. 12페이지/24단계 중20단계 처리 후 나머지는 기존 scheduler wake에서 이어지고 반복 refresh는 재호출하지 않는 경계 테스트가 통과했다.
+
+v3의 동일 id/revision 이력과 current가 다른 경우, 기존 이력을 새 증거 사본으로 덮어쓰지 않는다. NEW v4 `engine_reasoning_history(id,revision,data)`가 claim 시점의 증거를 따로 고정하며 engine_premises FK는 이 테이블을 참조한다. 기존 engine_record_history는 원형으로 남긴다. 실제 fixture에서 과거 이력 바이트 보존, 새 결론 commit, reopen을 검증했다. 따라서 앞선 record_history FK 초안은 이 계약으로 대체한다. v4는 이 브랜치의 미출시 schema이며 중간 개발 v4 DB를 사용자 데이터 migration으로 간주하지 않는다.

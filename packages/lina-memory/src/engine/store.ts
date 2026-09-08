@@ -396,7 +396,9 @@ export class EngineStore {
 			});
 			for (const record of next.records)
 				this.db
-					.prepare("INSERT OR IGNORE INTO engine_record_history VALUES (?,?,?)")
+					.prepare(
+						"INSERT OR IGNORE INTO engine_reasoning_history VALUES (?,?,?)",
+					)
 					.run(record.id, record.revision, JSON.stringify(record));
 			this.db
 				.prepare(
@@ -543,9 +545,7 @@ export class EngineStore {
 				this.invalidateDescendants(record.id, revision, now);
 				this.save(record);
 				this.db
-					.prepare(
-						"INSERT OR REPLACE INTO engine_record_history VALUES (?,?,?)",
-					)
+					.prepare("INSERT INTO engine_reasoning_history VALUES (?,?,?)")
 					.run(record.id, record.revision, JSON.stringify(record));
 				for (const premise of record.reasoning?.premises ?? []) {
 					this.db
@@ -581,7 +581,7 @@ export class EngineStore {
 		for (const record of input.records) {
 			const old = this.db
 				.prepare(
-					"SELECT data FROM engine_record_history WHERE id=? AND revision=?",
+					"SELECT data FROM engine_reasoning_history WHERE id=? AND revision=?",
 				)
 				.get(record.id, record.revision);
 			if (
@@ -590,7 +590,9 @@ export class EngineStore {
 			)
 				throw Error("ambiguous legacy reasoning premise history");
 			this.db
-				.prepare("INSERT OR IGNORE INTO engine_record_history VALUES (?,?,?)")
+				.prepare(
+					"INSERT OR IGNORE INTO engine_reasoning_history VALUES (?,?,?)",
+				)
 				.run(record.id, record.revision, JSON.stringify(record));
 		}
 		this.db
