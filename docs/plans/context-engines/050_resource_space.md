@@ -1,6 +1,6 @@
 # 050 — LLM 중심 비코드 자료 공간
 
-상태: P 설계 초안. 감사 전이며 구현 완료가 아니다. 단위 `resources`, 선행 `routing`.
+상태: P 재검토. [051 실제 실행 계획](051_resource_execution.md)을 우선하며 구현 전이다. 단위 `resources`, 선행 `routing`.
 
 ## 변경 지도
 
@@ -54,4 +54,4 @@ NEW `packages/lina-memory/src/resources/schema.ts`는 004의 테이블과 schema
 
 Bun 1.4.0 node:sqlite의 FTS5 trigram 생성과 한국어 phrase MATCH를 P에서 실제 확인했다. 공백으로 나눈 두 글자 단어 쿼리 `결정 이유`는 0건이고 quoted phrase는 1건이었다. 따라서 원문 query를 FTS 연산식으로 실행하지 않고 escape한 phrase 후보와 3자 미만 literal substring 후보를 결합한다. 이는 availability proof이며 의미 회수 품질 증거는 아니다. 계층 개요 탐색과 route planner/rerank는 필수 구현한다. vector는 추가 encoder가 실제 연결됐을 때만 사용하며 가짜 embedding 상태나 예약-only 기능을 완료로 세지 않는다.
 
-추가 MODIFY packages/lina-runtime/src/approval-policy.ts: 실제 resource read/list/search 도구를 confirm-mode 읽기 allowlist에 연결한다. write/move는 기존 쓰기 승인 규칙을 적용한다. 등록뿐 아니라 실제 execute→waiting_approval 여부를 회귀 검증한다.
+추가 MODIFY packages/lina-runtime/src/execution.ts: 실제 resource read/list/search 도구를 confirm-mode 읽기 allowlist에 연결한다. write/move는 기존 쓰기 승인 규칙을 적용한다. 등록뿐 아니라 실제 execute→waiting_approval 여부를 회귀 검증한다.
