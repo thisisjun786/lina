@@ -94,6 +94,12 @@ export type {
 	WorldImageReceipt,
 } from "./contracts.ts";
 export type {
+	ImageOwner,
+	LifeImageSettings,
+	LifeImageSettingsInput,
+} from "./image-types.ts";
+export { parseLifeImageSettings } from "./image-validation.ts";
+export type {
 	AdmissionReceipt,
 	AgentBelief,
 	AgentExperience,

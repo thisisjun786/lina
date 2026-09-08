@@ -105,7 +105,7 @@ interface LeaseOwner {
 	botId: string;
 	workspace: string;
 	target: string;
-	kind: "session" | "transcript";
+	kind: "session" | "transcript" | "image";
 }
 
 const LEASE_SCHEMA =
@@ -198,6 +198,24 @@ export interface SessionLease {
 	readBinding(): BotBinding | undefined;
 	bind(binding: BotBinding): void;
 	close(): void;
+}
+
+/** Reuse the same process-lifetime SQLite lock without inventing a conversation binding. */
+export function acquireImageLease(
+	root: string,
+	worldId: string,
+	agentId: string,
+): { close(): void } {
+	if (!worldId.trim() || !agentId.trim())
+		throw Error("Invalid image lease owner");
+	const target = directory(root, true);
+	return holdLease(join(target, "image-owner.sqlite"), {
+		version: 1,
+		botId: JSON.stringify({ worldId, agentId }),
+		workspace: target,
+		target,
+		kind: "image",
+	});
 }
 
 export function acquireSessionLease(

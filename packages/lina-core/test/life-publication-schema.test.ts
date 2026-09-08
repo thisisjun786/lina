@@ -51,7 +51,7 @@ test("real v6 file upgrades without inventing publication settings or changing a
 		}
 		const db = new DatabaseSync(f.path);
 		try {
-			expect(db.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(7);
+			expect(db.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(8);
 			expect(db.prepare("SELECT * FROM life_steps").all()).toEqual(f.steps);
 			expect(db.prepare("SELECT * FROM life_commits").all()).toEqual(f.commits);
 		} finally {

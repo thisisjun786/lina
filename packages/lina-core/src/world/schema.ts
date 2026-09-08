@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { AUTHORING_SCHEMA, migrateWorldV2 } from "./authoring-schema.ts";
 import { AUTONOMY_SCHEMA, migrateWorldV4 } from "./autonomy-schema.ts";
+import { IMAGE_SCHEMA, migrateWorldV7 } from "./image-schema.ts";
 import { LIFE_SCHEMA, migrateWorldV1 } from "./migrations.ts";
 import { migrateWorldV6, PUBLICATION_SCHEMA } from "./publication-schema.ts";
 
@@ -8,7 +9,7 @@ import { migrateWorldV3, SOCIAL_SCHEMA } from "./social-schema.ts";
 import { migrateWorldV5, WORK_SCHEMA } from "./work-schema.ts";
 
 const APPLICATION_ID = 0x4c575231;
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const SCHEMA = `
 CREATE TABLE worlds (id TEXT PRIMARY KEY, definition_json TEXT NOT NULL, state_json TEXT NOT NULL) STRICT;
 CREATE TABLE world_events (world_id TEXT NOT NULL REFERENCES worlds(id), idempotency_key TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), event_json TEXT NOT NULL, PRIMARY KEY(world_id, idempotency_key), UNIQUE(world_id, revision)) STRICT;
@@ -32,6 +33,7 @@ export function initializeWorldSchema(
 	initializeWork: () => void,
 	validateV6: () => void,
 	initializePublication: () => void,
+	validateV7: () => void,
 ): void {
 	const application = db.prepare("PRAGMA application_id").get() as {
 		application_id: number;
@@ -53,7 +55,7 @@ export function initializeWorldSchema(
 		db.exec(`PRAGMA application_id = ${APPLICATION_ID}`);
 	} else if (
 		application.application_id !== APPLICATION_ID ||
-		![1, 2, 3, 4, 5, 6, SCHEMA_VERSION].includes(version.user_version)
+		![1, 2, 3, 4, 5, 6, 7, SCHEMA_VERSION].includes(version.user_version)
 	) {
 		throw Error("Unsupported world database owner or schema version");
 	}
@@ -66,6 +68,7 @@ export function initializeWorldSchema(
 		if (version.user_version >= 5) expected.exec(AUTONOMY_SCHEMA);
 		if (version.user_version >= 6) expected.exec(WORK_SCHEMA);
 		if (version.user_version >= 7) expected.exec(PUBLICATION_SCHEMA);
+		if (version.user_version >= 8) expected.exec(IMAGE_SCHEMA);
 		if (shape(expected) !== shape(db))
 			throw Error("Unsupported world database schema");
 	} finally {
@@ -97,6 +100,10 @@ export function initializeWorldSchema(
 		migrateWorldV6(db);
 		initializePublication();
 	}
+	if (version.user_version < 8) {
+		validateV7();
+		migrateWorldV7(db);
+	}
 	const final = new DatabaseSync(":memory:");
 	try {
 		final.exec(
@@ -106,7 +113,8 @@ export function initializeWorldSchema(
 				SOCIAL_SCHEMA +
 				AUTONOMY_SCHEMA +
 				WORK_SCHEMA +
-				PUBLICATION_SCHEMA,
+				PUBLICATION_SCHEMA +
+				IMAGE_SCHEMA,
 		);
 		if (shape(final) !== shape(db))
 			throw Error("Unsupported final world database schema");

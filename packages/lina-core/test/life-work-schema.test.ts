@@ -60,7 +60,7 @@ test("actual v5 file with a historical accepted step upgrades without rewriting 
 	const raw = new DatabaseSync(f.path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 7,
+			user_version: 8,
 		});
 		expect(raw.prepare("SELECT * FROM life_steps").all()).toEqual(f.steps);
 		expect(raw.prepare("SELECT * FROM life_commits").all()).toEqual(f.commits);

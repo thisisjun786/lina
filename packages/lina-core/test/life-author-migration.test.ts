@@ -59,7 +59,7 @@ function v2() {
 	raw.close();
 	return { path, events, commits };
 }
-test("actual v2 file upgrades through v3 and v4 to v7 without rewriting accepted world/LIFE bytes", () => {
+test("actual v2 file upgrades through v3 and v4 to v8 without rewriting accepted world/LIFE bytes", () => {
 	const { path, events, commits } = v2();
 	const store = new WorldStore(path);
 	expect(store.lifeSnapshot("test-world").experiences).toHaveLength(2);
@@ -67,7 +67,7 @@ test("actual v2 file upgrades through v3 and v4 to v7 without rewriting accepted
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 7,
+			user_version: 8,
 		});
 		expect(raw.prepare("SELECT event_json FROM world_events").all()).toEqual(
 			events,

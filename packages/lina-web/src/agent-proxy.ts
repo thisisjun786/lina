@@ -21,20 +21,26 @@ export async function proxyAgents(
 		!/^\/api\/(?:hub\/(?:status|refresh)|tasks(?:\/[a-zA-Z0-9_-]{1,128}(?:\/(?:messages|interrupt|owner|approval))?)?)$/.test(
 			url.pathname,
 		) &&
-		!/^\/api\/(models(?:\/(?:settings|test))?|agents(?:\/[a-z][a-z0-9-]{0,47}(?:\/(?:mind(?:\/retract)?|avatar|revert|memory|conversation(?:\/preferences\/reset)?))?)?|avatars\/[a-f0-9]{64})$/.test(
+		!/^\/api\/(models(?:\/(?:settings|test))?|agents(?:\/[a-z][a-z0-9-]{0,47}(?:\/(?:mind(?:\/retract)?|avatar|revert|memory|conversation(?:\/preferences\/reset)?|visual(?:\/(?:references|history|pin|apply|restore)?)?))?)?|avatars\/[a-f0-9]{64})$/.test(
 			url.pathname,
 		)
 	)
 		return;
 	const read = request.method === "GET";
-	if (url.search || (!read && !["POST", "PATCH"].includes(request.method)))
+	if (
+		url.search ||
+		(!read && !["POST", "PATCH", "PUT"].includes(request.method))
+	)
 		return new Response("Invalid request", { status: 400, headers });
 	if (
 		!allows(request.headers.get("host"), request.headers.get("origin")) &&
 		!(read && request.headers.get("Sec-Fetch-Site") === "same-origin")
 	)
 		return new Response("Forbidden", { status: 403, headers });
-	const limit = url.pathname.endsWith("/avatar") ? 2097152 : 65536;
+	const limit =
+		url.pathname.endsWith("/avatar") || url.pathname.endsWith("/references")
+			? 2097152
+			: 65536;
 	const authoring =
 		(onboarding && /\/(?:interview|preview)$/.test(url.pathname)) ||
 		(intro && /(?:\/birth|\/intro\/(?:turn|choose))$/.test(url.pathname));
@@ -54,7 +60,13 @@ export async function proxyAgents(
 		const outgoing = new Headers({
 			"Content-Type": request.headers.get("content-type") ?? "application/json",
 		});
-		for (const name of ["X-Lina-Filename", "X-Lina-Revision"]) {
+		for (const name of [
+			"X-Lina-Filename",
+			"X-Lina-Revision",
+			"X-Lina-Profile-Revision",
+			"X-Lina-Visual-Revision",
+			"X-Lina-Request-Key",
+		]) {
 			const value = request.headers.get(name);
 			if (value && value.length < 1024) outgoing.set(name, value);
 		}

@@ -261,3 +261,120 @@ test("empty list rows cannot bypass the DOM node budget", () => {
 	const source = "- \n".repeat(5000);
 	expect(parseMarkdown(source)).toEqual([{ type: "plain", value: source }]);
 });
+
+const imageSessionId = "11111111-1111-4111-8111-111111111111";
+const imageAttachmentId = "22222222-2222-4222-8222-222222222222";
+const imageDownload = `/api/attachments/${imageAttachmentId}?sessionId=${imageSessionId}`;
+const imagePreview = `/api/attachments/${imageAttachmentId}/preview?sessionId=${imageSessionId}`;
+
+test("renders a same-session generated image beside its download link", async () => {
+	await withFakeDocument((document) => {
+		const container = document.createElement("div");
+		renderMarkdown(
+			container,
+			`완료\n\n![생성 이미지](${imagePreview})\n\n[다운로드](${imageDownload})`,
+			imageSessionId,
+		);
+
+		const images = container.find("img");
+		expect(images).toHaveLength(1);
+		expect(images[0]?.getAttribute("src")).toBe(imagePreview);
+		expect(images[0]?.getAttribute("alt")).toBe("생성 이미지");
+		expect(images[0]?.className).toBe("markdown-attachment-image");
+		expect(images[0]?.getAttribute("loading")).toBe("lazy");
+		expect(
+			container.find("a").map((link) => link.getAttribute("href")),
+		).toEqual([imageDownload]);
+		expect(container.textContent).toContain("완료");
+	});
+});
+
+test.each([undefined, "", "33333333-3333-4333-8333-333333333333"])(
+	"keeps image syntax as text when the current session is %s",
+	async (sessionId) => {
+		await withFakeDocument((document) => {
+			const container = document.createElement("div");
+			const source = `![생성 이미지](${imagePreview})`;
+			renderMarkdown(container, source, sessionId);
+			expect(container.find("img")).toHaveLength(0);
+			expect(container.find("a")).toHaveLength(0);
+			expect(container.textContent).toBe(source);
+		});
+	},
+);
+
+test.each([
+	"https://example.com/image.png",
+	`https://example.com${imagePreview}`,
+	`//example.com${imagePreview}`,
+	"data:image/png;base64,aGVsbG8=",
+	"javascript:alert(1)",
+	"blob:https://example.com/image",
+	"/image.png",
+	imageDownload,
+	imagePreview.replace("/preview", "/meta"),
+	imagePreview.replace(imageAttachmentId, "not-a-uuid"),
+	imagePreview.replace(imageSessionId, "not-a-uuid"),
+	imagePreview.replace("/preview", "/../preview"),
+	imagePreview.replace("/preview", "/%2e%2e/preview"),
+	imagePreview.replace("/preview", "%2fpreview"),
+	imagePreview.replace("/api/", "/api/../api/"),
+	imagePreview.replace("/api/", "\\api\\"),
+	imagePreview.replace("/api/", "/API/"),
+	imagePreview.replace("sessionId", "SessionId"),
+	imagePreview.replace("sessionId", "%73essionId"),
+	imagePreview.replace(imageSessionId, `%31${imageSessionId.slice(1)}`),
+	imagePreview.replace("?sessionId", "?other=1&sessionId"),
+	imagePreview.replace("?sessionId", "sessionId"),
+	`${imagePreview}&sessionId=${imageSessionId}`,
+	`${imagePreview}&other=1`,
+	`${imagePreview}?other=1`,
+	`${imagePreview}#fragment`,
+	`${imagePreview}%26other=1`,
+	`${imagePreview}&amp;other=1`,
+	` ${imagePreview}`,
+	`${imagePreview} `,
+	`${imagePreview}\t`,
+	`${imagePreview}\u2028`,
+	`${imagePreview} "title"`,
+	`<${imagePreview}>`,
+])("preserves unsupported image destination %s as exact text", async (url) => {
+	await withFakeDocument((document) => {
+		const container = document.createElement("div");
+		const source = `![생성 **이미지**](${url})`;
+		renderMarkdown(container, source, imageSessionId);
+		expect(container.find("img")).toHaveLength(0);
+		expect(container.find("a")).toHaveLength(0);
+		expect(container.textContent).toBe(source);
+	});
+});
+
+test("uses image alt as literal text rather than HTML or nested Markdown", async () => {
+	await withFakeDocument((document) => {
+		const container = document.createElement("div");
+		const alt = '<b>생성</b> " onerror="alert(1) **이미지**';
+		renderMarkdown(container, `![${alt}](${imagePreview})`, imageSessionId);
+		expect(container.find("img")).toHaveLength(1);
+		expect(container.find("img")[0]?.getAttribute("alt")).toBe(alt);
+		expect(container.find("img")[0]?.getAttribute("onerror")).toBeNull();
+		expect(container.find("b")).toHaveLength(0);
+		expect(container.find("strong")).toHaveLength(0);
+	});
+});
+
+test("keeps generated-image examples inert inside inline and fenced code", async () => {
+	await withFakeDocument((document) => {
+		const container = document.createElement("div");
+		const source = `![생성 이미지](${imagePreview})`;
+		renderMarkdown(
+			container,
+			`\`${source}\`\n\n\`\`\`\n${source}\n\`\`\``,
+			imageSessionId,
+		);
+		expect(container.find("img")).toHaveLength(0);
+		expect(container.find("code").map((code) => code.textContent)).toEqual([
+			source,
+			`${source}\n`,
+		]);
+	});
+});

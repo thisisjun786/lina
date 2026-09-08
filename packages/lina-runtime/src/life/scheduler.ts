@@ -21,6 +21,8 @@ export interface LifeSchedulerOptions {
 	worldIds(): string[];
 	/** Publication can also own older LIFE worlds without autonomous simulation. */
 	publicationWorldIds?(): string[];
+	/** Image/avatar policies can run without an autonomous or publication schedule. */
+	imageWorldIds?(): string[];
 	config(worldId: string): LifeConfig;
 	/** Acquires a schedule lease without selecting or creating a step. */
 	acquireLease(
@@ -40,6 +42,7 @@ export interface LifeSchedulerOptions {
 		worldId: string,
 		signal: AbortSignal,
 	): Promise<number | null>;
+	visitImages?(worldId: string, signal: AbortSignal): Promise<number | null>;
 }
 
 function safeTime(time: number): number {
@@ -105,16 +108,15 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 			worldRunning = null;
 		}
 	}
-	async function visitPublication(worldId: string): Promise<number | null> {
-		if (
-			!options.visitPublication ||
-			stop.signal.aborted ||
-			options.foreground.active()
-		)
+	async function visitOutput(
+		worldId: string,
+		visitor: LifeSchedulerOptions["visitPublication"],
+	): Promise<number | null> {
+		if (!visitor || stop.signal.aborted || options.foreground.active())
 			return null;
 		worldRunning = worldId;
 		try {
-			const next = await options.visitPublication(worldId, stop.signal);
+			const next = await visitor(worldId, stop.signal);
 			return next === null ? null : safeTime(next);
 		} finally {
 			worldRunning = null;
@@ -316,17 +318,24 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 				const worlds = new Set([
 					...simulationWorlds,
 					...(options.publicationWorldIds?.() ?? []),
+					...(options.imageWorldIds?.() ?? []),
 				]);
 				for (const worldId of [...worlds].sort()) {
 					if (stop.signal.aborted) break;
 					try {
 						let publication: number | null = null;
-						const publish = options.visitPublication
-							? async () => {
-									// Replace the prior deadline: this visit may consume its remaining work.
-									publication = await visitPublication(worldId);
-								}
-							: undefined;
+						let images: number | null = null;
+						const publish =
+							options.visitPublication || options.visitImages
+								? async () => {
+										// Replace the prior deadline: this visit may consume its remaining work.
+										publication = await visitOutput(
+											worldId,
+											options.visitPublication,
+										);
+										images = await visitOutput(worldId, options.visitImages);
+									}
+								: undefined;
 						if (publish) await publish();
 						const next = simulationWorlds.has(worldId)
 							? await visit(worldId, publish)
@@ -349,6 +358,9 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 								deadline === null
 									? publication
 									: Math.min(deadline, publication);
+						if (images !== null)
+							deadline =
+								deadline === null ? images : Math.min(deadline, images);
 					} catch (error) {
 						armed.delete(worldId);
 						if (stop.signal.aborted) break;

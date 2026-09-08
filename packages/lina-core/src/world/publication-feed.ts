@@ -16,6 +16,7 @@ import type {
 	PublicationMaterial,
 	PublicationPost,
 	PublicationPrincipal,
+	PublicLifeImage,
 	PublicLifePost,
 	PublicLifePostView,
 	PublicLifeReactionState,
@@ -225,17 +226,21 @@ export class PublicationFeed {
 		worldId: string,
 		principal: PublicationPrincipal,
 		postId: string,
+		images?: ReadonlyMap<string, PublicLifeImage>,
 	): PublicLifePostView | null {
 		const post = this.content(worldId, principal, postId);
-		return post ? this.view(worldId, principal, post) : null;
+		return post ? this.view(worldId, principal, post, images) : null;
 	}
 	private view(
 		worldId: string,
 		principal: PublicationPrincipal,
 		post: PublicLifePost,
+		images?: ReadonlyMap<string, PublicLifeImage>,
 	): PublicLifePostView {
+		const image = images?.get(post.id);
 		return {
 			...post,
+			...(image ? { image: structuredClone(image) } : {}),
 			reactions: (
 				this.authority.reactions?.(worldId, principal, post.id) ?? []
 			).map(({ reactionId, active }) => ({ reactionId, active })),
@@ -245,6 +250,7 @@ export class PublicationFeed {
 		worldId: string,
 		principal: PublicationPrincipal,
 		input: { limit: number; after: string | null },
+		images?: ReadonlyMap<string, PublicLifeImage>,
 	): { items: PublicLifePostView[]; nextCursor: string | null } {
 		jsonBoundary(input);
 		fields(input, ["limit", "after"]);
@@ -262,7 +268,9 @@ export class PublicationFeed {
 				)
 				.flatMap((post) => {
 					const resolved = this.resolve(worldId, post.id, recipient);
-					return resolved ? [this.view(worldId, principal, resolved.post)] : [];
+					return resolved
+						? [this.view(worldId, principal, resolved.post, images)]
+						: [];
 				});
 		const scope = lifeDigest({
 			worldId,
@@ -271,6 +279,7 @@ export class PublicationFeed {
 				id: post.id,
 				revision: post.revision,
 				reactions: lifeDigest(post.reactions),
+				...(post.image ? { image: lifeDigest(post.image) } : {}),
 			})),
 		});
 		let offset = 0;

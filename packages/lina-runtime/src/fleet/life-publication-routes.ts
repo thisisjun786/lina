@@ -8,6 +8,7 @@ import type {
 	PublicationPrincipal,
 	PublicationRun,
 	PublicationRunInput,
+	PublicLifeImage,
 } from "../../../lina-core/src/world/publication-types.ts";
 import { parsePublicationSettings } from "../../../lina-core/src/world/publication-validation.ts";
 import type { WorldStore } from "../../../lina-core/src/world/store.ts";
@@ -30,6 +31,11 @@ export interface PublicationRouteServices {
 	changed?(worldId: string): void;
 	/** Read source-side authority without creating a model, bridge or scheduler. */
 	assertSourceCurrent?(worldId: string): void;
+	/** Storage-only cross-store image projection, computed before the feed transaction. */
+	images?(
+		worldId: string,
+		principal: PublicationPrincipal,
+	): ReadonlyMap<string, PublicLifeImage>;
 }
 
 function currentSource(
@@ -330,16 +336,17 @@ function read(
 	store: WorldStore,
 	principal: PublicationPrincipal | null,
 	query: { limit: number; after: string | null },
+	images?: ReadonlyMap<string, PublicLifeImage>,
 ): Response {
 	const { worldId, action, target } = route;
 	if (action === "settings") return reply(store.publicationSettings(worldId));
 	if (action === "job") return reply(store.publicationJob(worldId, target));
 	if (!principal) return failure(403);
 	if (action === "feed")
-		return reply(store.publicationFeed(worldId, principal, query));
+		return reply(store.publicationFeed(worldId, principal, query, images));
 	if (action === "cursor")
 		return reply(store.publicationReadCursor(worldId, principal));
-	const post = store.publicationPost(worldId, principal, target);
+	const post = store.publicationPost(worldId, principal, target, images);
 	return post ? reply(post) : failure(404);
 }
 
@@ -460,7 +467,15 @@ export async function lifePublicationRoutes(
 			);
 		return write
 			? reply(write(store, principal))
-			: read(route, store, principal, query);
+			: read(
+					route,
+					store,
+					principal,
+					query,
+					principal && (route.action === "feed" || route.action === "post")
+						? services.images?.(route.worldId, principal)
+						: undefined,
+				);
 	} catch (error) {
 		return errorResponse(error);
 	}

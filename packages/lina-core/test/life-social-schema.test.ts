@@ -50,7 +50,7 @@ function v3() {
 	return { path, snapshot };
 }
 
-test("an actual v3 file migrates through v4 to v7 without rewriting historical LIFE bytes", () => {
+test("an actual v3 file migrates through v4 to v8 without rewriting historical LIFE bytes", () => {
 	const { path, snapshot } = v3();
 	const store = new WorldStore(path);
 	try {
@@ -61,7 +61,7 @@ test("an actual v3 file migrates through v4 to v7 without rewriting historical L
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 7,
+			user_version: 8,
 		});
 		expect(raw.prepare("SELECT * FROM life_states").all()).toEqual(snapshot);
 		expect(

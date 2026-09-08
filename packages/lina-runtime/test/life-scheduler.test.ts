@@ -237,6 +237,100 @@ test("publication-only catalog worlds never require autonomous status or invent 
 	expect(f.errors).toEqual([]);
 });
 
+test("image-only worlds share the clock and wake for the next avatar slot without simulation", async () => {
+	const f = setup();
+	const calls: number[] = [];
+	const scheduler = createLifeScheduler({
+		...f.options,
+		worldIds: () => [],
+		imageWorldIds: () => ["image-only", "image-only"],
+		async visitImages(worldId) {
+			expect(worldId).toBe("image-only");
+			calls.push(f.clock.now());
+			return f.clock.now() + 75;
+		},
+	});
+	schedulers.push(scheduler);
+	scheduler.start();
+	await f.clock.waitingAt(75);
+	f.clock.advance(75);
+	await f.clock.waitingAt(150);
+	expect(calls).toEqual([0, 75]);
+	expect(f.calls).toEqual([]);
+	expect(f.errors).toEqual([]);
+});
+
+test("images see publication results before simulation and after each accepted catch-up step", async () => {
+	const f = setup(2, 100);
+	f.clock.advance(250);
+	const order: string[] = [];
+	const run = f.options.runner.run;
+	const scheduler = createLifeScheduler({
+		...f.options,
+		runner: {
+			...f.options.runner,
+			async run(...args) {
+				order.push("step");
+				return run(args[0], args[1]);
+			},
+		},
+		async visitPublication() {
+			order.push("post");
+			return null;
+		},
+		async visitImages() {
+			order.push("image");
+			return null;
+		},
+	});
+	schedulers.push(scheduler);
+	scheduler.start();
+	await f.clock.waitingAt(300);
+	expect(order).toEqual([
+		"post",
+		"image",
+		"step",
+		"post",
+		"image",
+		"step",
+		"post",
+		"image",
+	]);
+	expect(f.errors).toEqual([]);
+});
+
+test("foreground defers image visits and close aborts and drains an active image visit", async () => {
+	const f = setup();
+	f.foreground.set(true);
+	const entered = deferred<void>();
+	let visits = 0;
+	let drained = false;
+	const scheduler = createLifeScheduler({
+		...f.options,
+		worldIds: () => [],
+		imageWorldIds: () => ["image-only"],
+		async visitImages(_worldId, signal) {
+			visits++;
+			entered.resolve();
+			await new Promise<void>((resolve) => {
+				if (signal.aborted) resolve();
+				else signal.addEventListener("abort", () => resolve(), { once: true });
+			});
+			drained = true;
+			return null;
+		},
+	});
+	schedulers.push(scheduler);
+	scheduler.start();
+	expect(visits).toBe(0);
+	f.foreground.set(false);
+	await entered.promise;
+	await scheduler.close();
+	expect(visits).toBe(1);
+	expect(drained).toBe(true);
+	expect(f.clock.pending).toBe(0);
+});
+
 test("an armed timer waking one millisecond late executes every interval with zero catch-up", async () => {
 	const f = setup();
 	f.scheduler.start();

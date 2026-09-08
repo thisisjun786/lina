@@ -21,6 +21,7 @@ import {
 } from "../life/work-bridge.ts";
 import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import type { ModelSettingsStore } from "../models/settings.ts";
+import type { FleetLifeImages } from "./life-images.ts";
 
 export interface FleetLifeContext {
 	store: WorldStore;
@@ -35,6 +36,8 @@ export interface FleetLifeOptions extends FleetLifeContext {
 	providerEnv: NonNullable<CodexLifeModelOptions["providerEnv"]>;
 	clock?: LifeClock;
 	command?: string;
+	/** Image owner shares this scheduler and lifecycle; client configuration remains fleet-owned. */
+	images?: FleetLifeImages;
 	/** Trusted composition seam, inaccessible to HTTP and ordinary tools. */
 	createModel?: typeof createCodexLifeModel;
 }
@@ -118,7 +121,7 @@ export function fleetPublicationAuthor(
 
 /** One installation owns this runtime and its native transport; store ownership stays in fleet. */
 export function createFleetLifeRuntime(options: FleetLifeOptions) {
-	const { store, agents, modelSettings, foreground } = options;
+	const { store, agents, modelSettings, foreground, images } = options;
 	const clock = options.clock ?? systemLifeClock;
 	const bridge = options.workSource
 		? createWorkBridge({
@@ -153,6 +156,14 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 				(entry) =>
 					store.lifeConfig(entry.worldId).publication !== null &&
 					store.publicationSettings(entry.worldId) !== null,
+			)
+			.map((entry) => entry.worldId);
+	const imageWorldIds = () =>
+		catalog()
+			.filter(
+				(entry) =>
+					store.imageSettings(entry.worldId) !== null ||
+					store.imageAttempts(entry.worldId).length > 0,
 			)
 			.map((entry) => entry.worldId);
 	const model = (options.createModel ?? createCodexLifeModel)({
@@ -265,6 +276,13 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		engine: createEnsembleSocialEngine(),
 		worldIds,
 		publicationWorldIds,
+		...(images
+			? {
+					imageWorldIds,
+					visitImages: (worldId: string, signal: AbortSignal) =>
+						images.visit(worldId, signal),
+				}
+			: {}),
 		beforePrepare: () => {
 			bridge?.poll();
 		},
@@ -305,6 +323,8 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		},
 		async close() {
 			bridge?.close();
+			// Abort image I/O before the scheduler awaits its active visit.
+			await options.images?.close();
 			await runtime.close();
 		},
 		status: (worldId: string) => ({

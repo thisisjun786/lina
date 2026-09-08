@@ -21,6 +21,7 @@ import {
 } from "./types.ts";
 import {
 	ATTACHMENT_ID,
+	ATTACHMENT_MAX_BYTES,
 	ATTACHMENT_MAX_FILES,
 	ATTACHMENT_MAX_TOTAL_BYTES,
 	ATTACHMENT_READ_CHARS,
@@ -65,18 +66,56 @@ export class AttachmentStore {
 		return isDeepStrictEqual(this.binding, binding);
 	}
 
-	put(name: string, bytes: Uint8Array): AttachmentMetadata {
+	/** Check space for one new file; this does not reserve capacity or import bytes. */
+	preflight(size: number): void {
 		this.assertOpen();
-		const safeName = validateName(name);
-		const mime = inspectContent(safeName, bytes);
+		if (!Number.isSafeInteger(size) || size < 0 || size > ATTACHMENT_MAX_BYTES)
+			throw new AttachmentError("size-limit", "Invalid attachment size");
 		if (this.records.size + this.orphanCount >= ATTACHMENT_MAX_FILES)
 			throw new AttachmentError("quota", "Attachment file quota is exhausted");
-		if (this.totalBytes + bytes.byteLength > ATTACHMENT_MAX_TOTAL_BYTES)
+		if (this.totalBytes + size > ATTACHMENT_MAX_TOTAL_BYTES)
 			throw new AttachmentError(
 				"quota",
 				"Attachment storage quota is exhausted",
 			);
-		const id = randomUUID();
+	}
+
+	/** A caller-owned stable ID makes a generated artifact import replayable. */
+	put(
+		name: string,
+		bytes: Uint8Array,
+		id: string = randomUUID(),
+	): AttachmentMetadata {
+		this.assertOpen();
+		validateId(id);
+		const safeName = validateName(name);
+		const mime = inspectContent(safeName, bytes);
+		const previous = this.records.get(id);
+		if (previous) {
+			if (previous.name !== safeName || previous.sha256 !== hash(bytes))
+				throw new AttachmentError("invalid-request", "Attachment ID conflict");
+			return this.get(id);
+		}
+		const target = join(this.filesDirectory, id);
+		const retained = lstatSync(target, { throwIfNoEntry: false });
+		if (retained) {
+			checkedRegular(target);
+			if (hash(readRegular(target)) !== hash(bytes))
+				throw new AttachmentError("invalid-request", "Attachment ID conflict");
+		}
+		if (
+			!retained &&
+			this.records.size + this.orphanCount >= ATTACHMENT_MAX_FILES
+		)
+			throw new AttachmentError("quota", "Attachment file quota is exhausted");
+		if (
+			!retained &&
+			this.totalBytes + bytes.byteLength > ATTACHMENT_MAX_TOTAL_BYTES
+		)
+			throw new AttachmentError(
+				"quota",
+				"Attachment storage quota is exhausted",
+			);
 		const metadata: AttachmentMetadata = {
 			id,
 			name: safeName,
@@ -85,15 +124,17 @@ export class AttachmentStore {
 			sha256: hash(bytes),
 		};
 		const temporary = join(this.filesDirectory, `.upload-${randomUUID()}.tmp`);
-		const target = join(this.filesDirectory, id);
 		try {
-			writeExclusive(temporary, bytes);
-			renameSync(temporary, target);
-			fsyncDirectory(this.filesDirectory);
+			if (!retained) {
+				writeExclusive(temporary, bytes);
+				renameSync(temporary, target);
+				fsyncDirectory(this.filesDirectory);
+			}
 			const next = [...this.records.values(), metadata];
 			this.writeManifest(next);
 			this.records.set(id, metadata);
-			this.totalBytes += metadata.size;
+			if (retained) this.orphanCount--;
+			else this.totalBytes += metadata.size;
 			return { ...metadata };
 		} catch (error) {
 			this.poisoned = true;

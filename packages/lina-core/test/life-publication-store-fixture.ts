@@ -10,6 +10,7 @@ import { worldDefinition } from "./world-fixture.ts";
 export function publicationStoreFixture(
 	path = ":memory:",
 	eventSummary?: string,
+	allowScene = false,
 ) {
 	const store = new WorldStore(path, () => 1000);
 	store.create(worldDefinition());
@@ -24,6 +25,15 @@ export function publicationStoreFixture(
 			},
 		},
 	];
+	if (allowScene)
+		def.projection.disclosures.push({
+			subject: { kind: "world_scene", id: "meeting" },
+			policy: {
+				knowers: ["lina", "mira"],
+				disclosures: [{ agentId: "lina", recipientId: "friends" }],
+				publication: ["friends"],
+			},
+		});
 	store.prepareLife(def);
 	const payload = {
 		kind: "publication_candidate" as const,

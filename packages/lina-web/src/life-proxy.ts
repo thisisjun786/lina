@@ -1,4 +1,8 @@
 import {
+	hash,
+	inspectContent,
+} from "../../lina-core/src/attachments/validation.ts";
+import {
 	fields,
 	id,
 	integer,
@@ -12,7 +16,16 @@ const URL_LIMIT = 4096;
 const AFTER_LIMIT = 2048;
 const TIMEOUT_MS = 15_000;
 const BEARER = /^Bearer llv1_[A-Za-z0-9_-]{43}$/;
-type Route = "feed" | "post" | "cursor" | "replies" | "reactions" | "reshares";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ETAG = /^"([0-9a-f]{64})"$/;
+type Route =
+	| "feed"
+	| "post"
+	| "cursor"
+	| "replies"
+	| "reactions"
+	| "reshares"
+	| "asset";
 const METHODS: Record<Route, readonly string[]> = {
 	feed: ["GET"],
 	post: ["GET"],
@@ -20,6 +33,7 @@ const METHODS: Record<Route, readonly string[]> = {
 	replies: ["POST"],
 	reactions: ["PUT"],
 	reshares: ["POST"],
+	asset: ["GET"],
 };
 
 function route(path: string): Route | undefined {
@@ -32,6 +46,12 @@ function route(path: string): Route | undefined {
 		if (parts[6] !== "posts") return;
 		id(parts[7]);
 		if (parts.length === 8) return "post";
+		if (
+			parts.length === 10 &&
+			parts[8] === "assets" &&
+			UUID.test(parts[9] ?? "")
+		)
+			return "asset";
 		const action = parts[8];
 		if (
 			parts.length === 9 &&
@@ -193,7 +213,7 @@ export async function proxyLife(
 		target.search = url.search;
 		const headers = new Headers({
 			Authorization: authorization,
-			Accept: "application/json",
+			Accept: action === "asset" ? "image/png, image/jpeg" : "application/json",
 		});
 		if (!read) headers.set("Content-Type", "application/json");
 		const response = await fetch(target, {
@@ -209,6 +229,33 @@ export async function proxyLife(
 		}
 		if (response.status === 204 || response.status === 205)
 			return new Response(null, { status: response.status, headers: security });
+		if (action === "asset") {
+			const mime = response.headers.get("content-type")?.split(";")[0]?.trim();
+			if (mime !== "image/png" && mime !== "image/jpeg") {
+				void response.body?.cancel().catch(() => {});
+				return fail(502, "LIFE service unavailable");
+			}
+			const bytes = await bounded(response.body, signal, RESPONSE_LIMIT);
+			const assetId = url.pathname.split("/")[9];
+			if (!assetId || !UUID.test(assetId))
+				return fail(502, "LIFE service unavailable");
+			const extension = mime === "image/png" ? "png" : "jpg";
+			if (inspectContent(`life-image-${assetId}.${extension}`, bytes) !== mime)
+				return fail(502, "LIFE service unavailable");
+			const upstreamEtag = response.headers.get("etag");
+			const matched = upstreamEtag ? ETAG.exec(upstreamEtag) : null;
+			if (!matched || matched[1] !== hash(bytes))
+				return fail(502, "LIFE service unavailable");
+			return new Response(bytes, {
+				status: response.status,
+				headers: {
+					...security,
+					"Content-Type": mime,
+					"Content-Disposition": `inline; filename="life-image-${assetId}.${extension}"`,
+					ETag: `"${matched[1]}"`,
+				},
+			});
+		}
 		if (
 			response.headers.get("content-type")?.split(";")[0]?.trim() !==
 			"application/json"

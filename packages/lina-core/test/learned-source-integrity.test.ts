@@ -3,7 +3,21 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ConversationStore } from "../src/agents/conversation.ts";
 import { AgentStore } from "../src/agents/store.ts";
+import {
+	AGENT_AVATAR_CANDIDATE_CAPACITY_SCHEMA,
+	AGENT_VISUAL_SCHEMA,
+} from "../src/agents/visual-schema.ts";
 import { learnedFixture } from "./learned-source-fixture.ts";
+
+/** Remove only the known schema2 owner when constructing an actual Agent0 test fixture. */
+function stripVisualFixture(db: DatabaseSync): void {
+	const tables = [
+		...(AGENT_VISUAL_SCHEMA + AGENT_AVATAR_CANDIDATE_CAPACITY_SCHEMA).matchAll(
+			/CREATE TABLE (agent_[a-z_]+) /g,
+		),
+	].map((match) => match[1]);
+	for (const table of tables.reverse()) db.exec(`DROP TABLE ${table}`);
+}
 
 for (const kind of ["preference", "reflection"] as const)
 	for (const mode of ["read", "reopen"] as const)
@@ -292,6 +306,7 @@ test("legacy exact Agent0 and Conversation1 migrate without rewriting original l
 	c.close();
 	const ad = new DatabaseSync(ap),
 		cd = new DatabaseSync(cp);
+	stripVisualFixture(ad);
 	ad.exec(
 		"DROP TABLE agent_learning_history;DROP TABLE agent_learning_state;DROP TABLE agent_learning_receipts;PRAGMA user_version=0",
 	);
@@ -313,7 +328,7 @@ test("legacy exact Agent0 and Conversation1 migrate without rewriting original l
 		expect(cc.prepare("SELECT * FROM conversation_preferences").get()).toEqual(
 			cr,
 		);
-		expect(ac.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(1);
+		expect(ac.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(2);
 		expect(cc.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(2);
 		ac.close();
 		cc.close();
@@ -332,6 +347,7 @@ test("both learned-store migrations validate final DDL and roll back corruption"
 		const s = open();
 		s.close();
 		const db = new DatabaseSync(path);
+		if (kind === "agent") stripVisualFixture(db);
 		if (kind === "agent")
 			db.exec(
 				"DROP TABLE agent_learning_history;DROP TABLE agent_learning_state;DROP TABLE agent_learning_receipts;PRAGMA user_version=0",
@@ -489,6 +505,7 @@ test("invalid legacy dynamics are audited before adding learned tables", () => {
 	s.create(f.profile);
 	s.close();
 	const db = new DatabaseSync(path);
+	stripVisualFixture(db);
 	db.exec(
 		"DROP TABLE agent_learning_history;DROP TABLE agent_learning_state;DROP TABLE agent_learning_receipts;PRAGMA user_version=0;UPDATE agent_dynamics SET mood='false'",
 	);

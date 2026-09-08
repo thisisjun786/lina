@@ -75,6 +75,36 @@ export class FleetLifeAgents extends AgentStore {
 		if (before !== this.get(args[0].id)?.revision) this.changed();
 		return result;
 	}
+	private visualChange<T>(id: string, operation: () => T): T {
+		const before = this.visual(id).revision;
+		const result = operation();
+		if (before !== this.visual(id).revision) this.changed();
+		return result;
+	}
+	override updateVisual(...args: Parameters<AgentStore["updateVisual"]>) {
+		return this.visualChange(args[0], () => super.updateVisual(...args));
+	}
+	override putVisualGrant(...args: Parameters<AgentStore["putVisualGrant"]>) {
+		const before = this.visualGrants(args[0]).find(
+			(grant) => grant.id === args[2].id,
+		)?.revision;
+		const result = super.putVisualGrant(...args);
+		if (before !== result.revision) this.changed();
+		return result;
+	}
+	override setAvatarPinned(...args: Parameters<AgentStore["setAvatarPinned"]>) {
+		return this.visualChange(args[0], () => super.setAvatarPinned(...args));
+	}
+	override applyAvatarOnce(...args: Parameters<AgentStore["applyAvatarOnce"]>) {
+		return this.visualChange(args[0], () => super.applyAvatarOnce(...args));
+	}
+	override applyManualAvatarOnce(
+		...args: Parameters<AgentStore["applyManualAvatarOnce"]>
+	) {
+		return this.visualChange(args[0], () =>
+			super.applyManualAvatarOnce(...args),
+		);
+	}
 }
 export class FleetLifeModels extends ModelSettingsStore {
 	constructor(

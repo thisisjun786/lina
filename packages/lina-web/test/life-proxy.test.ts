@@ -1,10 +1,19 @@
 import { afterEach, expect, test } from "bun:test";
+import { hash } from "../../lina-core/src/attachments/validation.ts";
 import { startWebServer } from "../src/server.ts";
 
 const FEED = "/api/life/worlds/world-1/feed";
 // Synthetic wire-format sample; never minted by or used with a real grant store.
 const BEARER = `Bearer llv1_${"a".repeat(43)}`;
 const REPLY = { requestKey: "reply-1", expectedPostRevision: 1, text: "안녕" };
+const ASSET = "550e8400-e29b-41d4-a716-446655440000";
+const ASSET_PATH = `${FEED}/posts/post-1/assets/${ASSET}`;
+const PNG = new Uint8Array(
+	Buffer.from(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=",
+		"base64",
+	),
+);
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
 	for (const stop of cleanup.splice(0).reverse()) await stop();
@@ -68,6 +77,59 @@ function security(response: Response) {
 	])
 		expect(response.headers.has(name)).toBe(false);
 }
+
+test("LIFE image asset proxy forwards only a scoped GET and validates verified PNG bytes", async () => {
+	const etag = hash(PNG);
+	const f = fixture(
+		() =>
+			new Response(PNG, {
+				headers: {
+					"Content-Type": "image/png",
+					ETag: `"${etag}"`,
+					"Set-Cookie": "private=1",
+					Origin: "private",
+				},
+			}),
+	);
+	const response = await f.request(ASSET_PATH);
+	expect(response.status).toBe(200);
+	expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG);
+	expect(response.headers.get("content-type")).toBe("image/png");
+	expect(response.headers.get("etag")).toBe(`"${etag}"`);
+	security(response);
+	const seen = f.seen[0];
+	expect(`${seen?.url.pathname}${seen?.url.search}`).toBe(ASSET_PATH);
+	expect(seen?.method).toBe("GET");
+	expect(seen?.body).toBe("");
+	expect(seen?.headers.get("authorization")).toBe(BEARER);
+	expect(seen?.headers.get("origin")).toBeNull();
+});
+
+test("LIFE image asset proxy rejects forged IDs and refuses redirects, MIME lies and oversized responses", async () => {
+	for (const respond of [
+		() =>
+			new Response(null, { status: 302, headers: { Location: "http://evil" } }),
+		() =>
+			new Response(PNG, {
+				headers: { "Content-Type": "image/jpeg", ETag: `"${hash(PNG)}"` },
+			}),
+		() =>
+			new Response(new Uint8Array(2_097_153), {
+				headers: { "Content-Type": "image/png", ETag: `"${"a".repeat(64)}"` },
+			}),
+	]) {
+		const f = fixture(respond);
+		const response = await f.request(ASSET_PATH);
+		expect(response.status).toBe(502);
+		security(response);
+	}
+	const f = fixture();
+	expect(
+		(await f.request(`${FEED}/posts/post-1/assets/not-a-uuid`)).status,
+	).toBe(404);
+	expect((await f.request(`${ASSET_PATH}?token=private`)).status).toBe(400);
+	expect(f.seen).toHaveLength(0);
+});
 
 test("LIFE feed forwards all seven operations with exact methods, JSON and scoped bearer only", async () => {
 	const payload = {

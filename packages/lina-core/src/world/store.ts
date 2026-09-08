@@ -1,5 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
+import type { AvatarPolicy } from "../agents/visual.ts";
+import { parseFrozenVisualIdentity } from "../agents/visual-validation.ts";
 import { openCheckedDatabase } from "../session-binding.ts";
 import { AuthoringPersistence } from "./authoring-persistence.ts";
 import { AuthoringRequests } from "./authoring-requests.ts";
@@ -9,7 +11,38 @@ import { AutonomyPersistence } from "./autonomy-persistence.ts";
 import type { WorldAutonomyPort } from "./autonomy-store-types.ts";
 import type { AutonomySource, LifeStep } from "./autonomy-types.ts";
 import { projectContext, validateContextLimits } from "./context.ts";
-import { lifeDigest, revision } from "./life-json.ts";
+import type {
+	ImageByteReceipt,
+	ImageOutputReceipt,
+	ImageReservationInput,
+	ImageSettlement,
+} from "./image-accounting-types.ts";
+import type {
+	ImageAttemptDelivery,
+	ImageAttemptObservation,
+} from "./image-attempt-types.ts";
+import { freezeLifeImageMaterial } from "./image-brief.ts";
+import { ImageExecution } from "./image-execution.ts";
+import {
+	type FreezeImageIntentInput,
+	type ImageIntentSource,
+	ImageIntents,
+	imageIntentId,
+} from "./image-intents.ts";
+import { publishedImageMaterial } from "./image-material.ts";
+import { ImagePersistence } from "./image-persistence.ts";
+import { ImagePolicies } from "./image-policies.ts";
+import { avatarPeriodicSource, resolveAvatarPolicy } from "./image-policy.ts";
+import {
+	type ImagePostAssociationInput,
+	ImagePublication,
+} from "./image-publication.ts";
+import type {
+	LifeImageSettingsInput,
+	PublishedImageMaterial,
+} from "./image-types.ts";
+import { parseLifeImageSource } from "./image-validation.ts";
+import { array, lifeDigest, revision } from "./life-json.ts";
 import { LifePersistence } from "./life-persistence.ts";
 import type {
 	AdmissionReceipt,
@@ -159,6 +192,11 @@ export class WorldStore
 	private readonly suggestions: AuthoringRequests;
 	private readonly work: WorkPersistence;
 	private readonly publications: PublicationPersistence;
+	private readonly images: ImagePersistence;
+	private readonly imagePolicies: ImagePolicies;
+	private readonly imageIntentRecords: ImageIntents;
+	private readonly imageExecution: ImageExecution;
+	private readonly imagePublication: ImagePublication;
 	private readonly publicationGrants: PublicationGrants;
 	private readonly publicationJobs: PublicationJobs;
 	private readonly publicationRuns: PublicationRuns;
@@ -172,6 +210,11 @@ export class WorldStore
 	private readonly publicationReplyPosts: PublicationReplyPosts;
 	private readonly publicationEvidence: PublicationEvidence;
 	private readonly publicationAncestry: PublicationAncestry;
+	/** One SQLite transaction only: immutable original-source replay may repeat per attempt. */
+	private readonly historicalImageSources = new Map<
+		string,
+		PublishedImageMaterial | null
+	>();
 	private closed = false;
 	readonly acquireLifeLease: WorldAutonomyPort["acquireLifeLease"] = (
 		worldId,
@@ -508,6 +551,43 @@ export class WorldStore
 			(worldId) => this.life.definition(worldId),
 			(worldId, version) => this.author.worldPack(worldId, version),
 		);
+		this.images = new ImagePersistence(this.db, {
+			definition: (worldId) => this.life.definition(worldId),
+			pack: (worldId, version) =>
+				version === undefined
+					? this.author.currentPack(worldId)
+					: this.author.worldPack(worldId, version),
+		});
+		this.imagePolicies = new ImagePolicies(this.db, {
+			configAt: (worldId, at) => this.author.lifeConfigAt(worldId, at),
+			settingsAt: (worldId, at) => this.images.settingsAt(worldId, at),
+			participants: (worldId, worldVersion) =>
+				worldVersion === null
+					? this.life.definition(worldId).participants
+					: this.author.worldPack(worldId, worldVersion).life.participants,
+		});
+		this.imageIntentRecords = new ImageIntents(this.db, {
+			settings: (worldId, at) => this.images.settingsAt(worldId, at),
+			config: (worldId, at) => this.author.lifeConfigAt(worldId, at),
+			material: (input) => this.historicalImageSource(input),
+		});
+		this.imageExecution = new ImageExecution(
+			this.db,
+			{
+				intent: (world, intent) => this.imageIntentRecords.get(world, intent),
+				settings: (world, at) =>
+					at === undefined
+						? this.images.settings(world)
+						: this.images.settingsAt(world, at),
+				config: (world, at) =>
+					at === undefined
+						? this.author.lifeConfig(world)
+						: this.author.lifeConfigAt(world, at),
+				allowed: (world, intent) =>
+					this.currentImageIntentAllowed(world, intent, "provider"),
+			},
+			this.now,
+		);
 		this.publicationGrants = new PublicationGrants(this.db, (worldId) => {
 			const settings = this.publications.settings(worldId),
 				config = this.author.lifeConfig(worldId);
@@ -521,6 +601,22 @@ export class WorldStore
 		this.publicationJobs = new PublicationJobs(this.db);
 		this.publicationRuns = new PublicationRuns(this.db);
 		this.publicationPosts = new PublicationPosts(this.db, this.publicationJobs);
+		this.imagePublication = new ImagePublication(
+			this.db,
+			{
+				intent: (world, intent) => this.imageIntentRecords.get(world, intent),
+				attempt: (world, attempt) =>
+					this.imageExecution.attempts.get(world, attempt),
+				post: (world, postId, at) => {
+					const post = this.publicationPosts.at(world, postId, at);
+					return post.version === 1 ? post : null;
+				},
+				currentMaterial: (world, post, author, recipient) =>
+					this.currentPublishedImageMaterial(world, post, author, recipient),
+				count: (world, attempt) => this.imageExecution.count(world, attempt),
+			},
+			this.now,
+		);
 		this.publicationChains = new PublicationChains(this.db);
 		this.publicationInteractions = new PublicationInteractions(this.db, {
 			generated: (...args) => this.generatedPublicationPost(...args),
@@ -736,6 +832,7 @@ export class WorldStore
 		let transactionStarted = false;
 		try {
 			this.db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000");
+			this.historicalImageSources.clear();
 			this.db.exec("BEGIN IMMEDIATE");
 			transactionStarted = true;
 			initializeWorldSchema(
@@ -764,14 +861,17 @@ export class WorldStore
 						);
 					}
 				},
+				() => this.audit(true, true, true, true, true, false),
 			);
 			this.audit();
 			this.suggestions.recover();
 			this.db.exec("COMMIT");
+			this.historicalImageSources.clear();
 			transactionStarted = false;
 			this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
 		} catch (error) {
 			if (transactionStarted) this.rollback();
+			this.historicalImageSources.clear();
 			this.db.close();
 			throw error;
 		}
@@ -1132,6 +1232,566 @@ export class WorldStore
 			this.snapshot(worldId);
 			return this.publications.settings(worldId);
 		}, false);
+	}
+	imageSettings(worldId: string) {
+		return this.transaction(() => {
+			this.snapshot(worldId);
+			return this.images.settings(worldId);
+		}, false);
+	}
+	/** Trusted discovery input only. This exposes no feed principal and never creates an image record. */
+	imageDiscoveryPosts(worldId: string) {
+		return this.transaction(() => {
+			this.snapshot(worldId);
+			return this.publicationPosts
+				.list(worldId)
+				.filter(
+					(post): post is Extract<typeof post, { version: 1 }> =>
+						post.version === 1,
+				)
+				.map((post) => ({
+					post,
+					materials: post.material.audience.flatMap((recipientId) => {
+						const material = this.currentPublishedImageMaterial(
+							worldId,
+							post.id,
+							post.author.agentId,
+							recipientId,
+						);
+						return material ? [{ recipientId, material }] : [];
+					}),
+				}));
+		}, false);
+	}
+	/** Family identity is available only from the persisted accepted decision/receipt pair. */
+	imageDiscoveryAcceptedSteps(worldId: string): LifeStep[] {
+		return this.transaction(() => {
+			this.snapshot(worldId);
+			return this.autonomy
+				.acceptedSteps()
+				.filter((step) => step.worldId === worldId);
+		}, false);
+	}
+	setImageSettings(
+		worldId: string,
+		expectedRevision: number,
+		input: LifeImageSettingsInput,
+	) {
+		return this.transaction(() =>
+			this.images.setSettings(worldId, expectedRevision, input),
+		);
+	}
+	resolveImageAvatarPolicy(
+		worldId: string,
+		agentId: string,
+		avatarPolicyRevision: number,
+		policy: AvatarPolicy,
+	) {
+		return this.transaction(() => {
+			if (!this.currentPublicationAgents(worldId).includes(agentId))
+				throw Error("Avatar agent is not active in this world");
+			const settings = this.images.currentSettings(worldId);
+			return this.imagePolicies.record(
+				resolveAvatarPolicy({
+					worldId,
+					agentId,
+					avatarPolicyRevision,
+					policy,
+					config: this.author.lifeConfig(worldId),
+					settings,
+				}),
+			);
+		});
+	}
+	imageAvatarPolicy(worldId: string, policyId: string) {
+		return this.transaction(
+			() => this.imagePolicies.get(worldId, policyId),
+			false,
+		);
+	}
+	imageIntent(worldId: string, intentId: string) {
+		return this.transaction(
+			() => this.imageIntentRecords.get(worldId, intentId),
+			false,
+		);
+	}
+	imageIntents(worldId: string) {
+		return this.transaction(() => this.imageIntentRecords.list(worldId), false);
+	}
+	/** World/source half of authorization. Runtime also checks actual TaskManager and AgentStore grants. */
+	imageIntentAllowed(
+		worldId: string,
+		intentId: string,
+		phase: "provider" | "destination",
+	): boolean {
+		if (phase !== "provider" && phase !== "destination")
+			throw Error("Invalid image authority phase");
+		return this.transaction(
+			() => this.currentImageIntentAllowed(worldId, intentId, phase),
+			false,
+		);
+	}
+	private currentImageIntentAllowed(
+		worldId: string,
+		intentId: string,
+		phase: "provider" | "destination",
+	): boolean {
+		const intent = this.imageIntentRecords.get(worldId, intentId);
+		if (
+			!intent ||
+			!this.currentPublicationAgents(worldId).includes(intent.owner.agentId)
+		)
+			return false;
+		const settings = this.images.settings(worldId),
+			config = this.author.lifeConfig(worldId);
+		const pack = this.author.currentPack(worldId),
+			source = intent.source,
+			agentId = intent.owner.agentId;
+		if (
+			phase === "provider" &&
+			(!settings ||
+				settings.revision !== intent.settingsRevision ||
+				settings.worldVersion !== (pack?.version ?? null) ||
+				config.revision !== intent.configRevision ||
+				!config.run ||
+				config.run.mode === "paused" ||
+				(source.kind === "event_post" ? !config.images : !config.avatars))
+		)
+			return false;
+		if (source.kind === "event_post") {
+			const current = this.currentPublishedImageMaterial(
+				worldId,
+				source.publicationId,
+				agentId,
+				source.recipientId,
+			);
+			return (
+				current !== null &&
+				lifeDigest(current) === lifeDigest(intent.material.publication)
+			);
+		}
+		if (source.kind === "avatar_event")
+			return Boolean(
+				settings &&
+					pack?.schemaVersion === 3 &&
+					pack.eventFamilies.some((family) => family.id === source.familyId) &&
+					settings.avatarEventRules.some(
+						(rule) =>
+							rule.familyId === source.familyId &&
+							rule.agentIds.includes(agentId),
+					) &&
+					this.work.allowed(worldId, {
+						kind: "world_event",
+						id: source.eventId,
+					}),
+			);
+		// A retained portrait's permission is independent of the old clock still being due or enabled.
+		return true;
+	}
+	prepareImageAttempt(worldId: string, intentId: string, requestKey: string) {
+		return this.transaction(() =>
+			this.imageExecution.prepare(worldId, intentId, requestKey),
+		);
+	}
+	retryImageAttempt(
+		worldId: string,
+		intentId: string,
+		previousAttemptId: string,
+		requestKey: string,
+	) {
+		return this.transaction(() =>
+			this.imageExecution.retry(
+				worldId,
+				intentId,
+				previousAttemptId,
+				requestKey,
+			),
+		);
+	}
+	linkImageAttempt(worldId: string, attemptId: string, jobId: string) {
+		return this.transaction(() =>
+			this.imageExecution.attempts.link(worldId, attemptId, jobId),
+		);
+	}
+	reserveImageAttempt(
+		worldId: string,
+		attemptId: string,
+		bounds: Omit<ImageReservationInput, "binding">,
+	) {
+		return this.transaction(() =>
+			this.imageExecution.reserve(worldId, attemptId, bounds),
+		);
+	}
+	dispatchImageAttempt(worldId: string, attemptId: string) {
+		return this.transaction(() =>
+			this.imageExecution.accounting.beforeSubmit(
+				this.imageExecution.binding(worldId, attemptId),
+			),
+		);
+	}
+	settleImageAttempt(
+		worldId: string,
+		attemptId: string,
+		outcome: ImageSettlement,
+	) {
+		return this.transaction(() =>
+			this.imageExecution.settle(worldId, attemptId, outcome),
+		);
+	}
+	observeImageAttempt(
+		worldId: string,
+		attemptId: string,
+		observation: ImageAttemptObservation,
+	) {
+		return this.transaction(() =>
+			this.imageExecution.observe(worldId, attemptId, observation),
+		);
+	}
+	imageAttempt(worldId: string, attemptId: string) {
+		return this.transaction(
+			() => this.imageExecution.attempts.get(worldId, attemptId),
+			false,
+		);
+	}
+	imageAttempts(worldId: string, intentId?: string) {
+		return this.transaction(
+			() => this.imageExecution.attempts.list(worldId, intentId),
+			false,
+		);
+	}
+	/** Durable original prepare request for safe management replay; this never mutates attempt state. */
+	imageAttemptRequest(worldId: string, requestKey: string) {
+		return this.transaction(
+			() => this.imageExecution.attempts.prepareRequest(worldId, requestKey),
+			false,
+		);
+	}
+	imageAttemptCount(worldId: string, attemptId: string) {
+		return this.transaction(
+			() => this.imageExecution.count(worldId, attemptId),
+			false,
+		);
+	}
+	guardImageAttempt(worldId: string, attemptId: string) {
+		return this.transaction(
+			() =>
+				this.imageExecution.accounting.guardBeforeSubmit(
+					this.imageExecution.binding(worldId, attemptId),
+				),
+			false,
+		);
+	}
+	/** Read-only current-capacity and original-lineage guard before runtime writes an archive file. */
+	guardArchiveImageAttempt(
+		worldId: string,
+		attemptId: string,
+		receipt: ImageByteReceipt,
+	) {
+		return this.transaction(
+			() => this.imageExecution.previewArchive(worldId, attemptId, receipt),
+			false,
+		);
+	}
+	/** Runtime supplies a re-read immutable archive receipt after its exclusive filesystem write. */
+	archiveImageAttempt(
+		worldId: string,
+		attemptId: string,
+		receipt: ImageByteReceipt,
+	) {
+		return this.transaction(() =>
+			this.imageExecution.archive(worldId, attemptId, receipt),
+		);
+	}
+	imageUsage(worldId: string) {
+		return this.transaction(
+			() => this.imageExecution.accounting.usage(worldId),
+			false,
+		);
+	}
+	/** Trusted runtime supplies verified output. Association and delivery receipt commit together. */
+	attachImagePost(input: ImagePostAssociationInput) {
+		return this.transaction(() => {
+			const delivery = this.imagePublication.record(input);
+			this.imageExecution.attempts.acknowledge(
+				input.worldId,
+				input.attemptId,
+				`image-post-delivery-${input.requestKey}`,
+				delivery,
+			);
+			return delivery;
+		});
+	}
+	imagePostAsset(worldId: string, postId: string, recipientId: string) {
+		return this.transaction(
+			() => this.imagePublication.asset(worldId, postId, recipientId),
+			false,
+		);
+	}
+	/** Runtime calls only after the actual destination owner committed its receipt. */
+	acknowledgeImageDestination(
+		worldId: string,
+		attemptId: string,
+		requestKey: string,
+		delivery: ImageAttemptDelivery,
+	) {
+		return this.transaction(() =>
+			this.imageExecution.attempts.acknowledge(
+				worldId,
+				attemptId,
+				requestKey,
+				delivery,
+			),
+		);
+	}
+	recoverImageAttempt(
+		worldId: string,
+		attemptId: string,
+		observation: ImageAttemptObservation,
+	) {
+		return this.transaction(() =>
+			this.imageExecution.observe(worldId, attemptId, observation, true),
+		);
+	}
+	recordImageOutput(
+		worldId: string,
+		attemptId: string,
+		artifact: ImageOutputReceipt,
+		orphan = false,
+	) {
+		return this.transaction(() => {
+			const binding = this.imageExecution.binding(worldId, attemptId);
+			if (orphan)
+				this.imageExecution.accounting.recordOrphan(binding, artifact);
+			else this.imageExecution.accounting.importOutput(binding, artifact);
+		});
+	}
+	reacquireImageOutput(worldId: string, attemptId: string) {
+		return this.transaction(() =>
+			this.imageExecution.accounting.reacquireOutput(
+				this.imageExecution.binding(worldId, attemptId),
+			),
+		);
+	}
+	recordImageBytes(
+		worldId: string,
+		attemptId: string,
+		category: "metadata" | "manifest",
+		receipt: ImageByteReceipt,
+	) {
+		if (category !== "metadata" && category !== "manifest")
+			throw Error("Invalid image byte receipt category");
+		return this.transaction(() => {
+			const binding = this.imageExecution.binding(worldId, attemptId);
+			if (category === "metadata")
+				this.imageExecution.accounting.recordMetadata(binding, receipt);
+			else this.imageExecution.accounting.recordManifest(binding, receipt);
+		});
+	}
+	/** Trusted runtime supplies AgentStore-frozen identities; HTTP callers only submit source selectors. */
+	freezeImageIntent(input: FreezeImageIntentInput) {
+		return this.transaction(() => {
+			for (const value of [input.worldId, input.agentId]) id(value);
+			if (input.requestKey !== null) id(input.requestKey);
+			const source = parseLifeImageSource(input.source),
+				visuals = array(input.visuals, parseFrozenVisualIdentity);
+			const intentId = imageIntentId({ ...input, source });
+			const existing = this.imageIntentRecords.get(input.worldId, intentId);
+			if (existing) {
+				if (
+					input.requestKey !== null &&
+					(lifeDigest(existing.source) !== lifeDigest(source) ||
+						lifeDigest(existing.material.visuals) !== lifeDigest(visuals))
+				)
+					throw Error("Image request key conflict");
+				return existing;
+			}
+			const settings = this.images.currentSettings(input.worldId),
+				config = this.author.lifeConfig(input.worldId);
+			if (!this.currentPublicationAgents(input.worldId).includes(input.agentId))
+				throw Error("Image agent is not active");
+			if (source.kind === "event_post" ? !config.images : !config.avatars)
+				throw Error("Image generation is not configured");
+			const provenance = {
+				worldId: input.worldId,
+				agentId: input.agentId,
+				source,
+				settingsRevision: settings.revision,
+				configRevision: config.revision,
+				createdAtMs: revision(this.now()),
+				createdLifeRevision: this.life.snapshot(input.worldId).revision,
+			};
+			const publication = this.historicalImageSource(provenance);
+			if (source.kind === "event_post") {
+				const current = this.currentPublishedImageMaterial(
+					input.worldId,
+					source.publicationId,
+					input.agentId,
+					source.recipientId,
+				);
+				if (!current || lifeDigest(current) !== lifeDigest(publication))
+					throw Error("Image publication source is no longer permitted");
+			}
+			const material = freezeLifeImageMaterial({
+				purpose:
+					source.kind === "event_post"
+						? {
+								kind: "life",
+								worldId: input.worldId,
+								recipientId: source.recipientId,
+							}
+						: { kind: "avatar" },
+				publication,
+				visuals,
+			});
+			return this.imageIntentRecords.record({
+				version: 2,
+				intentId,
+				owner: { kind: "life", worldId: input.worldId, agentId: input.agentId },
+				source,
+				material,
+				settingsRevision: settings.revision,
+				configRevision: config.revision,
+				createdAtMs: provenance.createdAtMs,
+				createdLifeRevision: provenance.createdLifeRevision,
+				requestKey: input.requestKey,
+				briefDigest: material.digest,
+			});
+		});
+	}
+	private historicalImageSource(
+		input: ImageIntentSource,
+	): PublishedImageMaterial | null {
+		const key = lifeDigest(input);
+		if (this.historicalImageSources.has(key))
+			return this.historicalImageSources.get(key) ?? null;
+		const resolved = this.resolveHistoricalImageSource(input);
+		this.historicalImageSources.set(key, resolved);
+		return resolved;
+	}
+	/** Rebuilds immutable provenance; current permission checks intentionally remain uncached. */
+	private resolveHistoricalImageSource(input: ImageIntentSource) {
+		const { worldId, agentId, source } = input;
+		this.life.snapshotAt(worldId, input.createdLifeRevision);
+		if (source.kind === "event_post") {
+			const post = this.publicationPosts.at(
+				worldId,
+				source.publicationId,
+				source.postRevision,
+			);
+			if (
+				!post ||
+				post.version !== 1 ||
+				post.author.agentId !== agentId ||
+				post.withdrawn ||
+				source.lifeRevision > input.createdLifeRevision ||
+				!post.material.audience.includes(source.recipientId)
+			)
+				throw Error("Missing original image publication source");
+			const material = publishedImageMaterial(post, source.recipientId);
+			if (!material || lifeDigest(material.source) !== lifeDigest(source))
+				throw Error("Image publication provenance mismatch");
+			return material;
+		}
+		const policy = this.imagePolicies.get(worldId, source.resolvedPolicyId);
+		if (
+			policy.agentId !== agentId ||
+			policy.configRevision !== input.configRevision ||
+			policy.imageSettingsRevision !== input.settingsRevision
+		)
+			throw Error("Avatar source policy owner mismatch");
+		if (source.kind !== "avatar_event") {
+			const expected = avatarPeriodicSource(
+				policy,
+				input.createdAtMs,
+				input.createdLifeRevision,
+			);
+			if (lifeDigest(expected) !== lifeDigest(source))
+				throw Error("Avatar clock slot is not due");
+			return null;
+		}
+		const step = this.autonomy.get(worldId, source.stepId),
+			receipt = step.receipt;
+		const settings = this.images.settingsAt(
+			worldId,
+			source.triggerSettingsRevision,
+		);
+		if (
+			!receipt ||
+			step.status !== "accepted" ||
+			receipt.eventId !== source.eventId ||
+			receipt.worldRevision !== source.worldRevision ||
+			receipt.lifeRevision !== source.lifeRevision ||
+			source.lifeRevision > input.createdLifeRevision ||
+			step.decision.familyId !== source.familyId ||
+			step.decision.agentId !== agentId ||
+			source.triggerSettingsRevision !== input.settingsRevision ||
+			!policy.policy.eventFamilyIds.includes(source.familyId) ||
+			!settings.avatarEventRules.some(
+				(rule) =>
+					rule.familyId === source.familyId && rule.agentIds.includes(agentId),
+			) ||
+			source.triggerDigest !==
+				lifeDigest({
+					worldId,
+					agentId,
+					familyId: source.familyId,
+					settingsRevision: source.triggerSettingsRevision,
+				})
+		)
+			throw Error("Avatar event trigger has no original global permission");
+		return null;
+	}
+	/** Storage-only trusted image owner. No caller prompt, snapshot or user reply becomes scene evidence. */
+	publishedImageMaterial(
+		worldId: string,
+		postId: string,
+		agentId: string,
+		recipientId: string,
+	) {
+		return this.transaction(
+			() =>
+				this.currentPublishedImageMaterial(
+					worldId,
+					postId,
+					agentId,
+					recipientId,
+				),
+			false,
+		);
+	}
+	private currentPublishedImageMaterial(
+		worldId: string,
+		postId: string,
+		agentId: string,
+		recipientId: string,
+	) {
+		for (const value of [worldId, postId, agentId, recipientId]) id(value);
+		const post = this.publicationPosts.get(worldId, postId);
+		if (
+			!post ||
+			post.version !== 1 ||
+			post.author.agentId !== agentId ||
+			!this.currentPublicationAgents(worldId).includes(agentId)
+		)
+			return null;
+		const settings = this.publications.settings(worldId);
+		const config = this.author.lifeConfig(worldId);
+		if (
+			!config.publication?.recipientIds.includes(recipientId) ||
+			!settings?.agentRecipients.some(
+				(row) => row.agentId === agentId && row.recipientId === recipientId,
+			)
+		)
+			return null;
+		if (
+			!this.publicationFeedReader.content(
+				worldId,
+				{ kind: "agent", agentId },
+				postId,
+			)
+		)
+			return null;
+		return publishedImageMaterial(post, recipientId);
 	}
 	setPublicationSettings(
 		worldId: string,
@@ -1854,8 +2514,14 @@ export class WorldStore
 		includeAutonomy = true,
 		includeWork = true,
 		includePublication = true,
+		includeImages = includePublication,
 	): void {
 		this.auditWorld();
+		if (includeImages) this.images.validate();
+		if (includeImages) this.imagePolicies.validate();
+		if (includeImages) this.imageIntentRecords.validate();
+		if (includeImages) this.imageExecution.validate();
+		if (includeImages) this.imagePublication.validate();
 		const definitions = this.db
 			.prepare(
 				"SELECT world_id, version, definition_json FROM world_definition_versions",
@@ -2140,6 +2806,7 @@ export class WorldStore
 	}
 	private transaction<T>(action: () => T, write = true): T {
 		this.assertOpen();
+		this.historicalImageSources.clear();
 		this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
 		try {
 			const result = action();
@@ -2148,6 +2815,8 @@ export class WorldStore
 		} catch (error) {
 			this.rollback();
 			throw error;
+		} finally {
+			this.historicalImageSources.clear();
 		}
 	}
 	private rollback(): void {

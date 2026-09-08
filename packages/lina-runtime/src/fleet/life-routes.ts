@@ -1,5 +1,8 @@
 import type { WorldAuthorSession } from "../life/author-session.ts";
 import { lifeBindingRoutes } from "./life-binding-routes.ts";
+import { lifeImageAssetRoutes } from "./life-image-asset-routes.ts";
+import { lifeImageRoutes } from "./life-image-routes.ts";
+import type { FleetLifeImages } from "./life-images.ts";
 import { lifePublicationRoutes } from "./life-publication-routes.ts";
 import { lifeRuntimeRoutes } from "./life-runtime-routes.ts";
 import type { AgentFleet } from "./manager.ts";
@@ -55,6 +58,7 @@ export async function lifeRoutes(
 	request: Request,
 	fleet: AgentFleet,
 	json: () => Promise<Record<string, unknown>>,
+	images?: () => FleetLifeImages,
 ): Promise<Response | undefined> {
 	const url = new URL(request.url);
 	if (url.pathname !== "/api/life" && !url.pathname.startsWith("/api/life/"))
@@ -73,6 +77,21 @@ export async function lifeRoutes(
 		)
 	)
 		return reply({ error: "Unknown world authoring route" }, 404);
+	if (images) {
+		const services = {
+			store: () => fleet.lifeStorage,
+			agents: fleet.agents,
+			images,
+			now: () => images().now(),
+			changed: () => fleet.lifeRuntime.publicationChanged(),
+			assertSourceCurrent: (worldId: string) =>
+				fleet.assertPublicationSourceCurrent(worldId),
+		};
+		const image =
+			(await lifeImageAssetRoutes(request, services)) ??
+			(await lifeImageRoutes(request, services, json));
+		if (image) return image;
+	}
 	const publication = await lifePublicationRoutes(
 		request,
 		{
@@ -81,6 +100,21 @@ export async function lifeRoutes(
 				fleet.assertPublicationSourceCurrent(worldId),
 			run: (...args) => fleet.lifeRuntime.publish(...args),
 			changed: () => fleet.publicationChanged(),
+			...(images
+				? {
+						images: (
+							worldId: string,
+							principal: import("../../../lina-core/src/world/publication-types.ts").PublicationPrincipal,
+						) => {
+							const grant = fleet.lifeStorage.authenticatePublicationViewer(
+								worldId,
+								request.headers.get("authorization")?.slice(7) ?? "",
+							);
+							if (!grant) throw Error("Publication viewer forbidden");
+							return images().feedImages(worldId, principal, grant.recipientId);
+						},
+					}
+				: {}),
 		},
 		json,
 	);

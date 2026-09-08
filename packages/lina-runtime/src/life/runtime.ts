@@ -44,7 +44,13 @@ export const systemLifeClock: LifeClock = {
 export type LifeRuntimeOptions = LifeRunnerOptions &
 	Pick<
 		LifeSchedulerOptions,
-		"worldIds" | "publicationWorldIds" | "config" | "acquireLease" | "onError"
+		| "worldIds"
+		| "publicationWorldIds"
+		| "imageWorldIds"
+		| "visitImages"
+		| "config"
+		| "acquireLease"
+		| "onError"
 	>;
 
 /** Owns background work only. Its caller closes the world store after close resolves. */

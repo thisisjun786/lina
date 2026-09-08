@@ -19,8 +19,9 @@ export const publicationAuthor = {
 export function preparedPublicationFixture(
 	path: string,
 	eventSummary?: string,
+	allowScene = false,
 ) {
-	const store = publicationStoreFixture(path, eventSummary),
+	const store = publicationStoreFixture(path, eventSummary, allowScene),
 		run = store.beginPublicationRun(
 			"test-world",
 			{

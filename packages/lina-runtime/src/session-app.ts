@@ -32,6 +32,10 @@ import { startControlServer } from "./control-server.ts";
 import { ExecutionCoordinator } from "./execution.ts";
 import { installExecutionHooks } from "./execution-hooks.ts";
 import type { LinaHost, SdkSessionOptions } from "./host.ts";
+import { Ima2Client, type Ima2ClientOptions } from "./images/client.ts";
+import { ImageJobs } from "./images/jobs.ts";
+import { ImageJobStore } from "./images/store.ts";
+import { createImageTools } from "./images/tools.ts";
 import type { ModelSettings } from "./models/types.ts";
 import { installPersona } from "./persona/hooks.ts";
 import { nativePreferences } from "./persona/native-preferences.ts";
@@ -51,6 +55,8 @@ import {
 
 export type AppOptions = {
 	engine: SessionEngine;
+	/** ima2 owns its server and credentials. false disables this optional adapter. */
+	imageEngine?: Ima2ClientOptions | false;
 	registerTools?: (host: LinaHost) => void;
 	memoryBackend?: "native" | "honcho" | "disabled";
 	modelSettings?: () => ModelSettings;
@@ -113,6 +119,7 @@ export async function startPersistentApp(options: AppOptions) {
 	const startedAt = new Date().toISOString();
 	let lastAgentEndAt: string | undefined;
 	let attachments: AttachmentStore | undefined;
+	let images: ImageJobs | undefined;
 	let stopped = false,
 		stopping: Promise<void> | undefined;
 	const stop = (): Promise<void> => {
@@ -120,6 +127,7 @@ export async function startPersistentApp(options: AppOptions) {
 		if (stopping) return stopping;
 		stopping = (async () => {
 			await server?.stop();
+			await images?.close();
 			const reflectionClosing = reflection?.close();
 			if (runtime) await runtime.close();
 			else await native?.close();
@@ -247,7 +255,16 @@ export async function startPersistentApp(options: AppOptions) {
 			}),
 		});
 		execution = coordinator;
-
+		if (options.imageEngine !== false) {
+			images = new ImageJobs({
+				store: new ImageJobStore(lease.root, binding),
+				attachments: attached,
+				client: new Ima2Client(options.imageEngine ?? {}),
+				notify: (marker, text) =>
+					native?.appendNotice(marker, text) ?? Promise.resolve(null),
+			});
+		}
+		const imageJobs = images;
 		native = await (options.createSession ?? engine.create)({
 			contextPolicy: ordinaryPolicy,
 			currentContextPolicy: worldContext.policy,
@@ -344,6 +361,11 @@ export async function startPersistentApp(options: AppOptions) {
 				}
 				coordinator.configurePermissions(permissions);
 				installExecutionHooks(host, coordinator);
+				if (imageJobs)
+					for (const tool of createImageTools(imageJobs, () =>
+						runtime?.currentRequestId(),
+					))
+						host.registerTool(tool);
 				host.registerTool(
 					createAttachmentTool(
 						attached,
@@ -438,6 +460,9 @@ export async function startPersistentApp(options: AppOptions) {
 				coordinator.refresh();
 				if (event.snapshot.state === "idle") {
 					reflection?.settled();
+					void imageJobs?.flushNotices().catch(() => {
+						// The durable image job remains undelivered for recovery.
+					});
 				}
 			}
 		});
@@ -449,6 +474,7 @@ export async function startPersistentApp(options: AppOptions) {
 			port: options.port,
 		});
 		void channel.refresh();
+		imageJobs?.resume();
 		return {
 			binding,
 			runtime,
@@ -458,6 +484,7 @@ export async function startPersistentApp(options: AppOptions) {
 			reflection,
 			attachments: attached,
 			execution: coordinator,
+			images: imageJobs,
 			port: server.port,
 			stop,
 		};

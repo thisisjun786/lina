@@ -2,6 +2,10 @@ import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { AGENT_LEARNING_SCHEMA } from "./agent-learning.ts";
 import { auditLearning } from "./learning-audit.ts";
+import {
+	AGENT_AVATAR_CANDIDATE_CAPACITY_SCHEMA,
+	AGENT_VISUAL_SCHEMA,
+} from "./visual-schema.ts";
 export const AGENT_SCHEMA = `
 CREATE TABLE IF NOT EXISTS agent_profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, personality TEXT NOT NULL, voice TEXT NOT NULL, profile TEXT NOT NULL, appearance TEXT NOT NULL, interests TEXT NOT NULL, avatar_id TEXT, evolution TEXT NOT NULL, revision INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS agent_dynamics (agent_id TEXT PRIMARY KEY REFERENCES agent_profiles(id), revision INTEGER NOT NULL, mood TEXT, interests TEXT NOT NULL, preferences TEXT NOT NULL, relationship TEXT NOT NULL, last_request_id TEXT) STRICT;
@@ -24,7 +28,10 @@ function verify(
 	const expected = (
 		AGENT_SCHEMA +
 		(withoutCandidates ? "" : CANDIDATE_SCHEMA) +
-		(version === 1 ? AGENT_LEARNING_SCHEMA : "")
+		(version >= 1 ? AGENT_LEARNING_SCHEMA : "") +
+		(version === 2
+			? AGENT_VISUAL_SCHEMA + AGENT_AVATAR_CANDIDATE_CAPACITY_SCHEMA
+			: "")
 	)
 		.split(";")
 		.filter(
@@ -40,13 +47,15 @@ function verify(
 		.all()
 		.map((r) => norm(String(r["sql"])))
 		.sort();
-	if (![0, 1].includes(version) || !isDeepStrictEqual(actual, expected))
+	if (![0, 1, 2].includes(version) || !isDeepStrictEqual(actual, expected))
 		throw Error("unknown agent schema");
 }
 export function initializeAgents(
 	db: DatabaseSync,
 	audit: () => void,
 	validateRaw: (value: unknown) => void,
+	createVisuals: () => void,
+	auditVisuals: () => void,
 ): void {
 	const version = Number(
 		db.prepare("PRAGMA user_version").get()?.["user_version"],
@@ -83,9 +92,19 @@ export function initializeAgents(
 		db.exec(AGENT_LEARNING_SCHEMA);
 		db.exec("PRAGMA user_version=1");
 	}
-	verify(db, 1);
+	verify(db, version === 2 ? 2 : 1);
 	audit();
+	// All schema1 records, including learning/candidate provenance, precede visual DDL.
 	auditLearning(db, validateRaw);
+	if (db.prepare("PRAGMA foreign_key_check").get())
+		throw Error("invalid agent foreign key");
+	if (version < 2) {
+		db.exec(AGENT_VISUAL_SCHEMA + AGENT_AVATAR_CANDIDATE_CAPACITY_SCHEMA);
+		createVisuals();
+		db.exec("PRAGMA user_version=2");
+	}
+	verify(db, 2);
+	auditVisuals();
 	if (db.prepare("PRAGMA foreign_key_check").get())
 		throw Error("invalid agent foreign key");
 }

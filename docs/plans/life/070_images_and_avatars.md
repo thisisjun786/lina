@@ -1,6 +1,6 @@
 # 070 — Event images and evolving profile pictures
 
-Status: A repair at completed060 `e8078fd`, 2026-09-08. Depends on [060](060_publication.md) and the image-owner implementation. Reuse the existing image engine; do not write a second ima2 client or provider router. The concrete extension is [071](071_image_execution_contract.md); [072](072_image_authority_and_accounting.md) resolves the first independent audit's restore, scheduling, serving and reservation gaps. Both refine this same070 work phase.
+Status: B integration in progress, 2026-09-08, following completed060 `e8078fd` and audited image contracts `d83f317`. Depends on [060](060_publication.md) and the image-owner implementation. Reuse the existing image engine; do not write a second ima2 client or provider router. The concrete extension is [071](071_image_execution_contract.md); [072](072_image_authority_and_accounting.md) resolves the first independent audit's restore, scheduling, serving and reservation gaps. Both refine this same070 work phase.
 
 The user should see an appropriate permitted scene picture alongside a LIFE post,
 and may configure profile-picture candidates, automatic application, pinning and
@@ -102,3 +102,63 @@ Add recognized AgentStore-owned visual/history/application and capacity tables a
 | Load legacy conversation manifest and run existing generate/edit/delivery fixtures | Same original binding, IDs, notice delivery and recovery behavior |
 
 These are future tests on the integrated tree. Existing image tests prove their own fake-transport contracts; committed image QA notes are prior evidence, not a fresh LIFE provider/browser run. 080 requires actual event→permitted brief→provider→artifact→feed and avatar tests with a chosen budget. Provider output is not guaranteed to preserve likeness; human image review is required. Final application controls are validated job/asset/publication APIs (E7); previously exported provider/viewer bytes cannot be recalled. Update image plan 009, daily-life plan 010 and validation scope with exact evidence.
+
+## Checkpoint, 2026-09-08
+
+The user requested a reviewable PR checkpoint before continuing.070 remains in B;
+080 has not started. The existing world-engine PR includes the completed010–060
+work and this partial070 implementation. It must remain Draft until the remaining
+implementation, checks and independent reviews are complete. No merge, deployment,
+installed-user-state update or live provider spend is included.
+
+Implemented in this checkpoint:
+
+- Schema8 image settings, frozen intents, attempts, accounting and original-source
+  recovery audits; AgentStore visual identity/grants, candidate history, pinning,
+  avatar-only application and restoration receipts.
+- Existing image-owner client/jobs/renderer integration, manifest2 migration,
+  lifetime manifest leases, final outbound permission and capacity checks, owned
+  artifacts, original-UUID recovery and explicit retry after a known failure.
+- Fleet scheduling, owner management routes and fixed web proxy; current scoped
+  post-image metadata/bytes, late attachment cursor invalidation, automatic
+  portraits and next-period recovery without duplicate generation.
+- Avatar upload metadata-before-bytes, request-key repair, verified seed/legacy
+  migration and generated-byte serving authority. Independent avatar rereview
+  passed after all reported repairs (9 tests,37 assertions).
+- Terminal archive bridge with preflight capacity and interrupted-file/reopened-DB
+  adoption (63 affected tests). Scheduler archive invocation is still pending.
+- Paused scheduled recovery no longer applies a completed avatar. The actual
+  composition regression first reproduced the incorrect application, then passed
+  both manual and automatic-origin cases (2 tests,28 assertions). Resuming applies
+  the original result without another provider POST.
+- Transaction-local immutable source memoization removes repeated historical
+  resolution for attempts sharing a source. Current permission checks are not
+  cached, and later revocation/corrupt reopen remain covered.
+
+Verification for this checkpoint is being recorded below. The earlier266-test
+incremental run and060's2,885-test result are separate revisions, not proof of the
+whole current image implementation. All new runtime calls use temporary state and
+synthetic local transports. Real model/image quality and browser presentation have
+not been qualified.
+
+### Remaining work before070 completion
+
+- Repair the event-image integration performance failure: the default5-second
+  test times out (the focused current run took9.19s). A14.32-second diagnostic run
+  with an explicit60-second timeout reached all14 assertions; it is not a passing
+  default-timeout gate. The diagnostic timeout and prints have been removed.
+- Recheck scheduled admission with an explicit pause and legacy avatar-only
+  worlds with `run: null`; the final runtime review did not qualify these paths.
+  Verify manual event-image requests without an automatic event rule.
+- Wire terminal archive movement into the shared scheduler and complete retained
+  work recovery when current generation settings are disabled.
+- Verify unused destination reservation release/reacquisition, capacity changes,
+  orphan bytes, current authority and delivery recovery across both stores.
+- Complete event-family/scene/cooldown discovery and multi-character reference
+  coverage. The image owner currently supports one reference; unsupported multiple
+  identity references must remain explicit.
+- Finish the full070 independent review and isolated HTTP acceptance matrix,
+  then close070 before starting080. Keep all071/072 acceptance criteria in force.
+
+Local raw logs and reviews remain under the task's ignored evidence directory;
+public reports include only commands, outcomes and synthetic scenario descriptions.

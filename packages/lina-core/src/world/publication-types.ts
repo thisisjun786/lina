@@ -174,6 +174,17 @@ export interface PublicLifeReactionState {
 /** Mutable reader projection. Frozen reply material continues to use PublicLifePost. */
 export interface PublicLifePostView extends PublicLifePost {
 	reactions: PublicLifeReactionState[];
+	/** Trusted runtime supplies this current permission/byte-verified projection. Never frozen into reply material. */
+	image?: PublicLifeImage;
+}
+
+export interface PublicLifeImage {
+	artifactId: string;
+	attachmentVersion: number;
+	mime: "image/png" | "image/jpeg";
+	size: number;
+	altText: string;
+	url: string;
 }
 
 /** Real inherited event provenance is distinct from the reply snapshot and job key. */

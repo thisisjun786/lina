@@ -16,7 +16,10 @@ import { OpenCodexHub } from "../../../lina-opencodex/src/index.ts";
 import { parseApprovalMode } from "../approval-policy.ts";
 import { codexAssistantPrompt } from "../codex-prompt.ts";
 import { parseMemoryBackend } from "../context/backend.ts";
+import { Ima2Client } from "../images/client.ts";
+import type { ImageClient } from "../images/jobs.ts";
 import { createWorldAuthorSession } from "../life/author-session.ts";
+import { systemLifeClock } from "../life/runtime.ts";
 import type { LifeClock } from "../life/scheduler.ts";
 import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import { resolveProfile } from "../models/selection.ts";
@@ -25,6 +28,7 @@ import { createCodexTaskTools } from "../tools/codex-tasks.ts";
 import { workTools } from "../tools/work-memory.ts";
 import { provisionCodexHome } from "./codex-home.ts";
 import { hubRoutes } from "./hub-routes.ts";
+import { FleetLifeImages } from "./life-images.ts";
 import { createFleetLifeRuntime } from "./life-runtime.ts";
 import { FleetLifeTasks } from "./life-runtime-tasks.ts";
 import { AgentFleet, validAgentId } from "./manager.ts";
@@ -48,6 +52,8 @@ export type CodexFleetOptions = {
 	/** Trusted composition seam; never populated from HTTP or model arguments. */
 	createWorldAuthorEngine?: typeof createWorldAuthorEngine;
 	createLifeModel?: typeof createCodexLifeModel;
+	/** Trusted deterministic transport seam; never accepted from HTTP or model tools. */
+	createImageClient?: () => ImageClient;
 	lifeClock?: LifeClock;
 	createApp?: (
 		options: Omit<AppOptions, "engine">,
@@ -183,6 +189,32 @@ async function startUnlocked(
 		() => fleet.lifeForeground,
 	);
 	let fleet: AgentFleet;
+	let imageOwner: FleetLifeImages | undefined;
+	const imageOptions = {
+		...(env["LINA_IMA2_URL"] ? { baseUrl: env["LINA_IMA2_URL"] } : {}),
+		serverFile:
+			env["LINA_IMA2_SERVER_FILE"] ?? join(home, ".ima2", "server.json"),
+	};
+	const images = () => {
+		if (!imageOwner)
+			imageOwner = new FleetLifeImages({
+				world: fleet.lifeStorage,
+				agents: fleet.agents,
+				root: stateRoot,
+				clock: lifeClock ?? systemLifeClock,
+				foreground: fleet.lifeForeground,
+				assertInstallation() {
+					if (!ownsInstallation())
+						throw Error("Installation ownership required");
+				},
+				assertWorkCurrent: (worldId) =>
+					fleet.assertPublicationSourceCurrent(worldId),
+				createClient:
+					options.createImageClient ?? (() => new Ima2Client(imageOptions)),
+				changed: () => fleet.publicationChanged(),
+			});
+		return imageOwner;
+	};
 	const getSettings = () => fleet.modelSettings.snapshot();
 	const modelControl = hub.createModelControl(getSettings);
 	const subscriptions: (() => void)[] = [];
@@ -211,6 +243,7 @@ async function startUnlocked(
 			createLifeRuntime: (context) =>
 				createFleetLifeRuntime({
 					...context,
+					images: images(),
 					workSource: tasks,
 					stateRoot,
 					connection() {
@@ -300,6 +333,7 @@ async function startUnlocked(
 						].filter(existsSync);
 					const app = await startPersistentApp({
 						...appOptions,
+						imageEngine: imageOptions,
 						engine: createCodexEngine({
 							services: hub.createContextServices(
 								getSettings,
@@ -364,6 +398,10 @@ async function startUnlocked(
 		await tasks.restore();
 		server = await startFleetServer(fleet, port, resourceRoot, botId, {
 			lazy: true,
+			lifeImages: images,
+			generatedAvatarAuthority: (authority) =>
+				images().allowed(authority.candidate),
+			generatedAvatarApplication: (candidate) => images().allowed(candidate),
 			route: async (request, json) =>
 				(await hubRoutes(request, hub, json)) ??
 				taskRoutes(request, tasks, validOwner, json),
@@ -379,6 +417,7 @@ async function startUnlocked(
 	return {
 		port: server.port,
 		fleet,
+		images,
 		hub,
 		tasks,
 		async stop() {
@@ -386,6 +425,7 @@ async function startUnlocked(
 			stopped = true;
 			fleet.lifeForeground.set("shutdown", true);
 			for (const off of subscriptions.splice(0)) off();
+			await imageOwner?.close();
 			// LIFE drains and detaches its work bridge while the source journal is still open.
 			await server?.stop();
 			await tasks.close();
