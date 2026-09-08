@@ -24,7 +24,7 @@ for (const [label, sql] of [
 	],
 	["receipt result", "UPDATE resource_operations SET result='{}'"],
 	["missing version", "DELETE FROM resource_versions"],
-	["unknown schema", "PRAGMA user_version=2"],
+	["unknown schema", "PRAGMA user_version=999"],
 	["extra schema", "CREATE TABLE foreign_data(id INTEGER)"],
 ] as const)
 	test(`resource reopen refuses corrupt ${label} without rewriting it`, () => {

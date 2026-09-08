@@ -22,14 +22,19 @@ const bytesSchema = z
 		"resource input limit exceeded",
 	)
 	.transform((value) => Uint8Array.from(value));
-export const scopeSchema = z.strictObject({
-	principalId: identity,
-	agentId: identity,
-	allowedVisibilities: z
-		.array(visibility)
-		.max(2)
-		.refine((v) => new Set(v).size === v.length),
-});
+export const scopeSchema = z
+	.strictObject({
+		principalId: identity,
+		agentId: identity.nullable(),
+		allowedVisibilities: z
+			.array(visibility)
+			.max(2)
+			.refine((v) => new Set(v).size === v.length),
+	})
+	.refine(
+		(s) => s.agentId !== null || !s.allowedVisibilities.includes("private"),
+		"unattributed scope must be shared-only",
+	);
 export const refSchema = z.strictObject({
 	resourceId: uuid,
 	resourceRevision: counter.min(1),

@@ -33,7 +33,11 @@ import {
 	writeResource,
 	writeVersion,
 } from "./records.ts";
-import { initializeResources, verifyResourceSchema } from "./schema.ts";
+import {
+	initializeResources,
+	migrateResources,
+	verifyResourceSchema,
+} from "./schema.ts";
 import type {
 	Resource,
 	ResourceCreate,
@@ -62,6 +66,7 @@ export class ResourceStore {
 			initializeResources(db, fresh);
 			auditResources(db, this.content);
 			this.indexing = new ResourceIndex(db, generation);
+			migrateResources(db);
 			db.exec("COMMIT; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL");
 		} catch (error) {
 			if (db.isTransaction) db.exec("ROLLBACK");
