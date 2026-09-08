@@ -73,6 +73,7 @@ export class CompanionMemory {
 	private error: string | null = null;
 	private recallText = "";
 	private recallProofs: SourceProof[] = [];
+	private recallRevision: number | undefined;
 	constructor(
 		private readonly options: {
 			path: string;
@@ -118,6 +119,8 @@ export class CompanionMemory {
 	}
 	status(): MemorySnapshot {
 		if (
+			(this.recallText &&
+				this.recallRevision !== this.mind.currentRevision()) ||
 			!sourceProofsCurrent(this.recallProofs, (id) =>
 				this.options.journal.sourceEntry(id),
 			)
@@ -151,6 +154,7 @@ export class CompanionMemory {
 			this.closed ||
 			!text ||
 			text !== this.recallText ||
+			this.recallRevision !== this.mind.currentRevision() ||
 			!sourceProofsCurrent(this.recallProofs, (id) =>
 				this.options.journal.sourceEntry(id),
 			)
@@ -191,6 +195,7 @@ export class CompanionMemory {
 		this.recallProofs = records.length
 			? mergeProofs(...records.map((record) => record.sourceProofs))
 			: [];
+		this.recallRevision = state.revision;
 		this.recallText = renderMemoryReference({ ...state, records }, 4096, (id) =>
 			this.options.journal.sourceEntry(id),
 		);

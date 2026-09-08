@@ -77,6 +77,11 @@ export class EngineStore {
 	snapshot(): EngineSnapshot {
 		return this.read(false);
 	}
+	/** Cheap delivery guard; does not expose or cache mutable records. */
+	currentRevision(): number {
+		this.assertOpen();
+		return this.revision();
+	}
 	state(): EngineState {
 		return this.read(true);
 	}

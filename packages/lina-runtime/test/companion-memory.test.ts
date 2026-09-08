@@ -104,6 +104,50 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 
+test("a memory correction invalidates cached recall even when original source permissions stay valid", async () => {
+	const f = createRuntimeFixture();
+	const memory = new CompanionMemory({
+		path: join(f.root, "mind.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+	});
+	const lookup = (id: string) => f.store.sourceEntry(id);
+	const observe = (id: string, text: string) => {
+		f.store.createRequest(`request-${id}`, text);
+		entry(f, id, "user", text);
+		f.store.setRequest(`request-${id}`, "accepted", { entryId: id });
+		f.store.setRequest(`request-${id}`, "settled");
+		memory.mind.apply({
+			requestId: id,
+			expectedRevision: memory.mind.snapshot().revision,
+			sourceProofs: captureSourceProofs([id], lookup),
+			observations: [
+				{
+					subject: "user",
+					kind: "preference",
+					key: "drink",
+					text,
+					evidence: "explicit",
+					sources: [{ entryId: id, quote: text }],
+				},
+			],
+		});
+	};
+	try {
+		observe("tea", "Prefers tea");
+		const cached = await memory.recall("drink");
+		expect(cached).toContain("Prefers tea");
+		expect(memory.recallSourceProofs(cached)).toBeDefined();
+		observe("coffee", "Prefers coffee");
+		expect(memory.recallSourceProofs(cached)).toBeUndefined();
+		expect(memory.status().recallText).toBe("");
+		expect(await memory.recall("drink")).toContain("Prefers coffee");
+	} finally {
+		await memory.close();
+		await f.close();
+	}
+});
+
 // RED: separate assistant jobs included interrupted output and split settled episodes.
 test("only complete settled episodes include the last final assistant", async () => {
 	const f = createRuntimeFixture();
