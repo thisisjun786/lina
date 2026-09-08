@@ -106,3 +106,6 @@ TaskManager owner 인자는 실제 task에서만 생성한다. 도구 실행은 
 설정 변경 누적 후 교체 호출 한도가 소진되더라도 원문과 권한이 같은 기존 지식은 사라지지 않는다. 현재 generation의 ready 결과가 있으면 우선 쓰고, 없으면 동일 intent/source의 최신 ready 결과를 stale=true로 전달한다. 실패/성공 시도 누적 한도는 유지한다. 원문 revision·intent 또는 공개 범위가 바뀐 기억은 이 fallback에 포함하지 않는다. 이는 이전 초안의 generation 불일치 무조건 비노출을 대체한다.
 
 모델 전달값은 id/kind/text/quote/stale/complete/activityKind와 공통 URI/ref만 포함한다. 내부 generation/hash/claim/proposer 데이터는 host ledger에 남기고 context에서는 제외한다. 16개 짧은 기억이 기본 context 한도 안에 모두 들어가는 검사를 추가했다. pre-claim 실패는 저장된 pending/exhausted 상태를 그대로 보고하며 cancellation 이유를 따로 표시한다. ephemeral task consumer의 CodexHost는 외부 세션/서버를 만들지 않고 호출별 scope를 분리하는 도구 registry로 사용한다.
+
+
+C 잔여 조건 수정: 제목·폴더 등 메타데이터만 바뀐 연속 기록은 같은 원문 version의 이전 기억을 stale로 읽을 수 있다. 중간 operation에 bytes·visibility·deriveMemory·activityKind·deleted 변경이 하나라도 있으면 이 경로를 거부한다. 최신 resource 권한과 역사 version 권한은 그대로 검사한다. 따라서 반복 제목 변경은 기억을 없애지 않고, 취소 후 재활성화나 공개 범위 변경은 옛 기억을 자동 복원하지 않는다. 초기 C는 560개 테스트와 타입·린트·문서·CI·빌드를 통과했고, 이 추가 변경 뒤 새 receipt를 발급한다.

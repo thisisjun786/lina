@@ -283,3 +283,52 @@ test("generation exhaustion preserves previous source-valid knowledge with a sta
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("metadata-only revisions retain source-valid knowledge but explicit capture cancellation prevents fallback", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-memory-rename-")),
+		store = new ResourceStore(root, limits);
+	try {
+		let r = store.create(scope, {
+			operationId: "capture",
+			kind: "document",
+			title: "Notes",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("Evidence"),
+			deriveMemory: true,
+		});
+		const j = store.memories.jobs(scope, r.id)[0];
+		if (!j) throw Error("nojob");
+		store.memories.complete(
+			scope,
+			store.memories.prepare(scope, j.id, "Evidence"),
+			[{ kind: "observation", text: "Knowledge", quote: "Evidence" }],
+		);
+		for (let i = 0; i < 4; i++)
+			r = store.update(scope, {
+				id: r.id,
+				operationId: `rename${i}`,
+				expectedRevision: r.revision,
+				title: `Notes ${i}`,
+			});
+		expect(store.memories.list(scope, r.id)).toMatchObject([
+			{ text: "Knowledge", stale: true },
+		]);
+		r = store.update(scope, {
+			id: r.id,
+			operationId: "off",
+			expectedRevision: r.revision,
+			deriveMemory: false,
+		});
+		r = store.update(scope, {
+			id: r.id,
+			operationId: "on",
+			expectedRevision: r.revision,
+			deriveMemory: true,
+		});
+		expect(store.memories.list(scope, r.id)).toEqual([]);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

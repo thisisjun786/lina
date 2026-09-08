@@ -470,6 +470,35 @@ export class ResourceMemories {
 			fingerprint: z.string().length(64).parse(row["fingerprint"]),
 		};
 	}
+	private readableHistory(scope: ResourceScope, j: ResourceMemoryJob): boolean {
+		const i = this.intent(j.resourceId);
+		if (!i?.enabled) return false;
+		const r = this.owner.get(scope, j.resourceId);
+		if (
+			r.revision < j.ref.resourceRevision ||
+			r.currentVersion !== j.ref.versionId ||
+			!this.owner.current(scope, [{ ...j.ref, resourceRevision: r.revision }])
+		)
+			return false;
+		if (r.revision === j.ref.resourceRevision)
+			return i.revision === j.intentRevision;
+		// Only metadata-only revisions may retain knowledge. Visibility or capture changes are disclosure boundaries.
+		return this.db
+			.prepare(
+				"SELECT input FROM resource_operations WHERE resource_id=? AND revision>? ORDER BY revision",
+			)
+			.all(r.id, j.ref.resourceRevision)
+			.every((row) => {
+				const input = JSON.parse(String(row["input"]));
+				return (
+					input.bytes === null &&
+					input.visibility === undefined &&
+					input.deriveMemory === undefined &&
+					input.activityKind === undefined &&
+					!input.deleted
+				);
+			});
+	}
 	list(rawScope: ResourceScope, id: string): ResourceMemory[] {
 		const scope = scopeSchema.parse(rawScope);
 		this.owner.get(scope, id);
@@ -479,13 +508,9 @@ export class ResourceMemories {
 			)
 			.all(id)
 			.map((r) => this.job(String(r["id"])));
-		const intent = this.intent(id);
+
 		const candidates = ready.filter(
-			(j) =>
-				j.state === "ready" &&
-				intent?.enabled &&
-				intent.revision === j.intentRevision &&
-				this.owner.current(scope, [j.ref]),
+			(j) => j.state === "ready" && this.readableHistory(scope, j),
 		);
 		const job = candidates.find((j) => this.current(scope, j)) ?? candidates[0];
 		if (!job) return [];
