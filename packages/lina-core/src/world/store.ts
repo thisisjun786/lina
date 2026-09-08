@@ -4,9 +4,12 @@ import { openCheckedDatabase } from "../session-binding.ts";
 import { AuthoringPersistence } from "./authoring-persistence.ts";
 import { AuthoringRequests } from "./authoring-requests.ts";
 import type { WorldAuthoringPort } from "./authoring-types.ts";
+import { LifeModelReceipts } from "./autonomy-model-receipts.ts";
 import { AutonomyPersistence } from "./autonomy-persistence.ts";
 import type { WorldAutonomyPort } from "./autonomy-store-types.ts";
+import type { AutonomySource, LifeStep } from "./autonomy-types.ts";
 import { projectContext, validateContextLimits } from "./context.ts";
+import { lifeDigest, revision } from "./life-json.ts";
 import { LifePersistence } from "./life-persistence.ts";
 import type {
 	AdmissionReceipt,
@@ -32,6 +35,44 @@ import {
 	parseLifeDefinition,
 	parseLifeInput,
 } from "./life-validation.ts";
+import { PublicationExecution } from "./publication.ts";
+import {
+	derivePublicationAncestry,
+	PublicationAncestry,
+	parsePublicationAncestry,
+} from "./publication-ancestry.ts";
+import {
+	applyPublicationBudget,
+	assertPublicationBudget,
+	assertPublicationBudgetCurrent,
+	freezePublicationBudget,
+	parsePublicationBudget,
+} from "./publication-budget.ts";
+import { PublicationChains } from "./publication-chains.ts";
+import { PublicationCursors } from "./publication-cursors.ts";
+import { PublicationEvidence } from "./publication-evidence.ts";
+import { PublicationFeed } from "./publication-feed.ts";
+import { PublicationGrants } from "./publication-grants.ts";
+import type { PublicationAuthority } from "./publication-input.ts";
+import { PublicationInteractions } from "./publication-interactions.ts";
+import { PublicationJobs } from "./publication-jobs.ts";
+import { selectPublicationMaterial } from "./publication-material.ts";
+import { PublicationPersistence } from "./publication-persistence.ts";
+import { PublicationPosts } from "./publication-posts.ts";
+import { selectPublicationReplyMaterial } from "./publication-reply-material.ts";
+import { publicationReplyParent } from "./publication-reply-parents.ts";
+import { PublicationReplyPosts } from "./publication-reply-posts.ts";
+import { PublicationRuns } from "./publication-runs.ts";
+import { auditPublicationJobSource } from "./publication-sources.ts";
+import type {
+	EventPublicationMaterial,
+	PublicationJob,
+	PublicationMaterial,
+	PublicationSettings,
+	PublicationSettingsInput,
+	ReplyPublicationMaterial,
+	ReplyPublicationPost,
+} from "./publication-types.ts";
 import { initializeWorldSchema } from "./schema.ts";
 import { SocialPersistence } from "./social-persistence.ts";
 import type { WorldSocialPort } from "./social-store-types.ts";
@@ -52,6 +93,7 @@ import {
 	text,
 } from "./validation.ts";
 import { projectPublication } from "./views.ts";
+import { workSubjectAllowed } from "./work-ancestry.ts";
 import { WorkPersistence } from "./work-persistence.ts";
 import type { WorkEvidenceSnapshot, WorkSubject } from "./work-types.ts";
 
@@ -116,6 +158,20 @@ export class WorldStore
 	private readonly author: AuthoringPersistence;
 	private readonly suggestions: AuthoringRequests;
 	private readonly work: WorkPersistence;
+	private readonly publications: PublicationPersistence;
+	private readonly publicationGrants: PublicationGrants;
+	private readonly publicationJobs: PublicationJobs;
+	private readonly publicationRuns: PublicationRuns;
+	private readonly publicationExecution: PublicationExecution;
+	private readonly publicationPosts: PublicationPosts;
+	private readonly publicationFeedReader: PublicationFeed;
+	private readonly publicationCursors: PublicationCursors;
+	private readonly publicationChains: PublicationChains;
+	private readonly publicationModels: LifeModelReceipts;
+	private readonly publicationInteractions: PublicationInteractions;
+	private readonly publicationReplyPosts: PublicationReplyPosts;
+	private readonly publicationEvidence: PublicationEvidence;
+	private readonly publicationAncestry: PublicationAncestry;
 	private closed = false;
 	readonly acquireLifeLease: WorldAutonomyPort["acquireLifeLease"] = (
 		worldId,
@@ -374,8 +430,62 @@ export class WorldStore
 				workAncestry: (worldId, revision) =>
 					this.work.ancestry(worldId, revision),
 				recordWorkStep: (step) => this.work.recordStep(step),
+				recordPublicationStep: (step) => {
+					this.publicationStepCharges(step, false);
+					this.publicationAncestry.record(
+						step.worldId,
+						derivePublicationAncestry(step),
+					);
+				},
 				workInputsAt: (worldId, workRevision, lifeRevision) =>
 					this.work.inputsAt(worldId, workRevision, lifeRevision),
+				publication: (source) => this.publicationEvidence.freeze(source),
+				publicationBudget: (source) =>
+					freezePublicationBudget(
+						source,
+						this.publicationChains.snapshot(source.pack.worldId),
+						this.publications.settings(source.pack.worldId),
+					),
+				verifyPublicationBudget: (source, current) => {
+					const budget = parsePublicationBudget(source.publicationBudget),
+						worldId = source.pack.worldId;
+					assertPublicationBudget(
+						source,
+						this.publicationChains.snapshot(worldId, budget.chain.revision),
+						budget.settingsRevision === 0
+							? null
+							: this.publications.settingsAt(worldId, budget.settingsRevision),
+					);
+					if (current)
+						assertPublicationBudgetCurrent(
+							source,
+							this.publicationChains.snapshot(worldId),
+						);
+				},
+				verifyPublication: (source, snapshot) =>
+					this.publicationEvidence.verify(source, snapshot),
+				assertPublicationCurrent: (source, snapshot) =>
+					this.publicationEvidence.assertCurrent(source, snapshot),
+				publicationAncestry: (worldId, lifeRevision) =>
+					this.publicationAncestry.list(worldId, lifeRevision),
+				publicationInputsAt: (worldId, frontier, lifeRevision) => {
+					const ids = new Set(
+						this.publicationInteractions
+							.observationSnapshot(worldId, frontier)
+							.records.map((record) => record.inputId),
+					);
+					return this.life
+						.inputs(worldId)
+						.filter((input) => input.version === 3 && ids.has(input.id))
+						.map((input) => ({
+							...input,
+							consumedLifeRevision:
+								input.consumedLifeRevision !== null &&
+								input.consumedLifeRevision <= lifeRevision
+									? input.consumedLifeRevision
+									: null,
+						}));
+				},
 				accept: (commit, identity) => this.life.accept(commit, identity),
 				social: (worldId, requestId, source) =>
 					this.social.getAt(worldId, requestId, source),
@@ -393,6 +503,236 @@ export class WorldStore
 			inputs: (worldId) => this.life.inputs(worldId),
 			admit: (input) => this.life.admit(input),
 		});
+		this.publications = new PublicationPersistence(
+			this.db,
+			(worldId) => this.life.definition(worldId),
+			(worldId, version) => this.author.worldPack(worldId, version),
+		);
+		this.publicationGrants = new PublicationGrants(this.db, (worldId) => {
+			const settings = this.publications.settings(worldId),
+				config = this.author.lifeConfig(worldId);
+			return settings && config.publication
+				? {
+						settingsRevision: settings.revision,
+						recipientIds: config.publication.recipientIds,
+					}
+				: null;
+		});
+		this.publicationJobs = new PublicationJobs(this.db);
+		this.publicationRuns = new PublicationRuns(this.db);
+		this.publicationPosts = new PublicationPosts(this.db, this.publicationJobs);
+		this.publicationChains = new PublicationChains(this.db);
+		this.publicationInteractions = new PublicationInteractions(this.db, {
+			generated: (...args) => this.generatedPublicationPost(...args),
+			parent: (...args) => this.publicationFeedReader.parent(...args),
+			agents: (worldId, parent) => {
+				const active = this.currentPublicationAgents(worldId);
+				return (this.publications.settings(worldId)?.agentRecipients ?? [])
+					.filter(
+						(mapping) =>
+							active.includes(mapping.agentId) &&
+							parent.audience.includes(mapping.recipientId) &&
+							this.publicationFeedReader.parent(
+								worldId,
+								{ kind: "agent", agentId: mapping.agentId },
+								parent.id,
+							),
+					)
+					.map((mapping) => mapping.agentId);
+			},
+			lifeRevision: (worldId) => this.life.snapshot(worldId).revision,
+			settingsRevision: (worldId) => {
+				const settings = this.publications.settings(worldId);
+				if (!settings) throw Error("Publication settings unavailable");
+				return settings.revision;
+			},
+			now: this.now,
+			reactionAllowed: (worldId, reactionId) =>
+				this.publications.settings(worldId)?.reactionIds.includes(reactionId) ??
+				false,
+			charge: (
+				worldId,
+				key,
+				roots,
+				principal,
+				lifeRevision,
+				settingsRevision,
+			) => {
+				const settings = this.publications.settingsAt(
+					worldId,
+					settingsRevision,
+				);
+				return this.publicationChains.charge(
+					worldId,
+					key,
+					roots,
+					`actor-${lifeDigest(principal)}`,
+					lifeRevision,
+					{
+						maxChainDepth: settings.maxChainDepth,
+						maxActionsPerChain: settings.maxActionsPerChain,
+						perAuthorCooldownSteps: settings.perAuthorCooldownSteps,
+					},
+					principal.kind === "agent",
+				).charged;
+			},
+			admit: (input) => this.life.admit(input),
+			input: (worldId, inputId) =>
+				this.life.inputs(worldId).find((input) => input.id === inputId) ?? null,
+			createPost: (interaction) => {
+				this.publicationReplyPosts.create(interaction);
+			},
+		});
+		this.publicationReplyPosts = new PublicationReplyPosts(this.db, {
+			interaction: (worldId, id) =>
+				this.publicationInteractions.get(worldId, id),
+		});
+		this.publicationEvidence = new PublicationEvidence({
+			observations: (worldId, at) =>
+				this.publicationInteractions.observationSnapshot(worldId, at),
+			settingsRevision: (worldId, at) =>
+				at === undefined
+					? (this.publications.settings(worldId)?.revision ?? 0)
+					: at === 0
+						? 0
+						: this.publications.settingsAt(worldId, at).revision,
+			grant: (worldId, id, at) => {
+				const grant =
+					at === undefined
+						? this.publicationGrants.get(worldId, id)
+						: this.publicationGrants.at(worldId, id, at);
+				return { id: grant.id, revision: grant.revision };
+			},
+			post: (worldId, id, at) => {
+				const post = at
+					? at.kind === "post"
+						? this.publicationPosts.at(worldId, id, at.revision)
+						: this.publicationReplyPosts.at(worldId, id, at.revision)
+					: (this.publicationPosts.get(worldId, id) ??
+						this.publicationReplyPosts.get(worldId, id));
+				if (!post) throw Error("Missing publication source post");
+				return "parentPostId" in post
+					? {
+							id: post.id,
+							kind: "reply",
+							revision: post.revision,
+							parentId: post.parentPostId,
+						}
+					: {
+							id: post.id,
+							kind: "post",
+							revision: post.revision,
+							parentId:
+								post.version === 2 ? post.material.source.parentPostId : null,
+							...(post.version === 2
+								? {
+										grantIds: post.material.authority.grants.map(
+											(grant) => grant.id,
+										),
+									}
+								: {}),
+						};
+			},
+			view: (source, authority) => {
+				const reader = this.publicationFeedFor(source, authority);
+				// This reader exists for one immutable authority proof inside the caller's transaction.
+				// Principals authenticate separately, but equal recipients share the same parent visibility.
+				const visibility = new Map<string, boolean>();
+				return {
+					visible: (principal, postId) => {
+						try {
+							const recipient = reader.recipient(
+									source.pack.worldId,
+									principal,
+								),
+								key = JSON.stringify([recipient, postId]);
+							const cached = visibility.get(key);
+							if (cached !== undefined) return cached;
+							const allowed =
+								reader.parent(source.pack.worldId, principal, postId) !== null;
+							visibility.set(key, allowed);
+							return allowed;
+						} catch (error) {
+							if (
+								error instanceof Error &&
+								error.message === "Publication principal forbidden"
+							)
+								return false;
+							throw error;
+						}
+					},
+				};
+			},
+		});
+		this.publicationAncestry = new PublicationAncestry(this.db);
+		this.publicationModels = new LifeModelReceipts(
+			this.db,
+			this.now,
+			"publication",
+		);
+		this.publicationExecution = new PublicationExecution(
+			this.publications,
+			this.publicationJobs,
+			this.publicationRuns,
+			this.publicationModels,
+			this.autonomy.schedules,
+			{
+				config: (worldId) => this.author.lifeConfig(worldId),
+				configAt: (worldId, revision) =>
+					this.author.lifeConfigAt(worldId, revision),
+				activeAgents: (worldId) => this.currentPublicationAgents(worldId),
+				auditSource: (job) => this.publicationJobSourceExists(job),
+				effects: (worldId) => this.life.effects(worldId),
+				material: (...args) => this.selectPublicationMaterial(...args),
+				replyParents: (worldId) =>
+					[
+						...this.publicationPosts.list(worldId),
+						...this.publicationReplyPosts.list(worldId),
+					].map((post) => post.id),
+				replyMaterial: (...args) =>
+					this.selectPublicationReplyMaterial(...args),
+				canPublish: (job) => this.chargePublicationPost(job, false),
+				publish: (job) => {
+					if (!this.chargePublicationPost(job, true)) return null;
+					const post = this.publicationPosts.publish(
+						job,
+						this.now(),
+						this.life.snapshot(job.worldId).revision,
+						this.publicationEventRoots(job),
+					);
+					if (post.version === 2)
+						this.publicationInteractions.generatedReply(
+							job.worldId,
+							job.id,
+							post.id,
+						);
+					return post;
+				},
+				historical: (material) =>
+					material.version === 2
+						? this.selectPublicationReplyMaterial(
+								material.worldId,
+								material.source.parentPostId,
+								material.authorAgentId,
+								material.audience[0] ?? "",
+								material.limits,
+								material,
+							)
+						: this.selectPublicationMaterial(
+								material.worldId,
+								material.source.intentId,
+								material.authorAgentId,
+								material.audience,
+								material.limits,
+								material,
+							),
+			},
+		);
+		this.publicationFeedReader = this.publicationFeedFor();
+		this.publicationCursors = new PublicationCursors(
+			this.db,
+			this.publicationFeedReader,
+		);
 		let transactionStarted = false;
 		try {
 			this.db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000");
@@ -401,13 +741,28 @@ export class WorldStore
 			initializeWorldSchema(
 				this.db,
 				() => this.auditWorld(),
-				() => this.audit(false, false, false, false),
-				() => this.audit(true, false, false, false),
-				() => this.audit(true, true, false, false),
-				() => this.audit(true, true, true, false),
+				() => this.audit(false, false, false, false, false),
+				() => this.audit(true, false, false, false, false),
+				() => this.audit(true, true, false, false, false),
+				() => this.audit(true, true, true, false, false),
 				() => {
 					for (const row of this.db.prepare("SELECT id FROM worlds").all())
 						this.work.configure(this.author.lifeConfig(String(row["id"])));
+				},
+				() => this.audit(true, true, true, true, false),
+				() => {
+					for (const row of this.db
+						.prepare(
+							"SELECT world_id,step_id FROM life_steps WHERE accepted_life_revision IS NOT NULL ORDER BY world_id,accepted_life_revision",
+						)
+						.all()) {
+						const worldId = String(row["world_id"]),
+							step = this.autonomy.get(worldId, String(row["step_id"]));
+						this.publicationAncestry.record(
+							worldId,
+							derivePublicationAncestry(step),
+						);
+					}
 				},
 			);
 			this.audit();
@@ -574,8 +929,8 @@ export class WorldStore
 	}
 	admitLifeInput(input: LifeInput): AdmissionReceipt {
 		const parsed = parseLifeInput(input);
-		if (parsed.version === 2)
-			throw Error("Trusted work bridge admission required");
+		if (parsed.version !== 1)
+			throw Error("Trusted work or publication admission required");
 		return this.transaction(() => this.life.admit(parsed));
 	}
 	/** Trusted source bridge only; never registered as a model tool or step-body field. */
@@ -590,6 +945,835 @@ export class WorldStore
 		});
 	}
 
+	mintPublicationViewer(
+		worldId: string,
+		input: Parameters<PublicationGrants["mint"]>[1],
+	) {
+		return this.transaction(() => this.publicationGrants.mint(worldId, input));
+	}
+	revokePublicationViewer(
+		worldId: string,
+		grantId: string,
+		input: Parameters<PublicationGrants["revoke"]>[2],
+	) {
+		return this.transaction(() => {
+			const grant = this.publicationGrants.revoke(worldId, grantId, input);
+			this.autonomy.invalidatePublication(worldId);
+			return grant;
+		});
+	}
+	authenticatePublicationViewer(worldId: string, token: string) {
+		return this.transaction(
+			() => this.publicationGrants.authenticate(worldId, token),
+			false,
+		);
+	}
+	publicationJob(worldId: string, jobId: string) {
+		return this.transaction(
+			() => this.publicationJobs.get(worldId, jobId),
+			false,
+		);
+	}
+	publicationModelRecords(worldId: string, jobId: string) {
+		return this.transaction(() => {
+			this.publicationJobs.get(worldId, jobId);
+			return this.publicationModels.list(worldId, jobId);
+		}, false);
+	}
+	/** Shared accounting and lease reads do not require or start autonomous simulation. */
+	publicationExecutionStatus(worldId: string) {
+		return this.transaction(
+			() => ({
+				usage: this.publicationModels.usage(
+					worldId,
+					this.author.lifeConfig(worldId),
+				),
+				schedule: this.autonomy.schedules.get(worldId),
+			}),
+			false,
+		);
+	}
+	/** Final native step gateway rechecks current publication authority without starting work. */
+	assertPublicationEvidenceCurrent(worldId: string, stepId: string): void {
+		this.transaction(() => {
+			this.autonomy.get(worldId, stepId, true);
+		}, false);
+	}
+	beginPublicationRun(...args: Parameters<PublicationExecution["begin"]>) {
+		return this.transaction(() => this.publicationExecution.begin(...args));
+	}
+	automaticPublicationInput(worldId: string) {
+		return this.transaction(
+			() => this.publicationExecution.automaticInput(worldId),
+			false,
+		);
+	}
+	freezePublicationJob(...args: Parameters<PublicationExecution["freeze"]>) {
+		return this.transaction(() => this.publicationExecution.freeze(...args));
+	}
+	assertPublicationCurrent(
+		...args: Parameters<PublicationExecution["assertCurrent"]>
+	) {
+		return this.transaction(
+			() => this.publicationExecution.assertCurrent(...args),
+			false,
+		);
+	}
+	assertPublicationDispatch(
+		...args: Parameters<PublicationExecution["assertDispatch"]>
+	) {
+		return this.transaction(
+			() => this.publicationExecution.assertDispatch(...args),
+			false,
+		);
+	}
+	assertPublicationOutbound(
+		...args: Parameters<PublicationExecution["assertOutbound"]>
+	) {
+		return this.transaction(
+			() => this.publicationExecution.assertOutbound(...args),
+			false,
+		);
+	}
+	assertLifeModelOutbound(
+		...args: Parameters<AutonomyPersistence["assertModelOutbound"]>
+	) {
+		return this.transaction(
+			() => this.autonomy.assertModelOutbound(...args),
+			false,
+		);
+	}
+	preparePublicationModel(
+		...args: Parameters<PublicationExecution["prepare"]>
+	) {
+		return this.transaction(() => this.publicationExecution.prepare(...args));
+	}
+	dispatchPublicationModel(
+		...args: Parameters<PublicationExecution["dispatch"]>
+	) {
+		return this.transaction(() => this.publicationExecution.dispatch(...args));
+	}
+	finishPublicationModel(...args: Parameters<PublicationExecution["finish"]>) {
+		return this.transaction(() => this.publicationExecution.finish(...args));
+	}
+	retryPublicationJob(...args: Parameters<PublicationExecution["retry"]>) {
+		return this.transaction(() => this.publicationExecution.retry(...args));
+	}
+	failPublicationJob(...args: Parameters<PublicationExecution["fail"]>) {
+		return this.transaction(() => this.publicationExecution.fail(...args));
+	}
+	advancePublicationRun(...args: Parameters<PublicationExecution["advance"]>) {
+		return this.transaction(() => this.publicationExecution.advance(...args));
+	}
+	publicationRun(worldId: string, runId: string) {
+		return this.transaction(
+			() => this.publicationRuns.get(worldId, runId),
+			false,
+		);
+	}
+	pendingPublicationRuns(worldId: string) {
+		return this.transaction(() => this.publicationRuns.pending(worldId), false);
+	}
+	completePublicationJob(
+		...args: Parameters<PublicationExecution["complete"]>
+	) {
+		return this.transaction(() => this.publicationExecution.complete(...args));
+	}
+	withdrawPublicationPost(...args: Parameters<PublicationPosts["withdraw"]>) {
+		return this.transaction(() => {
+			const post = this.publicationPosts.get(args[0], args[1])
+				? this.publicationPosts.withdraw(...args)
+				: this.publicationReplyPosts.withdraw(...args);
+			this.autonomy.invalidatePublication(args[0]);
+			return post;
+		});
+	}
+	replyToPublication(...args: Parameters<PublicationInteractions["reply"]>) {
+		return this.transaction(() => {
+			const result = this.publicationInteractions.reply(...args);
+			this.autonomy.invalidatePublication(args[0]);
+			return result;
+		});
+	}
+	reactToPublication(...args: Parameters<PublicationInteractions["react"]>) {
+		return this.transaction(() => {
+			const result = this.publicationInteractions.react(...args);
+			this.autonomy.invalidatePublication(args[0]);
+			return result;
+		});
+	}
+	resharePublication(...args: Parameters<PublicationInteractions["reshare"]>) {
+		return this.transaction(() => {
+			const result = this.publicationInteractions.reshare(...args);
+			this.autonomy.invalidatePublication(args[0]);
+			return result;
+		});
+	}
+	publicationFeed(...args: Parameters<PublicationFeed["query"]>) {
+		return this.transaction(
+			() => this.publicationFeedReader.query(...args),
+			false,
+		);
+	}
+	publicationPost(...args: Parameters<PublicationFeed["post"]>) {
+		return this.transaction(
+			() => this.publicationFeedReader.post(...args),
+			false,
+		);
+	}
+	publicationReadCursor(...args: Parameters<PublicationCursors["get"]>) {
+		return this.transaction(() => this.publicationCursors.get(...args), false);
+	}
+	setPublicationReadCursor(...args: Parameters<PublicationCursors["set"]>) {
+		return this.transaction(() => this.publicationCursors.set(...args));
+	}
+	publicationSettings(worldId: string): PublicationSettings | null {
+		return this.transaction(() => {
+			this.snapshot(worldId);
+			return this.publications.settings(worldId);
+		}, false);
+	}
+	setPublicationSettings(
+		worldId: string,
+		expectedRevision: number,
+		input: PublicationSettingsInput,
+	): PublicationSettings {
+		return this.transaction(() => {
+			const settings = this.publications.setSettings(
+				worldId,
+				expectedRevision,
+				input,
+			);
+			this.autonomy.invalidatePublication(worldId);
+			return settings;
+		});
+	}
+	/** Current agent authority; only worlds without an authored pack use legacy participants. */
+	activePublicationAgents(worldId: string): string[] {
+		return this.transaction(
+			() => this.currentPublicationAgents(worldId),
+			false,
+		);
+	}
+	private currentPublicationAgents(worldId: string): string[] {
+		const definition = this.life.definition(worldId);
+		const pack = this.author.currentPack(worldId);
+		return definition.participants.filter(
+			(agentId) =>
+				!pack ||
+				pack.roles.some(
+					(role) => role.agentId === agentId && role.status === "active",
+				),
+		);
+	}
+	/** Trusted publication job owner only. Feed handlers cannot choose an author or audience. */
+	publicationMaterial(
+		worldId: string,
+		intentId: string,
+		authorAgentId: string,
+		recipientIds: string[],
+		limits: LifeViewLimits,
+	): EventPublicationMaterial | null {
+		return this.transaction(() => {
+			if (!this.currentPublicationAgents(worldId).includes(authorAgentId))
+				return null;
+			return this.selectPublicationMaterial(
+				worldId,
+				intentId,
+				authorAgentId,
+				recipientIds,
+				limits,
+			);
+		}, false);
+	}
+	publicationReplyMaterial(
+		worldId: string,
+		parentPostId: string,
+		authorAgentId: string,
+		recipientId: string,
+		limits: LifeViewLimits,
+	): ReplyPublicationMaterial | null {
+		return this.transaction(
+			() =>
+				this.selectPublicationReplyMaterial(
+					worldId,
+					parentPostId,
+					authorAgentId,
+					recipientId,
+					limits,
+				),
+			false,
+		);
+	}
+	private selectPublicationReplyMaterial(
+		worldId: string,
+		parentPostId: string,
+		authorAgentId: string,
+		recipientId: string,
+		limits: LifeViewLimits,
+		historical?: ReplyPublicationMaterial,
+	): ReplyPublicationMaterial | null {
+		for (const value of [worldId, parentPostId, authorAgentId, recipientId])
+			id(value);
+		const settings = historical
+				? this.publications.settingsAt(worldId, historical.settingsRevision)
+				: this.publications.settings(worldId),
+			config = historical
+				? this.author.lifeConfigAt(worldId, historical.configRevision)
+				: this.author.lifeConfig(worldId);
+		const life = historical
+				? this.life.snapshotAt(worldId, historical.source.lifeRevision)
+				: this.life.snapshot(worldId),
+			world = this.rebuild(
+				this.snapshot(worldId).definition,
+				life.worldRevision,
+			);
+		const definition = historical
+			? this.life.definitionRevision(worldId, historical.definitionRevision)
+			: this.life.definition(worldId);
+		const activeAgents = historical
+			? this.publicationAgentsAt(world, definition)
+			: this.currentPublicationAgents(worldId);
+		if (
+			!settings ||
+			!activeAgents.includes(authorAgentId) ||
+			!config.publication?.recipientIds.includes(recipientId) ||
+			!settings.agentRecipients.some(
+				(row) =>
+					row.agentId === authorAgentId && row.recipientId === recipientId,
+			)
+		)
+			return null;
+		const feed = historical
+			? this.publicationFeedFor(undefined, historical.authority, historical)
+			: this.publicationFeedReader;
+		const parent = publicationReplyParent(
+			{
+				posts: this.publicationPosts,
+				replies: this.publicationReplyPosts,
+				jobs: this.publicationJobs,
+				interactions: this.publicationInteractions,
+				grants: this.publicationGrants,
+				feed,
+			},
+			worldId,
+			parentPostId,
+			authorAgentId,
+			recipientId,
+			settings.revision,
+			historical?.authority,
+		);
+		if (!parent) return null;
+		return selectPublicationReplyMaterial({
+			world,
+			life,
+			definition,
+			config,
+			settings,
+			activeAgents,
+			agentId: authorAgentId,
+			recipientId,
+			work: this.work.snapshot(worldId, historical?.workRevision),
+			workAncestryRevision: Math.max(
+				0,
+				...this.work
+					.ancestry(worldId, historical?.workAncestryRevision)
+					.map((row) => row.lifeRevision),
+			),
+			limits,
+			parent,
+		});
+	}
+	private publicationAgentsAt(
+		world: WorldSnapshot,
+		definition: LifeDefinition,
+	): string[] {
+		const row = this.db
+			.prepare("SELECT version FROM world_packs WHERE world_id=? AND version=?")
+			.get(world.definition.id, world.definition.version);
+		if (!row) return definition.participants;
+		const pack = this.author.worldPack(
+			world.definition.id,
+			world.definition.version,
+		);
+		return definition.participants.filter((agentId) =>
+			pack.roles.some(
+				(role) => role.agentId === agentId && role.status === "active",
+			),
+		);
+	}
+	private publicationStepCharges(step: LifeStep, historical: boolean): void {
+		if (step.version !== 3) return;
+		const budget = parsePublicationBudget(step.source.publicationBudget);
+		if (!step.outcome) throw Error("Missing publication step outcome");
+		for (const action of applyPublicationBudget(
+			step,
+			structuredClone(step.outcome.nextState),
+		)) {
+			if (!budget.limits) throw Error("Missing publication step limits");
+			const args = [
+				step.worldId,
+				`pubcausal-${lifeDigest([step.id, action.kind, action.id])}`,
+				action.roots,
+				`life-${lifeDigest(step.worldId)}`,
+				step.source.life.revision + 1,
+				budget.limits,
+				false,
+			] as const;
+			const charged = historical
+				? this.publicationChains.hasCharge(...args)
+				: this.publicationChains.charge(...args).charged;
+			if (!charged) throw Error("Missing publication causal activity receipt");
+		}
+	}
+	private publicationEventRoots(
+		job: import("./publication-types.ts").PublicationJob,
+	) {
+		if (!job.material) throw Error("Missing publication material");
+		if (job.material.version === 2)
+			return job.material.parentRoots.map((root) => ({
+				...root,
+				depth: revision(root.depth + 1, 1),
+			}));
+		const eventId = job.material.source.eventId;
+		const row = this.db
+			.prepare(
+				"SELECT step_id FROM life_steps WHERE world_id=? AND accepted_life_revision=?",
+			)
+			.get(job.worldId, job.material.source.lifeRevision);
+		if (row) {
+			const ancestry = this.publicationAncestry
+				.list(job.worldId)
+				.find((record) => record.kind === "event" && record.id === eventId);
+			if (!ancestry) throw Error("Missing publication event ancestry");
+			if (ancestry.roots.length)
+				return ancestry.roots.map((root) => ({
+					...root,
+					depth: revision(root.depth + 1, 1),
+				}));
+		}
+
+		return [
+			{
+				rootId: `chain-${lifeDigest({ worldId: job.worldId, eventId: job.material.source.eventId })}`,
+				depth: 0,
+			},
+		];
+	}
+	private chargePublicationPost(
+		job: import("./publication-types.ts").PublicationJob,
+		write: boolean,
+	): boolean {
+		const settings = this.publications.settings(job.worldId);
+		if (!settings) return false;
+		const args = [
+			job.worldId,
+			`publication-${job.id}`,
+			this.publicationEventRoots(job),
+			`actor-${lifeDigest({ kind: "agent", agentId: job.authorAgentId })}`,
+			this.life.snapshot(job.worldId).revision,
+			{
+				maxChainDepth: settings.maxChainDepth,
+				maxActionsPerChain: settings.maxActionsPerChain,
+				perAuthorCooldownSteps: settings.perAuthorCooldownSteps,
+			},
+			true,
+		] as const;
+		return write
+			? this.publicationChains.charge(...args).charged
+			: this.publicationChains.canCharge(...args);
+	}
+	/** The observation owner reuses this exact post and its existing charge, including on recovery. */
+	private generatedPublicationPost(
+		worldId: string,
+		jobId: string,
+		postId: string,
+		historical: boolean,
+	): ReplyPublicationPost | null {
+		const post = historical
+			? this.publicationPosts.at(worldId, postId, 1)
+			: this.publicationPosts.get(worldId, postId);
+		if (post?.version !== 2 || post.jobId !== jobId || post.withdrawn)
+			return null;
+		if (
+			!historical &&
+			!this.publicationFeedReader.content(
+				worldId,
+				{ kind: "agent", agentId: post.author.agentId },
+				postId,
+			)
+		)
+			return null;
+		const job = this.publicationJobs.get(worldId, jobId);
+		if (
+			job.version !== 2 ||
+			!["ready", "published"].includes(job.status) ||
+			job.attemptId !== post.attemptId ||
+			lifeDigest(job.material) !== lifeDigest(post.material)
+		)
+			return null;
+		const settings = this.publications.settingsAt(
+			worldId,
+			post.material.settingsRevision,
+		);
+		if (
+			!this.publicationChains.hasCharge(
+				worldId,
+				`publication-${job.id}`,
+				post.roots,
+				`actor-${lifeDigest({ kind: "agent", agentId: job.authorAgentId })}`,
+				post.createdLifeRevision,
+				{
+					maxChainDepth: settings.maxChainDepth,
+					maxActionsPerChain: settings.maxActionsPerChain,
+					perAuthorCooldownSteps: settings.perAuthorCooldownSteps,
+				},
+				true,
+			)
+		)
+			return null;
+		return post;
+	}
+	private publicationReplyGrantMaterial(
+		material: ReplyPublicationMaterial,
+		authority?: PublicationAuthority,
+	): ReplyPublicationMaterial | null {
+		const settingsRevision =
+			authority?.settingsRevision ??
+			this.publications.settings(material.worldId)?.revision ??
+			0;
+		for (const original of material.authority.grants) {
+			const ref = authority?.grants.find((grant) => grant.id === original.id);
+			if (authority && !ref)
+				throw Error("Missing generated reply grant reference");
+			const grant = ref
+				? this.publicationGrants.at(material.worldId, ref.id, ref.revision)
+				: this.publicationGrants.get(material.worldId, original.id);
+			if (
+				grant.revoked ||
+				grant.settingsRevision > settingsRevision ||
+				!material.audience.includes(grant.recipientId)
+			)
+				return null;
+		}
+		return material;
+	}
+	/** Historical instances reuse the same audience/parent algorithm with exact frozen read ports. */
+	private publicationFeedFor(
+		source?: AutonomySource,
+		authority?: PublicationAuthority,
+		replyHistory?: ReplyPublicationMaterial,
+	): PublicationFeed {
+		if (!!(source || replyHistory) !== !!authority || (source && replyHistory))
+			throw Error("Missing historical publication authority");
+		if (source && !source.work)
+			throw Error("Missing historical publication work evidence");
+		const posts = new Map(authority?.posts.map((ref) => [ref.id, ref]) ?? []);
+		const grants = new Map(authority?.grants.map((ref) => [ref.id, ref]) ?? []);
+		const historical = !!(source || replyHistory);
+		const replyWorld = replyHistory
+			? this.rebuild(
+					this.snapshot(replyHistory.worldId).definition,
+					replyHistory.source.worldRevision,
+				)
+			: null;
+		const activeAgents = (worldId: string): string[] => {
+			return source
+				? source.pack.life.participants.filter((agentId) =>
+						source.pack.roles.some(
+							(role) => role.agentId === agentId && role.status === "active",
+						),
+					)
+				: replyHistory && replyWorld
+					? this.publicationAgentsAt(
+							replyWorld,
+							this.life.definitionRevision(
+								worldId,
+								replyHistory.definitionRevision,
+							),
+						)
+					: this.currentPublicationAgents(worldId);
+		};
+		const original = (worldId: string, id: string) => {
+			if (!historical) return this.publicationPosts.get(worldId, id);
+			const ref = posts.get(id);
+			return ref?.kind === "post"
+				? this.publicationPosts.at(worldId, id, ref.revision)
+				: null;
+		};
+		const reply = (worldId: string, id: string) => {
+			if (!historical) return this.publicationReplyPosts.get(worldId, id);
+			const ref = posts.get(id);
+			return ref?.kind === "reply"
+				? this.publicationReplyPosts.at(worldId, id, ref.revision)
+				: null;
+		};
+		return new PublicationFeed(
+			{
+				get: original,
+				list: (worldId) =>
+					historical
+						? [...posts.values()]
+								.filter((ref) => ref.kind === "post")
+								.map((ref) =>
+									this.publicationPosts.at(worldId, ref.id, ref.revision),
+								)
+						: this.publicationPosts.list(worldId),
+			},
+			{
+				get: (worldId, id) => {
+					if (!historical) return this.publicationGrants.get(worldId, id);
+					const ref = grants.get(id);
+					if (!ref)
+						throw Error("Missing historical publication grant reference");
+					return this.publicationGrants.at(worldId, id, ref.revision);
+				},
+			},
+			{
+				reactions: (worldId, principal, postId) =>
+					historical
+						? []
+						: this.publicationInteractions.reactionState(
+								worldId,
+								principal,
+								postId,
+								this.publications.settings(worldId)?.reactionIds ?? [],
+							),
+				recipients: (worldId) => {
+					if (source && source.pack.worldId !== worldId)
+						throw Error("Historical publication world mismatch");
+					const settings = authority
+						? authority.settingsRevision === 0
+							? null
+							: this.publications.settingsAt(
+									worldId,
+									authority.settingsRevision,
+								)
+						: this.publications.settings(worldId);
+					const config =
+						source?.config ??
+						(replyHistory
+							? this.author.lifeConfigAt(worldId, replyHistory.configRevision)
+							: this.author.lifeConfig(worldId));
+					const active = activeAgents(worldId);
+					return settings && config.publication
+						? {
+								revision: settings.revision,
+								recipientIds: config.publication.recipientIds,
+								agents: settings.agentRecipients.filter((mapping) =>
+									active.includes(mapping.agentId),
+								),
+							}
+						: null;
+				},
+				material: (material) =>
+					// Reply claims were authenticated against the actual parent decision at
+					// admission and recovery. The feed walks every ancestor independently;
+					// calling the reply selector here would recursively re-enter this feed.
+					material.version === 2
+						? activeAgents(material.worldId).includes(material.authorAgentId)
+							? this.publicationReplyGrantMaterial(material, authority)
+							: null
+						: this.selectPublicationMaterial(
+								material.worldId,
+								material.source.intentId,
+								material.authorAgentId,
+								material.audience,
+								material.limits,
+								source && authority
+									? {
+											configRevision: source.config.revision,
+											settingsRevision: authority.settingsRevision,
+											definitionRevision: source.life.definitionRevision,
+											workRevision: source.work?.revision ?? 0,
+											workAncestryRevision: source.life.revision,
+											authorityWorldVersion: source.pack.version,
+										}
+									: replyHistory && replyWorld
+										? {
+												...replyHistory,
+												authorityWorldVersion: replyWorld.definition.version,
+											}
+										: undefined,
+							),
+			},
+			{
+				posts: {
+					get: reply,
+					list: (worldId) =>
+						historical
+							? [...posts.values()]
+									.filter((ref) => ref.kind === "reply")
+									.map((ref) =>
+										this.publicationReplyPosts.at(
+											worldId,
+											ref.id,
+											ref.revision,
+										),
+									)
+							: this.publicationReplyPosts.list(worldId),
+				},
+				interactions: this.publicationInteractions,
+			},
+		);
+	}
+	private publicationJobSourceExists(job: PublicationJob): void {
+		auditPublicationJobSource(job, {
+			life: this.life,
+			posts: this.publicationPosts,
+			replies: this.publicationReplyPosts,
+			definitions: (worldId) =>
+				this.db
+					.prepare(
+						"SELECT revision FROM life_config WHERE world_id=? ORDER BY revision",
+					)
+					.all(worldId)
+					.map((row) =>
+						this.life.definitionRevision(worldId, revision(row["revision"], 1)),
+					),
+			event: (worldId, worldRevision) => {
+				const row = this.db
+					.prepare(
+						`SELECT ${EVENT_COLUMNS} FROM world_events WHERE world_id=? AND revision=?`,
+					)
+					.get(worldId, worldRevision) as EventRow | undefined;
+				if (!row) throw Error("Missing publication event");
+				return readEvent(row);
+			},
+		});
+	}
+	private publicationFamily(
+		worldId: string,
+		intent: SideEffectIntent,
+		event: WorldEvent,
+	): string | null {
+		const { envelope, receipt } = this.life.commitAt(
+			worldId,
+			intent.lifeRevision,
+		);
+		if (envelope.version !== 1)
+			throw Error("Publication intent requires an activity commit");
+		const commit = envelope.commit;
+		if (commit.version !== 3) return null;
+		const step = this.autonomy.get(worldId, commit.stepId);
+		if (
+			step.status !== "accepted" ||
+			!step.receipt ||
+			!step.outcome ||
+			lifeDigest(step.receipt) !== lifeDigest(receipt) ||
+			lifeDigest(step.outcome.commit) !== lifeDigest(commit) ||
+			lifeDigest(commit.world) !== lifeDigest(eventProposal(event)) ||
+			receipt?.eventId !== intent.payload.eventId ||
+			receipt.worldRevision !== event.revision ||
+			!commit.effects.some(
+				(effect) => lifeDigest(effect) === lifeDigest(intent),
+			)
+		)
+			throw Error(
+				"Publication family provenance differs from its accepted step",
+			);
+		return step.decision.familyId;
+	}
+	private selectPublicationMaterial(
+		worldId: string,
+		intentId: string,
+		authorAgentId: string,
+		recipientIds: string[],
+		limits: LifeViewLimits,
+		historical?: Pick<
+			PublicationMaterial,
+			| "configRevision"
+			| "settingsRevision"
+			| "definitionRevision"
+			| "workRevision"
+			| "workAncestryRevision"
+		> & { authorityWorldVersion?: number },
+	): EventPublicationMaterial | null {
+		id(worldId);
+		id(intentId);
+		id(authorAgentId);
+		if (!Array.isArray(recipientIds) || !recipientIds.length)
+			throw Error("Explicit publication audience required");
+		for (const recipientId of recipientIds) id(recipientId);
+
+		const config = historical
+				? this.author.lifeConfigAt(worldId, historical.configRevision)
+				: this.author.lifeConfig(worldId),
+			settings = historical
+				? this.publications.settingsAt(worldId, historical.settingsRevision)
+				: this.publications.settings(worldId),
+			definition = historical
+				? this.life.definitionRevision(worldId, historical.definitionRevision)
+				: this.life.definition(worldId),
+			work = this.work.snapshot(worldId, historical?.workRevision),
+			ancestry = this.work.ancestry(worldId, historical?.workAncestryRevision);
+		if (
+			!settings ||
+			!config.publication ||
+			!definition.participants.includes(authorAgentId) ||
+			recipientIds.some(
+				(recipient) => !config.publication?.recipientIds.includes(recipient),
+			)
+		)
+			return null;
+		const intent = this.life
+			.effects(worldId)
+			.find((effect) => effect.id === intentId);
+		if (!intent) throw Error("Unknown publication intent");
+		const life = this.life.snapshotAt(worldId, intent.lifeRevision);
+		const world = this.rebuild(
+			this.snapshot(worldId).definition,
+			life.worldRevision,
+		);
+		const row = this.db
+			.prepare(
+				`SELECT ${EVENT_COLUMNS} FROM world_events WHERE world_id=? AND revision=?`,
+			)
+			.get(worldId, life.worldRevision) as EventRow | undefined;
+		if (!row) throw Error("Missing publication event");
+		const event = readEvent(row);
+		let familyId: string | null = null;
+		if (settings.version === 2) {
+			familyId = this.publicationFamily(worldId, intent, event);
+			// A LIFE source has its own frozen pack authority. The settings' original
+			// pack reference authenticates policy history, not a newer source's visibility.
+			const pack = historical
+				? this.author.worldPack(
+						worldId,
+						historical.authorityWorldVersion ?? settings.worldVersion,
+					)
+				: this.author.currentPack(worldId);
+			if (
+				!pack ||
+				pack.schemaVersion !== 3 ||
+				!pack.eventFamilies.some((family) => family.id === familyId)
+			)
+				familyId = null;
+		}
+		return selectPublicationMaterial({
+			world,
+			life,
+			event,
+			...(settings.version === 2
+				? { eventRules: { familyId, rules: settings.eventRules } }
+				: {}),
+			intent,
+			definitionRevision: definition.revision,
+			workRevision: work.revision,
+			workAncestryRevision: Math.max(
+				0,
+				...ancestry.map((row) => row.lifeRevision),
+			),
+			policy: definition.projection,
+			authorAgentId,
+			recipientIds,
+			configRevision: config.revision,
+			settingsRevision: settings.revision,
+			workEvidenceDigest: lifeDigest(work),
+			limits,
+			workAllowed: (subject) => workSubjectAllowed(work, ancestry, subject),
+		});
+	}
 	publication(
 		scope: PublicationScope,
 		limits: LifeViewLimits,
@@ -669,6 +1853,7 @@ export class WorldStore
 		includeSocial = true,
 		includeAutonomy = true,
 		includeWork = true,
+		includePublication = true,
 	): void {
 		this.auditWorld();
 		const definitions = this.db
@@ -722,6 +1907,151 @@ export class WorldStore
 		if (includeAuthor) {
 			this.author.audit();
 			this.suggestions.audit();
+		}
+		if (includePublication) {
+			this.publications.validate();
+			this.publicationGrants.validate();
+			this.publicationJobs.validate();
+			this.publicationRuns.validate();
+			this.publicationPosts.validate();
+			this.publicationCursors.validate();
+			this.publicationChains.validate();
+			this.publicationInteractions.validate();
+			this.publicationReplyPosts.validate();
+			this.publicationAncestry.validate();
+			for (const row of this.db.prepare("SELECT id FROM worlds").all()) {
+				const worldId = String(row["id"]);
+				this.publicationExecution.audit(worldId);
+				const observationIds = new Set(
+					this.publicationInteractions
+						.observations(worldId)
+						.map((row) => row.inputId),
+				);
+				if (
+					this.life
+						.inputs(worldId)
+						.some(
+							(input) => input.version === 3 && !observationIds.has(input.id),
+						)
+				)
+					throw Error("Missing publication interaction observation graph");
+				const generatedInteractions = new Map<string, string>();
+				for (const interaction of this.publicationInteractions.list(worldId)) {
+					if (interaction.version === 2) {
+						const ref = interaction.generated;
+						if (
+							!ref ||
+							!interaction.postId ||
+							generatedInteractions.has(ref.jobId) ||
+							!this.generatedPublicationPost(
+								worldId,
+								ref.jobId,
+								interaction.postId,
+								true,
+							)
+						)
+							throw Error("Missing generated publication interaction owner");
+						generatedInteractions.set(ref.jobId, interaction.postId);
+						continue;
+					}
+					const settings = this.publications.settingsAt(
+						worldId,
+						interaction.settingsRevision,
+					);
+					const charged = this.publicationChains.hasCharge(
+						worldId,
+						interaction.id,
+						interaction.roots,
+						`actor-${lifeDigest(interaction.principal)}`,
+						interaction.lifeRevision,
+						{
+							maxChainDepth: settings.maxChainDepth,
+							maxActionsPerChain: settings.maxActionsPerChain,
+							perAuthorCooldownSteps: settings.perAuthorCooldownSteps,
+						},
+						interaction.principal.kind === "agent",
+					);
+					if (charged !== (interaction.processing === "queued"))
+						throw Error("Missing publication interaction activity receipt");
+					if (
+						interaction.postId &&
+						!this.publicationReplyPosts.get(worldId, interaction.postId)
+					)
+						throw Error("Missing publication interaction post graph");
+					const parent =
+						this.publicationPosts.get(worldId, interaction.parentPostId) ??
+						this.publicationReplyPosts.get(worldId, interaction.parentPostId);
+					if (
+						!parent ||
+						interaction.expectedPostRevision > parent.revision ||
+						lifeDigest(interaction.roots) !==
+							lifeDigest(
+								parent.roots.map((root) => ({
+									...root,
+									depth: revision(root.depth + 1, 1),
+								})),
+							)
+					)
+						throw Error("Corrupt publication interaction parent graph");
+				}
+				const expectedAncestry = parsePublicationAncestry(
+					this.db
+						.prepare(
+							"SELECT step_id FROM life_steps WHERE world_id=? AND accepted_life_revision IS NOT NULL ORDER BY accepted_life_revision",
+						)
+						.all(worldId)
+						.flatMap((row) => {
+							const step = this.autonomy.get(worldId, String(row["step_id"]));
+							this.publicationStepCharges(step, true);
+							return derivePublicationAncestry(step);
+						}),
+				);
+				if (
+					lifeDigest(expectedAncestry) !==
+					lifeDigest(this.publicationAncestry.list(worldId))
+				)
+					throw Error("Publication ancestry differs from accepted history");
+
+				for (const job of this.publicationJobs.list(worldId)) {
+					if (job.status !== "published") continue;
+					const post = job.postId
+						? this.publicationPosts.get(worldId, job.postId)
+						: null;
+					if (
+						!post ||
+						post.jobId !== job.id ||
+						post.attemptId !== job.attemptId ||
+						lifeDigest(post.roots) !==
+							lifeDigest(this.publicationEventRoots(job))
+					)
+						throw Error("Missing publication delivery graph");
+					if (
+						job.version === 2 &&
+						generatedInteractions.get(job.id) !== post.id
+					)
+						throw Error("Missing generated publication observation graph");
+					const settings = this.publications.settingsAt(
+						worldId,
+						post.material.settingsRevision,
+					);
+					if (
+						!this.publicationChains.hasCharge(
+							worldId,
+							`publication-${job.id}`,
+							post.roots,
+							`actor-${lifeDigest({ kind: "agent", agentId: job.authorAgentId })}`,
+							post.createdLifeRevision,
+							{
+								maxChainDepth: settings.maxChainDepth,
+								maxActionsPerChain: settings.maxActionsPerChain,
+								perAuthorCooldownSteps: settings.perAuthorCooldownSteps,
+							},
+							true,
+						)
+					)
+						throw Error("Missing publication activity receipt");
+				}
+			}
 		}
 	}
 	private auditWorld(): void {

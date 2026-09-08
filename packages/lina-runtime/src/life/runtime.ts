@@ -1,3 +1,4 @@
+import { visitLifePublication } from "./publication-scheduler.ts";
 import {
 	createLifeRunner,
 	type LifeRunnerOptions,
@@ -43,13 +44,27 @@ export const systemLifeClock: LifeClock = {
 export type LifeRuntimeOptions = LifeRunnerOptions &
 	Pick<
 		LifeSchedulerOptions,
-		"worldIds" | "config" | "acquireLease" | "onError"
+		"worldIds" | "publicationWorldIds" | "config" | "acquireLease" | "onError"
 	>;
 
 /** Owns background work only. Its caller closes the world store after close resolves. */
 export function createLifeRuntime(options: LifeRuntimeOptions) {
 	const runner = createLifeRunner(options);
-	const scheduler = createLifeScheduler({ ...options, runner });
+	const publication = options.publication;
+	const scheduler = createLifeScheduler({
+		...options,
+		runner,
+		...(publication
+			? {
+					visitPublication: (worldId: string, signal: AbortSignal) =>
+						visitLifePublication(
+							{ store: publication.store, runner, clock: options.clock },
+							worldId,
+							signal,
+						),
+				}
+			: {}),
+	});
 	let closed = false;
 	function identityChanged(worldId: string) {
 		const now = options.clock.now();
@@ -78,6 +93,14 @@ export function createLifeRuntime(options: LifeRuntimeOptions) {
 				scheduler.wake();
 			}
 		},
+		async publish(...args: Parameters<typeof runner.publish>) {
+			if (closed) throw new LifeRunnerUnavailable("closed");
+			try {
+				return await runner.publish(...args);
+			} finally {
+				scheduler.wake();
+			}
+		},
 		status(worldId: string) {
 			return options.store.lifeStatus(worldId, options.clock.now());
 		},
@@ -86,6 +109,7 @@ export function createLifeRuntime(options: LifeRuntimeOptions) {
 			scheduler.wake();
 		},
 		identityChanged,
+		publicationChanged: scheduler.wake,
 		cancel: runner.cancel,
 		async close() {
 			closed = true;

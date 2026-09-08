@@ -295,6 +295,9 @@ export class LifePersistence {
 			this.snapshotAt(worldId, lifeRevision).definitionRevision,
 		);
 	}
+	definitionRevision(worldId: string, revision: number): LifeDefinition {
+		return this.config(worldId, revision);
+	}
 	private config(worldId: string, revision: number): LifeDefinition {
 		integer(revision, "LIFE configuration revision", 1);
 		const row = this.db
@@ -797,6 +800,22 @@ export class LifePersistence {
 		if (!row || revision > row.life_revision)
 			throw Error("Unknown LIFE revision");
 		return this.rebuild(row, revision).state;
+	}
+	/** Immutable paired commit and receipt used by trusted publication provenance checks. */
+	commitAt(worldId: string, lifeRevision: number) {
+		id(worldId);
+		revision(lifeRevision, 1);
+		const row = this.db
+			.prepare(
+				`SELECT ${COMMIT_COLUMNS} FROM life_commits WHERE world_id=? AND life_revision=?`,
+			)
+			.get(worldId, lifeRevision) as CommitRow | undefined;
+		if (!row) throw Error("Missing LIFE commit history");
+		const envelope = decodeLifeEnvelope(row);
+		return {
+			envelope,
+			receipt: envelope.version === 1 ? receipt(row, false) : null,
+		};
 	}
 	private rebuild(row: StateRow, revision?: number) {
 		let state = parseLifeState(JSON.parse(row.baseline_json));

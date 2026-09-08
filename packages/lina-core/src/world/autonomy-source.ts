@@ -6,6 +6,9 @@ import type {
 } from "./authoring-types.ts";
 import type { AutonomySource } from "./autonomy-types.ts";
 import { lifeDigest } from "./life-json.ts";
+import { parsePublicationAncestry } from "./publication-ancestry.ts";
+import { parsePublicationBudget } from "./publication-budget.ts";
+import { parsePublicationEvidence } from "./publication-input.ts";
 import { parseWorkEvidence } from "./work-validation.ts";
 export function assertAutonomyVariables(
 	pack: WorldPackV3,
@@ -42,6 +45,32 @@ export function assertAutonomySource(source: AutonomySource): void {
 				lifeDigest(source.config.version === 2 ? source.config.work : null)
 		)
 			throw Error("Work source configuration mismatch");
+	}
+	if (source.publication || source.publicationAncestry) {
+		const publication = parsePublicationEvidence(source.publication);
+		const ancestry = parsePublicationAncestry(source.publicationAncestry);
+		if (
+			publication.worldId !== pack.worldId ||
+			ancestry.some((row) => row.lifeRevision > life.revision)
+		)
+			throw Error("Publication source boundary mismatch");
+		for (const record of publication.records) {
+			const input = source.inputs.find((input) => input.id === record.inputId);
+			if (
+				input?.version !== 3 ||
+				input.worldId !== pack.worldId ||
+				lifeDigest(input.source) !== lifeDigest(record.source)
+			)
+				throw Error("Publication observation input mismatch");
+		}
+	}
+	if (source.publicationBudget) {
+		const budget = parsePublicationBudget(source.publicationBudget);
+		if (
+			budget.chain.worldId !== pack.worldId ||
+			budget.settingsRevision !== source.publication?.authority.settingsRevision
+		)
+			throw Error("Publication budget source mismatch");
 	}
 	assertAutonomyVariables(pack, autonomy.variables);
 	if (

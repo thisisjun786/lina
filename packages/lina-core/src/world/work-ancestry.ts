@@ -106,7 +106,8 @@ export function workSubjectAllowed(
 export function stepWorkAncestry(step: LifeStep): WorkAncestryRecord[] {
 	const current = step.source.work,
 		commit = step.outcome?.commit;
-	if (step.version !== 2 || !current || !commit) return [];
+	if ((step.version !== 2 && step.version !== 3) || !current || !commit)
+		return [];
 	const references = new Map<string, WorkSourceRef>();
 	for (const row of step.source.workAncestry ?? [])
 		if (workRefsCurrent(current, row.refs))

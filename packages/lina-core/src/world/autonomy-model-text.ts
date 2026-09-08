@@ -9,6 +9,8 @@ export function completedLifeModelText(
 	lane: LifeModelLane,
 	agentId: string,
 ): string {
+	if (step.models.some((r) => r.prepared.request.version !== 1))
+		throw Error("Invalid step model request owner");
 	const records = step.models.filter(
 		(r) =>
 			r.prepared.request.lane === lane &&
@@ -20,6 +22,7 @@ export function completedLifeModelText(
 		!row ||
 		row.status !== "completed" ||
 		!row.result ||
+		row.prepared.request.version !== 1 ||
 		row.prepared.request.stepId !== step.id ||
 		row.prepared.request.worldId !== step.worldId ||
 		row.result.requestId !== row.prepared.request.id ||

@@ -1,0 +1,524 @@
+{
+	"event": {
+		"material": {
+			"version": 1,
+			"worldId": "world",
+			"authorAgentId": "a",
+			"source": {
+				"kind": "event",
+				"intentId": "intent",
+				"eventId": "world:3",
+				"worldRevision": 3,
+				"lifeRevision": 5
+			},
+			"definitionRevision": 1,
+			"policyRevision": 2,
+			"workRevision": 0,
+			"workAncestryRevision": 0,
+			"limits": {
+				"maxChars": 1000,
+				"maxRecords": 10
+			},
+			"configRevision": 1,
+			"settingsRevision": 1,
+			"workEvidenceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"audience": ["friends"],
+			"allowedClaims": [
+				{
+					"kind": "world_event",
+					"sourceId": "world:3",
+					"text": "A bell rang.",
+					"id": "claim-703f2b546a545fcb4399803395877225bf393558971f4069b2351458bfb882ec"
+				}
+			],
+			"permittedScene": null,
+			"id": "material-d8eb904558564de12536af278993c552c22dd358d7d77002cfc4a1f0a11f1af3",
+			"digest": "a6bacf03195d4bbe2c8b298e4152488139b6c8ffbb99ee67c407894447a287ed"
+		},
+		"job": {
+			"version": 1,
+			"id": "pubjob-d496c47fa06927cd14fe909f7bd5ce21f37c4b0c867b8f64074d7c17ea5d47fe",
+			"worldId": "world",
+			"revision": 3,
+			"intentId": "intent",
+			"authorAgentId": "a",
+			"recipientId": "friends",
+			"attempt": 1,
+			"attemptId": "pubattempt-14a531f63fcfedaa258ea58720586d52a547e87c213dc2bcbf56f9ef893677d4",
+			"status": "ready",
+			"material": {
+				"version": 1,
+				"worldId": "world",
+				"authorAgentId": "a",
+				"source": {
+					"kind": "event",
+					"intentId": "intent",
+					"eventId": "world:3",
+					"worldRevision": 3,
+					"lifeRevision": 5
+				},
+				"definitionRevision": 1,
+				"policyRevision": 2,
+				"workRevision": 0,
+				"workAncestryRevision": 0,
+				"limits": {
+					"maxChars": 1000,
+					"maxRecords": 10
+				},
+				"configRevision": 1,
+				"settingsRevision": 1,
+				"workEvidenceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"audience": ["friends"],
+				"allowedClaims": [
+					{
+						"kind": "world_event",
+						"sourceId": "world:3",
+						"text": "A bell rang.",
+						"id": "claim-703f2b546a545fcb4399803395877225bf393558971f4069b2351458bfb882ec"
+					}
+				],
+				"permittedScene": null,
+				"id": "material-d8eb904558564de12536af278993c552c22dd358d7d77002cfc4a1f0a11f1af3",
+				"digest": "a6bacf03195d4bbe2c8b298e4152488139b6c8ffbb99ee67c407894447a287ed"
+			},
+			"author": {
+				"agentId": "a",
+				"name": "A",
+				"voice": "Calm",
+				"profileRevision": 1,
+				"behavior": {
+					"traits": [],
+					"habits": [],
+					"attitudes": []
+				}
+			},
+			"modelSettingsRevision": 1,
+			"decision": {
+				"kind": "post",
+				"segments": [
+					{
+						"kind": "claim",
+						"claimId": "claim-703f2b546a545fcb4399803395877225bf393558971f4069b2351458bfb882ec"
+					},
+					{
+						"kind": "imaginative",
+						"text": "Perhaps tomorrow."
+					}
+				]
+			},
+			"postId": null,
+			"error": null
+		},
+		"post": {
+			"version": 1,
+			"worldId": "world",
+			"id": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+			"revision": 1,
+			"jobId": "pubjob-d496c47fa06927cd14fe909f7bd5ce21f37c4b0c867b8f64074d7c17ea5d47fe",
+			"attemptId": "pubattempt-14a531f63fcfedaa258ea58720586d52a547e87c213dc2bcbf56f9ef893677d4",
+			"material": {
+				"version": 1,
+				"worldId": "world",
+				"authorAgentId": "a",
+				"source": {
+					"kind": "event",
+					"intentId": "intent",
+					"eventId": "world:3",
+					"worldRevision": 3,
+					"lifeRevision": 5
+				},
+				"definitionRevision": 1,
+				"policyRevision": 2,
+				"workRevision": 0,
+				"workAncestryRevision": 0,
+				"limits": {
+					"maxChars": 1000,
+					"maxRecords": 10
+				},
+				"configRevision": 1,
+				"settingsRevision": 1,
+				"workEvidenceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"audience": ["friends"],
+				"allowedClaims": [
+					{
+						"kind": "world_event",
+						"sourceId": "world:3",
+						"text": "A bell rang.",
+						"id": "claim-703f2b546a545fcb4399803395877225bf393558971f4069b2351458bfb882ec"
+					}
+				],
+				"permittedScene": null,
+				"id": "material-d8eb904558564de12536af278993c552c22dd358d7d77002cfc4a1f0a11f1af3",
+				"digest": "a6bacf03195d4bbe2c8b298e4152488139b6c8ffbb99ee67c407894447a287ed"
+			},
+			"author": {
+				"agentId": "a",
+				"name": "A",
+				"voice": "Calm",
+				"profileRevision": 1,
+				"behavior": {
+					"traits": [],
+					"habits": [],
+					"attitudes": []
+				}
+			},
+			"roots": [
+				{
+					"rootId": "root-a",
+					"depth": 0
+				}
+			],
+			"segments": [
+				{
+					"kind": "claim",
+					"claimKind": "world_event",
+					"text": "A bell rang."
+				},
+				{
+					"kind": "imaginative",
+					"text": "Perhaps tomorrow."
+				}
+			],
+			"createdAt": 100,
+			"createdLifeRevision": 6,
+			"withdrawn": false
+		}
+	},
+	"reply": {
+		"material": {
+			"version": 2,
+			"worldId": "world",
+			"authorAgentId": "b",
+			"source": {
+				"kind": "reply",
+				"parentPostId": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+				"parentPostRevision": 1,
+				"parentOwner": "post",
+				"worldRevision": 4,
+				"lifeRevision": 8,
+				"origin": {
+					"kind": "event",
+					"intentId": "intent",
+					"eventId": "world:3",
+					"worldRevision": 3,
+					"lifeRevision": 5
+				}
+			},
+			"definitionRevision": 1,
+			"policyRevision": 2,
+			"workRevision": 0,
+			"workAncestryRevision": 0,
+			"limits": {
+				"maxChars": 1000,
+				"maxRecords": 10
+			},
+			"configRevision": 1,
+			"settingsRevision": 1,
+			"workEvidenceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"audience": ["friends"],
+			"allowedClaims": [
+				{
+					"kind": "world_event",
+					"sourceId": "world:3",
+					"text": "A bell rang.",
+					"id": "claim-703f2b546a545fcb4399803395877225bf393558971f4069b2351458bfb882ec"
+				}
+			],
+			"permittedScene": null,
+			"parent": {
+				"id": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+				"revision": 1,
+				"kind": "post",
+				"author": {
+					"kind": "agent",
+					"agentId": "a",
+					"name": "A"
+				},
+				"segments": [
+					{
+						"kind": "claim",
+						"claimKind": "world_event",
+						"text": "A bell rang."
+					},
+					{
+						"kind": "imaginative",
+						"text": "Perhaps tomorrow."
+					}
+				],
+				"createdAt": 100
+			},
+			"authority": {
+				"settingsRevision": 1,
+				"posts": [
+					{
+						"id": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+						"kind": "post",
+						"revision": 1
+					}
+				],
+				"grants": []
+			},
+			"parentRoots": [
+				{
+					"rootId": "root-a",
+					"depth": 0
+				}
+			],
+			"id": "material-67503b9daabd2e5c57addb8cfbd6beb89b546ee117ab4d3223b535d72822a6f7",
+			"digest": "caf76230c4e316c3732c94126361daa2846d2f7e0d0e94898417145da68e684d"
+		},
+		"job": {
+			"version": 2,
+			"id": "pubjob-b2d4bc38ed4aa250ec2aadd8337c36757a730b015d819ecb9bcb974719ccb0b3",
+			"worldId": "world",
+			"revision": 3,
+			"authorAgentId": "b",
+			"recipientId": "friends",
+			"attempt": 1,
+			"attemptId": "pubattempt-ce44d2d9cab34291a831d9f16a2b98be27f95030c287318333f14fc3cc3e81dd",
+			"status": "ready",
+			"material": {
+				"version": 2,
+				"worldId": "world",
+				"authorAgentId": "b",
+				"source": {
+					"kind": "reply",
+					"parentPostId": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+					"parentPostRevision": 1,
+					"parentOwner": "post",
+					"worldRevision": 4,
+					"lifeRevision": 8,
+					"origin": {
+						"kind": "event",
+						"intentId": "intent",
+						"eventId": "world:3",
+						"worldRevision": 3,
+						"lifeRevision": 5
+					}
+				},
+				"definitionRevision": 1,
+				"policyRevision": 2,
+				"workRevision": 0,
+				"workAncestryRevision": 0,
+				"limits": {
+					"maxChars": 1000,
+					"maxRecords": 10
+				},
+				"configRevision": 1,
+				"settingsRevision": 1,
+				"workEvidenceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"audience": ["friends"],
+				"allowedClaims": [
+					{
+						"kind": "world_event",
+						"sourceId": "world:3",
+						"text": "A bell rang.",
+						"id": "claim-703f2b546a545fcb4399803395877225bf393558971f4069b2351458bfb882ec"
+					}
+				],
+				"permittedScene": null,
+				"parent": {
+					"id": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+					"revision": 1,
+					"kind": "post",
+					"author": {
+						"kind": "agent",
+						"agentId": "a",
+						"name": "A"
+					},
+					"segments": [
+						{
+							"kind": "claim",
+							"claimKind": "world_event",
+							"text": "A bell rang."
+						},
+						{
+							"kind": "imaginative",
+							"text": "Perhaps tomorrow."
+						}
+					],
+					"createdAt": 100
+				},
+				"authority": {
+					"settingsRevision": 1,
+					"posts": [
+						{
+							"id": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+							"kind": "post",
+							"revision": 1
+						}
+					],
+					"grants": []
+				},
+				"parentRoots": [
+					{
+						"rootId": "root-a",
+						"depth": 0
+					}
+				],
+				"id": "material-67503b9daabd2e5c57addb8cfbd6beb89b546ee117ab4d3223b535d72822a6f7",
+				"digest": "caf76230c4e316c3732c94126361daa2846d2f7e0d0e94898417145da68e684d"
+			},
+			"author": {
+				"agentId": "b",
+				"name": "B",
+				"voice": "Calm",
+				"profileRevision": 1,
+				"behavior": {
+					"traits": [],
+					"habits": [],
+					"attitudes": []
+				}
+			},
+			"modelSettingsRevision": 1,
+			"decision": {
+				"kind": "post",
+				"segments": [
+					{
+						"kind": "claim",
+						"claimId": "claim-703f2b546a545fcb4399803395877225bf393558971f4069b2351458bfb882ec"
+					},
+					{
+						"kind": "imaginative",
+						"text": "Perhaps tomorrow."
+					}
+				]
+			},
+			"postId": null,
+			"error": null,
+			"source": {
+				"kind": "reply",
+				"parentPostId": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89"
+			}
+		},
+		"post": {
+			"version": 2,
+			"worldId": "world",
+			"id": "pubpost-a3c75505ced223fd4f1d41f9f14f9ee9bdf32359cba2265237efbed44b17a292",
+			"revision": 1,
+			"jobId": "pubjob-b2d4bc38ed4aa250ec2aadd8337c36757a730b015d819ecb9bcb974719ccb0b3",
+			"attemptId": "pubattempt-ce44d2d9cab34291a831d9f16a2b98be27f95030c287318333f14fc3cc3e81dd",
+			"material": {
+				"version": 2,
+				"worldId": "world",
+				"authorAgentId": "b",
+				"source": {
+					"kind": "reply",
+					"parentPostId": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+					"parentPostRevision": 1,
+					"parentOwner": "post",
+					"worldRevision": 4,
+					"lifeRevision": 8,
+					"origin": {
+						"kind": "event",
+						"intentId": "intent",
+						"eventId": "world:3",
+						"worldRevision": 3,
+						"lifeRevision": 5
+					}
+				},
+				"definitionRevision": 1,
+				"policyRevision": 2,
+				"workRevision": 0,
+				"workAncestryRevision": 0,
+				"limits": {
+					"maxChars": 1000,
+					"maxRecords": 10
+				},
+				"configRevision": 1,
+				"settingsRevision": 1,
+				"workEvidenceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"audience": ["friends"],
+				"allowedClaims": [
+					{
+						"kind": "world_event",
+						"sourceId": "world:3",
+						"text": "A bell rang.",
+						"id": "claim-703f2b546a545fcb4399803395877225bf393558971f4069b2351458bfb882ec"
+					}
+				],
+				"permittedScene": null,
+				"parent": {
+					"id": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+					"revision": 1,
+					"kind": "post",
+					"author": {
+						"kind": "agent",
+						"agentId": "a",
+						"name": "A"
+					},
+					"segments": [
+						{
+							"kind": "claim",
+							"claimKind": "world_event",
+							"text": "A bell rang."
+						},
+						{
+							"kind": "imaginative",
+							"text": "Perhaps tomorrow."
+						}
+					],
+					"createdAt": 100
+				},
+				"authority": {
+					"settingsRevision": 1,
+					"posts": [
+						{
+							"id": "pubpost-92f40f516f9475093303d944aff9494b2f7f016bb273911d91749dc1c9e97f89",
+							"kind": "post",
+							"revision": 1
+						}
+					],
+					"grants": []
+				},
+				"parentRoots": [
+					{
+						"rootId": "root-a",
+						"depth": 0
+					}
+				],
+				"id": "material-67503b9daabd2e5c57addb8cfbd6beb89b546ee117ab4d3223b535d72822a6f7",
+				"digest": "caf76230c4e316c3732c94126361daa2846d2f7e0d0e94898417145da68e684d"
+			},
+			"author": {
+				"agentId": "b",
+				"name": "B",
+				"voice": "Calm",
+				"profileRevision": 1,
+				"behavior": {
+					"traits": [],
+					"habits": [],
+					"attitudes": []
+				}
+			},
+			"roots": [
+				{
+					"rootId": "root-a",
+					"depth": 1
+				}
+			],
+			"segments": [
+				{
+					"kind": "claim",
+					"claimKind": "world_event",
+					"text": "A bell rang."
+				},
+				{
+					"kind": "imaginative",
+					"text": "Perhaps tomorrow."
+				}
+			],
+			"createdAt": 200,
+			"createdLifeRevision": 9,
+			"withdrawn": false
+		}
+	},
+	"golden": {
+		"eventMaterial": "2b84fdc931b1c4f8f8702ca4796c65c0e30741813fed8364825c04bfaefbe5c1",
+		"eventJob": "58a98a2f61b6a5c2185e06f95d96808f83a13c928e4dcfcfe6fa20d4f29d5c2e",
+		"eventPost": "04b52fba1f1d5c0f3bdeec6412c79da56902386faeba2fb87cbf33b46a820aee",
+		"replyMaterial": "4fdcfc3b6ecb3e7719bddbb7d704a2cb86b3eccd3a46215b29c0df755878e497",
+		"replyJob": "47336e7549e7b75f2efc506b11206e399b7e90eebfad120da3e4f9b4efad2d27",
+		"replyPost": "7b62a72f5b6f60d9657a50126204ab381c6629cb4b3c8d73d8cb5bddd0e3a7c2"
+	}
+}

@@ -41,6 +41,10 @@ import type {
 	WorldBinding,
 } from "./life-types.ts";
 import {
+	parsePublicationInputSource,
+	publicationObservationId,
+} from "./publication-input.ts";
+import {
 	fields,
 	knownAgents,
 	MAX_WORLD_BYTES,
@@ -257,6 +261,35 @@ export function parseLifeInput(value: unknown): LifeInput {
 		"source",
 		"consumedLifeRevision",
 	]);
+	if (value.version === 3) {
+		const source = parsePublicationInputSource(value.source),
+			worldId = identifier(value.worldId),
+			id = identifier(value.id);
+		if (
+			id !== source.observationId ||
+			id !==
+				publicationObservationId(
+					worldId,
+					source.interactionId,
+					source.recipientAgentId,
+				) ||
+			value.sourceRevision !== 1 ||
+			digest(value.payloadDigest) !== lifeDigest(source)
+		)
+			throw Error("LIFE publication observation identity or digest mismatch");
+		return {
+			version: 3,
+			worldId,
+			id,
+			sourceRevision: 1,
+			payloadDigest: digest(value.payloadDigest),
+			source,
+			consumedLifeRevision:
+				value.consumedLifeRevision === null
+					? null
+					: revision(value.consumedLifeRevision, 1),
+		};
+	}
 	if (value.version === 2) {
 		const source = parseWorkInputSource(value.source);
 		if (

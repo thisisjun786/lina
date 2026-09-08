@@ -20,6 +20,8 @@ import { bindReflection, parseReflectionProposal } from "./experience.ts";
 import { finite, lifeDigest, revision } from "./life-json.ts";
 import { applyLifeTransition } from "./life-transition.ts";
 import type { LifeCommitV3, LifeState } from "./life-types.ts";
+import { applyPublicationBudget } from "./publication-budget.ts";
+import { applyPublicationExperiences } from "./publication-experience.ts";
 import { socialResolutionCommit } from "./social-commit.ts";
 import { compileSocialPack } from "./social-compile.ts";
 import { validateSocialResult } from "./social-result.ts";
@@ -228,7 +230,10 @@ function prepareBase(
 	}
 	applyWorkExperiences(step, commit);
 	if (kind === "quiet" && commit.world.kind === "activity") kind = "work";
+	applyPublicationExperiences(step, commit);
+	if (kind === "quiet" && commit.world.kind === "activity") kind = "feedback";
 	applyAutonomyRules(step, state, commit, kind !== "activity");
+	applyPublicationBudget(step, state);
 	assertAutonomyVariables(step.source.pack, state.variables);
 	commit.checkpoint = rebindSocialCheckpoint(
 		commit.checkpoint,

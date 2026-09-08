@@ -7,7 +7,10 @@ import type {
 } from "../../lina-core/src/world/autonomy-types.ts";
 import { lifeDigest } from "../../lina-core/src/world/life-json.ts";
 import type { LifeModelPort } from "../../lina-runtime/src/life/model-port.ts";
-import { createLifeModelGateway } from "./life-model-gateway.ts";
+import {
+	createLifeModelGateway,
+	type LifeModelGateway,
+} from "./life-model-gateway.ts";
 import { LifeModelJournal } from "./life-model-journal.ts";
 import {
 	bindLifeNative,
@@ -17,7 +20,6 @@ import {
 import { type CodexLifeModelOptions, lifePlan } from "./life-model-policy.ts";
 import { qualifyLifeNative } from "./life-model-qualification.ts";
 import {
-	LIFE_UNKNOWN_USAGE,
 	lifeModelRequest,
 	lifePrepared,
 	lifeReference,
@@ -45,10 +47,7 @@ export function createCodexLifeModel(
 			() => controller.abort(Error("LIFE model timed out")),
 			timeoutMs,
 		);
-		const pending = Promise.resolve().then(() => {
-			bound.throwIfAborted();
-			return run(bound);
-		});
+		const pending = Promise.resolve().then(() => run(bound));
 		active.set(pending, controller);
 		void pending
 			.finally(() => {
@@ -76,6 +75,7 @@ export function createCodexLifeModel(
 		async prepare(value, signal) {
 			const request = lifeModelRequest(value);
 			return operation(signal, request.limits.timeoutMs, async (bound) => {
+				bound.throwIfAborted();
 				const plan = lifePlan(options, request);
 				const prepared: PreparedLifeModelRequest = {
 					version: 1,
@@ -104,43 +104,59 @@ export function createCodexLifeModel(
 						throw Error(
 							`LIFE request already ${prior.status}; no inference retry`,
 						);
-					const request = prepared.request,
-						plan = lifePlan(options, request);
-					assertCurrent(request, prepared.capabilityFingerprint);
-					await qualify(plan, journal, bound);
-					const credential = plan.selection.connection.requiresAdmissionToken
-						? options.providerEnv?.()["OPENCODEX_API_AUTH_TOKEN"]
-						: undefined;
-					if (plan.selection.connection.requiresAdmissionToken && !credential)
-						throw Error("LIFE provider credential unavailable");
-					bound.throwIfAborted();
-					journal.write("dispatch", {
+					const request = prepared.request;
+					// Claim before any await or local check, including cancellation. A lost
+					// owner remains unknown; a competing completion cannot claim this ID.
+					journal.write("preflight", {
 						version: 1,
 						requestId: request.id,
 						inputDigest: prepared.inputDigest,
 						pid: process.pid,
 					});
-					const gate = createLifeModelGateway({
-						baseUrl: plan.selection.connection.baseUrl,
-						credential,
-						request,
-						signal: bound,
-						beforeOutbound() {
-							bound.throwIfAborted();
-							assertCurrent(request, plan.fingerprint);
-							journal.write("outbound", {
-								version: 1,
-								requestId: request.id,
-								inputDigest: prepared.inputDigest,
-								upstreamAttempts: 1,
-							});
-						},
-						observed(usage) {
-							journal.write("usage", usage);
-						},
-					});
-					const releaseGate = ownership.retain(() => gate.close());
+					let gate: LifeModelGateway | undefined;
+					let releaseGate: (() => Promise<void>) | undefined;
+					let outboundStarted = false;
 					try {
+						bound.throwIfAborted();
+						const plan = lifePlan(options, request);
+						assertCurrent(request, prepared.capabilityFingerprint);
+						await qualify(plan, journal, bound);
+						const credential = plan.selection.connection.requiresAdmissionToken
+							? options.providerEnv?.()["OPENCODEX_API_AUTH_TOKEN"]
+							: undefined;
+						if (plan.selection.connection.requiresAdmissionToken && !credential)
+							throw Error("LIFE provider credential unavailable");
+						bound.throwIfAborted();
+						journal.write("dispatch", {
+							version: 1,
+							requestId: request.id,
+							inputDigest: prepared.inputDigest,
+							pid: process.pid,
+						});
+						const gateway = createLifeModelGateway({
+							baseUrl: plan.selection.connection.baseUrl,
+							credential,
+							request,
+							signal: bound,
+							beforeOutbound() {
+								bound.throwIfAborted();
+								assertCurrent(request, plan.fingerprint);
+								options.beforeOutbound?.(structuredClone(request));
+								bound.throwIfAborted();
+								outboundStarted = true;
+								journal.write("outbound", {
+									version: 1,
+									requestId: request.id,
+									inputDigest: prepared.inputDigest,
+									upstreamAttempts: 1,
+								});
+							},
+							observed(usage) {
+								journal.write("usage", usage);
+							},
+						});
+						gate = gateway;
+						releaseGate = ownership.retain(() => gateway.close());
 						journal.write("transport", {
 							baseUrl: gate.baseUrl,
 							nativeRoot: "native",
@@ -193,10 +209,22 @@ export function createCodexLifeModel(
 						journal.write("result", validated);
 						return validated;
 					} catch {
-						if (!journal.has("outbound") || gate.responseReceived)
+						// Zero is evidence from this claimed execution, never an inference
+						// from a missing marker. Revalidate storage before writing a terminal.
+						const observed = new LifeModelJournal(
+							options.stateRoot,
+							prepared,
+						).reconcile();
+						if (
+							observed.status === "unknown" &&
+							((!outboundStarted && !journal.has("outbound")) ||
+								(gate?.responseReceived && journal.has("outbound")))
+						)
 							journal.write("failure", {
 								status: "failed",
-								usage: gate.upstreamAttempts ? gate.usage : LIFE_UNKNOWN_USAGE,
+								usage: gate?.upstreamAttempts
+									? gate.usage
+									: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
 								upstreamAttempts: journal.has("outbound") ? 1 : 0,
 								reason: "LIFE native request failed",
 							});
@@ -206,14 +234,15 @@ export function createCodexLifeModel(
 								: "LIFE dispatched request outcome is unknown",
 						);
 					} finally {
-						await releaseGate();
-						journal.write("gateway", {
-							upstreamAttempts: gate.upstreamAttempts,
-							deniedPosts: gate.deniedPosts,
-							responseReceived: gate.responseReceived,
-							usage: gate.usage,
-							closed: true,
-						});
+						await releaseGate?.();
+						if (gate)
+							journal.write("gateway", {
+								upstreamAttempts: gate.upstreamAttempts,
+								deniedPosts: gate.deniedPosts,
+								responseReceived: gate.responseReceived,
+								usage: gate.usage,
+								closed: true,
+							});
 					}
 				},
 			);

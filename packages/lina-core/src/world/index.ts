@@ -144,6 +144,38 @@ export {
 	parseProjectionPolicy,
 	parseWorldBinding,
 } from "./life-validation.ts";
+export { publicationNarrationMaterial } from "./publication-material.ts";
+export type {
+	EventPublicationJob,
+	EventPublicationMaterial,
+	EventPublicationPost,
+	PublicationAuthor,
+	PublicationDecision,
+	PublicationEventRule,
+	PublicationJob,
+	PublicationJobStatus,
+	PublicationMaterial,
+	PublicationPost,
+	PublicationPrincipal,
+	PublicationRenderedSegment,
+	PublicationRun,
+	PublicationRunInput,
+	PublicationSegment,
+	PublicationSettings,
+	PublicationSettingsInput,
+	PublicationSettingsV1,
+	PublicLifePost,
+	PublicLifePostView,
+	PublicLifeReactionState,
+	ReplyMaterialSource,
+	ReplyPublicationJob,
+	ReplyPublicationMaterial,
+	ReplyPublicationPost,
+} from "./publication-types.ts";
+export {
+	parsePublicationDecision,
+	parsePublicationSettings,
+} from "./publication-validation.ts";
 export { compileSocialPack } from "./social-compile.ts";
 export type {
 	SocialPreparedResolution,

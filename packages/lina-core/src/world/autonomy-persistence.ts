@@ -45,6 +45,9 @@ import type {
 	LifeState,
 } from "./life-types.ts";
 import { parseIdentityPolicy } from "./life-validation.ts";
+import type { PublicationAncestryRecord } from "./publication-ancestry.ts";
+import type { PublicationBudgetSnapshot } from "./publication-budget.ts";
+import type { PublicationEvidenceSnapshot } from "./publication-input.ts";
 import type {
 	SocialPreparedResolution,
 	SocialPrepareRequest,
@@ -66,6 +69,27 @@ type Access = {
 	work(worldId: string, revision?: number): WorkEvidenceSnapshot;
 	workAncestry(worldId: string, lifeRevision: number): WorkAncestryRecord[];
 	recordWorkStep(step: LifeStep): void;
+	recordPublicationStep(step: LifeStep): void;
+	publication(source: AutonomySource): PublicationEvidenceSnapshot;
+	publicationBudget(source: AutonomySource): PublicationBudgetSnapshot;
+	verifyPublicationBudget(source: AutonomySource, current: boolean): void;
+	verifyPublication(
+		source: AutonomySource,
+		snapshot: PublicationEvidenceSnapshot,
+	): void;
+	assertPublicationCurrent(
+		source: AutonomySource,
+		snapshot: PublicationEvidenceSnapshot,
+	): void;
+	publicationAncestry(
+		worldId: string,
+		lifeRevision: number,
+	): PublicationAncestryRecord[];
+	publicationInputsAt(
+		worldId: string,
+		frontier: number,
+		lifeRevision: number,
+	): LifeInput[];
 	workInputsAt(
 		worldId: string,
 		workRevision: number,
@@ -221,6 +245,42 @@ export class AutonomyPersistence {
 			this.steps.save({ ...step, status: "stale", error: "work_changed" });
 		}
 	}
+	invalidatePublication(worldId: string): void {
+		const changed: LifeStep[] = [];
+		for (const step of this.steps.list(worldId)) {
+			if (TERMINAL.has(step.status) || !step.source.publication) continue;
+			try {
+				this.access.assertPublicationCurrent(
+					step.source,
+					step.source.publication,
+				);
+				this.access.verifyPublicationBudget(step.source, true);
+			} catch (error) {
+				if (
+					!(error instanceof Error) ||
+					!["Stale publication evidence", "Stale publication budget"].includes(
+						error.message,
+					)
+				)
+					throw error;
+				changed.push(step);
+			}
+		}
+		if (!changed.length) return;
+		this.schedules.invalidate(worldId);
+		for (const step of changed) {
+			this.models.cancelPrepared(
+				worldId,
+				step.id,
+				"publication_changed_before_dispatch",
+			);
+			this.steps.save({
+				...step,
+				status: "stale",
+				error: "publication_changed",
+			});
+		}
+	}
 	invalidateIdentity(
 		worldId: string,
 		current: Pick<
@@ -317,7 +377,38 @@ export class AutonomyPersistence {
 								: "ready",
 		};
 	}
-	private assertSource(step: LifeStep, source: Source): void {
+	private assertSource(
+		step: LifeStep,
+		source: Source,
+		currentPublication = false,
+	): void {
+		if (step.version === 3) {
+			if (!step.source.publication) throw Error("Missing publication source");
+			if (currentPublication)
+				this.access.assertPublicationCurrent(
+					step.source,
+					step.source.publication,
+				);
+			else this.access.verifyPublication(step.source, step.source.publication);
+			this.access.verifyPublicationBudget(step.source, currentPublication);
+			same(
+				step.source.publicationAncestry,
+				this.access.publicationAncestry(
+					step.worldId,
+					step.source.life.revision,
+				),
+				"Corrupt frozen publication ancestry",
+			);
+			same(
+				step.source.inputs.filter((input) => input.version === 3),
+				this.access.publicationInputsAt(
+					step.worldId,
+					step.source.publication.revision,
+					step.source.life.revision,
+				),
+				"Corrupt frozen publication input source",
+			);
+		}
 		if (step.source.work)
 			same(
 				step.source.inputs.filter((input) => input.version === 2),
@@ -361,11 +452,12 @@ export class AutonomyPersistence {
 			"Corrupt autonomous configuration source",
 		);
 	}
-	get(worldId: string, stepId: string): LifeStep {
+	get(worldId: string, stepId: string, currentPublication = false): LifeStep {
 		const step = this.steps.get(worldId, stepId);
 		this.assertSource(
 			step,
 			this.access.sourceAt(worldId, step.source.life.revision),
+			currentPublication,
 		);
 		same(
 			step.source.autonomy,
@@ -384,7 +476,7 @@ export class AutonomyPersistence {
 			TERMINAL.has(step.status)
 		)
 			throw Error("Stale LIFE step lease");
-		this.assertSource(step, this.access.source(step.worldId));
+		this.assertSource(step, this.access.source(step.worldId), true);
 		if (step.source.work)
 			same(
 				step.source.work,
@@ -441,7 +533,7 @@ export class AutonomyPersistence {
 				"LIFE step idempotency conflict",
 			);
 			if (TERMINAL.has(prior.status)) return prior;
-			this.assertSource(prior, this.access.source(value.worldId));
+			this.assertSource(prior, this.access.source(value.worldId), true);
 			if (
 				this.access.config(value.worldId).revision !==
 				value.expectedConfigRevision
@@ -494,6 +586,12 @@ export class AutonomyPersistence {
 			inputs: this.access.inputs(value.worldId),
 			modelSettingsRevision: value.modelSettingsRevision,
 		};
+		source.publication = this.access.publication(source);
+		source.publicationAncestry = this.access.publicationAncestry(
+			value.worldId,
+			current.life.revision,
+		);
+		source.publicationBudget = this.access.publicationBudget(source);
 		assertAutonomySource(source);
 		selectLifeEvent(source, id);
 		if (!existing) {
@@ -509,7 +607,7 @@ export class AutonomyPersistence {
 				value.leaseMs,
 			);
 		return this.steps.save({
-			version: 2,
+			version: 3,
 			id,
 			worldId: value.worldId,
 			idempotencyKey: value.idempotencyKey,
@@ -557,11 +655,10 @@ export class AutonomyPersistence {
 		step: LifeStep,
 		prepared: PreparedLifeModelRequest,
 	): void {
-		const r = prepared.request,
-			route =
-				step.source.config.models?.[
-					r.lane === "director" ? "director" : "actor"
-				];
+		const r = prepared.request;
+		if (r.version !== 1) throw Error("Invalid step model request owner");
+		const route =
+			step.source.config.models?.[r.lane === "director" ? "director" : "actor"];
 		if (
 			step.decision.kind !== "event" ||
 			r.stepId !== step.id ||
@@ -590,6 +687,7 @@ export class AutonomyPersistence {
 		const step = this.guard(lease, stepId),
 			prepared = parsePreparedLifeModel(value),
 			r = prepared.request;
+		if (r.version !== 1) throw Error("Invalid step model request owner");
 		this.assertModel(step, prepared);
 		const existing = step.models.find((x) => x.prepared.request.id === r.id);
 		if (!existing) this.assertUsage(step);
@@ -608,8 +706,21 @@ export class AutonomyPersistence {
 		return record;
 	}
 	dispatchModel(lease: LifeLease, stepId: string, requestId: string) {
-		this.guard(lease, stepId);
-		return this.models.dispatch(lease.worldId, stepId, requestId);
+		const step = this.guard(lease, stepId);
+		return this.models.dispatch(
+			lease.worldId,
+			stepId,
+			requestId,
+			step.source.config,
+		);
+	}
+	assertModelOutbound(
+		request: import("./autonomy-types.ts").LifeModelRequest,
+	): void {
+		if (request.version !== 1) throw Error("Invalid step model request owner");
+		const saved = this.steps.get(request.worldId, request.stepId);
+		const step = this.guard(saved.lease, saved.id);
+		this.models.assertOutbound(request, step.source.config);
 	}
 	finishModel(
 		worldId: string,
@@ -760,6 +871,7 @@ export class AutonomyPersistence {
 		this.saveState(step.outcome.nextState);
 		this.steps.save({ ...step, status: "accepted", receipt, error: null });
 		this.access.recordWorkStep({ ...step, status: "accepted", receipt });
+		this.access.recordPublicationStep({ ...step, status: "accepted", receipt });
 		this.schedules.accepted(lease, step.id);
 		return receipt;
 	}

@@ -1,6 +1,6 @@
 # 060 — LIFE feed and social interactions
 
-Status: P revalidation at `15485e2`, 2026-09-08. Depends on completed040–050. Prior D direction: “execute060 scoped LIFE posts, replies, reactions, reshares and finite causal inputs, reusing current world disclosure/work-authority boundaries and040 execution owner.” This unit follows that direction. Exact reaction vocabulary, visibility and activity limits remain explicit settings.
+Status: local implementation, full source checks and two independent implementation re-reviews passed, 2026-09-08. The verified source descends from `7c44c91e`; exact file hashes and final receipt are in the session evidence. Depends on completed040–050. Prior D direction: “execute060 scoped LIFE posts, replies, reactions, reshares and finite causal inputs, reusing current world disclosure/work-authority boundaries and040 execution owner.” This unit follows that direction. Exact reaction vocabulary, visibility and activity limits remain explicit settings. Image/avatar integration070 and final consumer acceptance080 remain; this is not whole-LIFE completion.
 
 ## Unit contract
 
@@ -18,15 +18,21 @@ Status: P revalidation at `15485e2`, 2026-09-08. Depends on completed040–050. 
 
 | Operation / exact path | Before → after |
 | --- | --- |
-| NEW `packages/lina-core/src/world/publication.ts`, `publication-types.ts` | Only event audience → explicit publication policy, immutable permitted material, post/reply/reaction/reshare state and receipts |
-| MODIFY core `world/schema.ts`, `store.ts`, `views.ts`, `life-types.ts`, `life-validation.ts`; NEW `publication-schema.ts`, `publication-persistence.ts`, `publication-validation.ts`, `publication-material.ts`, `publication-input.ts` | Durable side-effect intent → transactional publication delivery, audience checks, actor observation inputs and cursors; strict v6→v7 migration |
-| NEW `packages/lina-runtime/src/life/publication.ts`, `interactions.ts` | Event history only → candidate selection, perspective narration, validation, publish-once and finite interaction chains |
-| MODIFY runtime `fleet/life-routes.ts`, `fleet/server.ts`; web `src/server.ts`, NEW `src/life-proxy.ts` | Authenticated world-scoped feed/interaction API with explicit viewer identity |
-| NEW core `test/life-publication.test.ts`, `life-publication-schema.test.ts`, `life-publication-input.test.ts`; runtime `test/life-publication.test.ts`, `life-publication-routes.test.ts`, `life-publication-gateway.test.ts`; web `test/life-proxy.test.ts` | Privacy, once-only posting, reply causality, revoked access and direct API negatives; existing route regression is `life-runtime-routes.test.ts` |
+| Core `world/publication.ts`, `publication-types.ts`, `publication-material.ts`, `publication-reply-material.ts` | Event audience → explicit publication settings, immutable permitted material and typed event/reply jobs |
+| Core `world/publication-schema.ts`, `publication-persistence.ts`, `publication-jobs.ts`, `publication-posts.ts`, `publication-interactions.ts`, `publication-reply-posts.ts`, `publication-runs.ts`; existing `schema.ts`, `store.ts` | Durable intents → transactional delivery, interaction receipts, historical audits and strict v6→v7 migration |
+| Core `world/publication-feed.ts`, `publication-grants.ts`, `publication-cursors.ts`, `publication-evidence.ts`, `publication-ancestry.ts`, `publication-chains.ts`, `publication-experience.ts` | Current viewer authority, finite causal activity, scoped feedback and retained historical provenance |
+| Runtime `life/publication.ts`, `publication-scheduler.ts`, existing `runner.ts`, `runtime.ts`, `scheduler.ts`; Codex `life-model.ts`, `life-model-journal.ts` | Shared execution/usage/leases, narration and native reconciliation for one frozen run |
+| Runtime `fleet/life-publication-routes.ts`, existing `life-routes.ts`, `manager.ts`, `codex-fleet.ts`, `life-runtime.ts`; web `life-proxy.ts`, `server.ts` | Authenticated world-scoped feed/interaction API, live work-source check and fixed-upstream proxy |
+| Core/runtime/Codex `test/life-publication*.test.ts`; web `test/life-proxy.test.ts` | Privacy, recovery, publish-once, feedback, finite replies, native dispatch and actual route regression |
 
 Field chain: accepted event's durable publication intent → audience-filtered `PublicationMaterial` snapshot with policy revision/digest → persisted narration receipt and `Post`/`PublicationReceipt` → authenticated feed API, actor observation queue, image brief and UI. User interactions originate in authenticated endpoints with request key/expected revision, persist before response, then enter the same deduplicated LIFE input path. Unknown type/audience variants reject on parsing.
 
-## Contract diff
+## Original planning sketch
+
+This sketch records the initial boundary, not the serialized API. The subsequent
+frozen contracts and [reply contract](061_reply_contract.md) refine it. Actual
+public types/codecs live in `publication-types.ts`, `publication-validation.ts`,
+`publication-record-validation.ts` and `publication-reply-records.ts`.
 
 ```ts
 type PublicationSource =
@@ -69,7 +75,7 @@ Recheck current permission before dispatching narration/image material and befor
 | Broadened reshare, revoked policy during generation, deleted parent | Reject/withhold/withdraw deterministically; no new access via quoted text or stale URL |
 | User replies to a post, next agent step runs | Reply becomes a scoped experience and can influence later action; loading feed alone has no effects |
 
-API handlers and scoped store queries are the final application boundary (E7). Client hiding and prompt instructions are not enforcement. Direct privileged storage access and previously downloaded content remain outside revocation. Planned test files are not yet runnable. SoT: `docs/PLANNING.md`, `docs/plans/platform/010_agent_daily_life_ideas.md` and `docs/VALIDATION.md`.
+API handlers and scoped store queries are the final application boundary (E7). Client hiding and prompt instructions are not enforcement. Direct privileged storage access and previously downloaded content remain outside revocation. Actual runnable tests are the core/runtime `life-publication-*.test.ts` suites, Codex publication tests and web `life-proxy.test.ts`. SoT: `docs/PLANNING.md`, `docs/plans/platform/010_agent_daily_life_ideas.md` and `docs/VALIDATION.md`.
 
 ## Revalidated source and selected extension
 
@@ -142,7 +148,7 @@ All paths below begin `/api/life/worlds/:worldId`. Management routes retain the 
 | `/feed/posts/:postId/reshares` POST | `{requestKey, expectedPostRevision}`. The grant's recipient must already be allowed; no broadened audience supplied by the client. |
 | `/feed/cursor` GET/PUT | Scoped read state; PUT `{expectedRevision, postId}` must name a currently visible post and creates no interaction. |
 
-Post responses preserve typed supported/imaginative/user-authored segments, author display identity, visible parent/chain metadata, scoped reaction state and current revision. No raw task IDs, source proofs, tokens, other recipients or hidden attachment references are serialized. Until070, no image is claimed attached. UI rendering/token storage remain with their owner; the backend/proxy contract and real HTTP verification are this unit's work.
+Post responses preserve typed supported/imaginative/user-authored segments, author display identity, visible parent/chain metadata, scoped reaction state and current revision. `PublicLifePostView.reactions` contains `{reactionId, active}` for the current viewer's configured reactions only. Its changing state participates in cursor scope; it is excluded from the immutable `PublicLifePost` used for frozen reply material. No raw task IDs, source proofs, tokens, other recipients or hidden attachment references are serialized. Until070, no image is claimed attached. UI rendering/token storage remain with their owner; the backend/proxy contract and real HTTP verification are this unit's work.
 
 ## Execution, accounting and causal input
 
@@ -156,7 +162,11 @@ Each effective permitted interaction produces deduplicated recipient observation
 
 New autonomy steps use a version3 envelope with a frozen publication-input authority snapshot. Preserve version1/2 saved steps/model JSON exactly. Revocation changes future eligibility and stales pending use; old accepted fictional events remain history. At step acceptance, permitted feedback becomes a scoped neutral experience/claim and is consumed once. Actor/reflection input contains only that agent's allowed feedback. Existing optional reflection may change mood/goals/habits/attitudes using that experience; the HTTP interaction itself never directly writes personality or relationships. Root/depth and per-chain action receipts survive all agent replies, reshares and observation inputs, preventing a reply from resetting the chain. Exhausted chains remain visible with stopped processing, without further inference or recursive inputs.
 
-## Complete field/file chain and ownership
+## Audited planning ownership map
+
+This records the original allocation before implementation. The actual module
+map above supersedes proposed helper/test names that were consolidated into the
+existing owners. The create/store/decode/consume and authority obligations remain.
 
 | Contract | Create / serialize / decode / consume |
 | --- | --- |
@@ -225,6 +235,252 @@ Activation: manual simulation plus automatic publication wake; paused automatic 
 
 Active authority changes can withhold the remaining fixed jobs but cannot replace them with different work. A terminal replay performs no new dispatch or publication. Run status/job metadata is an owner response, never a viewer feed response. Activation: maxJobsPerRun1, process A and lose the HTTP response, enqueue B, retry the original key before and after process reopen. Only A's original result returns; B stays pending until a new run key. Add concurrent same-key, changed-key-payload, partial-batch failure, stale settings and empty-run-then-new-work cases.
 
+### B clarification: frozen causal activity allowance
+
+New v3 step sources include `publicationBudget`: the original settings revision
+and explicit limits, chain-history sequence/digest/root counts, and deterministic
+blocked observation/queued-event IDs. Permission evidence stays separate. An
+exhausted member blocks the complete pending feedback group. Independent clock
+events may proceed without consuming or receiving that feedback. Queued events
+also check inherited roots before selection. Current same-root spending stales
+prepared work before dispatch; unrelated roots do not revoke unused allowance.
+
+`publication-budget.ts` computes admission without a database or model. The chain
+SQL owner supplies a validated current/historical prefix. Acceptance charges the
+step and each admitted causal child on every inherited root, in stable child-ID
+order and the same transaction as consumption, outcome and ancestry. Children
+that do not fit remain stopped. Step execution and further queued actions each
+count as activity; model tokens retain their separate existing accounting owner.
+
+Startup verifies the original prefix/exclusions and exact step/child charge
+receipts. Removing a last causal charge and adjusting the remaining counters into
+a valid older prefix still fails the cross-owner audit. Older v1/v2 JSON remains
+unchanged; synthetic legacy fixtures remove all v3 fields, including this budget.
+
+Current B logs under the bound evidence directory: budget-regression-green has29
+tests/95 assertions, budget-runtime-first has3/33, budget-current-history has2/12,
+and budget-reopen-negative has5/16 (all prefixed `publication-`, all exit0).
+`publication-budget-types-final.log` records root/browser types exit0. Runtime
+probes use real stores and the isolated social runner with synthetic responses.
+Independent budget review passed after the interaction-charge and total-root-capacity repairs (`publication-budget-review.md`); this is not the complete060 C gate.
+
+### B clarification: reply execution ownership
+
+The concrete variant, ancestor-proof and one-charge contract is in
+[061](061_reply_contract.md). It refines this same060 work phase. Implementation
+and the bounded provenance review passed; final whole-unit review is in progress.
+
+The agent post owner will also own model-generated replies with supported and
+imaginative segments. The interaction reply-post owner retains user-authored
+replies/reshares. Generated text must not be labelled user-authored. Reply jobs
+use an explicit versioned parent-post source, not a fabricated world event,
+accepted step or event intent. Common jobs, attempts, model reservations and run
+batches remain the execution boundary; `no_reply` is a terminal skipped outcome.
+
+An authorized drain may discover one reply candidate per visible parent, agent
+and audience. Initial posts and replies are eligible parents; agents do not
+discover replies to their own posts. Audiences intersect current parent visibility
+and explicit agent mappings. Reads alone discover nothing. Narration receives
+only allowed parent segments with their supported/imaginative/user-authored tags
+and shareable author voice. User assertions do not become verified claims. Frozen
+material retains the parent/revision link, while serving, dispatch and commit
+recheck the complete current parent chain.
+
+Publishing an agent reply records its interaction observation in the same
+transaction, referencing the generated post/job and original roots. It must not
+create a second text-only reply. Original grants, recipient mappings, retirement,
+settings and work restrictions apply before further observations or inference.
+Exact codecs, historical checks and the finite A/B reply loop are implemented
+and exercised by the reply-source, generated-loop and generated-feedback suites.
+
+`LifeRunner.publish(worldId, input, signal)` shares simulation's active slot,
+foreground cancellation, model port and lease owner. Explicit optional publication
+dependencies come from the installation owner; absence yields not-configured.
+Scheduler, native publication gateway, main HTTP routing and agent reply sources
+are wired. `publishScheduled` carries scheduler authority separately from a saved
+run's manual input; recovery alone never grants a new manual invocation.
+
+### Resolved finding: policies for future events
+
+The original exact-event fixture alone did not cover future events. Settings v2
+now adds explicit authored event-family rules, disabled when unset; the contract
+and tests are below. Its static public summary replaces unrestricted actor text
+before projection limits. Facts, secrets and scene details retain separate
+authority. No audience, background or automatic setting is selected by this fix.
+
 ### Cross-unit image/UI clarification
 
 The stable post ID is070's `LifeImageSource.publicationId`; `materialId` names the frozen publication material, not a live world view. The internal post source retains the originating root event/revision and material digest through replies/reshares. Provide a current-authorized material accessor for the070 owner; it must not reconstruct a historic picture from today's scene or mistake a viewer projection for generation authority. No image is generated or attached in060. Viewer token mint/revoke is a local management contract for the UI owner; the feed proxy cannot bootstrap a grant for an unauthenticated browser or expose management routes.
+
+### B runtime integration checkpoint
+
+`WorldStore.publicationModelRecords` and `publicationExecutionStatus` now expose
+the real saved request owner and shared usage/lease reads. The runner consumes
+these ports directly. Manual publication is reachable through the main Fleet
+HTTP router; a real Fleet/store plus synthetic model publishes, survives full
+Fleet restart, and replays without a duplicate call. Feed/settings reads and
+change notifications keep a cold execution owner unopened.
+
+`automaticPublicationInput` is a read-only candidate/attempt probe. Only a drain
+creates jobs or runs. A saved run is reconciled first; otherwise an explicit
+automatic publication config, settings and eligible candidate are required.
+Candidate attempts determine the idempotency key. Finished/failed jobs are not
+rediscovered and empty reads create no run. An explicit retry changes its attempt
+and next key. The existing scheduler visits publication before simulation and
+after each accepted catch-up step, using
+the same active runner slot, world lease, foreground cancellation and shutdown.
+It wakes for actual remaining work, an existing lease expiry or the configured
+rolling budget window. Unknown/paused work waits for state change or restart.
+There is no new posting cadence or token allowance.
+
+The fleet native callback now requires the exact dispatched publication model
+receipt, current author/material/settings and current run lease before outbound
+I/O. Codex invokes this synchronous callback after its capability check and before
+the outbound journal marker and provider fetch. Native adapter tests demonstrate
+denial with zero configured-provider requests and durable failed reconciliation,
+plus authorized v2 completion/replay and unchanged v1 behavior. These tests use
+the installed native binaries with isolated temporary state and local synthetic
+Responses services, not a real paid model.
+
+Evidence lives under `.codexclaw/evidence/01a07c47-20b9-73b1-94e2-dcea96b2d35e/`:
+`publication-native-outbound-worker.md` (41 affected adapter tests),
+`publication-automatic-scheduler-first.log` (16 tests),
+`publication-fleet-automatic-first.log` (3 composed Fleet tests), and
+`publication-fleet-scheduler-types.log` (root/browser types). The native adapter
+worker's earlier root type mismatch was concurrent scheduler work and is resolved
+by the latter typecheck. These are intermediate receipts; final whole-unit
+re-review and C checks remain required.
+
+The retirement worker subsequently completed and handed back current-role guards:
+12 focused cases/71 assertions and527 adjacent core cases passed. Main checked the
+returned source hashes/diff and repaired its own concurrent catalog formatting.
+The shared scheduler also covers explicitly configured publication-only legacy
+LIFE worlds, without requiring an autonomous pack or director model at startup.
+New native combined proof is `publication-native-future-event-first.log`: actual
+Codex/Bwrap, local synthetic Responses, permitted future-event narration, web
+proxy feed/reply dedupe, full restart, and settings revocation immediately before
+provider fetch;2 tests/56 assertions. It does not prove paid-model quality or UI.
+
+### B implementation contract: future-event publication rules
+
+Add publication settings v2 as an explicit union with the existing v1 bytes.
+V1 retains its exact fields and means no future-event rule. V2 adds required
+`worldVersion` and `eventRules: { familyId, authorAgentIds, recipientIds, summary }[]`.
+`worldVersion` is the expected currently activated authored-pack version on save,
+and the immutable reference for history validation. It prevents a forged unknown
+family from passing startup just because no post has used that setting yet.
+Historical validation reads that exact pack; current generation also checks the
+current family/role authority. Entries are
+unique by family ID, arrays contain unique identifiers, and `summary` is bounded
+plain text authored by the user. Empty rules disable this capability. Existing
+settings/history tables and revision/CAS ownership remain; no schema rewrite or
+new default audience, timer, event setting or budget is required.
+
+A rule applies only to a persisted accepted autonomous event whose original
+step identifies that family. Verify the step/event/LIFE revision link from the
+saved history, not model text or a supplied family label. Require a current
+explicit rule, eligible author who knows the event, active authored role and
+configured recipient intersection. Unknown families/agents or missing authored
+autonomy support reject new rule settings. Existing work-origin restrictions
+still apply to the event and every separately disclosed fact/claim.
+
+For a matching rule, first validate the original stored event's provenance,
+audience membership and work authority. Then derive an internal event disclosure
+for the authorized author/recipient and pass a publication-only event copy with
+the rule's static public summary into projection **before** collector limits,
+audience intersection and material hashing. Never change the persisted event or
+expand its audience. Replacing the text after collection would let private text
+length affect public eligibility. Do not expose the unrestricted actor event summary,
+director note, profile biography or extra facts. Names, facts, secrets and scene
+descriptions still need their existing separate projection permissions. The
+narrator may express a personal angle with labelled imaginative segments; it
+does not gain authority to invent factual claims. Exact-event policies remain
+supported independently, including on legacy LIFE records without an autonomous
+pack. If an exact-event policy already authorizes the raw summary, that explicit
+permission remains its authority.
+
+Material retains its settings revision and exact source event/step provenance.
+Historical validation resolves the original v1/v2 settings and immutable accepted
+step, preserving old material bytes. Current dispatch/commit/feed checks use the
+current rule and work authority. Changing/removing a rule withholds stale frozen
+work or hides content whose claim is no longer authorized. Tests must cover at
+least two generated event IDs in the same family, unset/manual legacy behavior,
+private-summary canaries, forbidden facts/work ancestry, unknown family/source,
+revocation during dispatch and actual reopen with both settings versions.
+Changing only private-summary text/length must not change permitted material or
+eligibility; oversized owner-authored public summaries must still obey the limits.
+Include an inferred-experience-only author who is absent from the event audience.
+
+Diff owners: `publication-types.ts`, `publication-validation.ts`,
+`publication-persistence.ts`, `publication-material.ts`, a focused
+`publication-event-rules.ts` helper and `store.ts`; new focused pure/store/native
+tests and existing settings/material/recovery tests. This is a technical contract
+for owner-authored policy, not a decision to turn it on in any real world.
+
+Implemented through RED/GREEN. Original v1 settings bytes and v2 pack references
+survive actual reopen; rehashed nonexistent family/actor/version references fail
+startup without repair. `publicationFamily` reads the original paired LIFE commit
+and checks accepted step/receipt/proposal identity before using its selected
+family. `publication-event-policy-store-first.log` verifies two distinct future
+events and persisted publication after rule removal/reopen. The scoped plan
+review repair passed; the subsequent bounded implementation review also passed.
+This alone is not060 complete.
+
+The first implementation review found that newly prepared LIFE feedback used
+the settings' old authored pack after the current family was removed. The repair
+passes the LIFE source's own pack version separately from settings provenance.
+`publication-family-revocation-feedback-green.log` now proves hidden feedback
+does not enter a new accepted step, while old jobs still reopen (3 cases/44
+assertions). `publication-native-rule-revocation.log` removes actual event rules
+at the final outbound boundary and proves failed0 reconciliation/replay. The same
+independent reviewer rechecked the repair and passed the future-event slice:
+10 focused cases/79 assertions,2 native cases/56 assertions, types and its own
+previously failing probe all pass. Whole060 remains incomplete.
+
+The automatic queue probe also now preserves the same durable pending order as
+run admission. Sorting only the probe by job ID could assign a completed run's
+key to another pending batch and loop without progress. A real two-event test
+with reverse-ordered pending jobs failed then passed (`publication-auto-batch-order-*`).
+Fresh keys use `publication-auto-v2-`; existing running batches retain their
+original input. Generated reply codecs and their material/provenance, execution,
+feed and observation integration are implemented under061.
+
+### Final review repairs and current evidence
+
+Both full implementation reviewers initially returned FAIL. All seven findings
+were accepted and repaired: shared unknown-usage fences at dispatch/outbound;
+startup validation for pending job sources; current-viewer reaction state; live
+TaskManager source checks on feed/interaction requests; paused scheduled recovery;
+publication priority before simulation; and authenticated zero-attempt native
+preflight failure receipts. Missing or corrupt native journals remain unknown.
+
+The actual Fleet/native credential-failure test releases the reservation, reopens
+the Fleet and permits one explicit new attempt. The combined native Fleet tests
+pass three cases/83 assertions with only a local synthetic Responses service.
+Scheduler/route regressions pass108 cases/987 assertions. The HTTP QA matrix
+captures42 real curl requests through Fleet and the fixed-upstream web proxy,
+including restart, exact run replay, original-grant revocation and descendant
+withdrawal. Native request count stays7 across restart/replay; all temporary
+listeners and fixture roots are removed. These results do not prove live model
+quality, image generation or UI rendering.
+
+Evidence: `publication-full-runtime-review-original.md`,
+`publication-scheduler-repair-worker.md`, `publication-native-preflight-worker.md`,
+`publication-pending-source-worker.md`, `publication-reaction-feed-worker.md`,
+`publication-repaired-fleet-native.log`, `qa/publication-http/qa-receipt.json`,
+`publication-qa-public-input.json` and `publication-qa-teardown.json` under the
+session evidence directory.
+
+Both full re-reviews now return PASS with no unresolved finding:
+`publication-full-core-rereview.md` binds48 core source files and reports104 tests
+plus47 separate probe assertions; `publication-full-runtime-rereview.md` binds20
+runtime/native/web source files and reports203 passing tests. Main's final
+native-enabled whole-source run passes2,885 tests/15,184 assertions across411
+files. Root/browser types, lint (14 nonblocking warnings), runtime build and
+out-of-checkout CLI smoke, CI metadata and document checks pass. The final CHECK
+reuses these observed results only after verifying unchanged source/log hashes.
+
+The failed earlier snapshots remain evidence of defects, not green checks. Real
+model narrative quality, UI rendering, image delivery, hosted CI, merge and
+deployment are outside this local result. Continue070 with the existing image
+owner and then080 with explicit consumer contracts and integrated acceptance.

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LifeModelRequest } from "../../lina-core/src/world/autonomy-types.ts";
+import type { StepModelRequest } from "../../lina-core/src/world/autonomy-types.ts";
 import type { IsolatedHomeConnection } from "../../lina-opencodex/src/hub.ts";
 import { authorRecord } from "../src/author-native-policy.ts";
 
@@ -24,8 +24,8 @@ export const lifeMetadata = {
 	supported_in_api: true,
 };
 export function lifeRequest(
-	overrides: Partial<LifeModelRequest> = {},
-): LifeModelRequest {
+	overrides: Partial<StepModelRequest> = {},
+): StepModelRequest {
 	return {
 		version: 1,
 		id: randomUUID(),

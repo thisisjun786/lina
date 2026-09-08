@@ -144,7 +144,12 @@ export function selectLifeEvent(
 		throw Error("Autonomy candidate capacity exceeded");
 	const candidates: EventCandidate[] = [];
 	const queued = autonomy.pendingEvents
-		.filter((x) => x.status === "pending" && x.depth <= limits.maxCausalDepth)
+		.filter(
+			(x) =>
+				x.status === "pending" &&
+				x.depth <= limits.maxCausalDepth &&
+				!source.publicationBudget?.blockedCausalEventIds.includes(x.id),
+		)
 		.sort((a, b) => (a.id < b.id ? -1 : 1));
 	for (const policy of [...pack.autonomy.events].sort((a, b) =>
 		a.familyId < b.familyId ? -1 : 1,

@@ -91,6 +91,10 @@ export interface AutonomyState {
 	pendingEvents: CausalEvent[];
 }
 export interface AutonomySource {
+	/** Added by v3 steps; original work snapshots remain present alongside it. */
+	publication?: import("./publication-input.ts").PublicationEvidenceSnapshot;
+	publicationAncestry?: import("./publication-ancestry.ts").PublicationAncestryRecord[];
+	publicationBudget?: import("./publication-budget.ts").PublicationBudgetSnapshot;
 	/** Present only in the explicitly versioned v2 step envelope. */
 	work?: WorkEvidenceSnapshot;
 	workAncestry?: WorkAncestryRecord[];
@@ -136,7 +140,7 @@ export interface LifeModelLimits {
 	timeoutMs: number;
 }
 /** Trusted runtime request. Neither source identities nor the route come from model output. */
-export interface LifeModelRequest {
+export interface StepModelRequest {
 	version: 1;
 	id: string;
 	worldId: string;
@@ -150,6 +154,15 @@ export interface LifeModelRequest {
 	input: string;
 	limits: LifeModelLimits;
 }
+export type PublicationModelRequest = Omit<
+	StepModelRequest,
+	"version" | "stepId" | "lane"
+> & {
+	version: 2;
+	jobId: string;
+	lane: "publication";
+};
+export type LifeModelRequest = StepModelRequest | PublicationModelRequest;
 export interface PreparedLifeModelRequest {
 	version: 1;
 	request: LifeModelRequest;
@@ -231,7 +244,7 @@ export interface StepReflection {
 export interface AutonomyOutcome {
 	version: 1;
 	stepId: string;
-	kind: "quiet" | "work" | "activity" | "extension_required";
+	kind: "quiet" | "work" | "feedback" | "activity" | "extension_required";
 	commit: LifeCommitV3;
 	nextState: AutonomyState;
 }
@@ -254,7 +267,7 @@ export interface LifeSchedule {
 	lastSkippedIntervals: number;
 }
 export interface LifeStep {
-	version: 1 | 2;
+	version: 1 | 2 | 3;
 	id: string;
 	worldId: string;
 	idempotencyKey: string;

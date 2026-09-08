@@ -18,6 +18,7 @@ import { codexAssistantPrompt } from "../codex-prompt.ts";
 import { parseMemoryBackend } from "../context/backend.ts";
 import { createWorldAuthorSession } from "../life/author-session.ts";
 import type { LifeClock } from "../life/scheduler.ts";
+import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import { resolveProfile } from "../models/selection.ts";
 import { type AppOptions, startPersistentApp } from "../session-app.ts";
 import { createCodexTaskTools } from "../tools/codex-tasks.ts";
@@ -204,6 +205,8 @@ async function startUnlocked(
 			approvalMode,
 			modelControl,
 			ownsInstallation,
+			assertLifeWorkCurrent: (snapshot) =>
+				assertWorkSourceCurrent(tasks, snapshot),
 			...(lifeClock ? { lifeNow: () => lifeClock.now() } : {}),
 			createLifeRuntime: (context) =>
 				createFleetLifeRuntime({

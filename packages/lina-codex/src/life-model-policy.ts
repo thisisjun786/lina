@@ -36,6 +36,8 @@ export interface CodexLifeModelOptions {
 		selected: ModelProfile;
 		settingsRevision: number;
 	};
+	/** Synchronous final authorization on a cloned request; throw to prevent outbound I/O. */
+	beforeOutbound?(request: LifeModelRequest): void;
 	providerEnv?: () => Record<string, string | undefined>;
 	command?: string;
 	wrapperCommand?: string;

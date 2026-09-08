@@ -9,6 +9,7 @@ import { canonicalLifeJson, lifeDigest } from "../src/world/life-json.ts";
 import { WorldStore } from "../src/world/store.ts";
 import legacy from "./fixtures/life-v1-director.json";
 import { autonomyStoreFixture } from "./life-autonomy-store-fixture.ts";
+import { stripPublicationFixture } from "./life-publication-fixture.ts";
 
 test("actual v5 model request serialized before shared persona reopens without changing its bytes", () => {
 	const f = autonomyStoreFixture(false);
@@ -45,6 +46,7 @@ test("actual v5 model request serialized before shared persona reopens without c
 		f.store.prepareLifeModel(step.lease, step.id, prepared, f.clock());
 		f.store.close();
 		const db = new DatabaseSync(f.path);
+		stripPublicationFixture(db);
 		const stored = JSON.parse(
 			String(
 				db.prepare("SELECT step_json FROM life_steps").get()?.["step_json"],
@@ -53,6 +55,9 @@ test("actual v5 model request serialized before shared persona reopens without c
 		stored.version = 1;
 		delete stored.source.work;
 		delete stored.source.workAncestry;
+		delete stored.source.publication;
+		delete stored.source.publicationAncestry;
+		delete stored.source.publicationBudget;
 		const model = JSON.parse(
 			String(
 				db.prepare("SELECT record_json FROM life_model_receipts").get()?.[

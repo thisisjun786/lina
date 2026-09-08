@@ -6,6 +6,7 @@ import type { AgentInput } from "../../../lina-core/src/agents/types.ts";
 import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.ts";
 import { DialogueStore } from "../../../lina-core/src/onboarding/dialogue-store.ts";
 import { OnboardingStore } from "../../../lina-core/src/onboarding/store.ts";
+import type { WorkEvidenceSnapshot } from "../../../lina-core/src/world/work-types.ts";
 import { HonchoClient } from "../../../lina-memory/src/honcho/client.ts";
 import {
 	selectHonchoConfig,
@@ -22,6 +23,7 @@ import type {
 	WorldAuthorSession,
 } from "../life/author-session.ts";
 import type { WorldAuthoring } from "../life/authoring.ts";
+import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import type { ModelControl } from "../models/port.ts";
 import type { ModelSettingsStore } from "../models/settings.ts";
 import { splitPolicy } from "../policy/response.ts";
@@ -49,6 +51,18 @@ export class AgentFleet {
 	}
 	get life(): WorldAuthoring {
 		return this.lifeInstallation.authoring;
+	}
+	get lifeStorage() {
+		return this.lifeInstallation.storage;
+	}
+	assertPublicationSourceCurrent(worldId: string) {
+		const snapshot = this.lifeStorage.workEvidence(worldId);
+		if (this.options.assertLifeWorkCurrent)
+			this.options.assertLifeWorkCurrent(snapshot);
+		else assertWorkSourceCurrent(undefined, snapshot);
+	}
+	publicationChanged() {
+		this.lifeInstallation.publicationChanged();
 	}
 	grantWorldAuthor(worldId: string, agentId: string) {
 		if (!validAgentId(agentId) || !this.agents.get(agentId))
@@ -184,6 +198,7 @@ export class AgentFleet {
 			modelControl?: ModelControl;
 			ownsInstallation?: () => boolean;
 			createLifeRuntime?: (context: FleetLifeContext) => FleetLifeRuntime;
+			assertLifeWorkCurrent?: (snapshot: WorkEvidenceSnapshot) => void;
 			lifeNow?: () => number;
 		},
 	) {

@@ -10,7 +10,8 @@ export function workExperiences(step: LifeStep): Array<{
 	experienceId: string;
 	text: string;
 }> {
-	if (step.version !== 2 || !step.source.work) return [];
+	if ((step.version !== 2 && step.version !== 3) || !step.source.work)
+		return [];
 	const result: Array<{
 		record: WorkEvidenceRecord;
 		agentId: string;
@@ -81,7 +82,7 @@ export function applyWorkExperiences(
 	step: LifeStep,
 	commit: LifeCommitV3,
 ): void {
-	if (step.version !== 2) return;
+	if (step.version !== 2 && step.version !== 3) return;
 	const eventId = `${step.worldId}:${step.source.world.revision + 1}`;
 	const observations = workExperiences(step);
 	if (observations.length && commit.world.kind === "tick") {

@@ -354,7 +354,7 @@ export class AuthoringPersistence {
 		this.appendDraft(draft);
 		return draft;
 	}
-	private currentPack(worldId: string): WorldPack | null {
+	currentPack(worldId: string): WorldPack | null {
 		const row = this.db
 			.prepare(
 				"SELECT world_id, version, effective_revision, pack_json, digest FROM world_packs WHERE world_id = ? ORDER BY version DESC LIMIT 1",

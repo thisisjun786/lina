@@ -1,5 +1,6 @@
 import type { WorldAuthorSession } from "../life/author-session.ts";
 import { lifeBindingRoutes } from "./life-binding-routes.ts";
+import { lifePublicationRoutes } from "./life-publication-routes.ts";
 import { lifeRuntimeRoutes } from "./life-runtime-routes.ts";
 import type { AgentFleet } from "./manager.ts";
 
@@ -72,6 +73,18 @@ export async function lifeRoutes(
 		)
 	)
 		return reply({ error: "Unknown world authoring route" }, 404);
+	const publication = await lifePublicationRoutes(
+		request,
+		{
+			store: () => fleet.lifeStorage,
+			assertSourceCurrent: (worldId) =>
+				fleet.assertPublicationSourceCurrent(worldId),
+			run: (...args) => fleet.lifeRuntime.publish(...args),
+			changed: () => fleet.publicationChanged(),
+		},
+		json,
+	);
+	if (publication) return publication;
 	const binding = await lifeBindingRoutes(request, fleet, json);
 	if (binding) return binding;
 	const runtime = await lifeRuntimeRoutes(request, fleet, json);

@@ -27,6 +27,9 @@ import {
 	parseLifeInput,
 	parseLifeState,
 } from "./life-validation.ts";
+import { parsePublicationAncestry } from "./publication-ancestry.ts";
+import { parsePublicationBudget } from "./publication-budget.ts";
+import { parsePublicationEvidence } from "./publication-input.ts";
 import { fields } from "./validation.ts";
 import { parseWorkAncestry } from "./work-ancestry.ts";
 import { parseWorkEvidence } from "./work-validation.ts";
@@ -102,7 +105,12 @@ export class LifeStepRecords {
 			"autonomy",
 			"inputs",
 			"modelSettingsRevision",
-			...(raw.version === 2 ? ["work", "workAncestry"] : []),
+			...(raw.version === 2 || raw.version === 3
+				? ["work", "workAncestry"]
+				: []),
+			...(raw.version === 3
+				? ["publication", "publicationAncestry", "publicationBudget"]
+				: []),
 		]);
 		fields(s["config"], [
 			"version",
@@ -132,10 +140,19 @@ export class LifeStepRecords {
 		if (pack.schemaVersion !== 3) throw Error("Corrupt autonomous world pack");
 		if (!Array.isArray(s["inputs"])) throw Error("Corrupt autonomous inputs");
 		const source: AutonomySource = {
-			...(raw.version === 2
+			...(raw.version === 2 || raw.version === 3
 				? {
 						work: parseWorkEvidence(s["work"]),
 						workAncestry: parseWorkAncestry(s["workAncestry"]),
+					}
+				: {}),
+			...(raw.version === 3
+				? {
+						publication: parsePublicationEvidence(s["publication"]),
+						publicationBudget: parsePublicationBudget(s["publicationBudget"]),
+						publicationAncestry: parsePublicationAncestry(
+							s["publicationAncestry"],
+						),
 					}
 				: {}),
 			world: s["world"] as AutonomySource["world"],
@@ -152,10 +169,12 @@ export class LifeStepRecords {
 			inputs: s["inputs"].map(parseLifeInput),
 			modelSettingsRevision: revision(s["modelSettingsRevision"]),
 		};
+		if (raw.version !== 3 && source.inputs.some((input) => input.version === 3))
+			throw Error("Legacy step cannot carry publication input");
 		assertAutonomySource(source);
 		const step = raw as unknown as LifeStep;
 		if (
-			(raw.version !== 1 && raw.version !== 2) ||
+			(raw.version !== 1 && raw.version !== 2 && raw.version !== 3) ||
 			row.world_id !== identifier(raw.worldId) ||
 			row.step_id !== identifier(raw.id) ||
 			row.idempotency_key !== identifier(raw.idempotencyKey) ||
@@ -232,9 +251,13 @@ export class LifeStepRecords {
 			if (
 				step.outcome.version !== 1 ||
 				step.outcome.stepId !== step.id ||
-				!["quiet", "work", "activity", "extension_required"].includes(
-					step.outcome.kind,
-				)
+				![
+					"quiet",
+					"work",
+					...(step.version === 3 ? ["feedback"] : []),
+					"activity",
+					"extension_required",
+				].includes(step.outcome.kind)
 			)
 				throw Error("Corrupt LIFE outcome");
 			parseLifeCommit(step.outcome.commit);

@@ -120,7 +120,11 @@ export async function fleetLifeFixture(
 		...overrides,
 	};
 	let app = await startCodexFleet(options);
-	const setup = (quiet = true, automatic = false) => {
+	const setup = (
+		quiet = true,
+		automatic = false,
+		configure?: (pack: ReturnType<typeof autonomyPack>) => void,
+	) => {
 		const seed = app.fleet.agents.get("lina");
 		if (!seed) throw Error("Missing seed");
 		const { revision: _seedRevision, ...profileInput } = seed;
@@ -151,6 +155,7 @@ export async function fleetLifeFixture(
 			pack.autonomy.events = [];
 			pack.autonomy.quietWeight = 1;
 		}
+		configure?.(pack);
 		const store = app.fleet.life.store;
 		if (!(store instanceof WorldStore))
 			throw Error("Missing owned world store");

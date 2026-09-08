@@ -181,6 +181,62 @@ test("scheduler needs explicit automatic mode and initializes a durable nextDue"
 	expect(f.errors).toEqual([]);
 });
 
+test("publication participates in the same scheduler even with manual simulation and close drains its active visit", async () => {
+	const f = setup();
+	f.config.run = { mode: "manual" };
+	const entered = deferred<void>(),
+		released = deferred<void>();
+	const calls: string[] = [];
+	const scheduler = createLifeScheduler({
+		...f.options,
+		async visitPublication(worldId, signal) {
+			calls.push(worldId);
+			signal.addEventListener("abort", () => released.resolve(), {
+				once: true,
+			});
+			entered.resolve();
+			await released.promise;
+			return null;
+		},
+	});
+	schedulers.push(scheduler);
+	scheduler.start();
+	await entered.promise;
+	await scheduler.close();
+	expect(calls).toEqual(["test-world"]);
+	expect(f.calls).toEqual([]);
+	expect(f.clock.pending).toBe(0);
+});
+
+test("publication-only catalog worlds never require autonomous status or invent a simulation", async () => {
+	const f = setup();
+	const visited = deferred<void>();
+	const calls: string[] = [];
+	const scheduler = createLifeScheduler({
+		...f.options,
+		worldIds: () => [],
+		publicationWorldIds: () => ["legacy", "legacy"],
+		store: {
+			...f.options.store,
+			lifeStatus() {
+				throw Error("Legacy world has no autonomous pack");
+			},
+		},
+		async visitPublication(worldId) {
+			calls.push(worldId);
+			visited.resolve();
+			return null;
+		},
+	});
+	schedulers.push(scheduler);
+	scheduler.start();
+	await visited.promise;
+	await scheduler.close();
+	expect(calls).toEqual(["legacy"]);
+	expect(f.calls).toEqual([]);
+	expect(f.errors).toEqual([]);
+});
+
 test("an armed timer waking one millisecond late executes every interval with zero catch-up", async () => {
 	const f = setup();
 	f.scheduler.start();
@@ -310,6 +366,35 @@ test("known exhausted usage wakes after its configured rolling window", async ()
 	expect(f.calls).toHaveLength(0);
 	await f.scheduler.close();
 	expect(f.clock.pending).toBe(0);
+});
+
+test("a real world at LIFE revision zero with zero tokens keeps its configured budget wake", async () => {
+	const f = runtimeStoreFixture();
+	realStores.push(f);
+	const { worldId, revision, ...config } = f.store.lifeConfig("test-world");
+	if (!config.usage) throw Error("Missing explicit budget");
+	f.store.setLifeConfig(worldId, revision, {
+		...config,
+		run: { mode: "automatic" },
+		usage: { ...config.usage, maxInputTokens: 0, maxOutputTokens: 0 },
+	});
+	const errors: unknown[] = [];
+	const scheduler = createLifeScheduler({
+		...f.options,
+		runner: f.runner,
+		worldIds: () => [worldId],
+		config: (world) => f.store.lifeConfig(world),
+		acquireLease: (...args) => f.store.acquireLifeLease(...args),
+		onError: (_world, error) => errors.push(error),
+		visitPublication: async () => null,
+	});
+	schedulers.push(scheduler);
+	scheduler.start();
+	await f.clock.waitingAt(1000);
+	expect(f.store.lifeSnapshot(worldId).revision).toBe(0);
+	expect(f.model.requests).toEqual([]);
+	expect(f.clock.pending).toBe(1);
+	expect(errors).toEqual([]);
 });
 
 test("restart repairs accepted-before-schedule-advance without counting the accepted period as skipped", async () => {

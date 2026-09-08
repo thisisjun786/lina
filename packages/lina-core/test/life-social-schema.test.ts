@@ -9,6 +9,7 @@ import {
 	lifeDefinition,
 	socialCommit,
 } from "./life-fixture.ts";
+import { stripPublicationFixture } from "./life-publication-fixture.ts";
 import { worldDefinition } from "./world-fixture.ts";
 
 const roots: string[] = [];
@@ -29,6 +30,7 @@ function v3() {
 		store.close();
 	}
 	const raw = new DatabaseSync(path);
+	stripPublicationFixture(raw);
 	for (const table of [
 		"life_work_ancestry",
 		"life_work_experiences",
@@ -48,7 +50,7 @@ function v3() {
 	return { path, snapshot };
 }
 
-test("an actual v3 file migrates through v4 to v6 without rewriting historical LIFE bytes", () => {
+test("an actual v3 file migrates through v4 to v7 without rewriting historical LIFE bytes", () => {
 	const { path, snapshot } = v3();
 	const store = new WorldStore(path);
 	try {
@@ -59,7 +61,7 @@ test("an actual v3 file migrates through v4 to v6 without rewriting historical L
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 6,
+			user_version: 7,
 		});
 		expect(raw.prepare("SELECT * FROM life_states").all()).toEqual(snapshot);
 		expect(

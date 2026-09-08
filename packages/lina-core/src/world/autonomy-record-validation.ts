@@ -54,11 +54,19 @@ export function parseLifeModelLimits(value: unknown): LifeModelLimits {
 }
 export function parseLifeModelRequest(value: unknown): LifeModelRequest {
 	jsonBoundary(value);
+	if (
+		!value ||
+		typeof value !== "object" ||
+		!("version" in value) ||
+		(value.version !== 1 && value.version !== 2)
+	)
+		throw Error("Unsupported LIFE model request version");
+	const version = value.version;
 	fields(value, [
 		"version",
 		"id",
 		"worldId",
-		"stepId",
+		...(version === 1 ? (["stepId"] as const) : (["jobId"] as const)),
 		"lane",
 		"agentId",
 		"provider",
@@ -69,16 +77,26 @@ export function parseLifeModelRequest(value: unknown): LifeModelRequest {
 		"limits",
 	]);
 	const result: LifeModelRequest = {
-		version: one(value.version),
-		id: identifier(value.id),
-		worldId: identifier(value.worldId),
-		stepId: identifier(value.stepId),
-		lane: enumeration(value.lane, [
-			"director",
-			"actor",
-			"target",
-			"reflection",
-		]),
+		...(version === 1
+			? {
+					version,
+					id: identifier(value.id),
+					worldId: identifier(value.worldId),
+					stepId: identifier(value.stepId),
+					lane: enumeration(value.lane, [
+						"director",
+						"actor",
+						"target",
+						"reflection",
+					]),
+				}
+			: {
+					version,
+					id: identifier(value.id),
+					worldId: identifier(value.worldId),
+					jobId: identifier(value.jobId),
+					lane: enumeration(value.lane, ["publication"]),
+				}),
 		agentId: identifier(value.agentId),
 		provider: authoringText(value.provider),
 		model: authoringText(value.model),

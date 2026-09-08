@@ -11,6 +11,8 @@ import {
 	revision,
 } from "./life-json.ts";
 
+import { publicationLeaseHistory } from "./publication-runs.ts";
+
 type Row = { world_id: string; schedule_json: string; digest: string };
 /** SQL owner called within WorldStore's transaction; time comes from its trusted clock. */
 export class LifeSchedulePersistence {
@@ -51,6 +53,28 @@ export class LifeSchedulePersistence {
 			generation: number | null;
 			token: number | null;
 		};
+		const publications = publicationLeaseHistory(this.db, worldId);
+		if (publications.length) {
+			if (
+				!schedule ||
+				publications.some(
+					(lease) =>
+						schedule.generation < lease.generation ||
+						schedule.leaseSequence < lease.token,
+				)
+			)
+				throw Error("Missing or regressed LIFE schedule fencing history");
+			if (
+				schedule.lease &&
+				publications.some(
+					(lease) =>
+						lease.generation === schedule.lease?.generation &&
+						lease.token === schedule.lease?.token &&
+						lease.owner !== schedule.lease?.owner,
+				)
+			)
+				throw Error("Corrupt LIFE schedule lease owner history");
+		}
 		if (revision(prior.count) === 0) return;
 		if (
 			!schedule ||

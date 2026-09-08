@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { canonicalLifeJson, lifeDigest } from "../src/world/life-json.ts";
 import { WorldStore } from "../src/world/store.ts";
 import { autonomyStoreFixture } from "./life-autonomy-store-fixture.ts";
+import { stripPublicationFixture } from "./life-publication-fixture.ts";
 import { workInput } from "./life-work-fixture.ts";
 
 const close: Array<() => void> = [];
@@ -22,6 +23,7 @@ function v5() {
 	);
 	f.store.close();
 	const raw = new DatabaseSync(f.path);
+	stripPublicationFixture(raw);
 	// Empty work metadata is the complete v6 step delta; the v5 quiet outcome and receipt are identical.
 	const row = raw.prepare("SELECT step_json FROM life_steps").get();
 	if (!row) throw Error("Missing fixture");
@@ -29,6 +31,9 @@ function v5() {
 	legacy.version = 1;
 	delete legacy.source.work;
 	delete legacy.source.workAncestry;
+	delete legacy.source.publication;
+	delete legacy.source.publicationAncestry;
+	delete legacy.source.publicationBudget;
 	raw
 		.prepare("UPDATE life_steps SET step_json=?,digest=?")
 		.run(canonicalLifeJson(legacy), lifeDigest(legacy));
@@ -55,7 +60,7 @@ test("actual v5 file with a historical accepted step upgrades without rewriting 
 	const raw = new DatabaseSync(f.path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 6,
+			user_version: 7,
 		});
 		expect(raw.prepare("SELECT * FROM life_steps").all()).toEqual(f.steps);
 		expect(raw.prepare("SELECT * FROM life_commits").all()).toEqual(f.commits);

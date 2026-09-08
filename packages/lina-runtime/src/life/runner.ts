@@ -7,10 +7,18 @@ import type {
 } from "../../../lina-core/src/world/autonomy-types.ts";
 import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
 import type { IdentityPolicySnapshot } from "../../../lina-core/src/world/life-types.ts";
+import type {
+	PublicationRun,
+	PublicationRunInput,
+} from "../../../lina-core/src/world/publication-types.ts";
 import type { WorldSocialPort } from "../../../lina-core/src/world/social-store-types.ts";
 import { LifeExecutionError } from "./actor.ts";
 import { runLifeDirector } from "./director.ts";
 import type { LifeModelPort } from "./model-port.ts";
+import {
+	type LifePublicationOptions,
+	runLifePublication,
+} from "./publication.ts";
 import type { LifeClock } from "./scheduler.ts";
 import type { SocialEnginePort } from "./social/port.ts";
 
@@ -35,6 +43,7 @@ export interface LifeRunnerOptions {
 	/** Trusted installation bridges, invoked before freezing and at each effect boundary. */
 	beforePrepare?(worldId: string): void;
 	assertSourceCurrent?(step: LifeStep): void;
+	publication?: LifePublicationOptions;
 }
 export class LifeRunnerUnavailable extends Error {
 	constructor(
@@ -50,6 +59,17 @@ export class LifeRunnerUnavailable extends Error {
 	}
 }
 export interface LifeRunner {
+	/** Internal scheduler admission; saved manual input never grants operator authority. */
+	publishScheduled(
+		worldId: string,
+		input: PublicationRunInput,
+		signal: AbortSignal,
+	): Promise<PublicationRun>;
+	publish(
+		worldId: string,
+		input: PublicationRunInput,
+		signal: AbortSignal,
+	): Promise<PublicationRun>;
 	run(
 		worldId: string,
 		idempotencyKey: string,
@@ -70,7 +90,7 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 	let active: {
 		worldId: string;
 		controller: AbortController;
-		done: Promise<LifeStep>;
+		done: Promise<LifeStep | PublicationRun>;
 	} | null = null;
 	let closing: Promise<void> | null = null;
 	const cancel = (
@@ -90,16 +110,33 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 	const unsubscribe = options.foreground.subscribe(() => {
 		if (options.foreground.active()) cancel();
 	});
-	function releaseOwnedLease(lease: LifeLease) {
+	function releaseOwnedLease(
+		lease: LifeLease,
+		publication?: LifePublicationOptions,
+	) {
+		if (publication) {
+			const { schedule } = publication.store.publicationExecutionStatus(
+				lease.worldId,
+			);
+			if (!schedule)
+				throw Error("Missing LIFE schedule during publication cleanup");
+			const current = schedule.lease;
+			if (
+				!current ||
+				current.owner !== lease.owner ||
+				current.generation !== lease.generation ||
+				current.token !== lease.token
+			)
+				return;
+		}
 		try {
 			options.store.releaseLifeLease(lease, options.clock.now());
 		} catch (error) {
 			if (!(error instanceof Error) || error.message !== "Stale LIFE lease")
 				throw error;
-			const schedule = options.store.lifeStatus(
-				lease.worldId,
-				options.clock.now(),
-			).schedule;
+			const schedule = publication
+				? publication.store.publicationExecutionStatus(lease.worldId).schedule
+				: options.store.lifeStatus(lease.worldId, options.clock.now()).schedule;
 			const current = schedule?.lease;
 			// A fenced release wrote nothing. Ignore only a confirmed release or takeover.
 			if (
@@ -264,28 +301,106 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 				);
 		}
 	}
+	async function publish(
+		worldId: string,
+		input: PublicationRunInput,
+		controller: AbortController,
+		invocation: "manual" | "scheduled",
+	): Promise<PublicationRun> {
+		const publication = options.publication;
+		if (!publication)
+			throw new LifeRunnerUnavailable("not_configured", ["publication"]);
+		controller.signal.throwIfAborted();
+		const run = publication.store.beginPublicationRun(
+			worldId,
+			input,
+			owner,
+			leaseMs,
+		);
+		if (run.status !== "running") return run;
+		if (!run.lease) throw Error("Missing publication run lease");
+		let lease = run.lease;
+		const heartbeat = new AbortController();
+		const renewal = renewUntilStopped(
+			() => lease,
+			(next) => {
+				lease = next;
+			},
+			controller,
+			heartbeat.signal,
+		);
+		try {
+			return await runLifePublication({
+				publication,
+				run,
+				invocation,
+				model: options.model,
+				clock: options.clock,
+				signal: controller.signal,
+				lease: () => lease,
+				identity: (world) => options.identity(world),
+				beforePrepare: (world) => options.beforePrepare?.(world),
+				guard() {
+					controller.signal.throwIfAborted();
+					if (options.foreground.active())
+						throw new LifeExecutionError(
+							"cancelled",
+							"LIFE yielded to foreground work",
+						);
+					lease = options.store.renewLifeLease(
+						lease,
+						options.clock.now(),
+						leaseMs,
+					);
+				},
+			});
+		} finally {
+			heartbeat.abort();
+			await renewal;
+			releaseOwnedLease(lease, publication);
+		}
+	}
+	async function admit<T extends LifeStep | PublicationRun>(
+		worldId: string,
+		signal: AbortSignal,
+		execute: (controller: AbortController) => Promise<T>,
+	): Promise<T> {
+		if (closed) throw new LifeRunnerUnavailable("closed");
+		if (active) throw new LifeRunnerUnavailable("busy");
+		if (options.foreground.active())
+			throw new LifeRunnerUnavailable("foreground");
+		signal.throwIfAborted();
+		const controller = new AbortController();
+		const abort = () => controller.abort(signal.reason);
+		signal.addEventListener("abort", abort, { once: true });
+		// Defer execution one microtask so ownership exists even during native preparation.
+		const done = Promise.resolve().then(() => execute(controller));
+		active = { worldId, controller, done };
+		try {
+			return await done;
+		} finally {
+			signal.removeEventListener("abort", abort);
+			active = null;
+		}
+	}
 	return {
-		async run(worldId, key, revision, signal) {
-			if (closed) throw new LifeRunnerUnavailable("closed");
-			if (active) throw new LifeRunnerUnavailable("busy");
-			if (options.foreground.active())
-				throw new LifeRunnerUnavailable("foreground");
-			signal.throwIfAborted();
-			const controller = new AbortController();
-			const abort = () => controller.abort(signal.reason);
-			signal.addEventListener("abort", abort, { once: true });
-			// Defer execution one microtask so ownership exists even during native preparation.
-			const done = Promise.resolve().then(() =>
+		run: (worldId, key, revision, signal) =>
+			admit(worldId, signal, (controller) =>
 				execute(worldId, key, revision, controller),
-			);
-			active = { worldId, controller, done };
-			try {
-				return await done;
-			} finally {
-				signal.removeEventListener("abort", abort);
-				active = null;
-			}
-		},
+			),
+		publish: (worldId, input, signal) =>
+			admit(worldId, signal, (controller) =>
+				publish(
+					worldId,
+					input,
+					controller,
+					input.mode === "manual" ? "manual" : "scheduled",
+				),
+			),
+		publishScheduled: (worldId, input, signal) =>
+			admit(worldId, signal, (controller) =>
+				publish(worldId, input, controller, "scheduled"),
+			),
 		cancel,
 		close() {
 			if (closing) return closing;

@@ -4,7 +4,13 @@ import type { CodexLifeModelOptions } from "../../../lina-codex/src/life-model-p
 import type { AgentStore } from "../../../lina-core/src/agents/store.ts";
 import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
 import type { IdentityPolicySnapshot } from "../../../lina-core/src/world/life-types.ts";
+import {
+	buildPublicationModelInput,
+	publicationModelId,
+} from "../../../lina-core/src/world/publication-model.ts";
+import type { PublicationAuthor } from "../../../lina-core/src/world/publication-types.ts";
 import type { WorldStore } from "../../../lina-core/src/world/store.ts";
+import { projectSharedPersona } from "../../../lina-core/src/world/views.ts";
 import type { LifeForeground } from "../life/runner.ts";
 import { createLifeRuntime, systemLifeClock } from "../life/runtime.ts";
 import type { LifeClock } from "../life/scheduler.ts";
@@ -67,6 +73,49 @@ export function fleetLifeIdentity(
 	return { identity, profiles };
 }
 
+/** Explicit public voice and shared growth only; biography, private dynamics and event rationale stay out. */
+export function fleetPublicationAuthor(
+	store: WorldStore,
+	agents: AgentStore,
+	worldId: string,
+	agentId: string,
+): PublicationAuthor {
+	const profile = agents.get(agentId),
+		definition = store.lifeDefinition(worldId),
+		limits = store.lifeConfig(worldId).limits?.evaluation;
+	if (
+		!profile ||
+		!store.activePublicationAgents(worldId).includes(agentId) ||
+		!limits
+	)
+		throw Error("Publication author unavailable");
+	const shared = projectSharedPersona(
+		store.lifeSnapshot(worldId),
+		definition,
+		{
+			version: 1,
+			worldId,
+			agentId,
+			revision: 1,
+			projectionPolicyRevision: definition.projection.revision,
+		},
+		fleetLifeIdentity(store, agents, worldId).identity,
+		{ maxChars: limits.maxChars, maxRecords: limits.maxRecords },
+	);
+	if (!shared) throw Error("Publication shared persona unavailable");
+	return {
+		agentId,
+		name: profile.name,
+		voice: profile.voice,
+		profileRevision: profile.revision,
+		behavior: {
+			traits: shared.traits,
+			habits: shared.habits,
+			attitudes: shared.attitudes,
+		},
+	};
+}
+
 /** One installation owns this runtime and its native transport; store ownership stays in fleet. */
 export function createFleetLifeRuntime(options: FleetLifeOptions) {
 	const { store, agents, modelSettings, foreground } = options;
@@ -79,52 +128,109 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 				onError() {},
 			})
 		: undefined;
-	const worldIds = () => {
-		const ids: string[] = [];
+	const catalog = () => {
+		const entries: ReturnType<WorldStore["worldCatalog"]>["items"] = [];
 		let afterId: string | null = null;
 		do {
 			const page = store.worldCatalog({ afterId, limit: 100 });
-			for (const entry of page.items) {
-				if (
-					entry.packVersion !== null &&
-					store.worldPack(entry.worldId).schemaVersion === 3 &&
-					store.lifeConfig(entry.worldId).revision > 0
-				)
-					ids.push(entry.worldId);
-			}
+			entries.push(...page.items);
 			afterId = page.nextCursor;
 		} while (afterId !== null);
-		return ids;
+		return entries;
 	};
+	const worldIds = () =>
+		catalog()
+			.filter(
+				(entry) =>
+					entry.packVersion !== null &&
+					store.worldPack(entry.worldId).schemaVersion === 3 &&
+					store.lifeConfig(entry.worldId).revision > 0,
+			)
+			.map((entry) => entry.worldId);
+	const publicationWorldIds = () =>
+		catalog()
+			.filter(
+				(entry) =>
+					store.lifeConfig(entry.worldId).publication !== null &&
+					store.publicationSettings(entry.worldId) !== null,
+			)
+			.map((entry) => entry.worldId);
 	const model = (options.createModel ?? createCodexLifeModel)({
 		stateRoot: join(options.stateRoot, "life", "model"),
 		providerEnv: options.providerEnv,
 		...(options.command ? { command: options.command } : {}),
-		selection(request) {
-			const step = store.lifeStep(request.worldId, request.stepId);
-			const config = store.lifeConfig(request.worldId);
-			if (
-				["accepted", "failed", "stale", "needs_attention"].includes(
-					step.status,
-				) ||
-				lifeDigest(config) !== lifeDigest(step.source.config) ||
-				store.snapshot(request.worldId).revision !==
-					step.source.world.revision ||
-				store.lifeSnapshot(request.worldId).revision !==
-					step.source.life.revision ||
-				(step.source.work &&
-					lifeDigest(store.workEvidence(request.worldId)) !==
-						lifeDigest(step.source.work)) ||
-				lifeDigest(fleetLifeIdentity(store, agents, request.worldId)) !==
-					lifeDigest({
-						identity: step.source.identity,
-						profiles: step.source.profiles,
-					})
-			)
-				throw Error(
-					"LIFE destination or source snapshot changed before model dispatch",
+		beforeOutbound(request) {
+			if (request.version === 1) {
+				store.assertLifeModelOutbound(request);
+				assertWorkSourceCurrent(
+					options.workSource,
+					store.lifeStep(request.worldId, request.stepId).source.work,
 				);
-			assertWorkSourceCurrent(options.workSource, step.source.work);
+				return;
+			}
+			store.assertPublicationOutbound(
+				request,
+				fleetPublicationAuthor(store, agents, request.worldId, request.agentId),
+				modelSettings.snapshot().revision,
+			);
+			assertWorkSourceCurrent(
+				options.workSource,
+				store.workEvidence(request.worldId),
+			);
+		},
+		selection(request) {
+			const config = store.lifeConfig(request.worldId);
+			if (request.version === 2) {
+				const job = store.assertPublicationDispatch(
+					request.worldId,
+					request.jobId,
+					fleetPublicationAuthor(
+						store,
+						agents,
+						request.worldId,
+						request.agentId,
+					),
+					modelSettings.snapshot().revision,
+				);
+				if (
+					request.id !== publicationModelId(job.attemptId) ||
+					request.agentId !== job.authorAgentId ||
+					lifeDigest({
+						systemPrompt: request.systemPrompt,
+						input: request.input,
+					}) !== lifeDigest(buildPublicationModelInput(job))
+				)
+					throw Error("Publication model differs from owned source");
+				assertWorkSourceCurrent(
+					options.workSource,
+					store.workEvidence(request.worldId),
+				);
+			} else {
+				const step = store.lifeStep(request.worldId, request.stepId);
+				if (
+					["accepted", "failed", "stale", "needs_attention"].includes(
+						step.status,
+					) ||
+					lifeDigest(config) !== lifeDigest(step.source.config) ||
+					store.snapshot(request.worldId).revision !==
+						step.source.world.revision ||
+					store.lifeSnapshot(request.worldId).revision !==
+						step.source.life.revision ||
+					(step.source.work &&
+						lifeDigest(store.workEvidence(request.worldId)) !==
+							lifeDigest(step.source.work)) ||
+					lifeDigest(fleetLifeIdentity(store, agents, request.worldId)) !==
+						lifeDigest({
+							identity: step.source.identity,
+							profiles: step.source.profiles,
+						})
+				)
+					throw Error(
+						"LIFE destination or source snapshot changed before model dispatch",
+					);
+				assertWorkSourceCurrent(options.workSource, step.source.work);
+				store.assertPublicationEvidenceCurrent(request.worldId, request.stepId);
+			}
 			const settings = modelSettings.snapshot();
 			const route =
 				config.models?.[request.lane === "director" ? "director" : "actor"];
@@ -158,11 +264,22 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		clock,
 		engine: createEnsembleSocialEngine(),
 		worldIds,
+		publicationWorldIds,
 		beforePrepare: () => {
 			bridge?.poll();
 		},
 		assertSourceCurrent: (step) =>
 			assertWorkSourceCurrent(options.workSource, step.source.work),
+		publication: {
+			store,
+			author: (worldId, agentId) =>
+				fleetPublicationAuthor(store, agents, worldId, agentId),
+			assertSourceCurrent: (job) =>
+				assertWorkSourceCurrent(
+					options.workSource,
+					store.workEvidence(job.worldId),
+				),
+		},
 		config: (worldId) => store.lifeConfig(worldId),
 		acquireLease: (...args) => store.acquireLifeLease(...args),
 		identity(worldId) {

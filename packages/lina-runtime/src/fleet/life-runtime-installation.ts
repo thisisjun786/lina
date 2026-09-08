@@ -33,16 +33,20 @@ export class FleetLifeInstallation {
 			now?: () => number;
 		},
 	) {}
-	get authoring(): WorldAuthoring {
+	/** Feed/storage access cannot create the scheduler, native model owner or authoring service. */
+	get storage(): WorldStore {
 		this.options.assertAuthoring();
-		if (!this.service) {
+		if (!this.store) {
 			const root = checkedDirectory(join(this.options.root, "life"), true);
-			this.store ??= new WorldStore(
-				join(root, "world.sqlite"),
-				this.options.now,
-			);
+			this.store = new WorldStore(join(root, "world.sqlite"), this.options.now);
+		}
+		return this.store;
+	}
+	get authoring(): WorldAuthoring {
+		const store = this.storage;
+		if (!this.service) {
 			this.service = new WorldAuthoring({
-				store: this.store,
+				store,
 				authoring: this.options.authoring,
 				modelSettingsRevision: () =>
 					this.options.modelSettings.snapshot().revision,
@@ -110,6 +114,9 @@ export class FleetLifeInstallation {
 	}
 	changed(worldId?: string) {
 		this.background?.changed(worldId);
+	}
+	publicationChanged() {
+		this.background?.publicationChanged();
 	}
 	async drain() {
 		await this.background?.close();

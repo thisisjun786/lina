@@ -2,13 +2,16 @@ import { expect, test } from "bun:test";
 import type {
 	LifeStep,
 	PreparedLifeModelRequest,
+	StepModelRequest,
 } from "../src/world/autonomy-types.ts";
 import { buildLifeModelInput } from "../src/world/autonomy-views.ts";
 import { lifeDigest } from "../src/world/life-json.ts";
 import { WorldStore } from "../src/world/store.ts";
 import { autonomyStoreFixture } from "./life-autonomy-store-fixture.ts";
 
-function request(step: LifeStep): PreparedLifeModelRequest {
+function request(
+	step: LifeStep,
+): PreparedLifeModelRequest & { request: StepModelRequest } {
 	const agentId = step.decision.agentId;
 	if (!agentId) throw Error("Expected active fixture");
 	const route = step.source.config.models?.director;
@@ -157,9 +160,8 @@ test("a request ID owned by a failed step cannot overwrite its ledger from a new
 			),
 		).toThrow(/request|conflict|step/i);
 		expect(
-			f.store.lifeStep(first.worldId, first.id).models[0]?.prepared.request
-				.stepId,
-		).toBe(first.id);
+			f.store.lifeStep(first.worldId, first.id).models[0]?.prepared.request,
+		).toMatchObject({ version: 1, stepId: first.id });
 		expect(f.store.lifeStep(second.worldId, second.id).models).toHaveLength(0);
 	} finally {
 		f.close();

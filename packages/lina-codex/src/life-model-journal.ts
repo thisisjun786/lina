@@ -95,19 +95,23 @@ export class LifeModelJournal {
 				"upstreamAttempts",
 				"reason",
 			]);
+			const usage = lifeUsage(r["usage"]);
 			if (
 				r["status"] !== "failed" ||
-				r["upstreamAttempts"] !== (this.has("outbound") ? 1 : 0)
+				r["upstreamAttempts"] !== (this.has("outbound") ? 1 : 0) ||
+				(!this.has("dispatch") &&
+					Object.values(usage).some((value) => value !== 0))
 			)
 				throw Error("Invalid LIFE failure journal");
 			return {
 				status: "failed",
-				usage: lifeUsage(r["usage"]),
+				usage,
 				upstreamAttempts: r["upstreamAttempts"] as 0 | 1,
 				reason: lifeString(r["reason"], 1024),
 			};
 		}
-		if (!this.has("dispatch")) return { status: "not_dispatched" };
+		if (!this.has("dispatch") && !this.has("preflight"))
+			return { status: "not_dispatched" };
 		return {
 			status: "unknown",
 			usage: this.has("usage")
@@ -117,7 +121,30 @@ export class LifeModelJournal {
 		};
 	}
 	private checkMarkers(): void {
+		for (const entry of readdirSync(this.directory, { withFileTypes: true })) {
+			if (
+				(entry.isDirectory() &&
+					(entry.name === "native" ||
+						/^qualification-[0-9a-f-]{36}$/.test(entry.name))) ||
+				(entry.isFile() &&
+					[
+						"initial.json",
+						"preflight.json",
+						"dispatch.json",
+						"outbound.json",
+						"failure.json",
+						"result.json",
+						"usage.json",
+						"binding.json",
+						"transport.json",
+						"gateway.json",
+					].includes(entry.name))
+			)
+				continue;
+			throw Error("Unexpected LIFE journal entry");
+		}
 		for (const [name, last] of [
+			["preflight", "pid"],
 			["dispatch", "pid"],
 			["outbound", "upstreamAttempts"],
 		] as const) {
@@ -141,10 +168,17 @@ export class LifeModelJournal {
 			);
 		}
 		if (
-			(this.has("outbound") || this.has("failure") || this.has("result")) &&
+			(this.has("outbound") ||
+				this.has("result") ||
+				this.has("binding") ||
+				this.has("transport") ||
+				this.has("gateway") ||
+				this.has("native")) &&
 			!this.has("dispatch")
 		)
 			throw Error("Orphaned LIFE native record");
+		if (this.has("failure") && !this.has("dispatch") && !this.has("preflight"))
+			throw Error("Orphaned LIFE failure record");
 		if (this.has("usage") && !this.has("outbound"))
 			throw Error("Orphaned LIFE usage record");
 		if (this.has("failure") && this.has("result"))

@@ -19,6 +19,8 @@ export interface LifeSchedulerOptions {
 	>;
 	runner: Pick<LifeRunner, "run" | "cancel">;
 	worldIds(): string[];
+	/** Publication can also own older LIFE worlds without autonomous simulation. */
+	publicationWorldIds?(): string[];
 	config(worldId: string): LifeConfig;
 	/** Acquires a schedule lease without selecting or creating a step. */
 	acquireLease(
@@ -33,6 +35,11 @@ export interface LifeSchedulerOptions {
 	owner?: string;
 	leaseMs?: number;
 	onError(worldId: string, error: unknown): void;
+	/** Shares this loop, cancellation and wake deadlines with simulation. */
+	visitPublication?(
+		worldId: string,
+		signal: AbortSignal,
+	): Promise<number | null>;
 }
 
 function safeTime(time: number): number {
@@ -98,6 +105,21 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 			worldRunning = null;
 		}
 	}
+	async function visitPublication(worldId: string): Promise<number | null> {
+		if (
+			!options.visitPublication ||
+			stop.signal.aborted ||
+			options.foreground.active()
+		)
+			return null;
+		worldRunning = worldId;
+		try {
+			const next = await options.visitPublication(worldId, stop.signal);
+			return next === null ? null : safeTime(next);
+		} finally {
+			worldRunning = null;
+		}
+	}
 	function budgetRetry(
 		worldId: string,
 		config: LifeConfig,
@@ -126,6 +148,7 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 		config: LifeConfig,
 		stepId: string,
 		interval: number,
+		afterAccepted?: () => Promise<void>,
 	) {
 		const pending = options.store.lifeStep(worldId, stepId);
 		const result = await invoke(
@@ -156,12 +179,18 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 				next,
 				schedule.lastSkippedIntervals,
 			);
+			if (afterAccepted) await afterAccepted();
 			return next;
 		}
+		if (afterAccepted) await afterAccepted();
 		return safeTime(options.clock.now());
 	}
 
-	async function visit(worldId: string): Promise<number | null> {
+	async function visit(
+		worldId: string,
+		afterAccepted?: () => Promise<void>,
+	): Promise<number | null> {
+		if (stop.signal.aborted || options.foreground.active()) return null;
 		const config = options.config(worldId);
 		const interval = config.clock?.intervalMs;
 		if (config.run?.mode !== "automatic" || !interval || !config.clock)
@@ -174,7 +203,13 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 		if (schedule?.lease && schedule.lease.expiresAt > now)
 			return schedule.lease.expiresAt;
 		if (status.activeStepId !== null)
-			return resume(worldId, config, status.activeStepId, interval);
+			return resume(
+				worldId,
+				config,
+				status.activeStepId,
+				interval,
+				afterAccepted,
+			);
 		if (status.status === "budget_exhausted")
 			return budgetRetry(worldId, config);
 		if (status.status === "needs_attention") return null;
@@ -249,6 +284,7 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 			if (!advance(worldId, config.revision, due, next, skipped))
 				return safeTime(now + interval);
 			due = next;
+			if (afterAccepted) await afterAccepted();
 		}
 		return due;
 	}
@@ -276,10 +312,25 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 			const version = wakeVersion;
 			let deadline: number | null = null;
 			if (!options.foreground.active()) {
-				for (const worldId of [...new Set(options.worldIds())].sort()) {
+				const simulationWorlds = new Set(options.worldIds());
+				const worlds = new Set([
+					...simulationWorlds,
+					...(options.publicationWorldIds?.() ?? []),
+				]);
+				for (const worldId of [...worlds].sort()) {
 					if (stop.signal.aborted) break;
 					try {
-						const next = await visit(worldId);
+						let publication: number | null = null;
+						const publish = options.visitPublication
+							? async () => {
+									// Replace the prior deadline: this visit may consume its remaining work.
+									publication = await visitPublication(worldId);
+								}
+							: undefined;
+						if (publish) await publish();
+						const next = simulationWorlds.has(worldId)
+							? await visit(worldId, publish)
+							: null;
 						armed.delete(worldId);
 						const now = safeTime(options.clock.now());
 						if (next !== null && next > now && !options.foreground.active()) {
@@ -293,6 +344,11 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 						}
 						if (next !== null)
 							deadline = deadline === null ? next : Math.min(deadline, next);
+						if (publication !== null)
+							deadline =
+								deadline === null
+									? publication
+									: Math.min(deadline, publication);
 					} catch (error) {
 						armed.delete(worldId);
 						if (stop.signal.aborted) break;

@@ -50,7 +50,7 @@ test("a versioned autonomous step freezes work evidence, changes selection and r
 		worldId = f.request.worldId;
 	f.store.admitWorkInput(workInput(worldId));
 	const step = f.store.prepareLifeStep(f.request, () => 1);
-	expect(step.version).toBe(2);
+	expect(step.version).toBe(3);
 	expect(step.source.work).toEqual(f.store.workEvidence(worldId));
 	const candidate = step.decision.candidates.find((x) => x.agentId === "lina");
 	expect(candidate?.contributions).toContainEqual({
