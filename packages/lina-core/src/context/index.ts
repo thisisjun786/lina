@@ -1,4 +1,5 @@
 export { archiveText } from "./archive.ts";
+export type { SummaryGeneration } from "./generation.ts";
 export { CONTEXT_SCHEMA_VERSION } from "./schema.ts";
 export { ContextStore } from "./store.ts";
 export type {

@@ -2,9 +2,15 @@ import type {
 	ContextStore,
 	SourceRef,
 } from "../../../lina-core/src/context/index.ts";
+import { type ContextEstimator, conservativeEstimator } from "./budget.ts";
 import type { ExternalContext } from "./external.ts";
-import { contextInjection } from "./injection.ts";
+import { type ContextInjection, contextInjection } from "./injection.ts";
 import type { CompactSourceEvent } from "./native.ts";
+import { contextPolicyDigest } from "./policy.ts";
+import {
+	defaultEnginePolicy,
+	type EnginePolicySnapshot,
+} from "./policy-settings.ts";
 import type { ContextServices } from "./port.ts";
 import {
 	activateReceipt,
@@ -14,6 +20,7 @@ import {
 import { createSummaryTree, nativeSummary } from "./tree.ts";
 
 type Options = {
+	policy?: () => EnginePolicySnapshot;
 	store: ContextStore;
 	busy: () => boolean;
 	compact: () => Promise<unknown>;
@@ -42,11 +49,32 @@ export class ContextCoordinator {
 	private degraded = false;
 	private status: CompactionStatus = "idle";
 	private recall = "";
+	private tailReason: string | null = null;
+	private tailGuard: () => void = () => {};
 	private currentRecall: () => string = () => "";
-	private lastInjection = { text: "", tokens: 0, omitted: false };
+	private lastInjection: ContextInjection = {
+		text: "",
+		tokens: 0,
+		omitted: false,
+		omittedParts: [],
+	};
 	constructor(private readonly options: Options) {}
 	configure(services: ContextServices): void {
 		this.services = services;
+	}
+	private estimator(): ContextEstimator {
+		const services = this.services;
+		return (
+			services?.estimator ??
+			(services
+				? {
+						id: "host-estimate-v1",
+						kind: "host",
+						text: services.estimateText,
+						messages: services.estimateMessages,
+					}
+				: conservativeEstimator)
+		);
 	}
 	get isBusy(): boolean {
 		return this.manualBusy || this.request !== undefined;
@@ -62,6 +90,10 @@ export class ContextCoordinator {
 				: 0,
 			injectionTokens: this.lastInjection.tokens,
 			injectionOmitted: this.lastInjection.omitted,
+			omittedParts: [...this.lastInjection.omittedParts],
+			tailReason: this.tailReason,
+			policyRevision: (this.options.policy ?? defaultEnginePolicy)().revision,
+			estimator: this.estimator().id,
 		};
 	}
 	subscribe(listener: () => void): () => void {
@@ -80,6 +112,9 @@ export class ContextCoordinator {
 	}
 
 	readInjection(messages: readonly unknown[]) {
+		const policyDigest = contextPolicyDigest(
+			(this.options.policy ?? defaultEnginePolicy)(),
+		);
 		const requestId = this.options.activeRequestId?.();
 		const working = this.options.store.readWorking(
 			requestId ? { activeRequestId: requestId } : {},
@@ -90,11 +125,19 @@ export class ContextCoordinator {
 		const currentRecall = this.currentRecall;
 		const content = this.injection(messages),
 			recall = this.recall;
+		const tailGuard = this.tailGuard;
 		return {
 			content,
 			beforeDeliver: () => {
 				if (this.closed)
 					throw Error("Context source is closed before delivery");
+				if (
+					contextPolicyDigest(
+						(this.options.policy ?? defaultEnginePolicy)(),
+					) !== policyDigest
+				)
+					throw Error("Context policy changed before delivery");
+				tailGuard();
 				working.beforeDeliver();
 				active?.beforeDeliver();
 				if (recall && currentRecall().slice(0, 4096) !== recall)
@@ -122,6 +165,7 @@ export class ContextCoordinator {
 			this.recall,
 			messages,
 			services,
+			(this.options.policy ?? defaultEnginePolicy)().context.expansionTokens,
 		);
 		const external = this.options.external?.injection();
 		if (external) {
@@ -136,7 +180,31 @@ export class ContextCoordinator {
 				this.services.estimateMessages(messages);
 			if (tokens <= available)
 				this.lastInjection = { ...this.lastInjection, text, tokens };
-			else this.lastInjection.omitted = true;
+			else {
+				this.lastInjection.omitted = true;
+				this.lastInjection.omittedParts.push("external");
+			}
+		}
+		const tail = this.options.external?.tail(messages);
+		this.tailGuard = tail?.beforeDeliver ?? (() => {});
+		this.tailReason = tail?.reason ?? null;
+		if (tail?.text) {
+			const text = [this.lastInjection.text, tail.text]
+					.filter(Boolean)
+					.join("\n\n"),
+				tokens = services.estimateText(text),
+				available =
+					services.contextWindow -
+					services.reserveTokens -
+					services.systemTokens -
+					services.estimateMessages(messages);
+			if (tokens <= available)
+				this.lastInjection = { ...this.lastInjection, text, tokens };
+			else this.tailReason = "tail_budget_exceeded";
+		}
+		if (this.tailReason) {
+			this.lastInjection.omitted = true;
+			this.lastInjection.omittedParts.push("tail");
 		}
 		this.changed();
 		return this.lastInjection.text;
@@ -199,6 +267,13 @@ export class ContextCoordinator {
 				ownedSignal,
 				prepared.fits,
 				this.services.summaryCacheKey?.(),
+				{
+					policy: this.options.policy ?? defaultEnginePolicy,
+					estimator: this.estimator(),
+					...(this.services.summaryCacheKey
+						? { routeKey: this.services.summaryCacheKey }
+						: {}),
+				},
 			);
 			ownedSignal.throwIfAborted();
 			if (this.request !== request || this.closed)

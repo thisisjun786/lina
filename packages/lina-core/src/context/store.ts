@@ -10,6 +10,10 @@ import {
 import { isOrdinaryArchiveEntry } from "./archive.ts";
 import { ContextArtifacts } from "./artifacts.ts";
 import { expandSource } from "./expansion.ts";
+import {
+	parseSummaryGeneration,
+	type SummaryGeneration,
+} from "./generation.ts";
 import { initializeContextSchema } from "./schema.ts";
 import { SummaryRecords } from "./summary-records.ts";
 import type { ContextStoreOptions } from "./types.ts";
@@ -112,6 +116,9 @@ export class ContextStore {
 		if (keys.size !== sources.length)
 			throw new Error("summary sources must be unique");
 		const canonical: StageInput = {
+			...(input.generation
+				? { generation: parseSummaryGeneration(input.generation) }
+				: {}),
 			text: input.text,
 			kind: input.kind,
 			sources,
@@ -154,10 +161,15 @@ export class ContextStore {
 			this.db
 				.prepare("INSERT INTO summary_provenance VALUES (?, ?)")
 				.run(id, JSON.stringify(sourceProofs));
+			if (canonical.generation)
+				this.db
+					.prepare("INSERT INTO summary_generations VALUES (?,?)")
+					.run(id, JSON.stringify(canonical.generation));
 			sources.forEach((ref, ordinal) => {
 				insert.run(id, ref.kind, ref.id, ordinal);
 			});
 			return {
+				...(canonical.generation ? { generation: canonical.generation } : {}),
 				id,
 				text: canonical.text,
 				kind: canonical.kind,
@@ -169,6 +181,28 @@ export class ContextStore {
 		});
 	}
 
+	findGenerated(
+		sources: SourceRef[],
+		raw: SummaryGeneration,
+	): SummaryNode | undefined {
+		this.assertOpen();
+		const generation = parseSummaryGeneration(raw),
+			refs = sources.map(validRef);
+		const rows = this.db
+			.prepare(
+				"SELECT summary_id FROM summary_generations WHERE generation_json=? ORDER BY summary_id",
+			)
+			.all(JSON.stringify(generation));
+		for (const row of rows) {
+			const node = this.get(String(row["summary_id"]));
+			if (
+				node?.kind === "model" &&
+				JSON.stringify(node.sources) === JSON.stringify(refs)
+			)
+				return node;
+		}
+		return undefined;
+	}
 	get(id: string): SummaryNode | undefined {
 		const node = this.inspectSummary(id);
 		return node && sourceProofsCurrent(node.sourceProofs, this.lookupEntry)

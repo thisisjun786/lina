@@ -1,5 +1,6 @@
 import type { EntryInput } from "../protocol.ts";
 import type { SourceEntry, SourceProof } from "../source-policy-types.ts";
+import type { SummaryGeneration } from "./generation.ts";
 
 export const SUMMARY_TEXT_MAX_CHARS = 8192;
 export const SUMMARY_SOURCES_MAX = 64;
@@ -21,6 +22,7 @@ export interface SourceRef {
 export type SummaryKind = "model" | "extractive";
 
 export interface SummaryNode {
+	generation?: SummaryGeneration;
 	id: string;
 	text: string;
 	kind: SummaryKind;
@@ -31,6 +33,7 @@ export interface SummaryNode {
 }
 
 export interface StageInput {
+	generation?: SummaryGeneration;
 	text: string;
 	kind: SummaryKind;
 	sources: SourceRef[];

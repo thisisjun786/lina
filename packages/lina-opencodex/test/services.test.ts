@@ -826,3 +826,20 @@ test("persona interpretation uses a dedicated prompt with reflection tier and ca
 	).rejects.toThrow("source revoked");
 	expect(requests).toHaveLength(1);
 });
+
+test("context services expose one conservative estimator for text messages and system budget", async () => {
+	const { hub } = await connectedHub();
+	const service = hub.createContextServices(
+		() => settings(),
+		undefined,
+		"한😀",
+	);
+	expect(service.estimator?.id).toBe("utf8-bytes-v1");
+	expect(service.estimateText("한😀")).toBe(7);
+	expect(service.systemTokens).toBe(7);
+	expect(service.estimateMessages([{ role: "user", content: "한😀" }])).toBe(
+		new TextEncoder().encode(
+			JSON.stringify([{ role: "user", content: "한😀" }]),
+		).length,
+	);
+});

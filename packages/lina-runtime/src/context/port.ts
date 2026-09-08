@@ -4,6 +4,7 @@ import type {
 	ModelRouteRequest,
 	ModelTier,
 } from "../models/types.ts";
+import type { ContextEstimator } from "./budget.ts";
 import type { CompactSourceEvent, PreparedContext } from "./native.ts";
 import type { SummaryCall } from "./summarize.ts";
 
@@ -32,6 +33,7 @@ export interface ContextRouteInfo {
 }
 
 export interface ContextServices {
+	estimator?: ContextEstimator;
 	routeInfo?: (
 		role: ModelRole,
 		request?: ModelRouteRequest,

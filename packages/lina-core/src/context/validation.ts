@@ -5,6 +5,7 @@ import {
 	type SourceProof,
 	sourceProofsCurrent,
 } from "../source-policy.ts";
+import { parseSummaryGeneration } from "./generation.ts";
 import {
 	CONTEXT_ID_MAX_CHARS,
 	type SourceRef,
@@ -46,6 +47,8 @@ export function fingerprintOf(
 			proofs,
 		]),
 	);
+	if (input.generation)
+		hash.update(JSON.stringify(parseSummaryGeneration(input.generation)));
 	return hash.digest("hex");
 }
 

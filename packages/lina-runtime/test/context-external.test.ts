@@ -269,3 +269,78 @@ test("external injection reserves space already occupied by native context", asy
 	expect(coordinator.state().injectionOmitted).toBe(true);
 	coordinator.close();
 });
+
+test("policy changes rebuild an external checkpoint without new messages and retain a fresh tail", async () => {
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const f = setup();
+	f.add("old-a", "Initial decision A.");
+	f.add("old-b", "Correction B and why.");
+	f.add("fresh", "Keep this original promise.");
+	let policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			refreshThresholdTokens: 1,
+			freshTailEntries: 1,
+		},
+	};
+	const inputs: string[] = [];
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async (text) => {
+			inputs.push(text);
+			return "Decision B.";
+		},
+		{ policy: () => policy, routeKey: () => "fixture-route" },
+	);
+	await external.refresh(new AbortController().signal);
+	expect(
+		inputs.some((text) => text.includes("Keep this original promise")),
+	).toBe(false);
+	expect(f.context.active()?.firstKeptEntryId).toBe("old-b");
+	const previous = f.context.active()?.id;
+	policy = {
+		...policy,
+		revision: 1,
+		context: { ...policy.context, leafOutputTokens: 77 },
+	};
+	await external.refresh(new AbortController().signal);
+	expect(f.context.active()?.id).not.toBe(previous);
+	expect(inputs.length).toBe(2);
+	external.close();
+});
+
+test("fresh tail is source guarded and omitted when native message identity is unavailable", async () => {
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const f = setup();
+	f.add("archived", "An older decision.");
+	f.add("tail", "Fresh promise UNSEEN.");
+	const policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			refreshThresholdTokens: 1,
+			freshTailEntries: 1,
+		},
+	};
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async () => "Older decision.",
+		{ policy: () => policy },
+	);
+	await external.refresh(new AbortController().signal);
+	const visible = external.tail([{ entryId: "archived" }]);
+	expect(visible.text).toContain("Fresh promise UNSEEN");
+	visible.beforeDeliver();
+	expect(external.tail([{ content: "opaque native history" }]).reason).toBe(
+		"tail_dedup_unavailable",
+	);
+	expect(external.tail([{ entryId: "tail" }]).text).toBe("");
+	external.close();
+});

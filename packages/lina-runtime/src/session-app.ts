@@ -19,6 +19,7 @@ import type {
 	HonchoConfig,
 } from "../../lina-memory/src/honcho/index.ts";
 import { type ApprovalMode, parseApprovalMode } from "./approval-policy.ts";
+import { conservativeEstimator } from "./context/budget.ts";
 import { ContextChannel } from "./context/channel.ts";
 import { CompanionMemory } from "./context/companion.ts";
 import { ContextCoordinator } from "./context/coordinator.ts";
@@ -196,11 +197,30 @@ export async function startPersistentApp(options: AppOptions) {
 		);
 		contextStore = storedContext;
 		let contextServices: ContextServices | undefined;
-		const external = new ExternalContext(storedContext, journal, (...args) => {
-			if (!contextServices) throw Error("Context model services unavailable");
-			return contextServices.summarize(...args);
-		});
+		const external = new ExternalContext(
+			storedContext,
+			journal,
+			(...args) => {
+				if (!contextServices) throw Error("Context model services unavailable");
+				return contextServices.summarize(...args);
+			},
+			{
+				policy: options.enginePolicy ?? defaultEnginePolicy,
+				estimator: () =>
+					contextServices?.estimator ??
+					(contextServices
+						? {
+								id: "host-estimate-v1",
+								kind: "host",
+								text: contextServices.estimateText,
+								messages: contextServices.estimateMessages,
+							}
+						: conservativeEstimator),
+				routeKey: () => contextServices?.summaryCacheKey?.() ?? "unknown",
+			},
+		);
 		const contextCoordinator = new ContextCoordinator({
+			policy: options.enginePolicy ?? defaultEnginePolicy,
 			external,
 			nativeTokens: () => native?.usage().tokens ?? null,
 			store: storedContext,
@@ -450,6 +470,16 @@ export async function startPersistentApp(options: AppOptions) {
 					() => contextCoordinator.changed(),
 					() => contextCoordinator.isBusy,
 					() => runtime?.currentRequestId(),
+					{
+						policy: options.enginePolicy ?? defaultEnginePolicy,
+						estimator: () =>
+							services.estimator ?? {
+								id: "host-estimate-v1",
+								kind: "host",
+								text: services.estimateText,
+								messages: services.estimateMessages,
+							},
+					},
 				);
 				host.registerTool(tools.update);
 				host.registerTool(tools.search);

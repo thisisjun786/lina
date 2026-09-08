@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { ContextStore } from "../../lina-core/src/context/index.ts";
 import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
+import { defaultEnginePolicy } from "../src/context/policy-settings.ts";
 import { createContextTools } from "../src/context/tools.ts";
 import { createRuntimeFixture } from "./runtime-fixture.ts";
 
@@ -23,6 +24,12 @@ test("history/expansion tools bound results and working replacement respects the
 		() => {},
 		() => busy,
 		() => "context-source",
+		{
+			policy: () => ({
+				...defaultEnginePolicy(),
+				context: { ...defaultEnginePolicy().context, expansionTokens: 8192 },
+			}),
+		},
 	);
 	try {
 		appendContextEntry(f.store, f.runtime.binding.sessionId, {

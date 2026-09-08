@@ -1,3 +1,4 @@
+import { conservativeEstimator } from "../../lina-runtime/src/context/budget.ts";
 import type { ContextServices } from "../../lina-runtime/src/context/port.ts";
 import type {
 	ModelControl,
@@ -48,7 +49,7 @@ export type OpenCodexRuntime = {
 };
 
 function estimateText(text: string): number {
-	return Math.ceil(text.length / 4);
+	return conservativeEstimator.text(text);
 }
 
 function catalogModel(
@@ -360,19 +361,8 @@ export function createOpenCodexContextServices(
 	};
 	const services: ContextServices = {
 		estimateText,
-		estimateMessages: (messages) =>
-			messages.reduce<number>((total, message) => {
-				if (typeof message === "string") return total + estimateText(message);
-				if (message && typeof message === "object" && "content" in message) {
-					const content = (message as { content?: unknown }).content;
-					if (typeof content === "string") return total + estimateText(content);
-				}
-				try {
-					return total + estimateText(JSON.stringify(message));
-				} catch {
-					return total;
-				}
-			}, 0),
+		estimator: conservativeEstimator,
+		estimateMessages: conservativeEstimator.messages,
 		systemTokens: estimateText(systemPrompt),
 		get contextWindow() {
 			return conversationWindow();

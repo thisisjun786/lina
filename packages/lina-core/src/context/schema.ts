@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import type { BotBinding } from "../protocol.ts";
 
-export const CONTEXT_SCHEMA_VERSION = 2;
+export const CONTEXT_SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 CREATE TABLE context_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
@@ -48,9 +48,15 @@ CREATE TABLE context_finalizations (
 ) STRICT;
 `;
 
+const GENERATION_SCHEMA = `CREATE TABLE summary_generations (summary_id TEXT PRIMARY KEY REFERENCES summaries(id), generation_json TEXT NOT NULL) STRICT;`;
+
 function verifySchema(db: DatabaseSync, version: number): void {
 	const normalize = (sql: string) => sql.trim().replace(/\s+/g, " ");
-	const expected = (SCHEMA + (version === 2 ? PROVENANCE_SCHEMA : ""))
+	const expected = (
+		SCHEMA +
+		(version >= 2 ? PROVENANCE_SCHEMA : "") +
+		(version >= 3 ? GENERATION_SCHEMA : "")
+	)
 		.split(";")
 		.map(normalize)
 		.filter(Boolean)
@@ -79,7 +85,7 @@ export function initializeContextSchema(
 		.prepare("SELECT name FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
 		.all();
 	if (version !== 0 || tables.length > 0) {
-		if (version !== 1 && version !== CONTEXT_SCHEMA_VERSION)
+		if (version !== 1 && version !== 2 && version !== CONTEXT_SCHEMA_VERSION)
 			throw new Error("unknown context store schema");
 		verifySchema(db, version);
 		const schema = db
@@ -103,11 +109,18 @@ export function initializeContextSchema(
 			).run();
 			db.exec("PRAGMA user_version = 2");
 		}
-		verifySchema(db, 2);
+		if (version !== 3) {
+			verifySchema(db, 2);
+			db.exec(GENERATION_SCHEMA);
+			db.exec(
+				"UPDATE context_meta SET value='3' WHERE key='schema_version'; PRAGMA user_version=3",
+			);
+		}
+		verifySchema(db, 3);
 		return;
 	}
 	if (!fresh) throw new Error("unknown context store schema");
-	db.exec(SCHEMA + PROVENANCE_SCHEMA);
+	db.exec(SCHEMA + PROVENANCE_SCHEMA + GENERATION_SCHEMA);
 	const insert = db.prepare(
 		"INSERT INTO context_meta(key, value) VALUES (?, ?)",
 	);

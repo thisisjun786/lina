@@ -70,3 +70,59 @@ test("legacy policy payload gains context defaults without rewriting memory or i
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("summary tree applies configured token limits to labels and every source chunk", async () => {
+	const { ContextStore } = await import("../../lina-core/src/context/index.ts");
+	const { appendContextEntry } = await import(
+		"../../lina-core/test/context-journal-fixture.ts"
+	);
+	const { createRuntimeFixture } = await import("./runtime-fixture.ts");
+	const { createSummaryTree } = await import("../src/context/tree.ts");
+	const { conservativeEstimator } = await import("../src/context/budget.ts");
+	const f = createRuntimeFixture(),
+		store = new ContextStore(
+			join(f.root, "budget-context.sqlite"),
+			f.runtime.binding,
+			(id) => f.store.sourceEntry(id),
+		);
+	const text = "첫 결정과 이유😀 ".repeat(100) + "LAST-ORIGINAL";
+	appendContextEntry(f.store, f.runtime.binding.sessionId, {
+		entryId: "long-budget",
+		role: "user",
+		text,
+		timestamp: "2026-09-08T00:00:00Z",
+		raw: { type: "message", message: { role: "user", content: text } },
+	});
+	const inputs: string[] = [];
+	const policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			leafInputTokens: 500,
+			leafOutputTokens: 80,
+			condensedOutputTokens: 60,
+		},
+	};
+	try {
+		await createSummaryTree(
+			[{ kind: "entry", id: "long-budget" }],
+			store,
+			async (input) => {
+				inputs.push(input);
+				return "결정 요약.";
+			},
+			new AbortController().signal,
+			() => true,
+			"route-test",
+			{ policy: () => policy, estimator: conservativeEstimator },
+		);
+		expect(
+			inputs.every((input) => conservativeEstimator.text(input) <= 500),
+		).toBe(true);
+		expect(inputs.some((input) => input.includes("LAST-ORIGINAL"))).toBe(true);
+		expect(inputs.every((input) => input.isWellFormed())).toBe(true);
+	} finally {
+		store.close();
+		await f.close();
+	}
+});

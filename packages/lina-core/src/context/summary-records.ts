@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { SourceProof } from "../source-policy.ts";
+import { parseSummaryGeneration } from "./generation.ts";
 import {
 	type SourceRef,
 	SUMMARY_SOURCES_MAX,
@@ -27,7 +28,19 @@ export class SummaryRecords {
 		if (typeof id !== "string") return undefined;
 		const row = this.row(id);
 		if (!row) return undefined;
+		const generation = this.db
+			.prepare(
+				"SELECT generation_json FROM summary_generations WHERE summary_id=?",
+			)
+			.get(row.id);
 		return {
+			...(generation
+				? {
+						generation: parseSummaryGeneration(
+							JSON.parse(String(generation["generation_json"])),
+						),
+					}
+				: {}),
 			id: row.id,
 			text: row.text,
 			kind: row.kind,
