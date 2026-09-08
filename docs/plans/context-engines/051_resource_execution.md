@@ -95,3 +95,5 @@ file DB reopen에서 stable ID/rename/move/history, 같은op replay/conflict, �
 Blob put의 quota 검사는 catalog BEGIN IMMEDIATE 안에서 staging 이전에 수행한다. 실패한 호출의 고유 staging 파일은 해당 호출이 정리하고, 이미 rename된 hash blob은 보존/합산한다. resource_job_attempts도 schema와 unsafe counter audit 대상이다.
 
 원문 부품 BUILD 감사 수정: startup hash audit와 put quota 계산을 분리한다. put은 NOFOLLOW/fstat의 크기 합만 계산하며 전체 재해시를 반복하지 않는다. 기존 bytes의 읽기/감사는 기술 상한64MiB를 사용하고, 줄어든 owner 한도는 신규 수용에 적용한다. recoverStaging은 exclusive recovery host만 호출하는 명시 API로 strict UUID staging 파일만 정리하고 완성 hash blob을 삭제하지 않는다. 이 caller 권한 조립은070의 검증 대상이다.
+
+BUILD의 설정 복구 보강: jobs/derivations UNIQUE에는 generation_key=hash(정책 revision·모델 revision·routeKey·estimatorId·maxAttempts)을 추가한다. 외부 route/estimator가 설정 revision 없이 바뀌어도 새 작업을 만들 수 있다. 소비 횟수 키는 (resource_id,source_digest,kind) 그대로여서 설정 변경으로 재충전되지 않는다.

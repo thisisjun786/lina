@@ -16,6 +16,12 @@ import {
 	versionSchema,
 } from "./codec.ts";
 import { ResourceContent, type ResourceContentLimits } from "./content.ts";
+import { ResourceIndex } from "./indexing.ts";
+import {
+	type IndexKind,
+	type ResourceGeneration,
+	UNCONFIGURED_RESOURCE_GENERATION,
+} from "./job-codec.ts";
 import {
 	allResources,
 	auditResources,
@@ -38,12 +44,15 @@ import type {
 } from "./types.ts";
 
 export class ResourceStore {
+	readonly indexing: ResourceIndex;
 	private readonly db: DatabaseSync;
 	private readonly content: ResourceContent;
 	private closed = false;
 	constructor(
 		root: string,
 		readonly limits: ResourceContentLimits,
+		generation: (kind: IndexKind) => ResourceGeneration = () =>
+			UNCONFIGURED_RESOURCE_GENERATION,
 	) {
 		const { db, fresh } = openCheckedDatabase(join(root, "catalog.sqlite"));
 		this.db = db;
@@ -52,6 +61,7 @@ export class ResourceStore {
 			db.exec("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE");
 			initializeResources(db, fresh);
 			auditResources(db, this.content);
+			this.indexing = new ResourceIndex(db, generation);
 			db.exec("COMMIT; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL");
 		} catch (error) {
 			if (db.isTransaction) db.exec("ROLLBACK");
@@ -188,6 +198,7 @@ export class ResourceStore {
 				canonical(input),
 				canonical({ resource: r, version: v }),
 			);
+		this.indexing.changed();
 		return r;
 	}
 	create(rawScope: ResourceScope, raw: ResourceCreate): Resource {
