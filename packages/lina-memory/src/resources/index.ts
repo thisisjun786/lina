@@ -12,6 +12,12 @@ export type {
 	ResourceGeneration,
 	ResourceJob,
 } from "./job-codec.ts";
+export {
+	ResourceMemories,
+	type ResourceMemory,
+	type ResourceMemoryClaim,
+	type ResourceMemoryJob,
+} from "./memories.ts";
 export { type ResourceReadOptions, readResource } from "./retrieval.ts";
 export { ResourceStore } from "./store.ts";
 export type {

@@ -204,3 +204,41 @@ test("host can download original bytes and delete with an operation receipt", as
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("resource HTTP capture remains explicit and rejects scope fields", async () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-capture-api-")),
+		store = new ResourceStore(root, limits),
+		options = { store, scope: () => scope };
+	try {
+		const body = {
+			operationId: "capture-api",
+			kind: "document",
+			title: "search",
+			visibility: "shared",
+			text: "Source",
+			mediaType: "text/plain",
+			deriveMemory: true,
+			activityKind: "search",
+		};
+		const response = await resourceRoutes(
+			request("/api/resources", "POST", body),
+			options,
+		);
+		expect(response?.status).toBe(201);
+		const r = store.list(scope).items[0];
+		if (!r) throw Error("missing resource");
+		expect(store.memories.jobs(scope, r.id)).toHaveLength(1);
+		const denied = await resourceRoutes(
+			request("/api/resources", "POST", {
+				...body,
+				operationId: "forged",
+				principalId: "another",
+			}),
+			options,
+		);
+		expect(denied?.status).toBe(400);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

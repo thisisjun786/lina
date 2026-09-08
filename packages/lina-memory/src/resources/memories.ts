@@ -11,8 +11,16 @@ import {
 	scopeSchema,
 	uuid,
 } from "./codec.ts";
+import { isResourceText } from "./extraction.ts";
+import type { ResourceIndex } from "./indexing.ts";
 import { generationSchema, type ResourceGeneration } from "./job-codec.ts";
-import type { Resource, ResourceScope, ResourceVersionRef } from "./types.ts";
+import { permitted, resource, version } from "./records.ts";
+import type {
+	Resource,
+	ResourceScope,
+	ResourceVersion,
+	ResourceVersionRef,
+} from "./types.ts";
 
 export const activityKind = z.enum([
 	"development",
@@ -37,6 +45,12 @@ const outputSchema = z
 		}),
 	)
 	.max(16);
+const sourceSchema = z.strictObject({
+	blobHash: z.string().length(64),
+	extractionId: z.string().length(64).nullable(),
+	textHash: z.string().length(64),
+	complete: z.boolean(),
+});
 const jobSchema = z.strictObject({
 	id: z.string().length(64),
 	resourceId: uuid,
@@ -60,7 +74,10 @@ const jobSchema = z.strictObject({
 	token: uuid.nullable(),
 	input: z.string().max(262144).nullable(),
 	inputHash: z.string().length(64).nullable(),
+	source: sourceSchema.nullable(),
+	inputComplete: z.boolean().nullable(),
 	outputHash: z.string().length(64).nullable(),
+	completedToken: uuid.nullable(),
 	memoryIds: z.array(uuid).max(16),
 	error: z.string().max(256).nullable(),
 });
@@ -74,6 +91,8 @@ const evidenceSchema = z.strictObject({
 	ref: refSchema,
 	generation: generationSchema,
 	inputHash: z.string().length(64),
+	source: sourceSchema,
+	inputComplete: z.boolean(),
 	quote: z.string().min(1).max(8192),
 	activityKind,
 });
@@ -92,6 +111,7 @@ export interface ResourceMemory {
 	fingerprint: string;
 }
 interface Owner {
+	indexing: Pick<ResourceIndex, "read">;
 	get(scope: ResourceScope, id: string): Resource;
 	ref(scope: ResourceScope, id: string): ResourceVersionRef;
 	current(scope: ResourceScope, refs: readonly ResourceVersionRef[]): boolean;
@@ -102,6 +122,7 @@ export class ResourceMemories {
 		private db: DatabaseSync,
 		private owner: Owner,
 		private generation: () => ResourceGeneration,
+		private readBlob: (version: ResourceVersion) => Uint8Array,
 	) {
 		this.audit();
 	}
@@ -135,6 +156,15 @@ export class ResourceMemories {
 		const j = decode(jobSchema, r["data"]);
 		if (
 			j.id !== r["id"] ||
+			j.id !==
+				hash({
+					ref: j.ref,
+					intentRevision: j.intentRevision,
+					generation: j.generation,
+				}) ||
+			j.resourceId !== j.ref.resourceId ||
+			j.sourceDigest !==
+				hash({ resourceId: j.resourceId, versionId: j.ref.versionId }) ||
 			j.resourceId !== r["resource_id"] ||
 			j.sourceDigest !== r["source_digest"] ||
 			j.kind !== r["kind"] ||
@@ -187,7 +217,10 @@ export class ResourceMemories {
 		const i = intentSchema.parse({
 			enabled: !r.deleted && (input.deriveMemory ?? old?.enabled ?? false),
 			activityKind: input.activityKind ?? old?.activityKind ?? "other",
-			proposerId: scope.principalId,
+			proposerId:
+				input.deriveMemory === undefined && old
+					? old.proposerId
+					: scope.principalId,
 			revision: r.revision,
 		});
 		this.db
@@ -200,6 +233,10 @@ export class ResourceMemories {
 			generation = generationSchema.parse(this.generation()),
 			sourceDigest = hash({ resourceId: r.id, versionId: r.currentVersion });
 		const id = hash({ ref, intentRevision: i.revision, generation });
+		if (
+			this.db.prepare("SELECT id FROM resource_memory_jobs WHERE id=?").get(id)
+		)
+			return;
 		this.write({
 			id,
 			resourceId: r.id,
@@ -215,9 +252,18 @@ export class ResourceMemories {
 			token: null,
 			input: null,
 			inputHash: null,
+			source: null,
+			inputComplete: null,
 			outputHash: null,
+			completedToken: null,
 			memoryIds: [],
 			error: null,
+		});
+	}
+	refresh(scope: ResourceScope, id: string): void {
+		this.tx(() => {
+			if (this.intent(id)?.enabled)
+				this.changed(scope, {}, this.owner.get(scope, id));
 		});
 	}
 	jobs(rawScope: ResourceScope, id: string): ResourceMemoryJob[] {
@@ -228,7 +274,44 @@ export class ResourceMemories {
 				"SELECT id FROM resource_memory_jobs WHERE resource_id=? ORDER BY id",
 			)
 			.all(id)
-			.map((r) => this.job(String(r["id"])));
+			.map((r) => this.job(String(r["id"])))
+			.filter((j) => {
+				const v = j.ref.versionId
+					? version(this.db, j.ref.versionId)
+					: undefined;
+				return !!v && permitted(scope, v);
+			});
+	}
+	source(scope: ResourceScope, id: string) {
+		const r = this.owner.get(scope, id),
+			v = r.currentVersion ? version(this.db, r.currentVersion) : undefined;
+		if (
+			!v ||
+			!permitted(scope, v) ||
+			(r.visibility === "shared" && v.visibility === "private")
+		)
+			throw Error("memory source unavailable");
+		let text: string,
+			extractionId: string | null = null,
+			complete = true;
+		if (isResourceText(v.mediaType))
+			text = new TextDecoder("utf-8", { fatal: true }).decode(this.readBlob(v));
+		else {
+			const d = this.owner.indexing.read(scope, id, "extract");
+			if (!d || d.stale) throw Error("memory extraction unavailable");
+			text = d.text;
+			extractionId = d.jobId;
+			complete = d.complete;
+		}
+		return {
+			text,
+			snapshot: {
+				blobHash: v.hash,
+				extractionId,
+				textHash: hash(text),
+				complete,
+			},
+		};
 	}
 	prepare(
 		scope: ResourceScope,
@@ -258,6 +341,12 @@ export class ResourceMemories {
 			j.token = randomUUID();
 			j.input = text;
 			j.inputHash = hash(text);
+			const source = this.source(scope, j.resourceId);
+			if (!source.text.startsWith(text))
+				throw Error("memory input differs from source");
+			j.source = source.snapshot;
+			j.inputComplete =
+				source.snapshot.complete && text.length === source.text.length;
 			this.db
 				.prepare(
 					"INSERT INTO resource_memory_attempts VALUES (?,?,'capture',?) ON CONFLICT(resource_id,source_digest,kind) DO UPDATE SET attempts=excluded.attempts",
@@ -277,7 +366,12 @@ export class ResourceMemories {
 		const outputs = outputSchema.parse(raw);
 		return this.tx(() => {
 			const j = this.job(claim.id);
-			if (!this.current(scope, j)) throw Error("memory source changed");
+			if (
+				!this.current(scope, j) ||
+				canonical(j.source) !==
+					canonical(this.source(scope, j.resourceId).snapshot)
+			)
+				throw Error("memory source changed");
 			const digest = hash({ token: claim.token, outputs });
 			if (j.state === "ready") {
 				if (j.outputHash !== digest) throw Error("memory completion conflict");
@@ -303,6 +397,8 @@ export class ResourceMemories {
 					ref: j.ref,
 					generation: j.generation,
 					inputHash: j.inputHash,
+					source: sourceSchema.parse(j.source),
+					inputComplete: j.inputComplete === true,
 					quote: output.quote,
 					activityKind: j.activityKind,
 				};
@@ -350,6 +446,7 @@ export class ResourceMemories {
 			j.state = "ready";
 			j.token = null;
 			j.outputHash = digest;
+			j.completedToken = claim.token;
 			this.write(j);
 			return result;
 		});
@@ -417,6 +514,8 @@ export class ResourceMemories {
 			j.error = null;
 			j.input = null;
 			j.inputHash = null;
+			j.source = null;
+			j.inputComplete = null;
 			this.write(j);
 		});
 	}
@@ -433,33 +532,171 @@ export class ResourceMemories {
 		});
 	}
 	audit(): void {
-		for (const r of this.db
-			.prepare("SELECT resource_id FROM resource_memory_intents")
-			.all())
-			this.intent(String(r["resource_id"]));
-		for (const r of this.db
+		const all = this.db
 			.prepare("SELECT id FROM resource_memory_jobs")
+			.all()
+			.map((r) => this.job(String(r["id"])));
+		for (const row of this.db
+			.prepare("SELECT resource_id FROM resource_memory_intents")
 			.all()) {
-			const j = this.job(String(r["id"]));
+			const id = String(row["resource_id"]),
+				i = this.intent(id),
+				r = resource(this.db, id);
+			if (
+				!i ||
+				!r ||
+				r.kind !== "document" ||
+				i.revision !== r.revision ||
+				(r.deleted && i.enabled)
+			)
+				throw Error("corrupt memory intent source");
+		}
+		const groups = new Map<string, number>();
+		const memories = this.db
+			.prepare("SELECT * FROM resource_memories")
+			.all()
+			.map((r) => this.memory(r));
+		for (const j of all) {
+			const v = j.ref.versionId ? version(this.db, j.ref.versionId) : undefined;
+			if (
+				!v ||
+				v.resourceId !== j.resourceId ||
+				v.resourceRevision > j.ref.resourceRevision ||
+				j.intentRevision !== j.ref.resourceRevision ||
+				!this.intent(j.resourceId)
+			)
+				throw Error("corrupt memory job source");
 			if (
 				(j.input === null) !== (j.inputHash === null) ||
-				(j.input !== null && hash(j.input) !== j.inputHash)
+				(j.input !== null && hash(j.input) !== j.inputHash) ||
+				new Set(j.memoryIds).size !== j.memoryIds.length
 			)
 				throw Error("corrupt memory input");
+			const receipt = this.db
+				.prepare(
+					"SELECT result FROM resource_operations WHERE resource_id=? AND revision=?",
+				)
+				.get(j.resourceId, j.ref.resourceRevision);
+			const saved = receipt ? JSON.parse(String(receipt["result"])) : null;
+			if (!saved || saved.resource.currentVersion !== j.ref.versionId)
+				throw Error("corrupt memory source receipt");
+			if (j.input !== null) {
+				if (!j.source || j.source.blobHash !== v.hash)
+					throw Error("corrupt memory source snapshot");
+				let sourceText: string;
+				if (j.source.extractionId === null) {
+					if (!isResourceText(v.mediaType))
+						throw Error("corrupt memory source encoding");
+					sourceText = new TextDecoder("utf-8", { fatal: true }).decode(
+						this.readBlob(v),
+					);
+				} else {
+					const row = this.db
+						.prepare(
+							"SELECT data FROM resource_derivations WHERE json_extract(data,'$.jobId')=?",
+						)
+						.get(j.source.extractionId);
+					if (!row) throw Error("missing memory extraction");
+					const d = JSON.parse(String(row["data"]));
+					sourceText = z.string().parse(d.text);
+					const extraction = this.db
+						.prepare(
+							"SELECT resource_id,kind,data FROM resource_jobs WHERE id=?",
+						)
+						.get(j.source.extractionId);
+					if (
+						!extraction ||
+						extraction["resource_id"] !== j.resourceId ||
+						extraction["kind"] !== "extract"
+					)
+						throw Error("corrupt memory extraction source");
+					const ej = JSON.parse(String(extraction["data"]));
+					if (
+						!ej.refs.some(
+							(ref: ResourceVersionRef) => canonical(ref) === canonical(j.ref),
+						) ||
+						d.complete !== j.source.complete
+					)
+						throw Error("corrupt memory extraction ref");
+				}
+				if (
+					j.inputComplete !==
+						(j.source.complete && j.input.length === sourceText.length) ||
+					hash(sourceText) !== j.source.textHash ||
+					!sourceText.startsWith(j.input)
+				)
+					throw Error("corrupt memory source text");
+			} else if (j.source !== null) throw Error("unexpected memory snapshot");
+			const ready = j.state === "ready";
+			if (
+				ready !== (j.outputHash !== null) ||
+				ready !== (j.completedToken !== null) ||
+				(!ready && j.memoryIds.length) ||
+				(["prepared", "ready", "failed", "unknown"].includes(j.state) &&
+					(!j.input || j.attempt < 1))
+			)
+				throw Error("corrupt memory state");
+			const key = canonical([j.resourceId, j.sourceDigest, "capture"]);
+			if (j.attempt > 0)
+				groups.set(key, Math.max(groups.get(key) ?? 0, j.attempt));
+			if (ready) {
+				const rows = j.memoryIds.map((id) => {
+					const m = memories.find((m) => m.id === id);
+					if (!m || m.evidence.jobId !== j.id)
+						throw Error("corrupt memory output receipt");
+					return { kind: m.kind, text: m.text, quote: m.evidence.quote };
+				});
+				if (hash({ token: j.completedToken, outputs: rows }) !== j.outputHash)
+					throw Error("corrupt memory output hash");
+			}
 		}
-		for (const r of this.db.prepare("SELECT * FROM resource_memories").all()) {
-			const m = this.memory(r),
-				j = this.job(m.evidence.jobId);
+		for (const row of this.db
+			.prepare("SELECT * FROM resource_memory_attempts")
+			.all()) {
+			const key = canonical([
+				row["resource_id"],
+				row["source_digest"],
+				row["kind"],
+			]);
+			const attempts = counter.min(1).max(3).parse(row["attempts"]);
+			if (groups.get(key) !== attempts) throw Error("corrupt memory attempts");
+			groups.delete(key);
+		}
+		if (groups.size) throw Error("missing memory attempts");
+		for (const m of memories) {
+			const j = this.job(m.evidence.jobId),
+				v = version(this.db, m.versionId);
 			if (
 				j.state !== "ready" ||
 				!j.memoryIds.includes(m.id) ||
+				canonical(j.ref) !== canonical(m.evidence.ref) ||
 				j.ref.resourceId !== m.resourceId ||
 				j.ref.versionId !== m.versionId ||
 				!j.input?.includes(m.evidence.quote) ||
+				canonical(j.source) !== canonical(m.evidence.source) ||
+				j.inputComplete !== m.evidence.inputComplete ||
 				j.inputHash !== m.evidence.inputHash ||
-				canonical(j.generation) !== canonical(m.evidence.generation)
+				canonical(j.generation) !== canonical(m.evidence.generation) ||
+				j.proposerId !== m.proposerId ||
+				j.activityKind !== m.evidence.activityKind ||
+				m.policyRevision !== j.generation.policyRevision ||
+				m.revision !== 1 ||
+				!v ||
+				(v.visibility === "private" && m.visibility === "shared")
 			)
 				throw Error("corrupt memory evidence");
+			if (
+				m.fingerprint !==
+				hash({
+					ref: j.ref,
+					intentRevision: j.intentRevision,
+					generation: j.generation,
+					kind: m.kind,
+					text: m.text,
+					quote: m.evidence.quote,
+				})
+			)
+				throw Error("corrupt memory fingerprint");
 		}
 	}
 }

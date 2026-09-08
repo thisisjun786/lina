@@ -5,10 +5,12 @@ import {
 	resourceId,
 } from "../../../lina-memory/src/resources/codec.ts";
 import { isResourceText } from "../../../lina-memory/src/resources/extraction.ts";
+import { activityKind } from "../../../lina-memory/src/resources/memories.ts";
 import { readResource } from "../../../lina-memory/src/resources/retrieval.ts";
 import type { ResourceStore } from "../../../lina-memory/src/resources/store.ts";
 import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts";
 import type { LinaHost } from "../host.ts";
+import { resourceMemoryContext } from "./context.ts";
 import type { ResourceSearch } from "./search.ts";
 
 const id = Type.String({ format: "uuid" }),
@@ -37,6 +39,8 @@ const readInput = z.strictObject({
 	limit: z.number().int().min(2).max(8192).optional(),
 });
 const putInput = z.strictObject({
+	deriveMemory: z.boolean().optional(),
+	activityKind: activityKind.optional(),
 	operationId: z.string().min(1).max(160),
 	id: z.uuid().optional(),
 	expectedRevision: z.number().int().min(1).optional(),
@@ -58,6 +62,36 @@ export function installResourceTools(
 	},
 ): void {
 	const { store, scope } = options;
+	host.registerTool({
+		name: "lina_resource_memory_read",
+		label: "Read resource memory",
+		description:
+			"Read source-attributed shared knowledge, never personal lived experience; no task or memory creation.",
+		parameters: Type.Object(
+			{
+				id: Type.String(),
+				maxChars: Type.Optional(Type.Integer({ minimum: 128, maximum: 32768 })),
+			},
+			{ additionalProperties: false },
+		),
+		execute(_call, raw, signal) {
+			signal?.throwIfAborted();
+			const input = z
+				.strictObject({
+					id: z.string().transform(resourceId),
+					maxChars: z.number().int().min(128).max(32768).optional(),
+				})
+				.parse(raw);
+			const result = resourceMemoryContext(
+				store,
+				scope,
+				input.id,
+				input.maxChars,
+			);
+			return textResult(result.value, result.assertCurrent);
+		},
+	});
+
 	host.registerTool({
 		name: "lina_resource_list",
 		label: "Browse resources",
@@ -201,6 +235,10 @@ export function installResourceTools(
 		parameters: Type.Object(
 			{
 				operationId: Type.String(),
+				deriveMemory: Type.Optional(Type.Boolean()),
+				activityKind: Type.Optional(
+					Type.Union(activityKind.options.map((v) => Type.Literal(v))),
+				),
 				id: optional(id),
 				expectedRevision: Type.Optional(revision),
 				kind: Type.Optional(
@@ -243,6 +281,10 @@ export function installResourceTools(
 				if (input.kind !== undefined) throw Error("kind is immutable");
 				value = store.update(scope(), {
 					operationId: input.operationId,
+					...(input.deriveMemory !== undefined
+						? { deriveMemory: input.deriveMemory }
+						: {}),
+					...(input.activityKind ? { activityKind: input.activityKind } : {}),
 					id: input.id,
 					expectedRevision: input.expectedRevision ?? 0,
 					...(input.title !== undefined ? { title: input.title } : {}),
@@ -266,6 +308,10 @@ export function installResourceTools(
 					throw Error("create requires kind, title and visibility");
 				value = store.create(scope(), {
 					operationId: input.operationId,
+					...(input.deriveMemory !== undefined
+						? { deriveMemory: input.deriveMemory }
+						: {}),
+					...(input.activityKind ? { activityKind: input.activityKind } : {}),
 					kind: input.kind,
 					title: input.title,
 					visibility: input.visibility,

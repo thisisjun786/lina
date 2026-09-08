@@ -59,6 +59,8 @@ export class ResourceStore {
 		readonly limits: ResourceContentLimits,
 		generation: (kind: IndexKind) => ResourceGeneration = () =>
 			UNCONFIGURED_RESOURCE_GENERATION,
+		memoryGeneration: () => ResourceGeneration = () =>
+			UNCONFIGURED_RESOURCE_GENERATION,
 	) {
 		const { db, fresh } = openCheckedDatabase(join(root, "catalog.sqlite"));
 		this.db = db;
@@ -69,7 +71,9 @@ export class ResourceStore {
 			auditResources(db, this.content);
 			this.indexing = new ResourceIndex(db, generation);
 			migrateResources(db);
-			this.memories = new ResourceMemories(db, this, () => generation("brief"));
+			this.memories = new ResourceMemories(db, this, memoryGeneration, (v) =>
+				this.content.read(v),
+			);
 			db.exec("COMMIT; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL");
 		} catch (error) {
 			if (db.isTransaction) db.exec("ROLLBACK");

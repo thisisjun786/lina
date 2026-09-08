@@ -23,6 +23,7 @@ const AUTOMATIC = new Set([
 	"lina_memory_query",
 	"lina_resource_list",
 	"lina_resource_read",
+	"lina_resource_memory_read",
 	"lina_resource_search",
 	"lina_world_read",
 	"lina_world_draft_read",

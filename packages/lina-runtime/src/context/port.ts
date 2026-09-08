@@ -33,6 +33,15 @@ export interface ContextRouteInfo {
 }
 
 export interface ContextServices {
+	deriveResourceMemory?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+		routeRequest?: ModelRouteRequest,
+		maxTokens?: number,
+		maxInputTokens?: number,
+	) => Promise<string>;
+	memoryInputOverhead?: () => number;
 	estimator?: ContextEstimator;
 	routeInfo?: (
 		role: ModelRole,

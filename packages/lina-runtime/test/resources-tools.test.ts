@@ -57,6 +57,7 @@ test("resource reads run in confirm mode while writes still wait for approval", 
 		});
 		for (const [name, args] of [
 			["lina_resource_read", { id: doc.id }],
+			["lina_resource_memory_read", { id: doc.id }],
 			["lina_resource_list", {}],
 			["lina_resource_search", { query: "자료" }],
 		] as const) {

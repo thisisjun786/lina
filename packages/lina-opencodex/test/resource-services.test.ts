@@ -313,3 +313,110 @@ test("analyzeImage optional args reach completeOptions and keep vision guards", 
 		),
 	).rejects.toMatchObject({ code: "vision_unavailable" });
 });
+
+test("resource memory uses standard route, exact prompt overhead, and actual output cap", async () => {
+	const { RESOURCE_MEMORY_PROMPT } = await import("../src/prompts.ts");
+	const posts: Record<string, unknown>[] = [];
+	const f = runtime((body) => posts.push(body)),
+		s = createOpenCodexContextServices(f.runtime, () => settings());
+	if (!s.deriveResourceMemory) throw Error("missing memory callback");
+	let dispatched = 0;
+	expect(s.memoryInputOverhead?.()).toBe(
+		conservativeEstimator.messages(frame(RESOURCE_MEMORY_PROMPT, "")),
+	);
+	await s.deriveResourceMemory(
+		"source",
+		new AbortController().signal,
+		() => {
+			dispatched++;
+		},
+		undefined,
+		77,
+		4096,
+	);
+	expect(dispatched).toBe(1);
+	expect(posts[0]?.["instructions"]).toBe(RESOURCE_MEMORY_PROMPT);
+	expect(posts[0]?.["reasoning"]).toEqual({ effort: "low" });
+	expect(posts[0]?.["max_output_tokens"]).toBe(77);
+	await expect(
+		s.deriveResourceMemory(
+			"source",
+			new AbortController().signal,
+			() => {
+				throw Error("revoked");
+			},
+			undefined,
+			77,
+			4096,
+		),
+	).rejects.toThrow("revoked");
+	expect(posts).toHaveLength(1);
+});
+
+test("actual memory worker uses OpenCodex fake fetch and persists source attributed output", async () => {
+	const { mkdtempSync, rmSync } = await import("node:fs"),
+		{ tmpdir } = await import("node:os"),
+		{ join } = await import("node:path");
+	const { ResourceStore } = await import(
+			"../../lina-memory/src/resources/store.ts"
+		),
+		{ ResourceMemoryWorker, memoryGeneration } = await import(
+			"../../lina-runtime/src/resources/memory-worker.ts"
+		),
+		{ defaultEnginePolicy } = await import(
+			"../../lina-runtime/src/context/policy-settings.ts"
+		);
+	const root = mkdtempSync(join(tmpdir(), "lina-memory-provider-")),
+		policy = defaultEnginePolicy();
+	const posts: Record<string, unknown>[] = [];
+	const fixture = runtime();
+	fixture.runtime.fetchImpl = async (_url, init) => {
+		posts.push(JSON.parse(String(init?.body)));
+		return sse(
+			JSON.stringify([
+				{ kind: "decision", text: "Paper selected", quote: "paper" },
+			]),
+		);
+	};
+	const svc = createOpenCodexContextServices(fixture.runtime, () => settings()),
+		scope = {
+			principalId: "a",
+			agentId: "a",
+			allowedVisibilities: ["shared"] as "shared"[],
+		};
+	const store = new ResourceStore(
+		root,
+		{ maxFileBytes: 4096, maxCatalogBytes: 8192, maxExtractionBytes: 4096 },
+		undefined,
+		() => memoryGeneration(svc, policy),
+	);
+	try {
+		const r = store.create(scope, {
+			operationId: "d",
+			kind: "document",
+			title: "Notes",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("We selected paper."),
+			deriveMemory: true,
+			activityKind: "writing",
+		});
+		const worker = new ResourceMemoryWorker({
+			store,
+			scope: () => scope,
+			services: () => svc,
+			policy: () => policy,
+		});
+		expect((await worker.run(r.id, new AbortController().signal)).state).toBe(
+			"ready",
+		);
+		expect(posts).toHaveLength(1);
+		expect(posts[0]?.["max_output_tokens"]).toBe(256);
+		expect(store.memories.list(scope, r.id)[0]?.evidence.activityKind).toBe(
+			"writing",
+		);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

@@ -5,6 +5,7 @@ import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts"
 import type { EnginePolicySnapshot } from "../context/policy-settings.ts";
 import type { ContextServices } from "../context/port.ts";
 import type { LinaHost } from "../host.ts";
+import { memoryGeneration, ResourceMemoryWorker } from "./memory-worker.ts";
 import { ResourceSearch } from "./search.ts";
 import { installResourceTools } from "./tools.ts";
 import { ResourceWorker, resourceGeneration } from "./worker.ts";
@@ -22,14 +23,18 @@ export class ResourceEngine {
 	readonly store: ResourceStore;
 	readonly search: ResourceSearch;
 	private readonly worker: ResourceWorker;
+	private readonly memoryWorker: ResourceMemoryWorker;
 	private readonly abort = new AbortController();
 	private busy = false;
 	private closed = false;
 	private closing: Promise<void> | undefined;
 	private drained: ReturnType<typeof Promise.withResolvers<void>> | undefined;
 	constructor(private readonly options: Options) {
-		this.store = new ResourceStore(options.root, options.limits, (kind) =>
-			resourceGeneration(options.services(), options.policy(), kind),
+		this.store = new ResourceStore(
+			options.root,
+			options.limits,
+			(kind) => resourceGeneration(options.services(), options.policy(), kind),
+			() => memoryGeneration(options.services(), options.policy()),
 		);
 		const shared = {
 			store: this.store,
@@ -39,6 +44,7 @@ export class ResourceEngine {
 		};
 		this.search = new ResourceSearch(shared);
 		this.worker = new ResourceWorker(shared);
+		this.memoryWorker = new ResourceMemoryWorker(shared);
 	}
 	install(host: LinaHost): void {
 		this.open();
@@ -77,6 +83,14 @@ export class ResourceEngine {
 				combined.throwIfAborted();
 				results.push(await this.worker.run(job.id, combined));
 			}
+			const memory = await this.memoryWorker.run(resourceId, combined);
+			if (
+				!(
+					memory.state === "unavailable" &&
+					memory.reason === "no_pending_capture"
+				)
+			)
+				results.push(memory);
 			return results;
 		} finally {
 			this.busy = false;

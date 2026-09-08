@@ -25,6 +25,7 @@ import {
 	RECALL_PROMPT,
 	REFLECT_PREFERENCES_PROMPT,
 	REFLECT_PROMPT,
+	RESOURCE_MEMORY_PROMPT,
 	RESOURCE_PLAN_PROMPT,
 	RESOURCE_RANK_PROMPT,
 	RESOURCE_SUMMARY_PROMPT,
@@ -563,6 +564,30 @@ export function createOpenCodexContextServices(
 				model: resolved.model.id,
 				text: reply.text,
 			};
+		},
+		async deriveResourceMemory(
+			text,
+			signal,
+			beforeDispatch,
+			routeRequest,
+			maxTokens,
+			maxInputTokens,
+		) {
+			return roleCall(
+				"observation",
+				RESOURCE_MEMORY_PROMPT,
+				text,
+				signal,
+				beforeDispatch,
+				maxTokens,
+				routeRequest ?? { tier: "standard" },
+				maxInputTokens,
+			);
+		},
+		memoryInputOverhead() {
+			return conservativeEstimator.messages(
+				resourceFrame(RESOURCE_MEMORY_PROMPT, ""),
+			);
 		},
 		async summarizeResource(
 			text,

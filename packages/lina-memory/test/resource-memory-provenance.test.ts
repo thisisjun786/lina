@@ -144,3 +144,86 @@ test("interrupted capture remains unknown across reopen and explicit retry keeps
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+for (const [label, sql] of [
+	["memory text", "UPDATE resource_memories SET text='forged'"],
+	[
+		"memory fingerprint",
+		"UPDATE resource_memories SET fingerprint=printf('%064d',0)",
+	],
+	["missing output", "DELETE FROM resource_memories"],
+	[
+		"attempt counter",
+		"UPDATE resource_memory_attempts SET attempts=9007199254740992",
+	],
+	["missing attempt", "DELETE FROM resource_memory_attempts"],
+	[
+		"intent revision",
+		"UPDATE resource_memory_intents SET revision=999,data=json_set(data,'$.revision',999)",
+	],
+	[
+		"job source",
+		"UPDATE resource_memory_jobs SET source_digest=printf('%064d',0),data=json_set(data,'$.sourceDigest',printf('%064d',0))",
+	],
+] as const)
+	test(`memory reopen rejects ${label}`, () => {
+		const root = mkdtempSync(join(tmpdir(), "lina-memory-corrupt-"));
+		const store = new ResourceStore(root, limits);
+		try {
+			const r = store.create(scope, {
+				operationId: "capture",
+				kind: "document",
+				title: "Notes",
+				visibility: "shared",
+				mediaType: "text/plain",
+				bytes: new TextEncoder().encode("Evidence"),
+				deriveMemory: true,
+			});
+			const j = store.memories.jobs(scope, r.id)[0];
+			if (!j) throw Error("job absent");
+			const claim = store.memories.prepare(scope, j.id, "Evidence");
+			store.memories.complete(scope, claim, [
+				{ kind: "observation", text: "Supported", quote: "Evidence" },
+			]);
+			store.close();
+			const db = new DatabaseSync(join(root, "catalog.sqlite"));
+			try {
+				db.exec(sql);
+				expect(() => new ResourceStore(root, limits)).toThrow();
+			} finally {
+				db.close();
+			}
+		} finally {
+			store.close();
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+test("republishing metadata cannot turn a private historical version into shared memory", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-memory-private-version-")),
+		store = new ResourceStore(root, limits);
+	try {
+		const r = store.create(scope, {
+			operationId: "private",
+			kind: "document",
+			title: "Private",
+			visibility: "private",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("SECRET"),
+		});
+		store.update(scope, {
+			id: r.id,
+			operationId: "publish",
+			expectedRevision: 1,
+			visibility: "shared",
+			deriveMemory: true,
+		});
+		const j = store.memories.jobs(scope, r.id)[0];
+		if (!j) throw Error("no job");
+		expect(() => store.memories.prepare(scope, j.id, "SECRET")).toThrow();
+		expect(store.memories.jobs(scope, r.id)[0]?.attempt).toBe(0);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
