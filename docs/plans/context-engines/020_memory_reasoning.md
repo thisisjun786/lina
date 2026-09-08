@@ -155,3 +155,5 @@ v4 migration/checkpoint 및 receipt audit를 연결하는 작업은 계속 진�
 후속 B review 반영: 재검토 route 미설정은 해당 service만 unavailable로 남기고 관찰 스케줄을 중단하지 않는다. 전제의 조상 탐색은 host의 현재 store를 사용하며 모델이 직접 인용할 전제는 frozen 입력으로 제한한다. 검색/입력 예산·성장 제한·설정 변경은 withheld로 종료한다. 12페이지/24단계 중20단계 처리 후 나머지는 기존 scheduler wake에서 이어지고 반복 refresh는 재호출하지 않는 경계 테스트가 통과했다.
 
 v3의 동일 id/revision 이력과 current가 다른 경우, 기존 이력을 새 증거 사본으로 덮어쓰지 않는다. NEW v4 `engine_reasoning_history(id,revision,data)`가 claim 시점의 증거를 따로 고정하며 engine_premises FK는 이 테이블을 참조한다. 기존 engine_record_history는 원형으로 남긴다. 실제 fixture에서 과거 이력 바이트 보존, 새 결론 commit, reopen을 검증했다. 따라서 앞선 record_history FK 초안은 이 계약으로 대체한다. v4는 이 브랜치의 미출시 schema이며 중간 개발 v4 DB를 사용자 데이터 migration으로 간주하지 않는다.
+
+메인 현재 checkpoint5eb6774: 상위 독립 검토2개를 red로 재현하고 수정했다. source/설정/예산 경계와 성장제한은 withhold 또는 unavailable로 표시하며 관찰 scheduler와 분리했다. startup와 공개 읽기는 각각 독립된 transaction receipt memo를 사용하고 SQLite total_changes 변화 때 전체 cache를 무효화한다. 재진입 쓰기는 거부한다. 파일 DB130개 패키지 검사와 타입 검사가 통과했으며 마지막 engine4파일64개 검사가 통과했다. 아직 C 진입 전으로 independent core residual review와 반복 query sidecar 마무리를 기다리고 있다.

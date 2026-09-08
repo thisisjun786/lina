@@ -304,6 +304,9 @@ export class MemoryConsolidation {
 						);
 						const body = {
 							stage,
+							allowedSubjects: allowCharacterGrowth()
+								? ["user", "self", "relationship"]
+								: ["user"],
 							remainingSearches,
 							records: input.records.map(projection),
 							contract:

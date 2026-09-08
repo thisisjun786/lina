@@ -499,10 +499,7 @@ export class EngineStore {
 			for (const item of prepared) {
 				const id = recordId(this.agentId, item.proposal),
 					previous = this.get(id);
-				if (
-					previous?.evidence === "explicit" &&
-					this.reasoningEligible(previous)
-				)
+				if (previous && !previous.reasoning && this.reasoningEligible(previous))
 					continue;
 				if (
 					item.sourceProofs.some((p) => this.sourceInvalidated(p.entryId)) ||
@@ -929,7 +926,7 @@ export class EngineStore {
 	}
 	private transaction<T>(action: () => T, write = true): T {
 		if (this.db.isTransaction) {
-			if(write)throw Error("reentrant engine mutation");
+			if (write) throw Error("reentrant engine mutation");
 			return action();
 		}
 		this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");

@@ -694,3 +694,33 @@ test("reasoning over migrated current evidence preserves a divergent legacy hist
 		inspect.close();
 	}
 });
+
+test("consolidation does not silently replace an eligible direct inferred observation", () => {
+	const f = persistentFixture();
+	f.store.apply({
+		requestId: "direct-inference",
+		expectedRevision: f.store.currentRevision(),
+		sourceProofs: captureSourceProofs(["u1"], f.lookup),
+		observations: [
+			{
+				subject: "user",
+				kind: "interest",
+				key: "parks",
+				text: "Prefers quiet parks",
+				evidence: "inferred",
+				sources: [{ entryId: "u1", quote: "walking" }],
+			},
+		],
+	});
+	const started = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!started) throw Error("claim");
+	const result = f.store.applyConclusions({
+		requestId: started.claim.id,
+		expectedRevision: started.input.expectedRevision,
+		proposals: [f.proposal],
+		claim: started.claim,
+	});
+	expect(result.records.find((record) => record.key === "parks")).toMatchObject(
+		{ text: "Prefers quiet parks", sourceRequestId: "direct-inference" },
+	);
+});
