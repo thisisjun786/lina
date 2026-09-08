@@ -30,6 +30,10 @@ import {
 	type CompanionScan,
 } from "./companion-queue.ts";
 import type { MemorySnapshot } from "./memory.ts";
+import {
+	type ConsolidationConfig,
+	MemoryConsolidation,
+} from "./memory-consolidation.ts";
 
 type Observer = (
 	input: string,
@@ -60,6 +64,7 @@ function finalAssistant(entry: EntryInput): boolean {
 
 export class CompanionMemory {
 	readonly mind: EngineStore;
+	private readonly consolidation: MemoryConsolidation;
 	private readonly queue: CompanionQueue;
 	private readonly controller = new AbortController();
 	private readonly schedule: Schedule;
@@ -105,6 +110,12 @@ export class CompanionMemory {
 				sourceSequence: (id) => options.journal.entrySequence(id),
 				...(options.now ? { now: options.now } : {}),
 			});
+			this.mind.recoverReasoning();
+			this.consolidation = new MemoryConsolidation(
+				this.mind,
+				options.journal,
+				(run) => this.observe((_text, signal) => run(signal), ""),
+			);
 		} catch (e) {
 			this.queue.close();
 			throw e;
@@ -113,9 +124,11 @@ export class CompanionMemory {
 	configure(
 		observer: Observer,
 		preferences?: ReturnType<typeof nativePreferences>,
+		consolidation?: ConsolidationConfig,
 	): void {
 		this.observer = observer;
 		this.preferences = preferences;
+		this.consolidation.configure(consolidation);
 	}
 	status(): MemorySnapshot {
 		if (
@@ -135,6 +148,7 @@ export class CompanionMemory {
 					: "ready",
 			freshness: "unknown",
 			recallText: this.recallText,
+			consolidation: this.consolidation.status(),
 		};
 	}
 	detail() {
@@ -282,6 +296,10 @@ export class CompanionMemory {
 					if (this.closed) break;
 					await this.process(job, observe);
 				}
+			await this.consolidation.run(
+				this.controller.signal,
+				this.options.allowCharacterGrowth ?? (() => true),
+			);
 		} catch {
 			this.error = "Companion scan or queue failed; progress preserved";
 			this.changed();
@@ -289,7 +307,11 @@ export class CompanionMemory {
 		}
 		if (!this.closed) {
 			this.changed();
-			const due = this.observer ? this.queue.nextDelay() : undefined;
+			const delays = [
+				this.observer ? this.queue.nextDelay() : undefined,
+				this.consolidation.nextDelay((this.options.now ?? Date.now)()),
+			].filter((v): v is number => v !== undefined);
+			const due = delays.length ? Math.min(...delays) : undefined;
 			if (more || this.rerun || due !== undefined)
 				this.cancelWake = this.schedule(
 					() => {

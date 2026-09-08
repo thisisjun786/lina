@@ -26,6 +26,7 @@ import { ExternalContext } from "./context/external.ts";
 import { installContextHooks } from "./context/hooks.ts";
 import { MemoryBridge } from "./context/memory.ts";
 import { installMemoryQuery } from "./context/memory-query.ts";
+import type { EnginePolicySnapshot } from "./context/policy-settings.ts";
 import type { ContextServices } from "./context/port.ts";
 import { createContextTools } from "./context/tools.ts";
 import { startControlServer } from "./control-server.ts";
@@ -60,6 +61,7 @@ export type AppOptions = {
 	registerTools?: (host: LinaHost) => void;
 	memoryBackend?: "native" | "honcho" | "disabled";
 	modelSettings?: () => ModelSettings;
+	enginePolicy?: () => EnginePolicySnapshot;
 	world?: () => OrdinaryWorldSource | undefined;
 	persona?: {
 		agents: AgentStore;
@@ -314,6 +316,18 @@ export async function startPersistentApp(options: AppOptions) {
 									journal,
 									services.reflect,
 								)
+							: undefined,
+						services.consolidate
+							? {
+									consolidate: services.consolidate,
+									...(options.enginePolicy
+										? { policy: options.enginePolicy }
+										: {}),
+									modelSettingsRevision: () =>
+										services.routeInfo?.("reflection").settingsRevision ??
+										options.modelSettings?.().revision ??
+										0,
+								}
 							: undefined,
 					);
 				if (memoryBridge instanceof CompanionMemory && services.reasonMemory)

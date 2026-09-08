@@ -306,6 +306,12 @@ export class EngineStore {
 			.map((row) => queue.get(String(row["id"])))
 			.filter((job) => job !== undefined);
 	}
+	enqueueReasoning(seed: ConsolidationSeed): void {
+		this.assertOpen();
+		this.transaction(() =>
+			new ConsolidationQueue(this.db, this.now).enqueue(seed),
+		);
+	}
 	recoverReasoning(): void {
 		this.assertOpen();
 		this.transaction(() =>

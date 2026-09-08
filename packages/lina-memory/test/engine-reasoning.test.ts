@@ -468,3 +468,110 @@ test("a conversational withdrawal of an inferred slot preserves original premise
 			.sort(),
 	).toEqual([f.a.id, f.b.id].sort());
 });
+
+test("a conclusion can cite a prior deduction and correction invalidates the grandchild", () => {
+	const f = persistentFixture();
+	const first = f.store.beginReasoning({ ...f.seed, stage: "deduction" }, [
+		f.a.id,
+		f.b.id,
+	]);
+	if (!first) throw Error("missing claim");
+	const result = f.store.applyConclusions({
+		requestId: first.claim.id,
+		expectedRevision: first.input.expectedRevision,
+		proposals: [{ ...f.proposal, reasoningKind: "deduction" }],
+		claim: first.claim,
+	});
+	const parent = result.records.find((r) => r.key === "parks");
+	if (!parent) throw Error("missing parent");
+	const second = f.store.beginReasoning(f.seed, [f.a.id, f.b.id, parent.id]);
+	if (!second) throw Error("missing second claim");
+	f.store.applyConclusions({
+		requestId: second.claim.id,
+		expectedRevision: second.input.expectedRevision,
+		proposals: [
+			{
+				...f.proposal,
+				key: "park.visits",
+				text: "May like park visits",
+				premises: [{ recordId: parent.id, revision: parent.revision }],
+			},
+		],
+		claim: second.claim,
+	});
+	expect(f.store.state().records.some((r) => r.key === "park.visits")).toBe(
+		true,
+	);
+	f.entries.set(
+		"changed",
+		ordinarySource({
+			entryId: "changed",
+			role: "user",
+			text: "Now dislike walking",
+		}),
+	);
+	f.store.apply({
+		requestId: "changed",
+		expectedRevision: f.store.currentRevision(),
+		sourceProofs: captureSourceProofs(["changed"], f.lookup),
+		observations: [
+			{
+				subject: "user",
+				kind: "interest",
+				key: f.a.key,
+				text: "Dislikes walking",
+				evidence: "explicit",
+				sources: [{ entryId: "changed", quote: "dislike walking" }],
+			},
+		],
+	});
+	expect(f.store.state().records.some((r) => r.key.startsWith("park"))).toBe(
+		false,
+	);
+	f.store.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.some((r) => r.key.startsWith("park")),
+	).toBe(false);
+});
+
+test("fresh corroboration preserves the conclusion and its historical premise across restart", () => {
+	const f = persistentFixture();
+	const first = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!first) throw Error("claim");
+	f.store.applyConclusions({
+		requestId: first.claim.id,
+		expectedRevision: first.input.expectedRevision,
+		proposals: [f.proposal],
+		claim: first.claim,
+	});
+	f.entries.set(
+		"again",
+		ordinarySource({ entryId: "again", role: "user", text: "walking" }),
+	);
+	f.store.apply({
+		requestId: "again",
+		expectedRevision: f.store.currentRevision(),
+		sourceProofs: captureSourceProofs(["again"], f.lookup),
+		observations: [
+			{
+				subject: "user",
+				kind: "interest",
+				key: f.a.key,
+				text: f.a.text,
+				evidence: "explicit",
+				sources: [{ entryId: "again", quote: "walking" }],
+			},
+		],
+	});
+	expect(f.store.state().records.some((r) => r.key === "parks")).toBe(true);
+	f.store.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.some((r) => r.key === "parks"),
+	).toBe(true);
+});

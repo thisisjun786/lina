@@ -24,6 +24,7 @@ type Options = {
 	onChange?: () => void;
 };
 export type MemorySnapshot = {
+	consolidation?: import("./memory-consolidation.ts").ConsolidationStatus;
 	service: "disabled" | "ready" | "unavailable";
 	pending: number;
 	sending: number;

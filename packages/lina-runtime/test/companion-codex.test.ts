@@ -78,10 +78,14 @@ function openCompanion(
 	root: string,
 	rpc: ReturnType<typeof createCompanionRpc>,
 	episodes: SourceEntry[][],
+	consolidate?: ContextServices["consolidate"],
 ) {
 	return startPersistentApp({
 		engine: createCodexEngine({
-			services: syntheticServices(episodes),
+			services: {
+				...syntheticServices(episodes),
+				...(consolidate ? { consolidate } : {}),
+			},
 			models,
 			rpc: rpc.options,
 		}),
@@ -278,6 +282,26 @@ test("Codex settled final assistant remains an observation source alongside the 
 	} finally {
 		await app?.stop();
 		rpc.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("session-app installs the dedicated consolidation service into native memory", async () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-consolidation-codex-"));
+	const rpc = createCompanionRpc(root);
+	let app: App | undefined;
+	let calls = 0;
+	try {
+		app = await openCompanion(root, rpc, [], async () => {
+			calls++;
+			return '{"proposals":[]}';
+		});
+		await submitAndSettle(app, rpc, "first", "I like jasmine tea.");
+		await app.context.refresh();
+		expect(calls).toBe(2);
+		expect(app.memory?.status().consolidation?.state).toBe("committed");
+	} finally {
+		await app?.stop();
 		rmSync(root, { recursive: true, force: true });
 	}
 });
