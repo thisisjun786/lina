@@ -1,3 +1,4 @@
+export { resourceId, resourceUri } from "./codec.ts";
 export type { ResourceContentLimits } from "./content.ts";
 export {
 	extractResource,

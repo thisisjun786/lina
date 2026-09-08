@@ -4,6 +4,16 @@ import { z } from "zod";
 export const counter = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 export const identity = z.string().min(1).max(160);
 export const uuid = z.uuid();
+export function resourceUri(id: string): string {
+	return `lina://resources/${uuid.parse(id)}`;
+}
+export function resourceId(address: string): string {
+	return uuid.parse(
+		address.startsWith("lina://resources/")
+			? address.slice("lina://resources/".length)
+			: address,
+	);
+}
 export const visibility = z.enum(["private", "shared"]);
 const bytesSchema = z
 	.custom<Uint8Array>((value) => value instanceof Uint8Array)

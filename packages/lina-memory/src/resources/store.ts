@@ -75,6 +75,13 @@ export class ResourceStore {
 			this.closed = true;
 		}
 	}
+	/** Caller must hold exclusive installation recovery authority. */
+	recoverOwnedState(): { staging: number; jobs: number } {
+		return this.transaction(() => ({
+			staging: this.content.recoverStaging(),
+			jobs: this.indexing.recoverInterrupted(),
+		}));
+	}
 	private transaction<T>(fn: () => T): T {
 		this.db.exec("BEGIN IMMEDIATE");
 		try {

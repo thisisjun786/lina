@@ -108,3 +108,30 @@ test("find filters private and stale FTS candidates before returning metadata", 
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("canonical resource URI still reads the same resource after rename", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-uri-")),
+		store = new ResourceStore(root, limits);
+	try {
+		const doc = store.create(scope, {
+			operationId: "d",
+			kind: "document",
+			title: "원문",
+			visibility: "private",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("내용"),
+		});
+		const page = readResource(store, scope, doc.id);
+		store.update(scope, {
+			operationId: "rename",
+			id: doc.id,
+			expectedRevision: 1,
+			title: "새 이름",
+		});
+		expect(readResource(store, scope, page.uri).text).toBe("내용");
+		expect(readResource(store, scope, doc.id).uri).toBe(page.uri);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

@@ -1,6 +1,6 @@
 # 051 — 자료 공간의 저장·탐색·실행 계약
 
-상태: resources B. 050/004의 초안을 현재 소스에 맞춰 구체화했다. adda116 독립 A PASS 후 구현 시작. 정책·catalog·job 상태·추출·점진 읽기·빠른 검색을 구현했다. 모델 worker·계층 탐색/재정렬·도구/API 조립은 진행 전이다.
+상태: resources B. 050/004의 초안을 현재 소스에 맞춰 구체화했다. adda116 독립 A PASS 후 구현 시작. 정책·catalog·job 상태·추출·점진 읽기·빠른 검색을 구현했다. 모델 worker·계층 탐색/재정렬·도구/API adapter와 ResourceEngine 조립을 구현했다. 설치 Fleet 연결은070이며 현재 단위는 C 검증 준비 중이다.
 
 ## 실행 범위
 
@@ -100,3 +100,13 @@ Blob put의 quota 검사는 catalog BEGIN IMMEDIATE 안에서 staging 이전에 
 BUILD의 설정 복구 보강: jobs/derivations UNIQUE에는 generation_key=hash(정책 revision·모델 revision·routeKey·estimatorId·maxAttempts)을 추가한다. 외부 route/estimator가 설정 revision 없이 바뀌어도 새 작업을 만들 수 있다. 소비 횟수 키는 (resource_id,source_digest,kind) 그대로여서 설정 변경으로 재충전되지 않는다.
 
 추출/읽기 BUILD 감사 반영: 공유 grant는 host가 공급하는 allowedVisibilities의 shared 권한이다. 자료별 별도 ACL 테이블은 이 계약에 없다. vision callback은 명시적 output token 상한을 전달하며 runtime에서 resources.outputTokens를 연결한다. 비 UTF-8은 undecodable_text, 손상된 문서 컨테이너는 invalid_document로 원문과 별도 상태를 반환한다. 취소/실행 환경 오류는 성공이나 영구 입력 오류로 바꾸지 않는다. async 추출의 현재 근거 검사는 당시 version 권한도 포함하고, 동시 DB 변경이 bytes 읽기 중 발생하면 마지막 resource revision/권한 재검사에서 응답을 거부한다.
+
+## 구현 완료 범위와 최종 확인
+
+`ResourceEngine`은 host scope/정책/모델 getter로 store·worker·search·tools를 조립한다. 원문 추출과 요약을 순서대로 실행하며 shutdown은 abort→진행 중 작업 상태 기록 완료→DB close 순서로 await한다. recovery callback의 exclusive ownership 검사가 있어야 staging/job 회수가 가능하다. 실제 Fleet dispatch/installation lease에 연결하는 단계는070이며 이 adapter만으로 설치 동작을 주장하지 않는다.
+
+검색은 후보 collection 개요→허용 collection 선택→하위 탐색 반복→허용 ID 재정렬 순서다. maxCalls 안에서 마지막 rank 호출을 남겨 둔다. 3자 미만은 호출 없이 literal 검색이다. 잘못되거나 권한 없는 root는 거부하며 global fallback으로 범위를 넓히지 않는다. 입력/방문 한도와 미완성 추출은 incomplete 이유로 전달한다. opaque cursor는 재정렬된 남은 결과만 메모리에 보관(최대32), 페이지 이동은0모델 호출, source/scope/정책 재검사, 서비스 재시작 시 만료다. 방문 한도로 누락된 미탐색 자료까지 페이지에 있다고 주장하지 않는다.
+
+도구 read/list/search는 confirm-mode 자동 허용에 연결했고 put/move는 쓰기 승인을 따른다. API는 기존 loopback 인증 gateway 뒤에서 사용할 Request→Response adapter다. text/base64 입력, PATCH, DELETE, content page, attachment download, search, retry를 제공한다. scope 필드를 받지 않는다. shared bit는 host의 협업 grant이며 shared 자료 retry도 이 grant 안에서 동일한 aggregate attempt 한도를 쓴다. 빈 문서는 유효하다. 실제 사용자 파일/서비스는 변경하지 않았다.
+
+검증은 `bun test packages/lina-memory/test/resources*.test.ts packages/lina-runtime/test/resources*.test.ts packages/lina-opencodex/test/resource-services.test.ts` 및 기존 memory/context/model/approval 회귀, `bun run typecheck`, `bun run lint`, 계획 structural checker, `bun run ci:validate`, `bun run ci:build`다. 실제 OpenCodex adapter의 fake fetch 요청까지 검사하며 provider 응답의 실제 품질·UI·설치 통합은 별도080/070 증거다.

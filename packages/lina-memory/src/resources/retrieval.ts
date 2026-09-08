@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { canonical, counter, uuid } from "./codec.ts";
+import { canonical, counter, resourceId, resourceUri, uuid } from "./codec.ts";
 import { isResourceText, textPrefix } from "./extraction.ts";
 import type { ResourceStore } from "./store.ts";
 import type { ResourceScope } from "./types.ts";
@@ -14,9 +14,10 @@ export type ResourceReadOptions = z.input<typeof optionsSchema>;
 export function readResource(
 	store: ResourceStore,
 	scope: ResourceScope,
-	id: string,
+	address: string,
 	input: ResourceReadOptions = {},
 ) {
+	const id = resourceId(address);
 	const options = optionsSchema.parse(input),
 		resource = store.get(scope, id),
 		ref = store.ref(scope, id);
@@ -83,6 +84,7 @@ export function readResource(
 		throw Error("resource changed during reading");
 	return {
 		resourceId: id,
+		uri: resourceUri(id),
 		ref,
 		level: options.level,
 		original,

@@ -154,6 +154,7 @@ export class ResourceIndex {
 					state: "pending",
 					token: null,
 					attempt: 0,
+					inputHash: null,
 					error: null,
 					outputHash: null,
 				});
@@ -216,7 +217,13 @@ export class ResourceIndex {
 			return false;
 		}
 	}
-	prepare(scope: ResourceScope, id: string): ResourceClaim {
+	prepare(
+		scope: ResourceScope,
+		id: string,
+		inputHash: string | null = null,
+	): ResourceClaim {
+		if (inputHash !== null && !/^[a-f0-9]{64}$/.test(inputHash))
+			throw Error("invalid resource input hash");
 		const result = this.tx(() => {
 			const job = this.get(scope, id);
 			if (job.state !== "pending") throw Error("resource job not pending");
@@ -241,6 +248,7 @@ export class ResourceIndex {
 				state: "prepared",
 				token,
 				attempt: consumed + 1,
+				inputHash,
 				error: null,
 			});
 			return { id, token };
@@ -302,6 +310,19 @@ export class ResourceIndex {
 			throw Error("resource claim mismatch");
 		return job;
 	}
+	defer(
+		scope: ResourceScope,
+		id: string,
+		error: string,
+		state: "pending" | "unavailable" | "stale" = "unavailable",
+	): void {
+		if (!/^[a-z_]{1,64}$/.test(error)) throw Error("invalid resource error");
+		this.tx(() => {
+			const job = this.get(scope, id);
+			if (job.state !== "pending") throw Error("resource job not pending");
+			writeJob(this.db, { ...job, state, error });
+		});
+	}
 	/** Owner-only outcome recording; no source text is accepted here. */
 	fail(
 		claim: ResourceClaim,
@@ -309,13 +330,28 @@ export class ResourceIndex {
 			| "provider_failed"
 			| "cancelled"
 			| "unsupported"
+			| "input_limit"
+			| "unsupported_type"
+			| "vision_unavailable"
+			| "undecodable_text"
+			| "invalid_document"
+			| "invalid_output"
 			| "configuration_changed",
 	): void {
 		this.tx(() => {
 			const job = this.claimed(claim);
 			writeJob(this.db, {
 				...job,
-				state: error === "unsupported" ? "unavailable" : "failed",
+				state: [
+					"unsupported",
+					"input_limit",
+					"unsupported_type",
+					"vision_unavailable",
+					"undecodable_text",
+					"invalid_document",
+				].includes(error)
+					? "unavailable"
+					: "failed",
 				token: null,
 				error,
 			});

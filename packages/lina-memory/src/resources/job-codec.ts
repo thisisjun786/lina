@@ -31,6 +31,10 @@ export const jobSchema = z
 		]),
 		token: uuid.nullable(),
 		attempt: counter.max(3),
+		inputHash: z
+			.string()
+			.regex(/^[a-f0-9]{64}$/)
+			.nullable(),
 		error: z.string().max(256).nullable(),
 		outputHash: z
 			.string()
