@@ -81,13 +81,54 @@ export function parseReasoningInput(value: unknown) {
 	return { ...parsed, records, promptProofs, searches };
 }
 export type ReasoningInput = ReturnType<typeof parseReasoningInput>;
+type ReasoningReceipt = {
+	input: ReasoningInput;
+	output: {
+		proposals: ReturnType<typeof parseConclusions>;
+		records: EngineRecord[];
+	};
+	revision: number;
+	fingerprint: string;
+};
+const READ_SCOPES = new WeakMap<
+	DatabaseSync,
+	{ changes: unknown; receipts: Map<string, ReasoningReceipt> }
+>();
+/** Synchronous transaction-local memo only. Never survives a public read or database mutation. */
+export function withReasoningReadScope<T>(
+	db: DatabaseSync,
+	action: () => T,
+): T {
+	if (READ_SCOPES.has(db)) return action();
+	READ_SCOPES.set(db, {
+		changes: db.prepare("SELECT total_changes() AS n").get()?.["n"],
+		receipts: new Map(),
+	});
+	try {
+		return action();
+	} finally {
+		READ_SCOPES.delete(db);
+	}
+}
 
 /** Historical evidence is verified structurally here; current source permissions are a read/commit guard. */
 export function readReasoningReceipt(
 	db: DatabaseSync,
 	requestId: string,
 	seen = new Set<string>(),
-) {
+): ReasoningReceipt | undefined {
+	engineIdSchema.parse(requestId);
+	if (seen.has(requestId)) throw Error("reasoning receipt cycle");
+	const scope = READ_SCOPES.get(db);
+	if (scope) {
+		const changes = db.prepare("SELECT total_changes() AS n").get()?.["n"];
+		if (changes !== scope.changes) {
+			scope.receipts.clear();
+			scope.changes = changes;
+		}
+		const cached = scope.receipts.get(requestId);
+		if (cached) return cached;
+	}
 	const row = db
 		.prepare("SELECT * FROM engine_reasoning_receipts WHERE request_id=?")
 		.get(engineIdSchema.parse(requestId));
@@ -231,7 +272,9 @@ export function readReasoningReceipt(
 			)
 				throw Error("invalid reasoning output projection");
 		}
-		return { input, output, revision, fingerprint };
+		const result = { input, output, revision, fingerprint };
+		scope?.receipts.set(requestId, result);
+		return result;
 	} finally {
 		seen.delete(requestId);
 	}

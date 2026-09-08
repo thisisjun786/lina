@@ -26,6 +26,7 @@ import {
 	parseReasoningInput,
 	type ReasoningInput,
 	readReasoningReceipt,
+	withReasoningReadScope,
 } from "./reasoning-receipts.ts";
 import { readEngineReceipt, validateRecordReceipt } from "./receipts.ts";
 import { deriveRecord, mergeSources, sameValue } from "./records.ts";
@@ -142,32 +143,34 @@ export class EngineStore {
 		);
 	}
 	recall(query: string, options: { limit?: number } = {}): EngineRecord[] {
-		this.assertOpen();
-		if (typeof query !== "string" || query.length > 2000)
-			throw new Error("invalid recall query");
-		const requested = options.limit ?? 20;
-		if (!Number.isSafeInteger(requested) || requested < 0)
-			throw new Error("invalid recall limit");
-		const now = validTime(this.now);
-		const records: EngineRecord[] = [];
-		const limit = Math.min(requested, ENGINE_READ_MAX);
-		if (!limit) return records;
-		for (const row of this.db
-			.prepare(
-				"SELECT data FROM engine_records WHERE agent_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND (instr(lower(json_extract(data, '$.text')), lower(?)) > 0 OR instr(lower(json_extract(data, '$.key')), lower(?)) > 0) ORDER BY updated_at DESC, id",
-			)
-			.iterate(this.agentId, now, query.trim(), query.trim())) {
-			const record = this.decode(row["data"]);
-			if (
-				record.reasoning
-					? !this.reasoningEligible(record)
-					: !eligibleRecord(record, this.lookup)
-			)
-				continue;
-			records.push(record);
-			if (records.length === limit) break;
-		}
-		return records;
+		return this.transaction(() => {
+			this.assertOpen();
+			if (typeof query !== "string" || query.length > 2000)
+				throw new Error("invalid recall query");
+			const requested = options.limit ?? 20;
+			if (!Number.isSafeInteger(requested) || requested < 0)
+				throw new Error("invalid recall limit");
+			const now = validTime(this.now);
+			const records: EngineRecord[] = [];
+			const limit = Math.min(requested, ENGINE_READ_MAX);
+			if (!limit) return records;
+			for (const row of this.db
+				.prepare(
+					"SELECT data FROM engine_records WHERE agent_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND (instr(lower(json_extract(data, '$.text')), lower(?)) > 0 OR instr(lower(json_extract(data, '$.key')), lower(?)) > 0) ORDER BY updated_at DESC, id",
+				)
+				.iterate(this.agentId, now, query.trim(), query.trim())) {
+				const record = this.decode(row["data"]);
+				if (
+					record.reasoning
+						? !this.reasoningEligible(record)
+						: !eligibleRecord(record, this.lookup)
+				)
+					continue;
+				records.push(record);
+				if (records.length === limit) break;
+			}
+			return records;
+		}, false);
 	}
 	apply(input: ApplyInput, signal?: AbortSignal): EngineSnapshot {
 		this.assertOpen();
@@ -924,7 +927,7 @@ export class EngineStore {
 		if (this.db.isTransaction) return action();
 		this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
 		try {
-			const value = action();
+			const value = withReasoningReadScope(this.db, action);
 			this.db.exec("COMMIT");
 			return value;
 		} catch (error) {
