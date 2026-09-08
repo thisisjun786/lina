@@ -1,6 +1,6 @@
 # 031 — 개인 성장 투영의 생성과 소비
 
-상태: persona P 보완 설계. 030의 revision-only 설계를 이 문서로 대체한다. 수용 조건과 실행 범위는 030을 따른다.
+상태: persona B 구현 및 검증 중. 구현 체크포인트 `dc1a0a9`. 030의 revision-only 설계를 이 문서로 대체한다. 수용 조건과 실행 범위는 030을 따른다.
 
 ## 소유권과 데이터
 
@@ -117,3 +117,17 @@ sourceStamp는 opaque content digest와 receipt/profile/definition/projection re
 공유 경계의 PersonalBehavior는 traits(axisId,value), habits(habitId,value)다. 해석 모델 출력과 private receipt에는 각 행의 evidenceIds가 있으며 공유 projection에서는 제거한다. 배열 종류로 이미 구분하므로 중복 kind 필드는 받지 않는다. BehaviorSourceStamp는 `{digest,receiptRevision,profileRevision,definitionRevision,projectionRevision}` 5개 필드다. digest가 source refs를 묶고, 원문 현재성은 runtime의 별도 verifier가 검사한다. earlier receiptId/memoryRevision 필드 초안은 사용하지 않는다. 이 타입은 `agents/behavior-types.ts`가 소유하며 identity/publication decoder가 같은 구조를 읽는다.
 
 일반 대화 연결은 `runtime/persona/native-context.ts`, 새 회귀는 `runtime/test/persona-native-context.test.ts`에 있다. LIFE keyed composition과 버전 decoder 회귀는 `core/test/persona-world-composition.test.ts`, `core/test/persona-identity-policy.test.ts`다. 실제 actor 입력의 새 값과 원본 stamp 미노출도 검사한다. 정책 parser는 `world/identity-policy.ts`로 분리하여 공용 LIFE v1 decoder 의미를 유지한다. 아직 전체 단위 C는 수행하지 않았다.
+
+
+## B 검토에서 확정한 실행 규칙
+
+- 개인 공유 해석은 지원된 self interest/preference만 읽는다. mood와 자유문장 관계는 개인 대화 배경에 남고 공유 trait/habit 근거가 되지 않는다. typed agent 관계는 LIFE의 방향 있는 attitude를 유지한다.
+- 해석 job은 최초 source proofs도 보관한다. 같은 내용에 근거가 추가돼 record revision이 바뀌어도 새 해석을 만들지 않는다. 최초 proof나 현재 기록이 철회·만료되면 기존 값은 적용하지 않는다. 현재성이 확인된 withheld job만 남은 attempt 안에서 다시 활성화한다.
+- 각 dimension의 마지막 committed 해석이 현재 값을 결정한다. 그 해석의 원본이 부적격이면 예전 해석을 되살리지 않는다. 다른 dimension의 적격 값은 유지한다. sourceStamp.receiptRevision은 현재 합성에 기여하는 가장 최근 receipt이며, 값 없는 후속 receipt가 있다는 뜻으로 바꾸지 않는다.
+- 모델·정책 revision은 새 해석 작업의 식별과 실행 현재성을 검증한다. 이미 확정된 값은 모델을 바꿨다는 이유만으로 폐기하지 않는다. 원본·profile·정의가 현재이고 기능이 켜져 있어야 적용한다. 비활성화는 새 자동 해석과 자동 투영을 모두 멈추고 과거 receipt를 보존한다.
+- 입력은 기존 memory 정책의 inputChars/maxVisits 안에서 완전한 record 단위로 담는다. 누락 수를 diagnostic에 남기며 초과분을 처리했다고 주장하지 않는다. 기본 profile/정의만으로 예산을 넘으면 provider 호출 전에 실패한다. 출력 토큰은 동일 정책의 maxOutputTokens를 전달한다.
+- 원본 읽기 owner는 동기 SQLite factory다. 비동기 app 시작이나 새 ensure API가 필요하지 않아 위 초안의 async 확보 단계는 구현하지 않는다. Fleet가 읽기 owner를 재사용하고, 실제 대화 source 등록 또는 Fleet 종료 시 닫는다. 확인할 수 없는 개인 값을 임의의 빈 값으로 바꾸지 않는다.
+- 합성은 id를 보존한 임시 LifeState에서 기존 projection 함수를 재사용한다. 새 owner나 저장 변경은 없다. label이 같은 다른 dimension도 분리되며 LIFE 원본은 바뀌지 않는다.
+
+검증 기록: `.codexclaw/evidence/01a08149-2fcd-7b83-b427-a104f083df05/persona-audit.md`.
+전체 source 검사는 진행 중이며 이 문서의 B 기록은 최종 수용 판정이 아니다.

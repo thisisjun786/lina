@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { renameSync } from "node:fs";
+import { join } from "node:path";
 import { captureSourceProofs } from "../../lina-core/src/source-policy.ts";
 import { WorldStore } from "../../lina-core/src/world/store.ts";
 import { CompanionMemory } from "../src/context/companion.ts";
@@ -11,17 +13,20 @@ import { fleetLifeFixture } from "./life-runtime-fleet-fixture.ts";
 
 test("Fleet uses persisted personal growth after restart without opening ordinary conversation", async () => {
 	let enabled = true;
+	let miraSource: Parameters<typeof startPersistentApp>[0]["world"];
 	const f = await fleetLifeFixture({
 		enginePolicy: () => ({
 			...defaultEnginePolicy(),
 			memory: { ...defaultEnginePolicy().memory, enabled },
 		}),
-		createApp: (input) =>
-			startPersistentApp({
+		createApp: (input) => {
+			if (input.botId === "mira") miraSource = input.world;
+			return startPersistentApp({
 				...input,
 				memoryBackend: "native",
 				engine: testSessionEngine(),
-			}),
+			});
+		},
 	});
 	try {
 		f.setup(false);
@@ -32,6 +37,10 @@ test("Fleet uses persisted personal growth after restart without opening ordinar
 			journal = app.runtime.store,
 			world = f.app.fleet.life.store;
 		if (!(world instanceof WorldStore)) throw Error("Missing world owner");
+		world.setWorldBinding("mira", 0, {
+			worldId: "test-world",
+			projectionPolicyRevision: 1,
+		});
 		for (const id of ["growth-one", "growth-two"]) {
 			nativeEpisode(journal, app.binding, id);
 			memory.mind.apply({
@@ -114,6 +123,25 @@ test("Fleet uses persisted personal growth after restart without opening ordinar
 				.status("lina")
 				.some((job) => job.state === "committed"),
 		).toBe(true);
+		await f.restart();
+		enabled = true;
+		renameSync(
+			join(f.root, "state", "mind.sqlite"),
+			join(f.root, "state", "mind-held.sqlite"),
+		);
+		// Another participant's unavailable personal evidence must not prevent Mira's conversation.
+		const mira = await f.app.fleet.app("mira");
+		expect(mira.binding.botId).toBe("mira");
+		const current = miraSource?.()?.identityPolicy();
+		expect(current?.profiles.some((p) => p.agentId === "mira")).toBe(true);
+		await expect(
+			f.app.fleet.lifeRuntime.run(
+				"test-world",
+				"unavailable-personal",
+				1,
+				new AbortController().signal,
+			),
+		).rejects.toThrow();
 	} finally {
 		await f.close();
 	}

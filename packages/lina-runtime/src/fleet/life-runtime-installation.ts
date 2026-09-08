@@ -115,7 +115,15 @@ export class FleetLifeInstallation {
 					this.options.agents,
 					selected,
 					personalGrowth
-						? (worldId, id) => personalGrowth(store, worldId, id)
+						? (worldId, id) =>
+								id === agentId
+									? personalGrowth(store, worldId, id)
+									: {
+											agentId: id,
+											worldId,
+											personalBehavior: null,
+											sourceStamp: null,
+										}
 						: undefined,
 				).identity;
 			},
