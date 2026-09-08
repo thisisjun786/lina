@@ -110,6 +110,7 @@ export function createOrdinaryWorldContext(
 		});
 	};
 	const currentPersona = () => {
+		// Work-source restrictions mask factual recall; typed behavior retains its own provenance checks.
 		const current = source(),
 			binding = current?.store.worldBinding(agentId);
 		if (!current?.limits || !binding?.worldId) return null;
