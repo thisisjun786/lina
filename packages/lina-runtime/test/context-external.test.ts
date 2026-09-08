@@ -344,3 +344,83 @@ test("fresh tail is source guarded and omitted when native message identity is u
 	expect(external.tail([{ entryId: "tail" }]).text).toBe("");
 	external.close();
 });
+
+test("a policy change during summary never replaces the previous checkpoint", async () => {
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const f = setup();
+	f.add("original", "Original decision.");
+	let policy = {
+			...defaultEnginePolicy(),
+			context: {
+				...defaultEnginePolicy().context,
+				refreshThresholdTokens: 1,
+				freshTailEntries: 0,
+			},
+		},
+		change = false,
+		calls = 0;
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async () => {
+			calls++;
+			if (change) policy = { ...policy, revision: policy.revision + 1 };
+			return "Decision.";
+		},
+		{ policy: () => policy, routeKey: () => "model" },
+	);
+	await external.refresh(new AbortController().signal);
+	const previous = f.context.active();
+	f.add("new", "New decision.");
+	change = true;
+	await expect(external.refresh(new AbortController().signal)).rejects.toThrow(
+		/policy changed/,
+	);
+	expect(f.context.active()).toEqual(previous);
+	expect(calls).toBe(2);
+	external.close();
+});
+
+test("route changes after staging cannot activate a summary from the previous generation", async () => {
+	const { spyOn } = await import("bun:test");
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const f = setup();
+	f.add("original", "Original.");
+	let route = "old";
+	const policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			refreshThresholdTokens: 1,
+			freshTailEntries: 0,
+		},
+	};
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async () => "Summary.",
+		{ policy: () => policy, routeKey: () => route },
+	);
+	await external.refresh(new AbortController().signal);
+	const before = f.context.active();
+	f.add("next", "New source.");
+	const original = f.context.stage.bind(f.context),
+		stage = spyOn(f.context, "stage").mockImplementation((input) => {
+			const result = original(input);
+			route = "new";
+			return result;
+		});
+	try {
+		await expect(
+			external.refresh(new AbortController().signal),
+		).rejects.toThrow(/generation/);
+		expect(f.context.active()).toEqual(before);
+	} finally {
+		stage.mockRestore();
+		external.close();
+	}
+});

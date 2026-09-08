@@ -834,12 +834,14 @@ test("context services expose one conservative estimator for text messages and s
 		undefined,
 		"한😀",
 	);
-	expect(service.estimator?.id).toBe("utf8-bytes-v1");
-	expect(service.estimateText("한😀")).toBe(7);
-	expect(service.systemTokens).toBe(7);
+	expect(service.estimator?.id).toBe("utf8-half-heuristic-v1");
+	expect(service.estimateText("한😀")).toBe(4);
+	expect(service.systemTokens).toBe(4);
 	expect(service.estimateMessages([{ role: "user", content: "한😀" }])).toBe(
-		new TextEncoder().encode(
-			JSON.stringify([{ role: "user", content: "한😀" }]),
-		).length,
+		Math.ceil(
+			new TextEncoder().encode(
+				JSON.stringify([{ role: "user", content: "한😀" }]),
+			).length / 2,
+		),
 	);
 });

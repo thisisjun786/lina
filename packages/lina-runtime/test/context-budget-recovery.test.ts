@@ -126,3 +126,138 @@ test("summary tree applies configured token limits to labels and every source ch
 		await f.close();
 	}
 });
+
+test("summary generation cache survives reopen without another model request", async () => {
+	const { ContextStore } = await import("../../lina-core/src/context/index.ts");
+	const { appendContextEntry } = await import(
+		"../../lina-core/test/context-journal-fixture.ts"
+	);
+	const { createRuntimeFixture } = await import("./runtime-fixture.ts");
+	const { createSummaryTree } = await import("../src/context/tree.ts");
+	const f = createRuntimeFixture(),
+		path = join(f.root, "cache.sqlite");
+	appendContextEntry(f.store, f.runtime.binding.sessionId, {
+		entryId: "source",
+		role: "user",
+		text: "Decision and original reason.",
+		timestamp: "2026-09-08T00:00:00Z",
+		raw: {},
+	});
+	let store = new ContextStore(path, f.runtime.binding, (id) =>
+			f.store.sourceEntry(id),
+		),
+		calls = 0;
+	const sources = [{ kind: "entry" as const, id: "source" }],
+		summary = async () => {
+			calls++;
+			return "Decision.";
+		};
+	try {
+		const first = await createSummaryTree(
+			sources,
+			store,
+			summary,
+			new AbortController().signal,
+			() => true,
+			"route-one",
+		);
+		store.close();
+		store = new ContextStore(path, f.runtime.binding, (id) =>
+			f.store.sourceEntry(id),
+		);
+		const second = await createSummaryTree(
+			sources,
+			store,
+			summary,
+			new AbortController().signal,
+			() => true,
+			"route-one",
+		);
+		expect(second).toEqual(first);
+		expect(calls).toBe(1);
+		await createSummaryTree(
+			sources,
+			store,
+			summary,
+			new AbortController().signal,
+			() => true,
+			"route-two",
+		);
+		expect(calls).toBe(2);
+	} finally {
+		store.close();
+		await f.close();
+	}
+});
+
+test("generation cache rejects its stored proofs after a still-ordinary source revision changes", async () => {
+	const { ContextSourceFixture } = await import(
+		"../../lina-core/test/context-source-fixture.ts"
+	);
+	const { ContextStore } = await import("../../lina-core/src/context/index.ts");
+	const { createSummaryTree } = await import("../src/context/tree.ts");
+	const f = new ContextSourceFixture();
+	f.add("source", "Decision and reason.");
+	const store = new ContextStore(
+			join(f.dir, "revision.sqlite"),
+			f.binding,
+			f.lookup,
+		),
+		sources = [{ kind: "entry" as const, id: "source" }];
+	let calls = 0;
+	const summarize = async () => {
+		calls++;
+		return "Decision.";
+	};
+	try {
+		const first = await createSummaryTree(
+			sources,
+			store,
+			summarize,
+			new AbortController().signal,
+			() => true,
+			"same-route",
+		);
+		const policy = f.policies.get("source");
+		if (!policy) throw Error("source missing");
+		f.policies.set("source", { ...policy, policyRevision: 2 });
+		expect(store.get(first.id)).toBeUndefined();
+		const second = await createSummaryTree(
+			sources,
+			store,
+			summarize,
+			new AbortController().signal,
+			() => true,
+			"same-route",
+		);
+		expect(second.id).not.toBe(first.id);
+		expect(calls).toBe(2);
+		expect(store.proofsCurrent(second.sourceProofs)).toBe(true);
+		store.guardSources([{ kind: "summary", id: second.id }])();
+	} finally {
+		store.close();
+		f.close();
+	}
+});
+
+test("legacy memory-only policy edits preserve newer context settings", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-context-legacy-edit-")),
+		store = new EnginePolicySettingsStore(join(root, "policy.sqlite"));
+	try {
+		const original = defaultEnginePolicy();
+		store.replace(0, {
+			version: 2,
+			memory: original.memory,
+			context: { ...original.context, leafInputTokens: 500 },
+		});
+		const changed = store.replace(1, {
+			version: 1,
+			memory: { ...original.memory, maxVisits: 19 },
+		});
+		expect(changed.context.leafInputTokens).toBe(500);
+		expect(changed.memory.maxVisits).toBe(19);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

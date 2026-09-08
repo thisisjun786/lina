@@ -144,6 +144,7 @@ export async function createSummaryTree(
 			sources: unique(refs),
 			generation,
 		});
+		guard();
 		if (root && !fits(nativeSummary(node)))
 			throw Error("Summary exceeds native context budget");
 		return node;

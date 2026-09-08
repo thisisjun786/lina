@@ -86,3 +86,70 @@ test("working context stays valid JSON when a small budget omits fields", async 
 	}
 	expect(result.tokens).toBeLessThanOrEqual(350);
 });
+
+test("ordinary Korean history leaves room for useful context on a 128k window", async () => {
+	const { contextInjection } = await import("../src/context/injection.ts");
+	const result = contextInjection(
+		{
+			revision: 1,
+			goal: "현재 목표",
+			decisions: [],
+			openItems: [],
+			nextSteps: [],
+			sourceEntryIds: [],
+		},
+		"",
+		[{ role: "user", content: "한".repeat(30000) }],
+		{
+			estimator: conservativeEstimator,
+			estimateText: conservativeEstimator.text,
+			estimateMessages: conservativeEstimator.messages,
+			contextWindow: 128000,
+			reserveTokens: 8192,
+			systemTokens: 32000,
+			summarize: async () => "",
+			prepare() {
+				throw Error("unused");
+			},
+		},
+	);
+	expect(result.omitted).toBe(false);
+	expect(result.text).toContain("현재 목표");
+});
+
+test("a Korean persona of 10k characters fits a 32k token conversation budget", async () => {
+	const { learnedFixture } = await import(
+		"../../lina-core/test/learned-source-fixture.ts"
+	);
+	const { AgentStore } = await import("../../lina-core/src/agents/store.ts");
+	const { installPersona } = await import("../src/persona/hooks.ts");
+	const { join } = await import("node:path");
+	const f = learnedFixture(),
+		agents = new AgentStore(join(f.root, "agents.sqlite"));
+	agents.create(f.profile);
+	try {
+		expect(() =>
+			installPersona(
+				{ on() {}, registerTool() {}, async sendUserMessage() {} },
+				agents,
+				"lina",
+				"한".repeat(10000),
+				{
+					estimator: conservativeEstimator,
+					estimateText: conservativeEstimator.text,
+					estimateMessages: conservativeEstimator.messages,
+					contextWindow: 32000,
+					reserveTokens: 4000,
+					systemTokens: 0,
+					summarize: async () => "",
+					prepare() {
+						throw Error("unused");
+					},
+				},
+			),
+		).not.toThrow();
+	} finally {
+		agents.close();
+		f.close();
+	}
+});

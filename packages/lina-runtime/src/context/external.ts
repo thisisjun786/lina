@@ -235,8 +235,13 @@ export class ExternalContext {
 			throw Error(
 				"Conversation summary model unavailable; previous checkpoint and original messages retained",
 			);
-		if (contextPolicyDigest(this.policy()) !== contextPolicyDigest(policy))
-			throw Error("Context policy changed before activation");
+		if (
+			contextPolicyDigest(this.policy()) !== contextPolicyDigest(policy) ||
+			node.generation?.routeKey !== (this.options.routeKey?.() ?? "unknown") ||
+			node.generation?.estimatorId !==
+				(this.options.estimator?.() ?? conservativeEstimator).id
+		)
+			throw Error("Context generation changed before activation");
 		this.store.activate({
 			id: node.id,
 			nativeEntryId: `external:${node.id}`,

@@ -1,16 +1,16 @@
 export interface ContextEstimator {
 	id: string;
-	kind: "conservative" | "tokenizer" | "host";
+	kind: "heuristic" | "tokenizer" | "host";
 	text(value: string): number;
 	messages(value: readonly unknown[]): number;
 }
 function bytes(value: string): number {
-	return new TextEncoder().encode(value).length;
+	return Math.ceil(new TextEncoder().encode(value).length / 2);
 }
-/** A conservative byte estimate, never advertised as a model tokenizer. */
+/** A conservative byte-based heuristic; not a tokenizer or guaranteed upper bound. */
 export const conservativeEstimator: ContextEstimator = Object.freeze({
-	id: "utf8-bytes-v1",
-	kind: "conservative",
+	id: "utf8-half-heuristic-v1",
+	kind: "heuristic",
 	text: bytes,
 	messages: (values: readonly unknown[]) => bytes(JSON.stringify(values)),
 });

@@ -116,7 +116,7 @@ export class ContextStore {
 		if (keys.size !== sources.length)
 			throw new Error("summary sources must be unique");
 		const canonical: StageInput = {
-			...(input.generation
+			...(input.generation !== undefined
 				? { generation: parseSummaryGeneration(input.generation) }
 				: {}),
 			text: input.text,

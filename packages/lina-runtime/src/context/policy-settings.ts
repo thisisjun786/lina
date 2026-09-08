@@ -234,6 +234,7 @@ export class EnginePolicySettingsStore {
 			const current = this.snapshot();
 			if (current.revision !== expectedRevision)
 				throw new Error("stale engine policy revision");
+			if (input.version === 1) candidate.context = current.context;
 			const revision = validPolicyRevision(current.revision + 1);
 			const result = this.db
 				.prepare(
