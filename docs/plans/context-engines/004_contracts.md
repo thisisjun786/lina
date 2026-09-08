@@ -67,3 +67,51 @@ Blob bytes는 준비 영역에 기록/해시 검증 후 같은 파일시스템�
 `policy_revision`은 파생 작업 생성 시 engine policy settings의 저장 revision이며 modelSettingsRevision과 별개다. policy owner는 runtime/context/policy-settings.ts의 내장 SQLite store다. resources.owner_id는 생성 시 host가 공급한 principalId다. 다른 principal은 shared 자료만 사용할 수 있고 private 조회는 principalId 일치가 필요하다.
 
 공유 기억은 요약 derivation과 분리한 `resource_memories(id PRIMARY KEY,resource_id,version_id,policy_revision,proposer_id,visibility,kind,text,evidence_json,state,revision,fingerprint,UNIQUE(resource_id,version_id,policy_revision,fingerprint))`에 저장한다. 동일 원문 version에서 여러 기억을 만들 수 있다. memory job의 완료 receipt는 생성한 memory id 목록을 가진다. resource_derivations는 brief/overview/extract/embedding의 파생 표현에만 사용한다. LIFE resource activity는 해당 memory 또는 resource version을 stable id와 revision으로 참조하며 허용 근거를 따로 검증한다.
+
+### 060 capture 저장 형식 (061 감사 반영)
+
+schema2는 기존 자료 테이블에 아래 STRICT 테이블을 추가한다. capture는 resource_jobs/resource_job_attempts와 분리하며 기존 auditJobs에 memory 행을 넣지 않는다.
+
+```sql
+CREATE TABLE resource_memory_jobs (
+ id TEXT PRIMARY KEY,
+ resource_id TEXT NOT NULL REFERENCES resources(id),
+ source_digest TEXT NOT NULL,
+ kind TEXT NOT NULL,
+ intent_revision INTEGER NOT NULL,
+ generation_key TEXT NOT NULL,
+ data TEXT NOT NULL,
+ UNIQUE(resource_id,source_digest,kind,intent_revision,generation_key)
+) STRICT;
+CREATE TABLE resource_memory_attempts (
+ resource_id TEXT NOT NULL REFERENCES resources(id),
+ source_digest TEXT NOT NULL,
+ kind TEXT NOT NULL,
+ attempts INTEGER NOT NULL,
+ PRIMARY KEY(resource_id,source_digest,kind)
+) STRICT;
+CREATE TABLE resource_memory_intents (
+ resource_id TEXT PRIMARY KEY REFERENCES resources(id),
+ revision INTEGER NOT NULL,
+ data TEXT NOT NULL
+) STRICT;
+CREATE TABLE resource_memories (
+ id TEXT PRIMARY KEY,
+ resource_id TEXT NOT NULL REFERENCES resources(id),
+ version_id TEXT NOT NULL REFERENCES resource_versions(id),
+ policy_revision INTEGER NOT NULL,
+ proposer_id TEXT NOT NULL,
+ visibility TEXT NOT NULL,
+ kind TEXT NOT NULL,
+ text TEXT NOT NULL,
+ evidence_json TEXT NOT NULL,
+ state TEXT NOT NULL,
+ revision INTEGER NOT NULL,
+ fingerprint TEXT NOT NULL,
+ UNIQUE(resource_id,version_id,policy_revision,fingerprint)
+) STRICT;
+```
+
+job kind는 `capture` 하나다. data는 claim token/attempt/state, input snapshot/hash, generation, source refs, output hash와 memory ID 목록을 strict schema로 저장한다. intent data는 enabled/activityKind/proposer/source revision을 저장한다. evidence_json은 version blob hash, 추출 snapshot/hash, 원문 인용, generation, job id를 포함한다. 열과 JSON, job 완료 receipt와 기억 목록을 재개방에서 대조한다. 의도 revision 변경으로 attempt 행을 새로 만들지 않는다.
+
+버전별 expected DDL을 별도로 만든다. 기존 user_version1/format=lina-resources-v1과 새 user_version2/format=lina-resources-v2만 open에서 허용한다. resource_meta는 각 버전 모두 format 한 행이다. open transaction 순서는 기존 버전 DDL/meta/FK 검사 → auditResources와 기존 ResourceIndex/auditJobs 검사 → v1이면 위 테이블 추가 및 format/user_version2 변경 → v2 DDL/meta/FK와 기억 전체 감사 → COMMIT이다. 새 DB는 v2로 생성한다. mutation의 verifyResourceSchema는 v2만 허용한다. unknown 버전/손상은 migration 전에 거부하고, migration 후 감사 실패도 transaction 전체를 rollback한다.

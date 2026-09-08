@@ -83,3 +83,9 @@ null-agent scope에 private가 포함되면 parser에서 거부한다. index 내
 P 기준선: `bun test packages/lina-memory/test/resources-store.test.ts packages/lina-runtime/test/resources-tools.test.ts packages/lina-codex/test/tasks.test.ts` → exit0, 17 pass/0 fail, 3 files/104 assertions. 세 경로를 직접 관찰하며 새 기억 구현을 증명하지는 않는다. 최초 명령의 단수 resource-store 오타는 자료 테스트를 실행하지 못했으므로 증거에서 제외하고 복수 경로로 바로잡아 실행했다. 출력은 session evidence/shared-memory-baseline.log다. 구조 검사도 18문서/108경로/9단계 errors[] exit0다.
 
 기억 중복 키의 fingerprint에는 canonical source refs, capture intent revision, effective generation, kind/text/근거를 포함한다. 같은 완료를 재전달하면 같은 ID 목록을 돌려주고, 새 generation은 이전 기억을 대체하되 현재 generation만 반환한다. 취소 뒤 같은 원문에서 재활성화해도 attempt 누적치는 유지한다. 자료를 공동 수정할 수 있는 소비자는 capture intent도 수정할 수 있으며 owner/visibility 자체는 기존 규칙을 따른다. 공유 기억을 개인 성장 기록으로 자동 반입하는 경로는 만들지 않는다. LIFE activity 연결은 070에서 현재 원문/기억 참조의 공개 범위를 다시 검증한다.
+
+## 독립 A 1차 반영
+
+두 차단 문제를 수용했다. 004에 memory jobs/attempts/intents/memories의 실제 DDL과 PK/UNIQUE, JSON 연결을 고정했다. memory attempt는 기존 resource_job_attempts와 auditJobs를 건드리지 않는다. version별 expected DDL과 meta 값(v1/v2), open 검사→기존 감사→migration→새 감사→commit 순서도 명시했다. ResourceStore constructor를 이 순서로 재구성하고 mutation은 v2만 검증한다. 추후 실패가 발생하면 동일 transaction을 rollback한다.
+
+자료 memory overhead는 별도 callback을 쓰거나 exhaustive kind mapping으로 계산한다. rank ternary의 암묵적 else에 맡기지 않는다. 테스트는 실제 memory prompt frame의 추정치와 callback 값이 일치함을 확인한다(다른 prompt와 숫자가 달라야 한다는 임의 조건은 두지 않는다). context 읽기 경로는 refresh/runPending/capture를 호출하지 않는다. 주 에이전트는 이를 수용한 수정 계획의 재검토를 요청한다.

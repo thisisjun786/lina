@@ -55,3 +55,7 @@ MODIFY resources/indexing.ts: version commit에서 extraction/summary job을 만
 | MODIFY | `packages/lina-runtime/src/fleet/codex-fleet.ts` | host context로 principal scope 생성; 확인 불가 시 agentId=null/shared-only |
 
 검증: task owner 인계 직전/직후 오래된 tool context는 private 자료를 반환하지 않는다. Codex task 없이 쓰는 LINA consumer는 자신의 host scope를 그대로 쓴다.
+
+## 061 실행 계획 우선
+
+현재 구현 계약은 [061](061_shared_memory_execution.md)과 004의 schema2 capture DDL을 따른다. 위 fleet/codex-fleet.ts 설치 교체는 070에서 수행한다. 060은 자체 task-consumer와 실제 TaskManager fake RPC/LinaHost 경로를 검증한다. capture는 기존 resource index enum/attempt 테이블과 분리한다.
