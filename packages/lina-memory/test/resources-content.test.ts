@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ResourceContent } from "../src/resources/content.ts";
@@ -55,6 +61,7 @@ test("missing owner limits are rejected before creating content storage", () => 
 		expect(
 			() => new ResourceContent(join(root, "invalid"), {} as never),
 		).toThrow(/limit/);
+		expect(existsSync(join(root, "invalid"))).toBe(false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -75,6 +82,48 @@ test("a symlink at a hash path is rejected without reading another file", () => 
 		symlinkSync(join(root, "outside"), join(folder, saved.hash));
 		expect(() => content.put(new Uint8Array([1, 2, 3]))).toThrow();
 		expect(() => content.read(saved)).toThrow();
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("lower write limits preserve existing content reads and reject new growth", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-shrink-"));
+	try {
+		const blob = new ResourceContent(root, {
+			maxFileBytes: 16,
+			maxCatalogBytes: 32,
+			maxExtractionBytes: 16,
+		}).put(new Uint8Array(12));
+		const shrunk = new ResourceContent(root, {
+			maxFileBytes: 4,
+			maxCatalogBytes: 8,
+			maxExtractionBytes: 4,
+		});
+		expect(shrunk.read(blob)).toHaveLength(12);
+		expect(() => shrunk.put(new Uint8Array([1]))).toThrow(/limit/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("exclusive owner recovery reclaims interrupted stages but preserves complete blobs", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-stage-"));
+	try {
+		const content = new ResourceContent(root, {
+			maxFileBytes: 16,
+			maxCatalogBytes: 32,
+			maxExtractionBytes: 16,
+		});
+		const blob = content.put(new Uint8Array([1]));
+		writeFileSync(
+			join(root, ".stage-00000000-0000-4000-8000-000000000001"),
+			new Uint8Array(12),
+		);
+		expect(content.usage().bytes).toBe(13);
+		expect(content.recoverStaging()).toBe(1);
+		expect(content.read(blob)).toEqual(new Uint8Array([1]));
+		expect(content.usage()).toEqual({ bytes: 1, blobs: 1 });
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

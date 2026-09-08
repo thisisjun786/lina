@@ -93,3 +93,5 @@ file DB reopen에서 stable ID/rename/move/history, 같은op replay/conflict, �
 - 중복 worker owner는 계약 밖이다. explicit recovery는 설치 owner의 exclusive lease를 획득한 host만 호출하며 일반 catalog 연결은 호출하지 않는다.070에서 실제 installation lease 조립을 검증한다.
 
 Blob put의 quota 검사는 catalog BEGIN IMMEDIATE 안에서 staging 이전에 수행한다. 실패한 호출의 고유 staging 파일은 해당 호출이 정리하고, 이미 rename된 hash blob은 보존/합산한다. resource_job_attempts도 schema와 unsafe counter audit 대상이다.
+
+원문 부품 BUILD 감사 수정: startup hash audit와 put quota 계산을 분리한다. put은 NOFOLLOW/fstat의 크기 합만 계산하며 전체 재해시를 반복하지 않는다. 기존 bytes의 읽기/감사는 기술 상한64MiB를 사용하고, 줄어든 owner 한도는 신규 수용에 적용한다. recoverStaging은 exclusive recovery host만 호출하는 명시 API로 strict UUID staging 파일만 정리하고 완성 hash blob을 삭제하지 않는다. 이 caller 권한 조립은070의 검증 대상이다.

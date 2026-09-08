@@ -1,5 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readdirSync, renameSync, unlinkSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	existsSync,
+	fstatSync,
+	openSync,
+	readdirSync,
+	renameSync,
+	unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
 	checkedDirectory,
@@ -12,7 +21,8 @@ const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_EXTRACTION = 2 * 1024 * 1024;
 const MAX_BLOBS = 4096;
 const HASH = /^[a-f0-9]{64}$/;
-const STAGE = /^\.stage-[a-f0-9-]{36}$/;
+const STAGE =
+	/^\.stage-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 export interface ResourceContentLimits {
 	maxFileBytes: number;
 	maxCatalogBytes: number;
@@ -52,9 +62,12 @@ export class ResourceContent {
 			throw Error("invalid resource content limit");
 		this.limits = { ...limits };
 		this.root = checkedDirectory(root, true);
-		this.usage();
+		this.scan(true);
 	}
 	usage(): { bytes: number; blobs: number } {
+		return this.scan(false);
+	}
+	private scan(verify: boolean): { bytes: number; blobs: number } {
 		const names = readdirSync(this.root);
 		if (names.length > MAX_BLOBS)
 			throw Error("resource blob count limit exceeded");
@@ -62,28 +75,51 @@ export class ResourceContent {
 		for (const name of names) {
 			if (!HASH.test(name) && !STAGE.test(name))
 				throw Error("corrupt resource blob name");
-			const data = readRegular(join(this.root, name), this.limits.maxFileBytes);
-			if (HASH.test(name) && digest(data) !== name)
-				throw Error("corrupt resource blob hash");
-			bytes += data.length;
-			if (bytes > this.limits.maxCatalogBytes)
-				throw Error("resource catalog limit exceeded");
+			const path = join(this.root, name);
+			if (verify && HASH.test(name)) {
+				const data = readRegular(path, MAX_BYTES);
+				if (digest(data) !== name) throw Error("corrupt resource blob hash");
+				bytes += data.length;
+			} else {
+				const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+				try {
+					const stat = fstatSync(fd);
+					if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_BYTES)
+						throw Error("corrupt resource blob file");
+					bytes += stat.size;
+				} finally {
+					closeSync(fd);
+				}
+			}
+			if (bytes > MAX_BYTES) throw Error("resource catalog limit exceeded");
 		}
 		// Interrupted staging bytes also count; opening the store never deletes them.
 		return { bytes, blobs: names.length };
 	}
+	/** Only the host holding exclusive installation recovery authority may call this. */
+	recoverStaging(): number {
+		let count = 0;
+		for (const name of readdirSync(this.root)) {
+			if (!STAGE.test(name)) continue;
+			// Validate before unlinking; never follow or delete a foreign/hash name.
+			readRegular(join(this.root, name), MAX_BYTES);
+			unlinkSync(join(this.root, name));
+			count++;
+		}
+		if (count) fsyncDirectory(this.root);
+		return count;
+	}
 	read(blob: ResourceBlob): Uint8Array {
 		if (
+			!blob ||
+			typeof blob !== "object" ||
 			!HASH.test(blob.hash) ||
 			!Number.isSafeInteger(blob.byteLength) ||
 			blob.byteLength < 0 ||
-			blob.byteLength > this.limits.maxFileBytes
+			blob.byteLength > MAX_BYTES
 		)
 			throw Error("corrupt resource blob reference");
-		const bytes = readRegular(
-			join(this.root, blob.hash),
-			this.limits.maxFileBytes,
-		);
+		const bytes = readRegular(join(this.root, blob.hash), MAX_BYTES);
 		if (bytes.length !== blob.byteLength || digest(bytes) !== blob.hash)
 			throw Error("corrupt resource blob");
 		return bytes;
@@ -99,6 +135,7 @@ export class ResourceContent {
 		const finalPath = join(this.root, blob.hash);
 		if (existsSync(finalPath)) {
 			this.read(blob);
+			// Repair a prior rename-success/directory-fsync-failure before replay success.
 			fsyncDirectory(this.root);
 			return blob;
 		}

@@ -1,6 +1,6 @@
 # 050 — LLM 중심 비코드 자료 공간
 
-상태: P 재검토. [051 실제 실행 계획](051_resource_execution.md)을 우선하며 구현 전이다. 단위 `resources`, 선행 `routing`.
+상태: B 진행 중. [051 실제 실행 계획](051_resource_execution.md)을 우선한다. 정책/원문 부품 구현 중이며 전체 자료 기능은 미완료다. 단위 `resources`, 선행 `routing`.
 
 ## 변경 지도
 
