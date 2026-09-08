@@ -45,6 +45,7 @@ export interface EventImageDiscoveryInput {
 	existingIntents: LifeImageIntent[];
 }
 
+/** Family follows the accepted event receipt; authorship is gated later by eventRules.agentIds. */
 function acceptedFamily(
 	steps: LifeStep[],
 	post: EventPublicationPost,
@@ -58,7 +59,6 @@ function acceptedFamily(
 			candidate.receipt.worldRevision === source.worldRevision &&
 			candidate.receipt.lifeRevision === source.lifeRevision &&
 			candidate.decision.kind === "event" &&
-			candidate.decision.agentId === post.author.agentId &&
 			candidate.decision.familyId !== null,
 	);
 	return step?.decision.familyId

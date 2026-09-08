@@ -5,6 +5,7 @@ import { WorldStore } from "../../lina-core/src/world/store.ts";
 import { imageAvatarPolicy } from "../../lina-core/test/life-image-store-fixture.ts";
 import { Ima2Client } from "../src/images/client.ts";
 import { LifeImages } from "../src/images/life.ts";
+import { lifeAvatarReservationId } from "../src/images/life-authority.ts";
 import { catalog, png } from "./ima2-client-fixture.ts";
 import { lifeImagePermissionsFixture } from "./life-image-permissions-fixture.ts";
 
@@ -104,6 +105,23 @@ test("LIFE runtime uses the shared client/jobs, retains output and reopens the s
 		expect(first.state).toBe("completed");
 		expect(first.artifact?.size).toBe(png.length);
 		expect(first.delivery.kind).toBe("life");
+		expect(posts).toBe(1);
+		if (first.origin.kind !== "life")
+			throw Error("Missing original LIFE attempt");
+		const reservationId = lifeAvatarReservationId(
+			"test-world",
+			first.origin.attemptId,
+		);
+		f.agents.putVisualGrant("lina", f.agents.visual("lina").revision, {
+			...f.grant,
+			revision: 2,
+			revoked: true,
+		});
+		await runtime.reconcile("test-world", first.origin.attemptId);
+		expect(f.agents.avatarCapacityReservation(reservationId)?.state).toBe(
+			"released",
+		);
+		expect(world.imageUsage("test-world").count.consumed).toBe(1);
 		expect(posts).toBe(1);
 		const closing = runtime.close();
 		await expect(

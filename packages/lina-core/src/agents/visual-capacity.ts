@@ -115,6 +115,33 @@ export class VisualCapacity {
 				throw Error("avatar reservation conflict");
 			return old;
 		}
+		this.assertAvailable(input);
+		this.db
+			.prepare(
+				"INSERT INTO agent_avatar_capacity_reservations VALUES(?,?,?,'reserved',NULL)",
+			)
+			.run(input.reservationId, JSON.stringify(input), visualDigest(input));
+		return { ...input, version: 1, state: "reserved", asset: null };
+	}
+	/** Explicit destination retry; ordinary reserve replay never reopens a released hold. */
+	reacquire(id: string): AvatarCapacityReceipt {
+		const old = this.get(id);
+		if (!old || old.owner.kind !== "generated")
+			throw Error("generated avatar reservation required");
+		if (old.state !== "released") return old;
+		this.assertAvailable(old, 0);
+		const changed = this.db
+			.prepare(
+				"UPDATE agent_avatar_capacity_reservations SET state='reserved' WHERE reservation_id=? AND state='released'",
+			)
+			.run(id);
+		if (changed.changes !== 1) throw Error("avatar reservation conflict");
+		return { ...old, state: "reserved" };
+	}
+	private assertAvailable(
+		input: AvatarCapacityInput,
+		addedHistoryRows = 1,
+	): void {
 		if (
 			!this.db
 				.prepare("SELECT 1 FROM agent_profiles WHERE id=?")
@@ -134,13 +161,7 @@ export class VisualCapacity {
 		)
 			throw Error("avatar capacity reached");
 		if (input.owner.kind === "generated")
-			requireVisualHistorySpace(this.db, input.owner.agentId, 1);
-		this.db
-			.prepare(
-				"INSERT INTO agent_avatar_capacity_reservations VALUES(?,?,?,'reserved',NULL)",
-			)
-			.run(input.reservationId, JSON.stringify(input), visualDigest(input));
-		return { ...input, version: 1, state: "reserved", asset: null };
+			requireVisualHistorySpace(this.db, input.owner.agentId, addedHistoryRows);
 	}
 	get(id: string): AvatarCapacityReceipt | undefined {
 		boundedId(id, "reservation");

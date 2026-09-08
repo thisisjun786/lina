@@ -70,11 +70,35 @@ export function autonomyProfiles(value: unknown): AgentProfile[] {
 
 /** Structural validation plus deterministic decision verification; source history is checked by the parent. */
 export class LifeStepRecords {
+	private lastDecoded: { input: string; step: LifeStep } | null = null;
 	constructor(
 		private readonly db: DatabaseSync,
 		private readonly models: LifeModelReceipts,
 	) {}
 	private decode(row: Row): LifeStep {
+		// Read every persistent dependency before reusing structural validation.
+		// An unchanged digest alone is insufficient: out-of-band edits can retain it.
+		const baseline = this.db
+			.prepare(
+				"SELECT base_world_revision, base_life_revision FROM life_autonomy_state WHERE world_id=?",
+			)
+			.get(row.world_id) as
+			| { base_world_revision: number; base_life_revision: number }
+			| undefined;
+		const models = this.models.list(row.world_id, row.step_id);
+		const paired =
+			row.accepted_life_revision === null
+				? undefined
+				: (this.db
+						.prepare(
+							"SELECT envelope_json,input_digest FROM life_commits WHERE world_id=? AND life_revision=?",
+						)
+						.get(row.world_id, row.accepted_life_revision) as
+						| { envelope_json: string; input_digest: string }
+						| undefined);
+		const input = JSON.stringify([row, baseline, models, paired]);
+		if (this.lastDecoded?.input === input)
+			return structuredClone(this.lastDecoded.step);
 		const raw: unknown = JSON.parse(row.step_json);
 		fields(raw, [
 			"version",
@@ -194,13 +218,6 @@ export class LifeStepRecords {
 			].includes(step.status)
 		)
 			throw Error("Corrupt LIFE step provenance");
-		const baseline = this.db
-			.prepare(
-				"SELECT base_world_revision, base_life_revision FROM life_autonomy_state WHERE world_id=?",
-			)
-			.get(step.worldId) as
-			| { base_world_revision: number; base_life_revision: number }
-			| undefined;
 		if (
 			!baseline ||
 			revision(baseline.base_world_revision) > source.world.revision ||
@@ -216,7 +233,7 @@ export class LifeStepRecords {
 			lifeDigest(selectLifeEvent(source, step.id)) !== lifeDigest(step.decision)
 		)
 			throw Error("Corrupt autonomous decision");
-		step.models = this.models.list(step.worldId, step.id);
+		step.models = models;
 		if (
 			step.intent !== null &&
 			lifeDigest(completedStepIntent(step).intent) !== lifeDigest(step.intent)
@@ -289,13 +306,6 @@ export class LifeStepRecords {
 				identity: step.source.identity,
 				replayed: false,
 			};
-			const paired = this.db
-				.prepare(
-					"SELECT envelope_json,input_digest FROM life_commits WHERE world_id=? AND life_revision=?",
-				)
-				.get(step.worldId, expected.lifeRevision) as
-				| { envelope_json: string; input_digest: string }
-				| undefined;
 			if (
 				lifeDigest(step.receipt) !== lifeDigest(expected) ||
 				!paired ||
@@ -304,6 +314,7 @@ export class LifeStepRecords {
 			)
 				throw Error("Corrupt autonomous acceptance receipt");
 		}
+		this.lastDecoded = { input, step: structuredClone(step) };
 		return step;
 	}
 	get(worldId: string, stepId: string): LifeStep {

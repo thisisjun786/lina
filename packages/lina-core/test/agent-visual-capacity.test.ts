@@ -31,6 +31,95 @@ const reservation = (id: string) => ({
 	owner: { kind: "manual" as const, agentId: "lina", requestKey: id },
 	maxBytes: 2097152,
 });
+test("reacquiring retained capacity consumes no additional history row", () => {
+	store.updateVisual("lina", 1, {
+		anchors: [],
+		canonicalReferenceId: null,
+		textIdentity: null,
+		avatarPolicy: null,
+		referenceLimits: null,
+		maxHistoryRecords: 4,
+	});
+	store.syncAvatarInventory([]);
+	const input = {
+		...reservation("retained"),
+		owner: {
+			kind: "generated" as const,
+			agentId: "lina",
+			worldId: "world",
+			intentId: "intent",
+			attemptId: "attempt",
+		},
+	};
+	const original = store.reserveAvatarCapacity(input);
+	store.releaseAvatarCapacity(input.reservationId);
+	expect(store.reacquireAvatarCapacity(input.reservationId)).toEqual(original);
+});
+test("released generated capacity reacquires its original owner under current shared limits", () => {
+	store.updateVisual("lina", 1, {
+		anchors: [],
+		canonicalReferenceId: null,
+		textIdentity: null,
+		avatarPolicy: null,
+		referenceLimits: null,
+		maxHistoryRecords: 10,
+	});
+	store.syncAvatarInventory(
+		Array.from({ length: 127 }, (_, i) => ({
+			fileId: `existing-${i}`,
+			sha256: i.toString(16).padStart(64, "0"),
+			mime: "image/png" as const,
+			size: 2097152,
+		})),
+	);
+	const input = {
+		...reservation("generated"),
+		owner: {
+			kind: "generated" as const,
+			agentId: "lina",
+			worldId: "world",
+			intentId: "intent",
+			attemptId: "attempt",
+		},
+	};
+	const original = store.reserveAvatarCapacity(input);
+	store.releaseAvatarCapacity(input.reservationId);
+	expect(store.reserveAvatarCapacity(input).state).toBe("released");
+	const second = new AgentStore(join(dir, "agents.sqlite"));
+	try {
+		second.reserveAvatarCapacity(reservation("competing-upload"));
+		expect(() => store.reacquireAvatarCapacity(input.reservationId)).toThrow(
+			"avatar capacity reached",
+		);
+		expect(store.avatarCapacityReservation(input.reservationId)?.state).toBe(
+			"released",
+		);
+		second.releaseAvatarCapacity("competing-upload");
+		expect(store.reacquireAvatarCapacity(input.reservationId)).toEqual(
+			original,
+		);
+		expect(store.reacquireAvatarCapacity(input.reservationId)).toEqual(
+			original,
+		);
+		expect(store.avatarCapacity().reservedFiles).toBe(1);
+	} finally {
+		second.close();
+	}
+	store.close();
+	store = new AgentStore(join(dir, "agents.sqlite"));
+	expect(store.reacquireAvatarCapacity(input.reservationId)).toEqual(original);
+	expect(() => store.reacquireAvatarCapacity("competing-upload")).toThrow(
+		"generated avatar reservation required",
+	);
+	const settled = store.settleAvatarCapacity(input.reservationId, {
+		fileId: "completed.png",
+		sha256: "f".repeat(64),
+		mime: "image/png",
+		size: 100,
+	});
+	expect(store.reacquireAvatarCapacity(input.reservationId)).toEqual(settled);
+	expect(store.avatarCapacity().reservedFiles).toBe(0);
+});
 test("installation inventory includes orphan files and competes durably across worlds and manual uploads", () => {
 	store.updateVisual("lina", 1, {
 		anchors: [],

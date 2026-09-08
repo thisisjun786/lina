@@ -127,9 +127,12 @@ export class FleetLifeImages {
 			this.stop.signal.aborted ||
 			this.options.foreground.active() ||
 			(invocation === "scheduled" &&
-				(!config.run || config.run.mode === "paused"))
-		)
+				((!config.run && intent.source.kind !== "avatar_wall") ||
+					config.run?.mode === "paused"))
+		) {
+			this.images.withholdAvatarDestination(job);
 			return;
+		}
 		try {
 			if (intent.source.kind === "event_post") {
 				if (

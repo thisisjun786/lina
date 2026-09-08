@@ -105,6 +105,8 @@ function unchanged(input: SocialExtensionInput): SocialResolution {
 
 /** Internal SQL owner; every mutation runs within WorldStore's one transaction. No worker executes here. */
 export class SocialPersistence {
+	private lastDecoded: { key: string; value: SocialPreparedResolution } | null =
+		null;
 	constructor(
 		private readonly db: DatabaseSync,
 		private readonly access: Access,
@@ -301,6 +303,11 @@ export class SocialPersistence {
 			this.seed(request.worldId),
 			true,
 		);
+		// Rebuild the authoritative input first (including autonomy and disclosure).
+		// Reuse only validation of identical stored bytes against that exact input.
+		const key = JSON.stringify([row, input]);
+		if (this.lastDecoded?.key === key)
+			return structuredClone(this.lastDecoded.value);
 		if (
 			row.world_id !== request.worldId ||
 			row.request_id !== request.requestId ||
@@ -332,7 +339,7 @@ export class SocialPersistence {
 			)
 				throw Error("Corrupt social accepted revision");
 		}
-		return {
+		const decoded: SocialPreparedResolution = {
 			version: 1,
 			worldId: row.world_id,
 			requestId: row.request_id,
@@ -342,6 +349,8 @@ export class SocialPersistence {
 			result,
 			acceptedLifeRevision: row.accepted_life_revision,
 		};
+		this.lastDecoded = { key, value: structuredClone(decoded) };
+		return decoded;
 	}
 	private assertCurrent(
 		input: SocialResolveInput | SocialExtensionInput,

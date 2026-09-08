@@ -93,6 +93,14 @@ export async function agentVisualRoutes(
 		return reply({ error: "Forbidden" }, 403);
 	const id = agentId(match[1] ?? ""),
 		action = match[2];
+	if (
+		((!action && request.method === "PUT") ||
+			(["pin", "apply", "restore"].includes(action ?? "") &&
+				request.method === "POST")) &&
+		request.headers.get("content-type")?.split(";")[0]?.trim() !==
+			"application/json"
+	)
+		return reply({ error: "Invalid body type" }, 400);
 	if (!fleet.agents.get(id)) return reply({ error: "Agent not found" }, 404);
 	if (!action && request.method === "GET")
 		return reply(fleet.agents.visual(id));

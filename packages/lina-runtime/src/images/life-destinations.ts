@@ -1,9 +1,12 @@
 import type {
 	AvatarApplicationReceipt,
 	AvatarApplyInput,
+	AvatarCapacityReceipt,
 	GeneratedAvatarCandidate,
 } from "../../../lina-core/src/agents/visual.ts";
 import { avatarAutomaticRequestKey } from "../../../lina-core/src/agents/visual-validation.ts";
+import type { LifeImageAttempt } from "../../../lina-core/src/world/image-attempt-types.ts";
+import type { LifeImageIntent } from "../../../lina-core/src/world/image-types.ts";
 import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
 import type { AvatarAssets } from "../fleet/avatar-assets.ts";
 import type { ImageJob } from "./contracts.ts";
@@ -81,19 +84,54 @@ export class LifeImageDestinations {
 		const admission = agents.avatarAdmission(agentId, intent.intentId);
 		if (!admission) throw Error("Missing original avatar admission");
 		const candidateId = `avatar-candidate-${lifeDigest({ worldId, attemptId: attempt.attemptId })}`;
+		if (apply && apply.candidateId !== candidateId)
+			throw Error("Avatar candidate does not match image attempt");
 		let candidate = agents.avatarCandidate(agentId, candidateId);
 		if (!candidate) {
-			assertLifeImageAuthority(
-				this.options,
-				worldId,
-				intent.intentId,
-				"destination",
-			);
+			try {
+				const visual = agents.visual(agentId),
+					profile = agents.get(agentId);
+				if (!profile) throw Error("Avatar agent unavailable");
+				if (
+					(apply?.mode === "automatic" && visual.pinned) ||
+					(invocation === "automatic" &&
+						visual.pinned &&
+						visual.avatarPolicy?.whilePinned === "skip")
+				)
+					throw Error("Avatar is pinned");
+				if (
+					apply ||
+					(invocation === "automatic" &&
+						!visual.pinned &&
+						visual.avatarPolicy?.applyMode === "automatic")
+				) {
+					if (
+						profile.revision !==
+						(apply?.expectedProfileRevision ?? admission.profileRevision)
+					)
+						throw Error("stale profile revision");
+					if (
+						visual.revision !==
+						(apply?.expectedVisualRevision ?? admission.visualRevision)
+					)
+						throw Error("stale visual revision");
+				}
+				assertLifeImageAuthority(
+					this.options,
+					worldId,
+					intent.intentId,
+					"destination",
+				);
+			} catch (error) {
+				this.releaseUnusedDestination(intent, attempt);
+				throw error;
+			}
+			const reservationId = this.ensureDestinationReservation(intent, attempt);
 			const bytes = new LifeImageAssets(this.options.root, intent.owner).bytes(
 				job.artifact,
 			);
 			const avatar = this.options.avatars.importGenerated(
-				lifeAvatarReservationId(worldId, attempt.attemptId),
+				reservationId,
 				bytes,
 				job.artifact.name,
 			);
@@ -161,5 +199,58 @@ export class LifeImageDestinations {
 			return { status: "applied", receipt };
 		}
 		return { status: "candidate", candidateId };
+	}
+	private matchesGeneratedOwner(
+		reservation: AvatarCapacityReceipt,
+		intent: LifeImageIntent,
+		attempt: LifeImageAttempt,
+	): boolean {
+		const owner = reservation.owner;
+		return (
+			owner.kind === "generated" &&
+			owner.agentId === intent.owner.agentId &&
+			owner.worldId === intent.owner.worldId &&
+			owner.intentId === intent.intentId &&
+			owner.attemptId === attempt.attemptId
+		);
+	}
+	private releaseUnusedDestination(
+		intent: LifeImageIntent,
+		attempt: LifeImageAttempt,
+	): void {
+		const reservationId = lifeAvatarReservationId(
+			intent.owner.worldId,
+			attempt.attemptId,
+		);
+		const reservation =
+			this.options.agents.avatarCapacityReservation(reservationId);
+		if (
+			reservation?.state !== "reserved" ||
+			!this.matchesGeneratedOwner(reservation, intent, attempt)
+		)
+			return;
+		this.options.agents.releaseAvatarCapacity(reservationId);
+	}
+	private ensureDestinationReservation(
+		intent: LifeImageIntent,
+		attempt: LifeImageAttempt,
+	): string {
+		const reservationId = lifeAvatarReservationId(
+			intent.owner.worldId,
+			attempt.attemptId,
+		);
+		const existing =
+			this.options.agents.avatarCapacityReservation(reservationId);
+		if (existing && !this.matchesGeneratedOwner(existing, intent, attempt))
+			throw Error("avatar destination owner conflict");
+		if (existing?.state === "reserved" || existing?.state === "settled")
+			return reservationId;
+		this.options.avatars.syncInventory();
+		const receipt = this.options.agents.reacquireAvatarCapacity(reservationId);
+		if (!this.matchesGeneratedOwner(receipt, intent, attempt))
+			throw Error("avatar destination owner conflict");
+		if (receipt.state !== "reserved" && receipt.state !== "settled")
+			throw Error("avatar destination capacity not reserved");
+		return reservationId;
 	}
 }

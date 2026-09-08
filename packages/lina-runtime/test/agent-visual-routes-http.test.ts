@@ -182,3 +182,24 @@ test("a charged reference with missing bytes is repaired only by its matching re
 		1,
 	);
 });
+
+test("visual JSON mutations reject text media types without pinning or changing revision", async () => {
+	const f = await fixture();
+	const before = f.fleet.agents.visual("lina");
+	for (const contentType of [
+		"text/plain",
+		"application/x-www-form-urlencoded",
+	]) {
+		const response = await fetch(`${f.base}/api/agents/lina/visual/pin`, {
+			method: "POST",
+			headers: { "content-type": contentType },
+			body: JSON.stringify({
+				requestKey: "bad-media-pin",
+				expectedRevision: before.revision,
+				pinned: true,
+			}),
+		});
+		expect(response.status).toBe(400);
+		expect(f.fleet.agents.visual("lina")).toEqual(before);
+	}
+});

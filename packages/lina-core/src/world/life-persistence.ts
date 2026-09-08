@@ -272,6 +272,17 @@ function decodeEffect(row: EffectRow): SideEffectIntent {
 
 /** Internal SQL owner. Every method runs inside WorldStore's existing transaction. */
 export class LifePersistence {
+	private replayScope = false;
+	private replayEpoch: string | undefined;
+	private readonly replayStates = new Map<string, LifeState>();
+	/** Only unchanged read transactions may share replay results. Writers always clear on exit. */
+	setReplayScope(active: boolean, clear = true): void {
+		this.replayScope = active;
+		if (clear) {
+			this.replayEpoch = undefined;
+			this.replayStates.clear();
+		}
+	}
 	constructor(
 		private readonly db: DatabaseSync,
 		private readonly world: WorldAccess,
@@ -799,7 +810,31 @@ export class LifePersistence {
 		const row = this.row(worldId);
 		if (!row || revision > row.life_revision)
 			throw Error("Unknown LIFE revision");
-		return this.rebuild(row, revision).state;
+		const key = JSON.stringify([worldId, revision]);
+		if (this.replayScope) {
+			// row() established the read snapshot. data_version detects external
+			// commits; total_changes detects local writes within the current transaction.
+			const epoch = JSON.stringify(
+				this.db
+					.prepare(
+						"SELECT data_version, total_changes() AS writes FROM pragma_data_version",
+					)
+					.get(),
+			);
+			if (epoch !== this.replayEpoch) {
+				this.replayStates.clear();
+				this.replayEpoch = epoch;
+			}
+			const cached = this.replayStates.get(key);
+			if (cached) return structuredClone(cached);
+		}
+		const state = this.rebuild(row, revision).state;
+		if (this.replayScope) {
+			// Bound memory independently of the configured world's history length.
+			if (this.replayStates.size >= 16) this.replayStates.clear();
+			this.replayStates.set(key, structuredClone(state));
+		}
+		return state;
 	}
 	/** Immutable paired commit and receipt used by trusted publication provenance checks. */
 	commitAt(worldId: string, lifeRevision: number) {

@@ -14,7 +14,7 @@ changing a picture must preserve the agent's personality and learned state.
 | Loop / trigger | Satisfy-spec, next dependency-ordered cycle in the user-authorized unattended roadmap. C4 for provider disclosure, persistence/migration and avatar application. |
 | Previous D | “Execute070 image/avatar-owner integration using the existing053976d image engine, frozen permitted material, distinct generation/artifact/post/avatar receipts and explicit visual identity/history/pin/CAS contracts. Then080 integrated acceptance and consumer handoff.” This P follows that direction. |
 | Goal | Frozen permitted event images and scheduled/event-triggered avatar candidates, durable recovery and audience-safe delivery through the existing image owner. |
-| Non-goals | New provider/image engine, UI redesign, multi-reference provider extension, live generation/model-quality certification, invented background/audience/cadence/budget defaults, installed-user-data changes or additional push/merge/deploy. Reuse the image owner's existing conversation renderer without redesign. |
+| Non-goals | New provider/image engine, UI redesign, multi-reference provider extension, live generation/model-quality certification, invented background/audience/cadence/budget defaults, installed-user-data changes, PR merge or deployment. The resumed scope allows updating PR #3. Reuse the image owner's existing conversation renderer without redesign. |
 | Verification | Original fake-provider image/attachment/conversation tests plus new actual DB/manifest/file/Fleet reopen, real HTTP against a loopback synthetic ima2 service, exact final POST guard, image budgets, avatar-state preservation and source gates.071 names activation scenarios and actual paths. |
 | Stop / outcomes | Complete070 only after each row below and071 has proof plus independent reviews; continue080. Missing configuration is explicit not-configured. Unsupported multiple identity references are surfaced, never silently truncated. No claim of human-reviewed real likeness. |
 | Records / bounds | This document,071 and `images-*` artifacts in the bound session evidence/ledger. Task-owned temporary DBs, ports, files and fake providers only. No user token/time budget was given; no paid provider calls are authorized. |
@@ -184,3 +184,135 @@ transports. Real model/image quality and browser presentation are not qualified.
 
 Local raw logs and reviews remain under the task's ignored evidence directory;
 public reports include only commands, outcomes and synthetic scenario descriptions.
+
+### Resumed implementation, 2026-09-08
+
+The user explicitly resumed work after the PR checkpoint. Continue070 and080,
+then update the existing PR; merge, deployment and real provider spend remain
+outside this authorization. The checkpoint above remains a record of `0b68b2f`,
+not the verification result for the changing working tree.
+
+- The original event-image test reproduced its default5s timeout at8.25s.
+  Repeated structural decoding and pure replay calculation dominated the measured
+  work. Bounded reuse now compares complete stored rows and their dependencies,
+  and still checks current source/permission authority. Independent review found
+  the first4.79s result lacked margin (repeat runs4.86–5.14s). Historical snapshots
+  now also reuse unchanged read transactions, comparing SQLite `data_version`
+  and `total_changes()` after establishing the read snapshot. Writers clear on
+  entry and commit/rollback; external commits invalidate the next read. The
+  original unmodified test then passed all14 assertions in3.20s. No timeout/skip
+  change was made; final suite and independent rereview remain required.
+- New warm-read negatives cover caller mutation, another connection changing
+  step/paired-commit/pack bytes while retaining their digest, deleted autonomy
+  baseline and rolled-back writes. A same-transaction corruption test also proves
+  local-write invalidation: disabling the epoch comparison makes it fail.
+  Six tests/13 assertions pass with the guard restored. The affected
+  autonomy/social/image core run passed280 tests/1,079 assertions in57 files.
+- The actual Fleet legacy portrait scenario first failed because image settings
+  required prepared LIFE state. Legacy wall portraits now use the existing world
+  roster and require no authored pack, autonomous run, director or publication
+  settings. The run-null exception is limited to wall portraits; explicit pause
+  still denies provider dispatch and automatic application. Original and legacy
+  generation/application/serving/restart/next-slot tests plus related image cases
+  passed120 tests/494 assertions in24 files.
+- Independent replay rereview passed: three original-timeout runs took3.13–3.22s
+  with14 assertions, and the full core suite passed1,295 tests. The same event
+  scenario now uses an actual ephemeral loopback HTTP image service, the real
+  client and Fleet/web proxy, including bytes after restart and permission revoke;
+  it passed in3.19s. This is synthetic-provider transport proof, not image quality.
+- Current `dev` image-owner code is integrated in local merge `3dc2721`.
+  All13 conflicts resolved against the already-integrated053976d source pin.
+  An automatically duplicated session return field was removed and the upstream
+  image-tool startup test retained. Forty owner/session/scheduler tests passed.
+- Scheduler archive/recovery is wired through mandatory existing owner ports;
+  original and legacy Fleet cases verify the original attempt is archived after
+  restart with no extra generation. Manual event image requests now select the
+  exact permitted post/author/recipient without requiring automatic rules.
+- Automatic discovery covers family receipts, no-rule/empty-material outcomes,
+  duplicates, cooldown boundaries, scene fingerprints and multiple subjects.
+  Shared-event posts by another authorized participant now inherit the accepted
+  event family; poster-specific image rules remain required. Independent review
+  passed that correction against the publication contract.
+- Unused destination reservations release on revoked grants, pinned-skip policy,
+  stale application CAS and pause/foreground withholding before copy. The original
+  world artifact and consumed generation count remain. Explicit reacquisition uses
+  the original generated reservation and current shared capacity, without changing
+  ordinary released-reservation replay. Real-store tests cover competing uploads,
+  exact history limits, settled replay, reopened stores and applying the same image
+  after permission restoration. The actual Fleet pause-after-result case keeps
+  zero copied candidates, then applies the original result after resume.
+- Final runtime review, whole-source verification and080 remain open. No remote
+  update, PR merge, deployment or live provider spend is claimed by this record.
+
+Additional integration review and wire QA found two remaining boundaries:
+
+- Manual destination application now binds `candidateId` to the original image
+  attempt before copying bytes or registering history. The new negative case
+  first observed an unwanted history row, then passed with no row/file write.
+- Image-management and visual JSON mutations reject absent/non-JSON media types
+  before parsing or writing. Actual `curl` originally returned201 for a
+  `text/plain` event request and200 for a `text/plain` pin; regression tests and
+  matching adjacent API boundary checks now reject them. Binary reference upload
+  retains its separate byte protocol.
+- The intermediate24-case HTTP run exercised explicit event generation without
+  automatic event rules, duplicate request/run replay, attachment, fixed-proxy
+  asset access, same-state Fleet reopen and visual-grant revocation. Exactly one
+  synthetic image POST occurred; the retained text post survived image withdrawal.
+  All temporary listeners and state roots were removed. This is wire/recovery
+  evidence, not actual-provider or renderer proof.
+- Independent review found that paused admission could leave a never-reserved
+  prepared attempt blocking future avatar slots after resume. This is a blocker;
+  a dedicated recovery regression and fix are required before070 closes.
+
+Full-suite runs made while new negative tests were being added are retained as
+intermediate evidence, not passing final gates:3347pass/3fail and3350pass/1fail.
+Fresh focused destination/composition tests passed6cases/94assertions after the
+candidate fix. Final review and unchanged-source verification remain required.
+
+The pause blocker is now repaired in the working tree. Paused discovery emits no
+new candidate or due-time loop; a new manual run checks current authority before
+creating an attempt. A retained prepared attempt without any world reservation
+cannot have reached dispatch, so an obsolete one no longer blocks later slots.
+Its original record remains intact. Reserved/uncertain work keeps its existing
+recovery path. Manual avatar selection also consumes the same automatic slot or
+event, preventing a duplicate automatic generation after resume.
+
+Actual Fleet regressions cover automatic pause, denied manual admission, retained
+unreserved work, and two later successful slots. All60 runtime image tests passed
+(378 assertions). The final-source wire run passed27 curl cases, including visual
+media-type rejection, with exactly one synthetic image POST across restart and
+revocation; all four Fleet/web listeners and the temporary root were removed.
+Types, lint, build, dependency audit and CI metadata checks passed against
+unchanged source hashes. Full-suite output and independent rereview are still
+pending; these results alone do not close070.
+
+## Final local verification, 2026-09-08
+
+The implementation and independent runtime rereview passed. The final root run
+reported3,357pass/0fail,17,732assertions across477files with the native LIFE and
+world-author contract lanes enabled. Production files did not change during the
+run. Its only source-snapshot difference was a test-local variable rename for
+lint; the reviewer confirmed no behavior change and the final5-case/36-assertion
+pause suite passed again. Source-bound Check validates both artifacts rather
+than presenting the first snapshot as identical.
+
+Reserved prepared work now reconciles to a local cancellation only when both
+owners prove no provider dispatch and current authority is gone. It settles
+`no_post`, releases the unused avatar hold and permits later slots. A durable
+dispatch marker instead preserves unknown usage and the reservation. A paused
+retry is rejected before a new head attempt is created. These cases, including
+the actual catalog/foreground race, are in `life-image-pause-recovery.test.ts`.
+The final affected image suite passed62tests/397assertions.
+
+Final HTTP qualification passed27curl scenarios on the final production source,
+using one synthetic image POST across repeated run, attachment, same-state Fleet
+reopen and grant revocation. Teardown verified every owned listener closed and
+all temporary state removed. Type/lint/build/CI metadata/dependency checks passed;
+Check binds the final commit and history secret scan before cycle closure.
+Independent replay/capacity/legacy reviews and the final runtime rereview report
+PASS. Existing unknown provider outcomes remain held rather than resubmitted.
+
+This qualifies the engine's local integration and recovery contracts. Actual
+model/image quality, multi-character likeness, the LIFE renderer, hosted CI and
+installation rollout remain separate evidence layers. Continue080 integrated
+acceptance and the UI/image-owner handoff; do not merge or deploy from this result.

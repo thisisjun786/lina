@@ -49,6 +49,13 @@ export class LifeImageDiscovery {
 				maxJobsPerVisit: 0,
 			};
 		const config = this.world.lifeConfig(worldId);
+		if (config.run?.mode === "paused")
+			return {
+				status: "hold",
+				candidates: [],
+				dueAtMs: null,
+				maxJobsPerVisit: 0,
+			};
 		const intents = this.world.imageIntents(worldId);
 		const candidates: LifeImageDiscoveryCandidate[] = [];
 		let dueAtMs: number | null = null;
@@ -109,7 +116,7 @@ export class LifeImageDiscovery {
 					source,
 					requestKey: null,
 				});
-				if (intents.some((intent) => intent.intentId === intentId)) continue;
+				if (alreadySelected(intents, worldId, agentId, intentId)) continue;
 				candidates.push({
 					intentId,
 					source,
@@ -172,7 +179,7 @@ export class LifeImageDiscovery {
 						source,
 						requestKey: null,
 					});
-					if (intents.some((intent) => intent.intentId === intentId)) continue;
+					if (alreadySelected(intents, worldId, agentId, intentId)) continue;
 					candidates.push({
 						intentId,
 						source,
@@ -225,4 +232,23 @@ export class LifeImageDiscovery {
 			requestKey: null,
 		});
 	}
+}
+
+/** An explicit avatar request consumes that same automatic slot/event, not a second generation. */
+function alreadySelected(
+	intents: LifeImageIntent[],
+	worldId: string,
+	agentId: string,
+	intentId: string,
+): boolean {
+	return intents.some(
+		(intent) =>
+			intent.owner.agentId === agentId &&
+			imageIntentId({
+				worldId,
+				agentId,
+				source: intent.source,
+				requestKey: null,
+			}) === intentId,
+	);
 }

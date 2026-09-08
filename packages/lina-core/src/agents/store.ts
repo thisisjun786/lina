@@ -791,6 +791,23 @@ export class AgentStore {
 		this.assertOpen();
 		return this.transaction(() => this.visualCapacity.settle(id, asset));
 	}
+	reacquireAvatarCapacity(id: string) {
+		this.assertOpen();
+		return this.transaction(() => {
+			const receipt = this.visualCapacity.reacquire(id);
+			if (
+				receipt.state === "reserved" &&
+				receipt.owner.kind === "generated" &&
+				this.visuals.admission(receipt.owner.agentId, receipt.owner.intentId)
+			)
+				this.visuals.reserveCandidate(
+					receipt.owner.agentId,
+					receipt.owner.intentId,
+					receipt.owner.attemptId,
+				);
+			return receipt;
+		});
+	}
 	releaseAvatarCapacity(id: string) {
 		this.assertOpen();
 		return this.transaction(() => {
