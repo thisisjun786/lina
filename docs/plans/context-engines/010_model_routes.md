@@ -46,3 +46,11 @@
 5. 미지원 reasoning/image 기능·미설정 profile → 명시적 상태/오류, 다른 모델을 임의 선택하지 않음.
 
 대상 명령: bun test packages/lina-runtime/test/model-settings-selection.test.ts packages/lina-opencodex/test/services.test.ts. 2026-09-08 실행 결과 exit 0, 16 pass / 0 fail / 45 assertions. 두 파일을 직접 인자로 전달하여 현재 선택·서비스 소비를 확인했다. 이는 기존 fixture 기반 baseline이며 새 tier나 실제 제공자 자격 검증의 증거는 아니다. 새 테스트는 구현 cycle의 red/green에서 추가한다. root/browser types와 호출 경로 integration도 필요하다.
+
+## 설정 API와 브라우저 소비 체인 보완
+
+추가 MODIFY: `packages/lina-runtime/src/fleet/companion-routes.ts`의 referencedBindingsValid가 tier에 사용된 profile도 현재 catalog로 검증한다. `packages/lina-web/client/model-settings.ts`와 `settings-tab-model.ts`는 기존 설정 저장 시 새 tier 설정을 유실하지 않도록 round-trip 보존한다. 이번 단위에서 새로운 화면을 디자인하지 않는다. 관련 browser structural fixture를 추가해 기존 화면 저장 후 tier가 유지되는지 확인한다.
+
+추가 MODIFY: `packages/lina-opencodex/src/catalog.ts` 및 runtime `models/port.ts`는 이미 upstream의 reasoningEfforts/defaultReasoning을 파싱하는 경로를 유지·노출한다. `ModelReasoning` 고정 enum만으로 모든 provider 옵션을 허용한다고 주장하지 않는다. 지원 목록과 명시적 설정의 교집합을 사용하며 unknown은 실제 applied 상태에서 구분한다.
+
+새 optional `routes`는 `{version:1, tiers: Record<Tier,{profileId:string,reasoning?:ModelReasoning,maxOutputTokens?:number}>, roleTiers: Partial<Record<ModelRole,Tier>>}`를 기본 계약으로 한다. tier 수는 네 개로 검증하고 profile 참조는 기존 validator로 확인한다. 대화는 roleTiers 대상에서 제외한다. 미설정 legacy는 기존 역할 선택을 유지하며 실제 tier가 설정되기 전 성공적인 tier 전환으로 표시하지 않는다. 내부 route 요청에서는 요청 override > 명시적으로 활성화한 tier binding 순으로 적용한다. routes가 없는 legacy 설정에서만 기존 역할/default 경로를 사용한다. 기존 역할 설정이 새 tier를 무조건 가리는 ghost tier를 만들지 않는다. 일반 conversation은 기존 resolveProfile만 사용한다. effective result는 mode=legacy|tier|override와 settingsRevision/tier/profileId/requested/applied 옵션을 반환한다.

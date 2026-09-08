@@ -1,0 +1,47 @@
+# 070 — 실행 연결과 외부 어댑터 퇴역
+
+상태: P 설계 초안. 감사 전이며 구현 완료가 아니다. 단위 `integration`, 선행 `persona + context + shared-memory`.
+
+## 변경 지도
+
+| 작업 | 경로 | 전 → 후 또는 신규 책임 |
+| --- | --- | --- |
+| MODIFY | `packages/lina-runtime/src/session-app.ts` | honcho/native 구성 분기 → 자체 기억/자료/context의 명시적 lifecycle 조립 |
+| MODIFY | `packages/lina-runtime/src/fleet/manager.ts` | Honcho client 선택/초기화 → 자체 engine owner와 설정 상태 |
+| MODIFY | `packages/lina-runtime/src/fleet/codex-fleet.ts` | parseHonchoEnv/OpenViking workbench → 자체 자료 엔진 초기화/닫기, LIFE 공통 route 연결 |
+| MODIFY | `packages/lina-runtime/src/context/backend.ts` | native/honcho/disabled → 자체 엔진 활성화 정책; legacy honcho는 조용히 바꾸지 않고 전환 필요 상태 |
+| MODIFY | `packages/lina-memory/src/index.ts` | 외부 memory export → 자체 resource/memory boundary; 소비자 확인 후 외부 adapter source 제거 |
+| MODIFY | `data/app-system-prompt.md` | 업무=코딩 연상과 실제 도구 불일치 제거; 개발/비개발/검색 구분 및 자료 탐색 규칙 |
+| MODIFY | `docs/ARCHITECTURE.md` | 구형 외부 기억 및 source ownership 설명 → 검증된 자체 엔진 경계 |
+| MODIFY | `docs/PERSONA_CONTEXT.md` | OmO/Honcho 중심 과거 설명 → 실제 route와 인격/context 책임 |
+| NEW | `packages/lina-runtime/test/engine-integration.test.ts` | Fleet start→소비→stop/restart와 외부 adapter 호출 부재 검증 |
+
+## 필드·상태 흐름
+
+기존 사용자 데이터는 읽기 없이 임시 fixture로 이전 경로를 검증한다. 외부 adapter 삭제는 import/exports/env/client/settings/tests/installer 소비자 목록을 확정한 뒤 수행한다. 기존 실행 설치를 교체하지 않는다. 승인 없는 legacy 데이터는 원형을 보존하고 명시적 전환이 필요한 상태를 제공한다. capability/settings/state 계약을 문서화해 UI가 실제 준비/진행/실패를 표시할 수 있게 한다. LIFE는 current head를 재검증하며 다른 워크트리 dirty 변경을 복사하지 않는다.
+
+입력은 해당 boundary에서 검증하고 저장 owner가 schema/revision/참조를 검증한다. 새 상태는 API/도구 출력과 실제 consumer까지 전달한다. 임의 JSON으로 권한을 부여하지 않는다. 구버전·알 수 없는 enum은 명시적으로 처리하고 조용한 기본값으로 데이터 의미를 바꾸지 않는다.
+
+## 활성화와 기대 결과
+
+- 신규 설치와 legacy 설정 각각 초기화.
+- 외부 host 미설정에서도 자체 기능 수행.
+- 이전 실패는 원본 유지.
+- 중간 초기화 실패 리소스 정리.
+- 일반 대화 모델 고정.
+- persona/world/resource 컨텍스트가 목적대로 분리.
+- UI용 상태가 빈 성공값으로 실패를 숨기지 않음..
+
+## 검증 명령과 증거
+
+각 NEW 테스트의 직접 경로를 `bun test`에 전달하여 실패→구현→통과를 남긴다. 이 문서 작성 시 새 테스트는 없으므로 실행 결과를 주장하지 않는다. 수정된 기존 기능의 affected tests, `bun run typecheck`, `bun run lint`를 수행하고 마지막 acceptance에서 `bun run ci:validate`, `bun run ci:build`와 전체 테스트를 수행한다. 현존 스크립트는 package.json에서 확인했으며 target coverage와 실제 exit code는 실행 시 기록한다.
+
+## 감사 전 남은 검토
+
+새 타입의 정확한 스키마와 모든 호출자, 세부 파일 분리 및 migration 체인은 이 변경 지도와 실제 소스를 다시 대조해 확정한다. 각 상세 설계가 미완료인 동안 roadmap을 잠그거나 production B를 시작하지 않는다.
+
+## 저장과 체크포인트 연결
+
+MODIFY `packages/lina-runtime/src/checkpoint-cli.ts`는 외부 memory가 export되지 않는다는 기존 coverage gap을 실제 구성에 맞게 갱신한다. 자체 자료 DB와 content는 stateRoot 하위에 두어 기존 state component에 포함한다. MODIFY `checkpoint-barrier.ts`는 resource background writers도 설치 lock owner에 속하도록 runtime lifecycle과 계약을 맞춘다. 기존 barrier를 우회하는 worker를 만들지 않는다. NEW `packages/lina-runtime/test/resource-checkpoint.test.ts`는 자료 저장→index 진행→정지→checkpoint→새 디렉터리 복원→read/search 및 job resume를 검증한다. 원본 해시·참조와 index의 준비 상태를 별도로 확인한다.
+
+외부 서비스 설정을 제거하더라도 기존 외부 메모리가 이 checkpoint에 포함됐다고 표시하지 않는다. 원격 데이터 이전은 명시적으로 선택된 export 입력만 허용하고 자동 fetch/삭제하지 않는다.
