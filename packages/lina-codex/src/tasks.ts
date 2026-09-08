@@ -7,6 +7,7 @@ import {
 	type TaskManagerOptions,
 	type TaskRpc,
 	type TaskServerRequest,
+	type TaskToolContext,
 	type TaskToolResult,
 } from "./task-rpc.ts";
 import { digestHex, TaskStore, toSummary } from "./task-store.ts";
@@ -73,6 +74,7 @@ export type {
 	TaskNotification,
 	TaskRpc,
 	TaskServerRequest,
+	TaskToolContext,
 	TaskToolResult,
 } from "./task-rpc.ts";
 export type {
@@ -739,7 +741,15 @@ export class TaskManager {
 			const threadId = threadIdFromParams(request.params);
 			const task = threadId ? this.store.byThreadId(threadId) : undefined;
 			if (!task) return;
-			await this.enqueue(`task:${task.id}`, () => this.handleToolCall(request));
+			const run = this.handleToolCall(request);
+			this.tails.set(
+				`tool:${String(request.id)}`,
+				run.then(
+					() => undefined,
+					() => undefined,
+				),
+			);
+			await run;
 			return;
 		}
 		if (!isTaskApprovalMethod(request.method)) return;
@@ -782,12 +792,15 @@ export class TaskManager {
 		const callId =
 			typeof body["callId"] === "string" ? body["callId"] : String(request.id);
 		const specification = this.dynamicTools.find((item) => item.name === tool);
-		let result: TaskToolResult = {
+		const failed = (): TaskToolResult => ({
 			contentItems: [{ type: "inputText", text: "tool is unavailable" }],
 			success: false,
-		};
+		});
+		let result = failed();
+		const context = this.taskToolContext(task);
 		if (specification && this.executeTool) {
 			try {
+				context.assertCurrent();
 				result = await this.executeTool(
 					tool,
 					callId,
@@ -796,21 +809,63 @@ export class TaskManager {
 						body["arguments"],
 					),
 					this.controller.signal,
+					context,
 				);
 			} catch (error) {
-				result = {
-					contentItems: [
-						{
-							type: "inputText",
-							text: error instanceof Error ? error.message : String(error),
-						},
-					],
-					success: false,
-				};
+				try {
+					context.assertCurrent();
+					result = {
+						contentItems: [
+							{
+								type: "inputText",
+								text: error instanceof Error ? error.message : String(error),
+							},
+						],
+						success: false,
+					};
+				} catch {
+					result = failed();
+				}
 			}
 		}
-		if (!this.rpc.respond) return;
-		await this.rpc.respond(request.id, result);
+		await this.enqueue(`task:${task.id}`, async () => {
+			try {
+				context.assertCurrent();
+			} catch {
+				result = failed();
+			}
+			if (!this.rpc.respond) return;
+			await this.rpc.respond(request.id, result);
+		});
+	}
+
+	private taskToolContext(task: {
+		id: string;
+		ownerAgentId: string;
+		revision: number;
+	}): TaskToolContext {
+		const id = task.id;
+		const agentId = task.ownerAgentId;
+		const revision = task.revision;
+		return {
+			taskId: id,
+			agentId,
+			revision,
+			assertCurrent: () => {
+				if (this.closed)
+					throw new TaskError("closed", "task manager is closed");
+				const current = this.store.get(id);
+				if (
+					!current ||
+					current.ownerAgentId !== agentId ||
+					current.revision !== revision
+				)
+					throw new TaskError(
+						"revision_mismatch",
+						"task owner or revision changed",
+					);
+			},
+		};
 	}
 
 	private completeNotice(id: string, noticeKey: string): void {
