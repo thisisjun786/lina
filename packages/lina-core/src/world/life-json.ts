@@ -82,6 +82,14 @@ function encodeLifeJson(value: unknown, emit: boolean): string {
 		bytes += encoded.length;
 	}
 	function string(value: string, leaf: boolean): void {
+		if (!/[^\x20-\x21\x23-\x5b\x5d-\x7e]/.test(value)) {
+			const size = value.length + 2;
+			if (leaf && size > MAX_WORLD_BYTES)
+				throw Error("LIFE storage capacity exceeded");
+			if (emit) chunks?.push(`"${value}"`);
+			bytes += size;
+			return;
+		}
 		const encoded = JSON.stringify(value);
 		const size = Buffer.byteLength(encoded);
 		if (leaf && size > MAX_WORLD_BYTES)

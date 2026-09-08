@@ -115,3 +115,12 @@ lint, build, CI validation and dependency audit passed on the same source.
 Independent review found no blockers. Its extra probe confirms the accepted
 key-size boundary and array Proxy contrast in addition to the shipped corpus.
 The current-head hosted gate remains the final delivery criterion.
+
+The first optimized hosted run passed the integrated LIFE and migration cases,
+but image-event still took 5.181s under its unchanged 5s limit. Array tables,
+string ropes, key caches and removing fixture GC showed no useful improvement
+and were discarded. A narrowly guarded ASCII string path avoids JSON escaping
+only for printable ASCII excluding quotes and backslashes; all other UTF-16
+units use the original JSON.stringify/UTF-8 path. A differential sweep covers
+every UTF-16 code unit in both keys and values, plus trailing newlines. No
+primitive/object cache or error/size/time limit changes are introduced.

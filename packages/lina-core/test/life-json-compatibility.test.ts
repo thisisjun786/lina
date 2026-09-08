@@ -179,3 +179,25 @@ test("canonical JSON reads validated descriptor values from divergent Proxy trap
 	expect(outcome(jsonBoundary, value)).toEqual({ value: undefined });
 	expect(outcome(reference, value)).toEqual({ error: "EXECUTED" });
 });
+
+test("ASCII fast path retains escaping for every UTF-16 code unit in strings and keys", () => {
+	for (let start = 0; start < 65536; start += 256) {
+		const value = String.fromCharCode(
+			...Array.from({ length: 256 }, (_, i) => start + i),
+		);
+		compare(value);
+		compare({ [value]: value });
+	}
+	for (const value of [
+		"plain",
+		"trailing\n",
+		"trailing\r",
+		'quote"',
+		"back\\slash",
+		"",
+		"\u007f",
+		"\ud800",
+		"\udc00",
+	])
+		compare(value);
+});
