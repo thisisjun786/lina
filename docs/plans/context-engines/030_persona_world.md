@@ -36,3 +36,11 @@
 ## 감사 전 남은 검토
 
 새 타입의 정확한 스키마와 모든 호출자, 세부 파일 분리 및 migration 체인은 이 변경 지도와 실제 소스를 다시 대조해 확정한다. 각 상세 설계가 미완료인 동안 roadmap을 잠그거나 production B를 시작하지 않는다.
+
+## 사전 감사 수정: 실제 인격 소비와 LIFE 상태
+
+추가 MODIFY packages/lina-core/src/world/views.ts와 life-types.ts: SharedPersonaView에 source growth revision을 명시하고 현재 세계 snapshot에서 생산한다. 추가 MODIFY runtime/fleet/life-runtime.ts의 fleetLifeIdentity: 일반 persona projection과 같은 허용된 growth snapshot을 actor 입력에 포함한다. IdentityPolicySnapshot은 기존 v1 decode를 보존하고 v2에 성장 출처 revision을 추가한다. 관련 core world identity codec/validation 소비자는 타입/필드 검색으로 같은 단위에서 모두 갱신한다.
+
+in-flight step은 고정된 identity/profile/growth digest를 사용한다. 새 성장 revision이 도착하면 아직 outbound되지 않은 step은 stale로 재계획하고, 이미 수용된 사건을 새 인격으로 재실행하지 않는다. legacy 저장 사건은 당시 버전 decoder로 복원한다. 동일 경험을 native memory와 world 두 곳에 쓰지 않고 origin별 authoritative growth를 공통 projection으로 읽는다.
+
+원본 LIFE의 agents/store.ts·world/store.ts와 persistence dirty 변경은 이 포크에 복사하지 않는다. 해당 owner 변경의 커밋을 확인한 뒤 서로 다른 checkout의 diff를 비교해 통합하며, 기다리는 동안 다른 단위를 진행한다. 공통 파일 변경은 이 포크에서만 수행하고 최종 candidate가 양쪽 계약을 지키는지 검증한다.

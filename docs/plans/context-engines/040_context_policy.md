@@ -36,3 +36,7 @@
 ## 감사 전 남은 검토
 
 새 타입의 정확한 스키마와 모든 호출자, 세부 파일 분리 및 migration 체인은 이 변경 지도와 실제 소스를 다시 대조해 확정한다. 각 상세 설계가 미완료인 동안 roadmap을 잠그거나 production B를 시작하지 않는다.
+
+## 사전 감사 수정: 요약 예산 소비
+
+추가 MODIFY context/summarize.ts의 기존 [2048,512] 재시도 한도를 정책 값으로 받는다. 각 시도 한도는 010 services의 요청 maxTokens에 전달되며 profile/catalog cap과 최소값을 사용한다. 추가 MODIFY context/native.ts는 기존 prepare 이벤트의 원문 경계와 최근 보존량에 정책을 적용한다. 실패 시 원문 coverage를 축소해 성공으로 만들지 않는다. context/policy.ts는 `{version:1, leafInputTokens, leafOutputTokens, condensedOutputTokens, freshTailEntries, expansionTokens, refreshThresholdTokens, maxSearchCalls}`의 safe integer 범위를 검증한다. 정책 저장은 integration의 settings owner가 담당하며 040은 명시적 injected policy와 기본값을 제공한다.

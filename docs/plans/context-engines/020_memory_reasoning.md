@@ -41,3 +41,9 @@
 새 타입의 정확한 스키마와 모든 호출자, 세부 파일 분리 및 migration 체인은 이 변경 지도와 실제 소스를 다시 대조해 확정한다. 각 상세 설계가 미완료인 동안 roadmap을 잠그거나 production B를 시작하지 않는다.
 
 상세 identity/schema/transaction/search/API 계약은 [004_contracts](004_contracts.md)를 따른다.
+
+## 사전 감사 수정: 큐 소유와 migration
+
+개인 관찰 작업은 기존 CompanionQueue가 계속 소유한다. consolidation job은 engine DB의 engine_reasoning_jobs 한 곳에만 존재한다. MODIFY companion.ts의 기존 run 루프가 관찰 commit 뒤 consolidation claim/run/commit을 수행하고 양쪽 nextDue를 함께 계산한다. companion-queue.ts/schema.ts는 기존 관찰 job용으로 유지하며 consolidation row를 복제하지 않는다. MODIFY session-app.ts의 close는 CompanionMemory 종료를 기다려 실행 중 재검토를 취소하고, reopen은 commit receipt와 job을 대조한다.
+
+MODIFY engine/schema.ts는 v3 전체 기존 schema/data audit 후 새 세 테이블을 같은 BEGIN IMMEDIATE 안에 생성하고 user_version=4로 갱신한다. version 1/2는 기존 v3 migration을 먼저 실행한다. 기존 record를 가짜 추론으로 변환하지 않는다. MODIFY engine/audit.ts와 validation.ts는 새 결론 및 edge/receipt/current revision 일치를 검사한다. MODIFY packages/lina-memory/test/engine.test.ts와 engine-source-policy.test.ts의 버전 단언 및 v3 migration fixture를 갱신한다. migration 중 실패는 rollback 후 기존 DB가 다시 열려야 한다.

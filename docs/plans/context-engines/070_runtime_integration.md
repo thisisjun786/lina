@@ -45,3 +45,19 @@
 MODIFY `packages/lina-runtime/src/checkpoint-cli.ts`는 외부 memory가 export되지 않는다는 기존 coverage gap을 실제 구성에 맞게 갱신한다. 자체 자료 DB와 content는 stateRoot 하위에 두어 기존 state component에 포함한다. MODIFY `checkpoint-barrier.ts`는 resource background writers도 설치 lock owner에 속하도록 runtime lifecycle과 계약을 맞춘다. 기존 barrier를 우회하는 worker를 만들지 않는다. NEW `packages/lina-runtime/test/resource-checkpoint.test.ts`는 자료 저장→index 진행→정지→checkpoint→새 디렉터리 복원→read/search 및 job resume를 검증한다. 원본 해시·참조와 index의 준비 상태를 별도로 확인한다.
 
 외부 서비스 설정을 제거하더라도 기존 외부 메모리가 이 checkpoint에 포함됐다고 표시하지 않는다. 원격 데이터 이전은 명시적으로 선택된 export 입력만 허용하고 자동 fetch/삭제하지 않는다.
+
+## 사전 감사 수정: LIFE 라우트·비개발 활동
+
+월드 라우트를 제외하는 축소안은 채택하지 않는다. 추가 MODIFY core/world/authoring-types.ts의 models.director/actor는 정확 {provider,model} 또는 {tier} selector로 구분한다. 관련 authoring validation/codec은 양쪽을 검증하고 기존 config를 exact selector로 유지한다. 추가 MODIFY core/world/autonomy-persistence.ts, runtime/fleet/life-runtime.ts selection(), codex/life-model-policy.ts: 새 step 생성 시 tier를 exact profile/settings revision으로 해석하고 당시 route fingerprint를 step source에 동결한다. lifePlan fingerprint v2는 해석 결과를 포함하고 기존 v1 receipt는 당시 decoder로 유지한다. 정책 변경 뒤 outbound 전 검사는 stale을 거부하며 이미 실행된 결과를 새 모델로 반복하지 않는다.
+
+추가 MODIFY runtime/life/work-source.ts, work-bridge.ts 및 core/world의 work evidence codec: activity source를 discriminated union `codex-task | resource-activity`로 받는다. 후자는 source resource/version, origin actor, kind, factual evidence, grant와 revision을 가지며 task id가 없다. 자료 저장만으로 업무 성공을 추정하지 않고 실제 산출물/수행 기록과 명시적 공유 허용이 있어야 LIFE input으로 admit한다. world evidence digest는 origin과 version을 포함한다. 검증: Codex task 없는 research 기록→공유 허용→후속 사건 입력 한 번 반영, 철회 후 아직 미실행 입력 제외.
+
+## 사전 감사 수정: 퇴역 범위 결정
+
+소스에서 외부 엔진 runtime 의존성을 제거하는 것과 사용자의 기존 설치/원격 데이터를 삭제하는 것은 별개다. 양쪽 병행 유지가 현재 사용자 요구라는 검토 의견은 최신 직접 지시와 달라 채택하지 않는다.
+
+- MODIFY runtime/tools/work-memory.ts: 기존 lina_work_* 호환 이름을 자체 resource owner에 연결하거나 명시적 retirement 오류로 처리; Codex 작업을 생성하지 않는다. MODIFY runtime/codex-prompt.ts와 data 지침은 실제 새 도구 이름에 맞춘다.
+- DELETE memory/src/honcho/* 및 openviking/*의 production adapter는 모든 소비 전환 이후 수행. 원격 데이터/설치 서비스는 건드리지 않는다. tests의 외부 adapter-only 계약은 retirement/migration 부정 테스트로 대체한다.
+- MODIFY manager.ts와 session-app.ts는 Honcho 옵션/초기화 호출을 제거한다. backend.ts의 legacy honcho 값은 migration-required 진단으로 처리하고 자동 native 재해석하지 않는다.
+- deploy/honcho와 live QA 스크립트의 원격 전용 호출은 retired 문서로 명시하고 새 런타임 필수 경로에서 제외한다. 역사적 LIFE 050 검증 기록은 재작성하지 않고 새 계약 문서 링크를 추가한다.
+- MODIFY docs/CODEX_RUNTIME.md, ARCHITECTURE.md, PERSONA_CONTEXT.md, README.md는 source retirement와 실제 기존 데이터의 미이전 상태를 구분한다.

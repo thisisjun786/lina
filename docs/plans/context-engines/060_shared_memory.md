@@ -37,3 +37,9 @@
 새 타입의 정확한 스키마와 모든 호출자, 세부 파일 분리 및 migration 체인은 이 변경 지도와 실제 소스를 다시 대조해 확정한다. 각 상세 설계가 미완료인 동안 roadmap을 잠그거나 production B를 시작하지 않는다.
 
 상세 identity/schema/transaction/search/API 계약은 [004_contracts](004_contracts.md)를 따른다.
+
+## 사전 감사 수정: 생성 주체와 범위
+
+공유 기억은 개인 agent DB가 아닌 resource catalog의 resource_derivations(kind=memory)에 저장한다. source는 resource id/version, 정책 revision, 제안자와 입력 근거다. ResourceScope는 host-supplied `{principalId, agentId:null|string, allowedVisibilities:('private'|'shared')[]}`이며 private는 owner_id 일치까지 요구한다. owner_id는 설치 내 생성 주체 id이고 scope 자체를 모델 출력으로 생성하지 않는다.
+
+MODIFY resources/indexing.ts: version commit에서 extraction/summary job을 만들고, 명시적 deriveMemory 또는 저장된 collection capture 정책이 허용한 경우에만 memory job을 enqueue한다. memory worker가 resources/memories.ts를 standard 기본 tier로 호출한다. 일반 단순 검색은 job 생성 trigger가 아니다. MODIFY runtime/resources/tools.ts put 입력에는 deriveMemory 선택값을 제공하되 scope를 승격하지 못하게 한다. MODIFY fleet/codex-fleet.ts는 Lina 도구에 실제 botId scope를 공급하고, Codex 도구는 확인된 task owner가 있으면 그 agentId, 없으면 null/shared-only를 공급한다. Codex task id는 공유 자료 사용의 필수값이 아니다.

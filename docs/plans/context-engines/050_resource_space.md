@@ -49,3 +49,9 @@ NEW `packages/lina-memory/src/resources/extraction.ts`는 `packages/lina-core/sr
 NEW `packages/lina-memory/src/resources/schema.ts`는 004의 테이블과 schema version=1 생성/정합 검사를 소유한다. NEW `codec.ts`는 요청/디스크에서 읽은 자료/버전/job/derived JSON을 검증한다. NEW `index.ts`는 외부 consumer용 public boundary만 제공한다. NEW `packages/lina-runtime/src/fleet/resource-routes.ts`는 004의 API를 구현하며 기존 Fleet server dispatch에서 연결한다. 해당 dispatch와 설치 수명주기 변경은 070에서 순차 통합한다.
 
 검증에는 기존 `packages/lina-core/test/attachment-document.test.ts`의 실제 임시 PDF/Office 추출 경로와 새 resource ingest 결과를 함께 사용한다. 새 스프레드시트 parser를 도입하기 전에 기존 office_text.py 지원 범위를 확인한다.
+
+## 사전 감사 수정: 검색 기반과 권한
+
+Bun 1.4.0 node:sqlite의 FTS5 trigram 생성과 한국어 phrase MATCH를 P에서 실제 확인했다. 공백으로 나눈 두 글자 단어 쿼리 `결정 이유`는 0건이고 quoted phrase는 1건이었다. 따라서 원문 query를 FTS 연산식으로 실행하지 않고 escape한 phrase 후보와 3자 미만 literal substring 후보를 결합한다. 이는 availability proof이며 의미 회수 품질 증거는 아니다. 계층 개요 탐색과 route planner/rerank는 필수 구현한다. vector는 추가 encoder가 실제 연결됐을 때만 사용하며 가짜 embedding 상태나 예약-only 기능을 완료로 세지 않는다.
+
+추가 MODIFY packages/lina-runtime/src/approval-policy.ts: 실제 resource read/list/search 도구를 confirm-mode 읽기 allowlist에 연결한다. write/move는 기존 쓰기 승인 규칙을 적용한다. 등록뿐 아니라 실제 execute→waiting_approval 여부를 회귀 검증한다.
