@@ -199,6 +199,46 @@ export class DurableStore {
 	requestSourcePolicy(requestId: string): SourcePolicy | undefined {
 		return this.sources.policy(requestId);
 	}
+	/** Complete conversation membership, before any consumer applies eligibility or limits. */
+	sourceEpisode(userEntryId: string): (EntryInput & SourceEntry)[] {
+		this.db.exec("SAVEPOINT source_episode_read");
+		try {
+			const rows = this.db
+				.prepare(`
+				WITH origin AS (
+					SELECT e.seq, s.request_id FROM entries e
+					LEFT JOIN source_entries s ON s.entry_id = e.entry_id
+					WHERE e.entry_id = ? AND e.role = 'user'
+				), boundary AS (
+					SELECT MIN(e.seq) AS next_seq FROM entries e, origin o
+					WHERE e.seq > o.seq AND e.role = 'user'
+				), members AS (
+					SELECT e.seq, e.entry_id FROM entries e, origin o, boundary b
+					WHERE e.seq >= o.seq AND (b.next_seq IS NULL OR e.seq < b.next_seq)
+						AND e.role IN ('user', 'assistant')
+					UNION
+					SELECT e.seq, e.entry_id FROM origin o
+					JOIN source_entries s ON s.request_id = o.request_id
+					JOIN entries e ON e.entry_id = s.entry_id
+					WHERE e.role IN ('user', 'assistant')
+				)
+				SELECT entry_id FROM members ORDER BY seq
+			`)
+				.all(userEntryId);
+			const result = rows.map((row) => {
+				const entry = this.sourceEntry(String(row["entry_id"]));
+				if (!entry) throw Error("Missing journal episode member");
+				return entry;
+			});
+			this.db.exec("RELEASE source_episode_read");
+			return result;
+		} catch (error) {
+			this.db.exec(
+				"ROLLBACK TO source_episode_read; RELEASE source_episode_read",
+			);
+			throw error;
+		}
+	}
 	/** Trusted native transport sink. These methods are not model or HTTP operations. */
 	recordSourceExposure(receipt: SourceExposure): boolean {
 		return this.mutate(() => this.sources.exposure(receipt), Number);
