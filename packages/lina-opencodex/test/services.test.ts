@@ -7,6 +7,11 @@ import type {
 	ModelSettings,
 } from "../../lina-runtime/src/models/types.ts";
 import { OpenCodexHub } from "../src/index.ts";
+import {
+	CONSOLIDATE_PROMPT,
+	RECALL_PROMPT,
+	REFLECT_PROMPT,
+} from "../src/prompts.ts";
 
 const sol = {
 	id: "gpt-5.6-sol",
@@ -565,5 +570,207 @@ test("saved tier settings drive the next request after database reopen", async (
 	} finally {
 		store.close();
 		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+function consolidationSettings(): ModelSettings {
+	const saved = tierSettings();
+	if (!saved.routes) throw Error("missing routes fixture");
+	saved.routes.roleTiers.reflection = "intensive";
+	saved.routes.roleTiers.recall = "quick";
+	return saved;
+}
+
+test("consolidate rejects invalid output budget, abort, and failed beforeDispatch without sending", async () => {
+	const { createOpenCodexContextServices } = await import("../src/services.ts");
+	let calls = 0;
+	const service = createOpenCodexContextServices(
+		{
+			origin: () => "http://127.0.0.1:10100",
+			token: () => null,
+			models: () => [
+				{
+					provider: "opencodex",
+					id: "gpt-5.6-sol",
+					name: "test",
+					contextWindow: 128000,
+					maxOutputTokens: 8192,
+					reasoning: true,
+					reasoningEfforts: ["low", "medium", "high"],
+					authenticated: true,
+					endpoint: "responses",
+				},
+			],
+			fetchImpl: async () => {
+				calls++;
+				return sse("ok");
+			},
+		},
+		() => consolidationSettings(),
+	);
+	expect(typeof service.consolidate).toBe("function");
+	const consolidate = service.consolidate;
+	if (!consolidate) throw new Error("missing consolidate");
+	const signal = new AbortController().signal;
+	const guard = () => {
+		throw new Error("dispatch ran");
+	};
+	await expect(
+		consolidate("payload", signal, guard, { tier: "intensive" }, -1),
+	).rejects.toMatchObject({ code: "invalid_input" });
+	await expect(
+		consolidate("payload", signal, guard, { tier: "intensive" }, 0),
+	).rejects.toMatchObject({ code: "invalid_input" });
+	const aborted = new AbortController();
+	aborted.abort();
+	await expect(consolidate("payload", aborted.signal)).rejects.toThrow();
+	await expect(
+		consolidate("payload", signal, () => {
+			throw new Error("stale consolidation");
+		}),
+	).rejects.toThrow("stale consolidation");
+	expect(calls).toBe(0);
+});
+
+test("consolidate crosses real loopback HTTP for responses and chat with reflection routing", async () => {
+	const { createOpenCodexContextServices } = await import("../src/services.ts");
+	const longReply = "N".repeat(120);
+	const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+	const server = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		async fetch(request) {
+			requests.push({
+				path: new URL(request.url).pathname,
+				body: (await request.json()) as Record<string, unknown>,
+			});
+			if (request.url.endsWith("/chat/completions"))
+				return new Response(
+					"data: " +
+						JSON.stringify({
+							choices: [
+								{
+									delta: { content: longReply },
+									finish_reason: "stop",
+								},
+							],
+						}) +
+						"\n\ndata: [DONE]\n\n",
+					{ headers: { "content-type": "text/event-stream" } },
+				);
+			return sse(longReply);
+		},
+	});
+	try {
+		let guarded = 0;
+		const guard = () => {
+			guarded++;
+		};
+		for (const endpoint of ["responses", "chat"] as const) {
+			const service = createOpenCodexContextServices(
+				{
+					origin: () => `http://127.0.0.1:${server.port}`,
+					token: () => null,
+					models: () => [
+						{
+							provider: "opencodex",
+							id: "gpt-5.6-sol",
+							name: "test",
+							contextWindow: 128000,
+							maxOutputTokens: 8192,
+							reasoning: true,
+							reasoningEfforts: ["low", "medium", "high"],
+							authenticated: true,
+							endpoint,
+						},
+					],
+				},
+				() => consolidationSettings(),
+			);
+			expect(typeof service.consolidate).toBe("function");
+			const consolidate = service.consolidate;
+			if (!consolidate) throw new Error("missing consolidate");
+			expect(service.routeInfo?.("reflection", undefined, 8)).toMatchObject({
+				mode: "tier",
+				tier: "intensive",
+				requested: { reasoning: "high", maxOutputTokens: 1024 },
+				applied: { reasoning: "high", maxOutputTokens: 8 },
+			});
+			expect(
+				await consolidate(
+					"host-task",
+					new AbortController().signal,
+					guard,
+					{ tier: "intensive" },
+					8,
+				),
+			).toBe(longReply);
+			expect(
+				await consolidate("host-task", new AbortController().signal, guard),
+			).toBe(longReply);
+		}
+		expect(guarded).toBe(4);
+		expect(requests).toHaveLength(4);
+		expect(requests[0]).toMatchObject({
+			path: "/v1/responses",
+			body: {
+				model: "gpt-5.6-sol",
+				instructions: CONSOLIDATE_PROMPT,
+				max_output_tokens: 8,
+				reasoning: { effort: "high" },
+			},
+		});
+		expect(requests[1]).toMatchObject({
+			path: "/v1/responses",
+			body: {
+				model: "gpt-5.6-sol",
+				instructions: CONSOLIDATE_PROMPT,
+				max_output_tokens: 1024,
+				reasoning: { effort: "high" },
+			},
+		});
+		expect(requests[2]).toMatchObject({
+			path: "/v1/chat/completions",
+			body: {
+				model: "gpt-5.6-sol",
+				max_tokens: 8,
+				reasoning_effort: "high",
+			},
+		});
+		expect(requests[3]).toMatchObject({
+			path: "/v1/chat/completions",
+			body: {
+				model: "gpt-5.6-sol",
+				max_tokens: 1024,
+				reasoning_effort: "high",
+			},
+		});
+		const chatBudget = requests[2]?.body["messages"] as Array<{
+			role: string;
+			content: unknown;
+		}>;
+		const chatTier = requests[3]?.body["messages"] as Array<{
+			role: string;
+			content: unknown;
+		}>;
+		expect(chatBudget?.[0]).toEqual({
+			role: "system",
+			content: CONSOLIDATE_PROMPT,
+		});
+		expect(chatTier?.[0]).toEqual({
+			role: "system",
+			content: CONSOLIDATE_PROMPT,
+		});
+		expect(requests[0]?.body["instructions"]).not.toBe(REFLECT_PROMPT);
+		expect(requests[0]?.body["instructions"]).not.toBe(RECALL_PROMPT);
+		expect(JSON.stringify(requests)).not.toContain("beforeDispatch");
+		expect(String(requests[0]?.body["instructions"])).toContain("{queries:");
+		expect(String(requests[0]?.body["instructions"])).toContain("{proposals:");
+		expect(String(requests[0]?.body["instructions"])).toContain("recordId");
+		expect(String(requests[0]?.body["instructions"])).toContain(
+			"reasoningKind",
+		);
+	} finally {
+		await server.stop(true);
 	}
 });

@@ -63,6 +63,14 @@ export interface ContextServices {
 		beforeDispatch?: () => void,
 		routeRequest?: ModelRouteRequest,
 	) => Promise<string>;
+	/** Request output budget for roleCall; not a returned-string slice. */
+	consolidate?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+		routeRequest?: ModelRouteRequest,
+		maxTokens?: number,
+	) => Promise<string>;
 	analyzeImage?: (
 		input: ImageAnalysisRequest,
 		signal: AbortSignal,

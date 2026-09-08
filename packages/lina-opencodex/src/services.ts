@@ -18,6 +18,7 @@ import type { FetchLike } from "./client.ts";
 import { type CompleteRequest, complete, imageDataUrl } from "./complete.ts";
 import { OpenCodexError } from "./errors.ts";
 import {
+	CONSOLIDATE_PROMPT,
 	OBSERVE_PROMPT,
 	RECALL_PROMPT,
 	REFLECT_PREFERENCES_PROMPT,
@@ -442,6 +443,17 @@ export function createOpenCodexContextServices(
 				signal,
 				beforeDispatch,
 				undefined,
+				routeRequest,
+			);
+		},
+		async consolidate(text, signal, beforeDispatch, routeRequest, maxTokens) {
+			return roleCall(
+				"reflection",
+				CONSOLIDATE_PROMPT,
+				text,
+				signal,
+				beforeDispatch,
+				maxTokens,
 				routeRequest,
 			);
 		},
