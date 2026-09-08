@@ -58,3 +58,20 @@
 ## 사전 감사 수정: 활성화·우선순위
 
 `routes.roleTiers[role]`의 존재가 해당 역할의 tier 활성화다. routes만 있고 roleTiers[role]가 없으면 기존 agentRoles→roles→default를 사용한다. 명시적 시험 override가 가장 우선이며 conversation은 언제나 legacy resolver다. MODEL_ROLES는 불변이다. LIFE director/actor는 일반 role enum에 추가하지 않고 070의 world model selector에서 공통 Tier 타입을 사용한다. summaryCacheKey는 기존 resolveProfile 결과 대신 실제 effective route(mode/tier/profileId/effort/output/policy revision)를 포함한다. 010 tests에 tier 없는 vision과 기존 agent role 보존, cache key 변경을 추가한다.
+
+## routing 단위 감사 반영 (2026-09-08)
+
+Inspector의 GO-WITH-FIXES(blockers=3)를 다음 규칙으로 해소한다. 이 절이 앞선 우선순위·한도 서술보다 우선한다.
+
+- 명시적 시험 override > 명시적 agentRoles[agent][role] > 활성 roleTiers[role] > legacy roles/default. 에이전트별 명시 바인딩은 전역 등급 설정으로 무효화하지 않는다. 직접 tier 요청은 호출자가 명시한 tier를 사용하며 routes가 없으면 not_configured다. conversation의 tier 요청은 거부한다.
+- 호출자의 출력 한도는 profile/tier/catalog 상한과 최소값으로 적용한다. 저장된 profile 또는 tier의 한도가 현재 catalog 상한을 넘으면 output_budget_exceeded로 호출 전 거부한다. 음수·비정수 입력은 invalid_input이다.
+- reasoning=false는 전송 옵션 생략, 상태 model_no_reasoning이다. advertised reasoningEfforts에 요청값이 없으면 reasoning_unsupported로 거부한다. reasoning=true이고 목록이 없으면 기존 요청값을 보내되 지원 확인 상태는 unverified다. off는 기존처럼 옵션 생략을 뜻하며 제공자 내부 추론 중단을 보장하지 않는다.
+- 순수 resolveModelRoute(settings, role, agentId?, request?)는 mode(legacy|tier|override), settingsRevision, tier?, profile를 반환한다. request는 tier?와 overrideProfileId?이며 함께 지정할 수 없다. resolveProfile은 변경 없이 대화 선택을 담당한다. 실제 catalog 적용은 서비스 경계에서 처리하고 ContextServices의 선택적 routeInfo가 requested/applied/지원 확인 상태를 반환한다.
+- ContextServices의 summarize/observe/reflect/reasonMemory에 마지막 선택적 route request를 추가한다. SummaryCall도 같은 타입을 사용한다. 기존 timeout과 callback 순서를 유지한다. summaryCacheKey는 settingsRevision과 실제 route/catalog 옵션을 포함하고, engine policy revision 연결은 정책 owner 구현 단계에서 추가한다.
+- settings_json 확장은 SQL schema 변경 없이 parser로 읽기·쓰기·재열기를 검증한다. 네 tier는 모두 필요하지만 같은 profile을 재사용할 수 있다. MODEL_ROLES는 불변이고 roleTiers 타입 및 파서에서 conversation을 제외한다.
+- 추가 MODIFY 테스트: packages/lina-runtime/test/model-api.test.ts, packages/lina-web/test/model-settings-ui.test.ts. 브라우저의 활성 모델 표시는 실제 우선순위와 맞추되 새로운 화면을 만들지 않는다.
+- 구현 분담: executor는 models/types.ts, validation.ts, 새 routes.ts와 해당 저장·선택 테스트를 맡는다. main은 ContextServices/SummaryCall, OpenCodex 서비스·catalog, API와 브라우저 소비 및 해당 테스트를 맡는다. 파일 쓰기 범위는 겹치지 않는다.
+
+### B 증거: 요약 출력 한도
+
+2026-09-08 services.test.ts에 3개 회귀 추가 후 실행: 5 pass / 3 fail, exit1. caller64/profile1024에서 실제 전송1024, 음수 및 catalog초과에서 resolve되는 실패를 확인했다. services.ts completeOptions에 호출 한도와 설정 상한 검사를 연결한 뒤 같은 파일 8 pass / 0 fail / 24 assertions, exit0. 기존 테스트의 max_output_tokens 미전송 기대는 수정된 계약에 맞게512로 변경했다. fixture HTTP 직렬화 경계 증거이며 실제 제공자 호출은 아니다. 라우팅 전체는 진행 중이다.

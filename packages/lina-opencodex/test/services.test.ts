@@ -135,7 +135,7 @@ test("summary returns a string and posts the live responses shape with the exact
 		store: false,
 	});
 	expect(Array.isArray(posts[0]?.body["input"])).toBe(true);
-	expect(posts[0]?.body["max_output_tokens"]).toBeUndefined();
+	expect(posts[0]?.body["max_output_tokens"]).toBe(512);
 });
 
 test("missing catalog model is a structural error with no silent fallback", async () => {
@@ -218,4 +218,34 @@ test("prepare is owned by the session engine", async () => {
 			},
 		}),
 	).toThrow(/prepare at the session seam/);
+});
+
+test("summary enforces caller output limit before sending", async () => {
+	const { hub, posts } = await connectedHub();
+	const saved = settings();
+	saved.profiles[0]!.maxOutputTokens = 1024;
+	const services = hub.createContextServices(() => saved);
+	await services.summarize("archive", 64, new AbortController().signal);
+	expect(posts[0]?.body["max_output_tokens"]).toBe(64);
+});
+
+test("invalid caller budget makes no provider request", async () => {
+	const { hub, posts } = await connectedHub();
+	const services = hub.createContextServices(() => settings());
+	await expect(
+		services.summarize("archive", -1, new AbortController().signal),
+	).rejects.toMatchObject({ code: "invalid_input" });
+	expect(posts).toHaveLength(0);
+});
+
+test("configured output beyond live catalog is rejected without fallback", async () => {
+	const { hub, posts } = await connectedHub();
+	const saved = settings();
+	saved.profiles[0]!.maxOutputTokens = 128001;
+	await expect(
+		hub
+			.createContextServices(() => saved)
+			.summarize("archive", 64, new AbortController().signal),
+	).rejects.toMatchObject({ code: "output_budget_exceeded" });
+	expect(posts).toHaveLength(0);
 });

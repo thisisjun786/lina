@@ -93,7 +93,21 @@ function completeOptions(
 	systemPrompt: string,
 	messages: CompleteRequest["messages"],
 	beforeDispatch?: () => void,
+	maxTokens?: number,
 ): CompleteRequest {
+	if (
+		maxTokens !== undefined &&
+		(!Number.isSafeInteger(maxTokens) || maxTokens < 1)
+	)
+		throw new OpenCodexError("invalid_input", "Invalid caller output budget");
+	if (
+		profile.maxOutputTokens !== undefined &&
+		profile.maxOutputTokens > model.maxOutputTokens
+	)
+		throw new OpenCodexError(
+			"output_budget_exceeded",
+			"Configured output budget exceeds the current model limit",
+		);
 	const request: CompleteRequest = {
 		origin: runtime.origin(),
 		model: profile.model,
@@ -110,6 +124,12 @@ function completeOptions(
 		request.reasoning = profile.reasoning;
 	if (profile.maxOutputTokens !== undefined)
 		request.maxOutputTokens = profile.maxOutputTokens;
+	if (maxTokens !== undefined)
+		request.maxOutputTokens = Math.min(
+			maxTokens,
+			profile.maxOutputTokens ?? model.maxOutputTokens,
+			model.maxOutputTokens,
+		);
 	return request;
 }
 
@@ -270,6 +290,7 @@ export function createOpenCodexContextServices(
 		text: string,
 		signal: AbortSignal,
 		beforeDispatch?: () => void,
+		maxTokens?: number,
 	) => {
 		const resolved = requireResolved(runtime, settingsGetter(), role, agentId);
 		const request = completeOptions(
@@ -280,6 +301,7 @@ export function createOpenCodexContextServices(
 			prompt,
 			[{ role: "user", content: text }],
 			beforeDispatch,
+			maxTokens,
 		);
 		const reply = await complete(request);
 		return reply.text;
@@ -323,13 +345,14 @@ export function createOpenCodexContextServices(
 				conversationWindow(),
 			]);
 		},
-		async summarize(text, _maxTokens, signal, beforeDispatch) {
+		async summarize(text, maxTokens, signal, beforeDispatch) {
 			return roleCall(
 				"summary",
 				SUMMARY_PROMPT,
 				text,
 				AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
 				beforeDispatch,
+				maxTokens,
 			);
 		},
 		async observe(text, signal, beforeDispatch) {
