@@ -17,6 +17,7 @@ import type { ContextServices } from "../context/port.ts";
 import type { LinaHost } from "../host.ts";
 import { defaultConversation, preferenceInstructions } from "./conversation.ts";
 import { firstOrdinaryReplyInstructions } from "./first-conversation.ts";
+import { nativePersonaContext } from "./native-context.ts";
 
 export function installPersona(
 	host: LinaHost,
@@ -51,6 +52,9 @@ export function installPersona(
 		);
 		const shared = structuredClone(options.sharedGrowth?.() ?? null);
 		const authoredContext = options.authoredContext?.();
+		const nativeContext = options.nativeDynamics
+			? nativePersonaContext(profile, options.nativeState?.(), lookup)
+			: { text: "", stamp: "" };
 		const compiled = composePersonaPrompt(
 			base,
 			profile,
@@ -66,6 +70,7 @@ export function installPersona(
 		const userContext = options.userContext?.() ?? "";
 		const systemPrompt =
 			compiled.systemPrompt +
+			nativeContext.text +
 			preferenceInstructions(preferences) +
 			userContext +
 			(options.firstOrdinaryReply?.()
@@ -87,6 +92,12 @@ export function installPersona(
 		return {
 			systemPrompt,
 			beforeDeliver: () => {
+				if (
+					options.nativeDynamics &&
+					nativePersonaContext(profile, options.nativeState?.(), lookup)
+						.stamp !== nativeContext.stamp
+				)
+					throw Error("Native persona source changed before dispatch");
 				if (
 					proofs.some((p) => p.length && !sourceProofsCurrent(p, lookup)) ||
 					JSON.stringify(agents.modelDynamics(agentId, lookup).dynamics) !==
