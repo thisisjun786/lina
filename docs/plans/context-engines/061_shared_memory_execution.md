@@ -21,10 +21,13 @@
 | MODIFY | `packages/lina-runtime/src/execution.ts` | 새 기억 읽기 도구 자동 허용, capture는 기존 쓰기 승인 |
 | MODIFY | `packages/lina-runtime/src/resources/services.ts` | capture worker 수명·취소·복구와 설치 가능한 consumer 조립 |
 | MODIFY | `packages/lina-runtime/src/context/port.ts` | 자료 기억용 선택적 callback과 실제 input overhead 계약 |
+| MODIFY | `packages/lina-opencodex/src/prompts.ts` | 자료 기억 JSON 출력·실제 근거 인용·공유 지식 표기 |
 | MODIFY | `packages/lina-opencodex/src/services.ts` | observation 역할, standard tier 기본 요청의 실제 provider body; 출력·입력 한도와 dispatch guard |
 | MODIFY | `packages/lina-codex/src/task-rpc.ts` | host-only executeTool 다섯째 인자 taskId/agentId/owner revision/assertCurrent |
 | MODIFY | `packages/lina-codex/src/tasks.ts` | 저장소에서 owner snapshot 생성, 호출 후 respond 직전 재검증 |
 | NEW | `packages/lina-runtime/src/resources/task-consumer.ts` | 검증된 host task context를 scope로 바꾸는 공통 도구 adapter; task 없는 consumer도 허용 |
+| MODIFY | `packages/lina-memory/test/resources-recovery.test.ts` | unknown schema 값을 새 지원 범위 밖으로 갱신; 기존 변조 거부 유지 |
+| MODIFY | `packages/lina-runtime/test/resources-routes.test.ts` | codec를 상속하는 HTTP create/update의 capture 필드 전달·위조 거부 |
 | NEW | `packages/lina-memory/test/resource-memory-provenance.test.ts` | 실제 임시 DB 재개방·변조·권한·중복·migration |
 | NEW | `packages/lina-runtime/test/shared-resource-consumers.test.ts` | 일반 Lina A/B와 fake Codex RPC 도구 실행, task 없는 읽기와 인계 경쟁 |
 | NEW | `packages/lina-runtime/test/resource-memory-worker.test.ts` | 실제 adapter fake fetch, 한도·취소·실패·복구 |
@@ -78,3 +81,5 @@ memory/capture 필드는 strict 입력 schema → transaction JSON/명시 열 �
 null-agent scope에 private가 포함되면 parser에서 거부한다. index 내부 owner scope는 기존 non-null id를 유지한다. 이 변경은 기존 private 접근을 임의로 넓히지 않는다. 자료 기억 읽기는 새 lina_resource_memory_read 도구로 등록하며 execution.ts 자동 허용 목록과 실제 확인 모드 회귀 테스트를 함께 수정한다. capture 요청은 쓰기 도구 승인 경로를 따른다.
 
 P 기준선: `bun test packages/lina-memory/test/resources-store.test.ts packages/lina-runtime/test/resources-tools.test.ts packages/lina-codex/test/tasks.test.ts` → exit0, 17 pass/0 fail, 3 files/104 assertions. 세 경로를 직접 관찰하며 새 기억 구현을 증명하지는 않는다. 최초 명령의 단수 resource-store 오타는 자료 테스트를 실행하지 못했으므로 증거에서 제외하고 복수 경로로 바로잡아 실행했다. 출력은 session evidence/shared-memory-baseline.log다. 구조 검사도 18문서/108경로/9단계 errors[] exit0다.
+
+기억 중복 키의 fingerprint에는 canonical source refs, capture intent revision, effective generation, kind/text/근거를 포함한다. 같은 완료를 재전달하면 같은 ID 목록을 돌려주고, 새 generation은 이전 기억을 대체하되 현재 generation만 반환한다. 취소 뒤 같은 원문에서 재활성화해도 attempt 누적치는 유지한다. 자료를 공동 수정할 수 있는 소비자는 capture intent도 수정할 수 있으며 owner/visibility 자체는 기존 규칙을 따른다. 공유 기억을 개인 성장 기록으로 자동 반입하는 경로는 만들지 않는다. LIFE activity 연결은 070에서 현재 원문/기억 참조의 공개 범위를 다시 검증한다.
