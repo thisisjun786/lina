@@ -81,9 +81,37 @@ export interface ContextServices {
 		routeRequest?: ModelRouteRequest,
 		maxTokens?: number,
 	) => Promise<string>;
+	/** Resource callbacks reuse summary (summary) and recall (plan/rank). Host parses. */
+	summarizeResource?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+		routeRequest?: ModelRouteRequest,
+		maxTokens?: number,
+		maxInputTokens?: number,
+	) => Promise<string>;
+	planResources?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+		routeRequest?: ModelRouteRequest,
+		maxTokens?: number,
+		maxInputTokens?: number,
+	) => Promise<string>;
+	rankResources?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+		routeRequest?: ModelRouteRequest,
+		maxTokens?: number,
+		maxInputTokens?: number,
+	) => Promise<string>;
+	resourceInputOverhead?: (kind: "summary" | "plan" | "rank") => number;
 	analyzeImage?: (
 		input: ImageAnalysisRequest,
 		signal: AbortSignal,
+		beforeDispatch?: () => void,
+		maxTokens?: number,
 	) => Promise<ImageAnalysisResult | null>;
 	prepare(event: CompactSourceEvent): PreparedContext;
 }

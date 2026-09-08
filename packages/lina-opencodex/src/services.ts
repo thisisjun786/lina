@@ -25,6 +25,9 @@ import {
 	RECALL_PROMPT,
 	REFLECT_PREFERENCES_PROMPT,
 	REFLECT_PROMPT,
+	RESOURCE_PLAN_PROMPT,
+	RESOURCE_RANK_PROMPT,
+	RESOURCE_SUMMARY_PROMPT,
 	SUMMARY_PROMPT,
 	TEST_PROMPT,
 	VISION_PROMPT,
@@ -322,6 +325,25 @@ export function createOpenCodexContextServices(
 	agentId?: string,
 	systemPrompt = "",
 ): ContextServices {
+	const resourceFrame = (prompt: string, text: string) => [
+		{ role: "system" as const, content: prompt },
+		{ role: "user" as const, content: text },
+	];
+	const assertResourceInput = (
+		prompt: string,
+		text: string,
+		maxInputTokens?: number,
+	) => {
+		if (maxInputTokens === undefined) return;
+		if (!Number.isSafeInteger(maxInputTokens) || maxInputTokens < 1)
+			throw new OpenCodexError("invalid_input", "Invalid caller input budget");
+		const used = conservativeEstimator.messages(resourceFrame(prompt, text));
+		if (used > maxInputTokens)
+			throw new OpenCodexError(
+				"invalid_input",
+				"Resource input exceeds the caller input budget",
+			);
+	};
 	const roleCall = async (
 		role: ModelRole,
 		prompt: string,
@@ -330,6 +352,7 @@ export function createOpenCodexContextServices(
 		beforeDispatch?: () => void,
 		maxTokens?: number,
 		routeRequest?: ModelRouteRequest,
+		maxInputTokens?: number,
 	) => {
 		const resolved = requireResolved(
 			runtime,
@@ -338,6 +361,7 @@ export function createOpenCodexContextServices(
 			agentId,
 			routeRequest,
 		);
+		assertResourceInput(prompt, text, maxInputTokens);
 		const request = completeOptions(
 			runtime,
 			resolved.profile,
@@ -477,7 +501,7 @@ export function createOpenCodexContextServices(
 				routeRequest,
 			);
 		},
-		async analyzeImage(input, signal) {
+		async analyzeImage(input, signal, beforeDispatch, maxTokens) {
 			signal.throwIfAborted();
 			if (
 				input.bytes.byteLength === 0 ||
@@ -525,6 +549,8 @@ export function createOpenCodexContextServices(
 							],
 						},
 					],
+					beforeDispatch,
+					maxTokens,
 				),
 			);
 			if (!reply.text.trim())
@@ -537,6 +563,72 @@ export function createOpenCodexContextServices(
 				model: resolved.model.id,
 				text: reply.text,
 			};
+		},
+		async summarizeResource(
+			text,
+			signal,
+			beforeDispatch,
+			routeRequest,
+			maxTokens,
+			maxInputTokens,
+		) {
+			return roleCall(
+				"summary",
+				RESOURCE_SUMMARY_PROMPT,
+				text,
+				signal,
+				beforeDispatch,
+				maxTokens,
+				routeRequest,
+				maxInputTokens,
+			);
+		},
+		async planResources(
+			text,
+			signal,
+			beforeDispatch,
+			routeRequest,
+			maxTokens,
+			maxInputTokens,
+		) {
+			return roleCall(
+				"recall",
+				RESOURCE_PLAN_PROMPT,
+				text,
+				signal,
+				beforeDispatch,
+				maxTokens,
+				routeRequest,
+				maxInputTokens,
+			);
+		},
+		async rankResources(
+			text,
+			signal,
+			beforeDispatch,
+			routeRequest,
+			maxTokens,
+			maxInputTokens,
+		) {
+			return roleCall(
+				"recall",
+				RESOURCE_RANK_PROMPT,
+				text,
+				signal,
+				beforeDispatch,
+				maxTokens,
+				routeRequest,
+				maxInputTokens,
+			);
+		},
+		resourceInputOverhead(kind) {
+			const prompt =
+				kind === "summary"
+					? RESOURCE_SUMMARY_PROMPT
+					: kind === "plan"
+						? RESOURCE_PLAN_PROMPT
+						: RESOURCE_RANK_PROMPT;
+			return conservativeEstimator.messages(resourceFrame(prompt, ""));
 		},
 		prepare(_event) {
 			throw new OpenCodexError(
