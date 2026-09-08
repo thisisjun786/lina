@@ -65,3 +65,19 @@ MODIFY `packages/lina-runtime/src/checkpoint-cli.ts`는 외부 memory가 export�
 ## 리포지터리 계약 문서 동기화
 
 추가 MODIFY POLICY.md의 Dependencies and compatibility 중 OpenViking/Honcho optional external adapters 설명을 자체 엔진과 legacy 전환 계약으로 갱신한다. 이는 실행 서비스/데이터 삭제 권한 변경이 아니다. 기존 Codex/OpenCodex 실행 역할과 CI의 local fake 정책은 유지한다. 추가 MODIFY docs/PLANNING.md에는 이 단위의 목표/상태와 LIFE 연동 경계를 연결한다. docs/VALIDATION.md는 080에서 실제 증거로 갱신한다.
+
+## 정식 감사 반영 변경 지도
+
+| 작업 | 경로 | 전 → 후 |
+| --- | --- | --- |
+| NEW | `packages/lina-runtime/src/context/policy-settings.ts` | contextPolicy/enginePolicy 버전 JSON과 CAS revision을 내장 SQLite에 저장, 기존 model settings와 구분 |
+| MODIFY | `packages/lina-runtime/src/fleet/companion-routes.ts` | /api/engines/policy GET/PATCH로 policy snapshot/CAS 교환; 새 revision은 다음 처리 입력에 고정 |
+| MODIFY | `packages/lina-core/src/world/work-validation.ts` | parseWorkEvidence v1 역사 읽기 보존, v2 records.origin의 codex-task/resource-activity 판별 |
+| MODIFY | `packages/lina-core/src/world/autonomy-source.ts` | 각 origin의 source digest와 permission 현재성 검증 |
+| MODIFY | `packages/lina-core/src/world/autonomy-step-records.ts` | 고정한 origin/리비전의 v2 evidence 기록/복원; legacy receipt 재해석하지 않음 |
+| MODIFY | `packages/lina-core/src/world/store.ts` | admitWorkInput/workEvidence에 origin별 검증·생성 연결 |
+| MODIFY | `packages/lina-core/src/world/authoring-request-validation.ts` | director/actor 모델 선택에서 exact 또는 tier만 허용 |
+| MODIFY | `packages/lina-core/src/world/autonomy-persistence.ts` | selector decode와 step에 해석한 exact 모델 고정, 저장 당시 형식별 replay |
+| MODIFY | `packages/lina-runtime/src/fleet/life-runtime.ts` | exact 선택의 provider/model 유일성 검사는 유지, tier 선택은 routes.tiers[tier].profileId로 해석 |
+
+WorkEvidenceSnapshot v2는 records의 origin별 receipt 타입을 구분하며 v1 task/turn 기반 데이터는 기존 decoder로 복원한다. 외부 owner 변경은 순차 통합으로 확인한다. tier를 선택했지만 routes/binding이 없으면 not_configured로 step 생성을 거부하며 기본 profile로 몰래 대체하지 않는다. backend의 disabled 값은 명시적 학습 비활성화로 유지한다. disabled에서도 사용자가 요청한 원문 접근·기존 자료 보존을 삭제로 해석하지 않는다.

@@ -48,3 +48,5 @@ in-flight step은 고정된 identity/profile/growth digest를 사용한다. 새 
 ## IdentityPolicySnapshot 소비 경로
 
 추가 MODIFY packages/lina-core/src/world/life-validation.ts의 parseIdentityPolicy, life-transition.ts, life-persistence.ts, social-persistence.ts, autonomy-persistence.ts 및 runtime/life/runner.ts, social/service.ts의 typed identity 소비를 대조한다. 기존 v1 기록은 historical read에 그대로 허용하고 새로운 v2는 신규 실행 입력에만 사용한다. growth revision을 요구하는 경로와 legacy replay를 분리한다. SharedPersonaView의 public export와 publication-types.ts도 타입 호환성을 검사한다.
+
+추가 MODIFY `packages/lina-runtime/src/world.ts`의 identityPolicy 인터페이스와 `packages/lina-core/src/world/autonomy-store-types.ts`의 IdentityPolicySnapshot 소비도 v1/v2 계약을 따른다. 공개 view의 기존 lifeRevision을 성장 revision으로 재사용한다.

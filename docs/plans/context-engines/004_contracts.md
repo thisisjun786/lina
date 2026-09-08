@@ -58,3 +58,9 @@ Blob bytes는 준비 영역에 기록/해시 검증 후 같은 파일시스템�
 각 store: file DB reopen, unknown schema, dangling source/version, repeated operationId with different payload, stale revision and competing process mutation을 재현한다. Runtime: scope change during model call, cancel before/after commit, service close, index unavailable, unsupported parser와 late reply를 재현한다. 모든 경우 old/current 결과를 혼동하지 않고 authoritative receipt와 상태가 맞아야 한다.
 
 개인 추론·공유 자료·LIFE의 범위를 섞는 host 권한 우회는 in-process privileged code의 책임이다. 구조화된 모델 출력 검증만으로 임의 호스트 코드의 우회를 막는다고 주장하지 않는다. 공개 도구/API boundary와 저장 invariant는 부정 테스트로 검사한다.
+
+## 정식 감사 반영 계약
+
+`policy_revision`은 파생 작업 생성 시 engine policy settings의 저장 revision이며 modelSettingsRevision과 별개다. policy owner는 runtime/context/policy-settings.ts의 내장 SQLite store다. resources.owner_id는 생성 시 host가 공급한 principalId다. 다른 principal은 shared 자료만 사용할 수 있고 private 조회는 principalId 일치가 필요하다.
+
+공유 기억은 요약 derivation과 분리한 `resource_memories(id PRIMARY KEY,resource_id,version_id,policy_revision,proposer_id,visibility,kind,text,evidence_json,state,revision,fingerprint,UNIQUE(resource_id,version_id,policy_revision,fingerprint))`에 저장한다. 동일 원문 version에서 여러 기억을 만들 수 있다. memory job의 완료 receipt는 생성한 memory id 목록을 가진다. resource_derivations는 brief/overview/extract/embedding의 파생 표현에만 사용한다. LIFE resource activity는 해당 memory 또는 resource version을 stable id와 revision으로 참조하며 허용 근거를 따로 검증한다.

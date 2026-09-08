@@ -14,7 +14,7 @@
 
 [Retrieval](https://github.com/volcengine/OpenViking/blob/e7f2fe519086923340703b300895c02f8ccfd3e9/docs/en/concepts/07-retrieval.md)은 단순 find와 현재 대화 의도를 반영하는 search를 구분한다. 검색어를 모르는 경우에도 탐색할 수 있다는 요구는 단순 FTS만으로 충족되지 않는다. 기본 경로는 FTS 후보+collection 개요 탐색+공통 라우트 기반 query planning/rerank이며 선택적 embeddings를 추가할 수 있다. 임베딩을 사용하지 않는다는 이유로 계층 탐색·의미 연결 요구를 삭제하지 않는다. 임베딩 유무별 회수 품질을 동일 fixture에서 비교하고 부족하면 선택을 재검토한다.
 
-[License](https://github.com/volcengine/OpenViking/blob/e7f2fe519086923340703b300895c02f8ccfd3e9/LICENSE)는 현재 LINA의 Apache-2.0과 다른 upstream 조건을 가진다. 조사 자료는 출처로 남기고 알고리즘 구현을 복사하지 않는다. 의존성 추가가 필요한 파서는 별도 라이선스/설치 계약을 확인한다.
+[License](https://github.com/volcengine/OpenViking/blob/e7f2fe519086923340703b300895c02f8ccfd3e9/LICENSE)는 AGPL-3.0이며 현재 LINA는 Apache-2.0이다. 조사 자료는 출처로 남기고 알고리즘 구현을 복사하지 않는다. 의존성 추가가 필요한 파서는 별도 라이선스/설치 계약을 확인한다.
 
 자료 유형은 text/markdown/html/pdf/image를 초기 상세 설계의 직접 대상에 두며 Office/스프레드시트도 비개발 업무의 문서 요구로 추출 경로를 설계한다. 단순히 후속으로 제외하지 않는다. 실제 parser 미지원은 stored-but-not-indexed로 표시하고 전체 기능 검증에서 누락을 남긴다. 원본 파일은 항상 원형으로 보존한다.
 

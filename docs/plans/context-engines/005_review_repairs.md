@@ -12,3 +12,7 @@ Reviewer Inspector / 01a081a7-fb8c-7153-9ea8-a594493d136e. 첫 판정 FAIL; 구�
 8. FTS 가용성: 수용하고 실제 Bun/node:sqlite spike 수행. trigram의 짧은 한국어 검색 한계를 확인하여 phrase/literal 후보와 계층 탐색을 함께 설계. vector를 후속으로 미룬다는 이유로 의미 탐색을 제외하지 않음.
 
 변경사항은 010~070의 사전 감사 수정 절에 반영했다. 후속 독립 검토가 필요하다.
+
+## 정식 감사
+
+Inspector verdict: GO-WITH-FIXES (blockers=5). 다섯 수정 모두 수용했다: policy-settings 단일 저장 owner와 revision 정의, resource_memories stable id 테이블, work evidence v2 실제 codec/store 경로, Codex tool host scope 전달, LIFE tier selector decode와 not_configured 처리. 각 변경은 004/030/060/070의 정식 감사 반영 절에 있다. 메인 판단은 near-pass이며 잔여 조건은 문서 내용의 위 반영과 구조 재검증이다. 구현 기능 통과를 뜻하지 않는다.
