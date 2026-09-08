@@ -110,6 +110,13 @@ function initialize(
 }
 
 function validateJournalRows(db: DatabaseSync, sessionId: string): void {
+	if (
+		db
+			.prepare("PRAGMA quick_check")
+			.all()
+			.some((row) => row["quick_check"] !== "ok")
+	)
+		throw Error("Invalid journal source constraints");
 	if (db.prepare("PRAGMA foreign_key_check").all().length)
 		throw Error("Invalid journal source references");
 	for (const row of db
@@ -182,6 +189,11 @@ export class DurableStore {
 			request = this.journal.request(requestId);
 		if (!sourcePolicy || !request)
 			throw Error("Missing journal source association");
+		if (
+			!request.entryId ||
+			this.sources.userEntry(requestId) !== request.entryId
+		)
+			return { ...entry, requestStatus: request.status };
 		return { ...entry, sourcePolicy, requestStatus: request.status };
 	}
 	requestSourcePolicy(requestId: string): SourcePolicy | undefined {
@@ -207,7 +219,16 @@ export class DurableStore {
 		return this.mutate(() => {
 			const appended = this.entries.append(input);
 			const associated = this.sources.associate(input.entryId, requestId);
-			return appended || associated;
+			const request = this.journal.request(requestId);
+			const correlated =
+				input.role === "user" &&
+				request &&
+				(request.status === "queued" || request.status === "accepted")
+					? this.journal.set(requestId, request.status, {
+							entryId: input.entryId,
+						}).changed
+					: false;
+			return appended || associated || correlated;
 		}, Number);
 	}
 	entrySequence(entryId: string): number | undefined {
@@ -287,7 +308,15 @@ export class DurableStore {
 		details: RequestDetails = {},
 	): RequestRecord {
 		return this.mutate(
-			() => this.journal.set(id, status, details),
+			() => {
+				if (
+					details.entryId !== undefined &&
+					this.sources.policy(id) &&
+					this.sources.userEntry(id) !== details.entryId
+				)
+					throw Error("Invalid source user correlation");
+				return this.journal.set(id, status, details);
+			},
 			(result) => Number(result.changed),
 		).request;
 	}

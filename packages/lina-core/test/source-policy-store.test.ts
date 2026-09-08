@@ -45,6 +45,93 @@ function origin(
 }
 
 describe("journal source persistence", () => {
+	it("rejects mismatched user correlation on writes and withholds uncorrelated settled episodes", () => {
+		const f = fixture();
+		let store = f.store();
+		store.createRequest("r", "first");
+		store.registerRequestSource(origin(f, "r"));
+		store.appendSourceEntry(
+			entry("first", { role: "user", text: "first" }),
+			"r",
+		);
+		store.appendEntry(entry("other", { role: "user", text: "other" }));
+		expect(() =>
+			store.setRequest("r", "accepted", { entryId: "other" }),
+		).toThrow(/source|correlation/i);
+		store.setRequest("r", "accepted", { entryId: "first" });
+		store.setRequest("r", "settled");
+		expect(() =>
+			store.appendSourceEntry(entry("second", { role: "user" }), "r"),
+		).toThrow();
+		expect(store.entry("second")).toBeUndefined();
+		store.createRequest("orphan", "orphan");
+		store.registerRequestSource(origin(f, "orphan"));
+		store.appendSourceEntry(entry("orphan-a"), "orphan");
+		store.setRequest("orphan", "accepted");
+		store.setRequest("orphan", "settled");
+		expect(isOrdinarySource(store.sourceEntry("orphan-a"))).toBe(false);
+		store.close();
+		store = f.store();
+		expect(isOrdinarySource(store.sourceEntry("orphan-a"))).toBe(false);
+		expect(isOrdinarySource(store.sourceEntry("first"))).toBe(true);
+	});
+
+	it("rejects receipts from a different source epoch and corrupted originating request IDs", () => {
+		const f = fixture();
+		const store = f.store();
+		store.createRequest("r1", "r1");
+		store.registerRequestSource(origin(f, "r1"));
+		expect(() =>
+			store.recordSourceExposure({
+				...exposure("bad", "r1"),
+				nativeEpoch: 2,
+				scopeDigest: "b".repeat(64),
+			}),
+		).toThrow(/source/i);
+		store.recordSourceExposure(exposure("valid", "r1"));
+		store.extendRequestSource("r1", ["valid"]);
+		store.appendSourceEntry(entry("u", { role: "user", text: "r1" }), "r1");
+		store.setRequest("r1", "accepted", { entryId: "u" });
+		store.setRequest("r1", "settled");
+		store.close();
+		const db = new DatabaseSync(f.file);
+		db.exec(
+			"UPDATE source_exposures SET receipt_json=json_set(receipt_json,'$.source.requestId','nonexistent')",
+		);
+		db.close();
+		expect(() => f.store()).toThrow(/source/i);
+	});
+
+	it("rejects violated legacy CHECK constraints before migration and preserves the old schema", () => {
+		const f = fixture(),
+			db = new DatabaseSync(f.file);
+		db.exec(SOURCE_JOURNAL_V1);
+		for (const [key, value] of [
+			["binding", JSON.stringify(f.binding)],
+			["schema_version", "1"],
+			["revision", "0"],
+		] as const)
+			db.prepare("INSERT INTO meta VALUES (?,?)").run(key, value);
+		db.exec("PRAGMA user_version=1; PRAGMA ignore_check_constraints=ON");
+		db.prepare(
+			"INSERT INTO entries VALUES (1,'broken',?,'unknown','text','text',0,'{}','now')",
+		).run(f.binding.sessionId);
+		db.prepare(
+			"INSERT INTO requests VALUES ('broken-r',?,'text','unknown','now','now',NULL,'broken')",
+		).run(f.binding.sessionId);
+		db.close();
+		expect(() => f.store()).toThrow(/constraint|journal|source/i);
+		const after = new DatabaseSync(f.file);
+		expect(after.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(
+			1,
+		);
+		expect(
+			after
+				.prepare("SELECT name FROM sqlite_schema WHERE name='source_requests'")
+				.get(),
+		).toBeUndefined();
+		after.close();
+	});
 	it("migrates actual v1 bytes without relabeling legacy rows or losing pending requests", () => {
 		const f = fixture();
 		const db = new DatabaseSync(f.file);
@@ -179,4 +266,33 @@ describe("journal source persistence", () => {
 		db.close();
 		expect(() => f.store()).toThrow(/source/i);
 	});
+});
+
+it("J2 registration validates staged owned receipts even when omitted from the candidate list", () => {
+	const f = fixture();
+	let store = f.store();
+	store.createRequest("r", "request");
+	store.recordSourceExposure({
+		...exposure("staged", "r"),
+		nativeEpoch: 2,
+		scopeDigest: "b".repeat(64),
+	});
+	const before = store.request("r");
+	expect(() => store.registerRequestSource(origin(f, "r"))).toThrow(/source/i);
+	expect(store.requestSourcePolicy("r")).toBeUndefined();
+	expect(store.request("r")).toEqual(before);
+	store.close();
+	store = f.store();
+	expect(store.requestSourcePolicy("r")).toBeUndefined();
+	expect(
+		store.registerRequestSource({
+			...origin(f, "r"),
+			nativeEpoch: 2,
+			scopeDigest: "b".repeat(64),
+			contextReceiptIds: ["staged"],
+		}),
+	).toBe(true);
+	store.close();
+	store = f.store();
+	expect(store.requestSourcePolicy("r")?.policyRevision).toBe(1);
 });

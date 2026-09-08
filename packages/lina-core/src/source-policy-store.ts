@@ -25,6 +25,7 @@ export class SourcePolicyStore {
 
 	exposure(value: SourceExposure): boolean {
 		const receipt = parseSourceExposure(value);
+		this.assertReceiptOwner(receipt);
 		const saved = this.receipt(receipt.id);
 		if (saved) {
 			if (
@@ -54,6 +55,17 @@ export class SourcePolicyStore {
 			.prepare("SELECT session_id FROM requests WHERE id=?")
 			.get(origin.requestId);
 		if (request?.["session_id"] !== this.sessionId) invalid();
+
+		for (const row of this.db
+			.prepare(
+				"SELECT receipt_json FROM source_exposures WHERE json_extract(receipt_json,'$.source.requestId')=?",
+			)
+			.all(origin.requestId)) {
+			const receipt = parseSourceExposure(
+				JSON.parse(String(row["receipt_json"])),
+			);
+			this.assertReceiptOwner(receipt, origin);
+		}
 		const previous = this.origin(origin.requestId);
 		if (previous) {
 			if (!isDeepStrictEqual(previous, origin)) invalid();
@@ -83,6 +95,18 @@ export class SourcePolicyStore {
 	}
 	associate(entryId: string, requestId: string): boolean {
 		if (!this.policy(requestId)) invalid();
+		const entry = this.db
+			.prepare("SELECT role FROM entries WHERE entry_id=?")
+			.get(entryId);
+		if (!entry) invalid();
+		if (entry["role"] === "user") {
+			const expected = this.db
+				.prepare("SELECT entry_id FROM requests WHERE id=?")
+				.get(requestId)?.["entry_id"];
+			if (expected !== null && expected !== entryId) invalid();
+			const other = this.userEntry(requestId);
+			if (other !== undefined && other !== entryId) invalid();
+		}
 		const saved = this.db
 			.prepare("SELECT request_id FROM source_entries WHERE entry_id=?")
 			.get(entryId)?.["request_id"];
@@ -115,6 +139,16 @@ export class SourcePolicyStore {
 			invalid();
 		return policy;
 	}
+	userEntry(requestId: string): string | undefined {
+		const rows = this.db
+			.prepare(
+				`SELECT s.entry_id FROM source_entries s JOIN entries e ON e.entry_id=s.entry_id WHERE s.request_id=? AND e.role='user'`,
+			)
+			.all(requestId);
+		if (rows.length > 1) invalid();
+		const value = rows[0]?.["entry_id"];
+		return typeof value === "string" ? value : undefined;
+	}
 	validate(): void {
 		if (this.db.prepare("PRAGMA foreign_key_check").all().length) invalid();
 		for (const row of this.db
@@ -124,6 +158,7 @@ export class SourcePolicyStore {
 				JSON.parse(String(row["receipt_json"])),
 			);
 			if (receipt.id !== row["id"]) invalid();
+			this.assertReceiptOwner(receipt);
 		}
 		for (const row of this.db
 			.prepare("SELECT request_id,origin_json FROM source_requests")
@@ -176,6 +211,7 @@ export class SourcePolicyStore {
 					invalid();
 				previous = policy;
 			}
+			this.userEntry(origin.requestId);
 			if (
 				!previous ||
 				!isDeepStrictEqual(previous, this.policy(origin.requestId))
@@ -215,6 +251,15 @@ export class SourcePolicyStore {
 		const receipts = origin.contextReceiptIds.map((id) => {
 			const receipt = this.receipt(id);
 			if (!receipt) invalid();
+			this.assertReceiptOwner(receipt, origin);
+			if (
+				receipt.source.kind !== "bootstrap" &&
+				receipt.source.requestId !== origin.requestId &&
+				!this.policy(receipt.source.requestId)?.contextReceiptIds.includes(
+					receipt.id,
+				)
+			)
+				invalid();
 			return receipt;
 		});
 		return sourcePolicyFor(origin, receipts, revision);
@@ -233,5 +278,27 @@ export class SourcePolicyStore {
 				"INSERT INTO source_current VALUES (?,?) ON CONFLICT(request_id) DO UPDATE SET policy_revision=excluded.policy_revision",
 			)
 			.run(policy.requestId, policy.policyRevision);
+	}
+	private assertReceiptOwner(
+		receipt: SourceExposure,
+		candidate?: SourceRequestOrigin,
+	): void {
+		if (receipt.source.kind === "bootstrap") return;
+		const request = this.db
+			.prepare("SELECT session_id FROM requests WHERE id=?")
+			.get(receipt.source.requestId);
+		if (request?.["session_id"] !== this.sessionId) invalid();
+		const owner =
+			this.origin(receipt.source.requestId) ??
+			(candidate?.requestId === receipt.source.requestId
+				? candidate
+				: undefined);
+		if (
+			owner &&
+			(owner.nativeEpoch !== receipt.nativeEpoch ||
+				owner.scopeDigest !== receipt.scopeDigest)
+		)
+			invalid();
+		if (candidate && !owner) invalid();
 	}
 }
