@@ -1,6 +1,6 @@
 # 051 — 자료 공간의 저장·탐색·실행 계약
 
-상태: resources B. 050/004의 초안을 현재 소스에 맞춰 구체화했다. adda116 독립 A PASS 후 구현 시작. 정책·catalog·job 상태·추출·점진 읽기·빠른 검색을 구현했다. 모델 worker·계층 탐색/재정렬·도구/API adapter와 ResourceEngine 조립을 구현했다. 설치 Fleet 연결은070이며 현재 단위는 C 검증 준비 중이다.
+상태: resources C 통과·D 정리. 050/004의 초안을 현재 소스에 맞춰 구체화했다. adda116 독립 A PASS 후 구현 시작. 정책·catalog·job 상태·추출·점진 읽기·빠른 검색을 구현했다. 모델 worker·계층 탐색/재정렬·도구/API adapter와 ResourceEngine 조립을 구현했다. 설치 Fleet 연결은070이며 현재 단위는 관련515개 검사·타입·린트·문서·빌드 검사를 통과했다.
 
 ## 실행 범위
 
@@ -110,3 +110,5 @@ BUILD의 설정 복구 보강: jobs/derivations UNIQUE에는 generation_key=hash
 도구 read/list/search는 confirm-mode 자동 허용에 연결했고 put/move는 쓰기 승인을 따른다. API는 기존 loopback 인증 gateway 뒤에서 사용할 Request→Response adapter다. text/base64 입력, PATCH, DELETE, content page, attachment download, search, retry를 제공한다. scope 필드를 받지 않는다. shared bit는 host의 협업 grant이며 shared 자료 retry도 이 grant 안에서 동일한 aggregate attempt 한도를 쓴다. 빈 문서는 유효하다. 실제 사용자 파일/서비스는 변경하지 않았다.
 
 검증은 `bun test packages/lina-memory/test/resources*.test.ts packages/lina-runtime/test/resources*.test.ts packages/lina-opencodex/test/resource-services.test.ts` 및 기존 memory/context/model/approval 회귀, `bun run typecheck`, `bun run lint`, 계획 structural checker, `bun run ci:validate`, `bun run ci:build`다. 실제 OpenCodex adapter의 fake fetch 요청까지 검사하며 provider 응답의 실제 품질·UI·설치 통합은 별도080/070 증거다.
+
+C 증거:7504051 코드에서515pass/0fail/2512asserts/71files, root/browser typecheck·lint·docs·ci:validate·ci:build exit0. 실제 모델은 fake fetch이며 유료 호출은 없었다. 독립 모듈 및 최종 교차 경계 검토 PASS. 상세 로컬 증거는 `.codexclaw/evidence/01a08149-2fcd-7b83-b427-a104f083df05/resources-done.md`와 resources-test-receipt.json이다. 큰 자료 검색 I/O 성능은 측정하지 않았고,070은 검색/도구의 종료 수명도 installation owner에 연결해야 한다.
