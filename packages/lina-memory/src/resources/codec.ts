@@ -79,7 +79,21 @@ export const versionSchema = z.strictObject({
 	byteLength: counter.max(64 * 1024 * 1024),
 	createdAt: counter,
 });
+const captureFields = {
+	deriveMemory: z.boolean().optional(),
+	activityKind: z
+		.enum([
+			"development",
+			"research",
+			"writing",
+			"organization",
+			"search",
+			"other",
+		])
+		.optional(),
+};
 export const createSchema = z.strictObject({
+	...captureFields,
 	operationId: identity,
 	kind: z.enum(["document", "collection"]),
 	title: z.string().trim().min(1).max(512),
@@ -89,6 +103,7 @@ export const createSchema = z.strictObject({
 	bytes: bytesSchema.optional(),
 });
 export const updateSchema = z.strictObject({
+	...captureFields,
 	operationId: identity,
 	id: uuid,
 	expectedRevision: counter.min(1),

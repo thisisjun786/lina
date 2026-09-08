@@ -22,6 +22,7 @@ import {
 	type ResourceGeneration,
 	UNCONFIGURED_RESOURCE_GENERATION,
 } from "./job-codec.ts";
+import { ResourceMemories } from "./memories.ts";
 import {
 	allResources,
 	auditResources,
@@ -49,6 +50,7 @@ import type {
 
 export class ResourceStore {
 	readonly indexing: ResourceIndex;
+	readonly memories: ResourceMemories;
 	private readonly db: DatabaseSync;
 	private readonly content: ResourceContent;
 	private closed = false;
@@ -67,6 +69,7 @@ export class ResourceStore {
 			auditResources(db, this.content);
 			this.indexing = new ResourceIndex(db, generation);
 			migrateResources(db);
+			this.memories = new ResourceMemories(db, this, () => generation("brief"));
 			db.exec("COMMIT; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL");
 		} catch (error) {
 			if (db.isTransaction) db.exec("ROLLBACK");
@@ -84,7 +87,8 @@ export class ResourceStore {
 	recoverOwnedState(): { staging: number; jobs: number } {
 		return this.transaction(() => ({
 			staging: this.content.recoverStaging(),
-			jobs: this.indexing.recoverInterrupted(),
+			jobs:
+				this.indexing.recoverInterrupted() + this.memories.recoverInterrupted(),
 		}));
 	}
 	private transaction<T>(fn: () => T): T {
@@ -241,6 +245,20 @@ export class ResourceStore {
 				canonical({ resource: r, version: v }),
 			);
 		this.indexing.changed();
+		this.memories.changed(
+			scope,
+			input as {
+				deriveMemory?: boolean;
+				activityKind?:
+					| "development"
+					| "research"
+					| "writing"
+					| "organization"
+					| "search"
+					| "other";
+			},
+			r,
+		);
 		return r;
 	}
 	create(rawScope: ResourceScope, raw: ResourceCreate): Resource {
