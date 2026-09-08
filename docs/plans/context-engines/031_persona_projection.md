@@ -69,3 +69,45 @@ main은 runtime producer, hooks, session/fleet 소비를 맡는다. A 통과 뒤
 조건별 증거: 중복 fingerprint는 모델 호출·commit 수 1; 같은 내용의 여러 request는 독립 근거 수 증가 없음; source 철회·만료는 다음 읽기에서 개인 영향 0; manual/lock 변경은 늦은 결과 commit 거부; raw secret marker는 shared model bytes에 없음; directed relation은 반대 agent에 없음; 입력 변경 중 await는 stale/withheld; file DB 재시작은 같은 receipt와 당시 request bytes; corrupt receipt/unknown schema는 시작 거부; unconfigured dimension/route는 빈 성공 대신 unavailable/not-configured.
 
 권한 검사는 공개 API/도구와 저장 boundary에 적용한다. 임의 in-process host 코드의 우회까지 방지하는 보안 격리라고 주장하지 않는다. 별도 서비스를 설치하거나 사용자 DB를 열어 검증하지 않는다.
+
+## A 준비: 호출·입력 계약
+
+공유 성장 해석 입력은 작성 profile, 현재 공유 dimension 정의, 적격 개인 기록으로 한정한다. LIFE 사건/현재 성장 값을 다시 추론 입력에 넣어 자기 강화 근거를 만들지 않는다. producer의 fingerprint는 profile/definition/projection/policy/model 설정과 선택한 record의 semantic contentHash를 포함한다. 단순 corroboration으로 record revision만 바뀐 경우 같은 의미의 입력을 새 성장으로 세지 않는다. commit guard는 당시 정확한 source revision과 현재 적격성도 검사한다.
+
+behavior owner API는 `enqueue(input)`, `claim(jobId, expectedRevision)`, `commit(claim, output, assertCurrent)`, `fail(claim, reason)`, `recover()`, `current(agentId, worldId, assertCurrent)`, `status(agentId)`다. owner의 transaction 안에서 token/CAS 및 현재 source 검사를 완료한 뒤 receipt를 저장한다. foreign-key owner는 agent_profiles다. runtime이 공급하는 assertCurrent는 MemoryStore의 현재 record/contentHash, source policy, profile/evolution, 공유 definition과 설정을 확인하며 모델이 전달하는 callback이 아니다. 현재성을 확인할 owner가 없으면 unknown을 true로 바꾸지 않는다.
+
+동일 dimension의 개인 값은 최신 적격 receipt의 값 하나를 사용한다. 여러 receipt의 숫자를 누적하지 않는다. 모든 입력 record를 보수적으로 provenance에 묶고, 출력의 evidence record id는 그 부분집합이어야 한다. source-only 교정과 시간 만료도 current()에서 검사하므로 global memory revision만 비교하지 않는다. 저장 시점의 구조·참조·fingerprint 감사와 현재 원문의 적격성 검사는 구분한다. 시작 시 원문 owner가 닫혔다는 이유로 정상 과거 receipt를 손상이라고 판단하지 않으며, 현재 사용은 보류한다.
+
+PublicationAuthor는 현재 버전 필드가 없는 정확한 형식을 legacy로 유지하고, 신규 `{version:2,...legacyFields,sourceStamp}`를 별도 decoder로 읽는다. `publication-record-fields.ts::parsePublicationAuthor`, 이를 사용하는 publication-record-validation/reply-records/posts/jobs와 실제 model/feed allowlist를 함께 검증한다. 기존 `publication-model.ts`는 name/voice/behavior만 직렬화하고 `publication-feed.ts`도 공개 author 필드만 내보내므로 이 allowlist를 보존한다. old author를 decode한 결과에 version/sourceStamp를 자동 추가하지 않아 과거 digest를 유지한다.
+
+## A 1차 검토 반영 (이전 문단과 충돌하면 이 절 우선)
+
+1. PublicationAuthor v2의 nested decoder 경로를 위 호출 계약처럼 확정한다. prepared legacy author는 기존 v1 필드로 현재 profile/LIFE behavior를 재구성해 비교하고, 동일하면 당시 bytes로 dispatch한다. 새 개인 성장은 신규 job부터 사용한다. 기존 authored profile·LIFE·공개 정책 변경은 기존 guard대로 거부한다. 과거 post에는 새 sourceStamp를 덧붙이지 않는다. 추가 MODIFY `packages/lina-core/src/world/publication-record-fields.ts`, `publication-record-validation.ts`, `publication-reply-records.ts`, `publication-posts.ts`, `publication-jobs.ts`, `publication-model.ts`, `publication-feed.ts`. 조건: 파일 DB의 legacy pending job과 published post를 다시 열어 전자는 같은 bytes로 dispatch, 후자는 같은 digest로 조회; v2 stamp는 실제 모델 및 feed bytes에 없음.
+
+2. 현재 EngineRecord의 relationship은 대상 agent id가 없다. 이를 근거로 모델이 agent 대상을 새로 선택하게 하지 않는다. 개인 공유 출력은 traits/habits만 허용하고 attitude 출력은 parser가 거부한다. 방향 있는 agent 관계는 기존 LIFE attitude owner가 생성·보존하고 공통 투영에서 그대로 소비한다. 일반 사용자와의 관계 문장은 개인 대화의 잠정/지원 배경으로만 사용한다. task 없는 활동의 명시적 actor/participant 근거는 060/070의 원래 경로로 연결한다. 관계 기능 자체를 제거하는 것이 아니라 출처 없는 target 부여를 금지하는 결정이다.
+
+3. pending v1 LIFE step은 identity의 저장 버전으로 current profile/lock/LIFE를 비교하고, 허용되면 당시 입력으로 완료한다. 신규 step만 v2를 생성한다. `parseIdentityPolicy` 안의 전용 version decoder만 1|2를 허용하고 공용 LIFE `version()`은 변경하지 않는다. accepted event는 재실행하지 않는다. restore test는 pending v1→완료 한 번→다음 신규 v2 입력 및 old request bytes 불변을 증명한다.
+
+4. reviewer의 “원본 owner가 닫혀도 마지막 개인 값을 계속 사용” 제안은 채택하지 않는다. 원문 철회/만료를 확인할 수 없는데 사용을 허용하면 출처 계약을 어긴다. 대신 runtime의 비동기 준비 단계에서 필요한 원본 owner를 먼저 확보하고 동기 dispatch guard에서 현재성을 검사한다. 저장된 개인 값과 digest를 owner 닫힘만으로 수정하지 않는다. 확보 실패는 실행을 unavailable로 보류하며 개인 값 없는 새 identity로 조용히 바꾸지 않는다.
+
+개인 source lifecycle도 030에서 구현한다: 추가 MODIFY `packages/lina-runtime/src/fleet/manager.ts`, `fleet/life-runtime-installation.ts`, `fleet/codex-fleet.ts`. `session-app.ts`는 native mind/journal이 생성된 뒤 persona hook 설치 전에 source port를 Fleet에 등록하고, 실패·close에서 해당 등록만 해제한다. Fleet는 world에 기존 개인 receipt가 있는 agent의 source가 필요하면 기존 `app(id)` owner를 비동기로 확보한다. 새 추론 호출 없이 저장 검사를 할 수 있어야 한다. 수신자의 개인 데이터는 source port의 host scope에 남긴다. engine_disabled/honcho이면 native owner를 만들어 조용히 전환하지 않는다. receipt가 없으면 개인 값 없음이 확인된 상태이며 owner unavailable과 구분한다.
+
+runner/publication은 비동기 entry의 `ensurePersonalSources(worldId,signal)` 뒤에만 identity/author를 준비한다. 기존 동기 beforePrepare/dispatch/commit guard에서는 promise를 무시하지 않고 등록된 source의 current 검증만 수행한다. 추가 MODIFY `packages/lina-runtime/src/life/publication.ts`와 runner의 publication 조립을 포함한다. 모든 app의 background writer는 기존 installation 종료 순서로 drain하고 새 독립 타이머를 만들지 않는다. 전체 자료 owner/checkpoint 추가는 070에 남지만 개인 성장의 재시작 동작은 이 단위에서 검증한다.
+
+sourceStamp는 opaque content digest와 receipt/profile/definition/projection revision 참조이며 owner availability를 digest에 넣지 않는다. 검증 상태는 별도 diagnostic이다. source expiry는 global memory revision이 같더라도 eligibility guard가 거부한다. receipt는 model request digest를 저장한다. 재시작 request byte 검사는 actual request-capturing fake에서 고정된 입력과 digest를 대조한다. HabitDefinition.initial은 기존 boolean 필드다.
+
+반영 판정: 1·2·3 수용. 4의 churn 결함은 수용하되 검증하지 않은 값 사용이라는 해결책은 출처 계약에 어긋나므로 위 owner 확보 방식으로 대체했다. 이 보완의 closure review 뒤 B로 진행한다.
+
+합성은 label 문자열로 join하지 않는다. `views.ts`의 공통 허용 조건을 내부 helper로 분리하고, 원본 trait/habit id로 개인 값을 결합한 뒤 마지막에 label을 직렬화한다. 같은 label을 가진 다른 id 테스트를 추가한다. 기존 projectSharedPersona는 LIFE-only 의미를 유지하고 새 CurrentPersonaSnapshot만 결합 결과를 반환한다. habit의 LIFE 우선 여부는 값이 initial과 다른지가 아니라 현재 profile revision에 속하는 적격 LIFE 변화 row의 존재로 판단한다. 원래 값으로 돌아온 정식 LIFE 변화도 존중한다.
+
+## A 종료 전 원본 owner 획득 보완
+
+`Fleet.app(id)` 자동 시작은 사용하지 않는다. app 생성은 Codex session과 관찰 큐까지 시작할 수 있으므로 성장 현재성을 읽는 책임에 비해 범위가 크다. 등록된 열린 source port를 우선 사용하고, 없으면 기존 binding/state.sqlite/mind.sqlite를 읽기 전용으로 연다. 새 DB 생성·스키마 이전·큐 복구·모델 호출·Codex 시작·대화 세션 생성은 하지 않는다. 누락/이전 필요/손상/다른 binding은 unavailable이다. 기존 receipt가 없을 때는 조회할 개인 근거가 없다는 상태로 구분한다.
+
+추가 MODIFY `packages/lina-core/src/session-binding.ts`의 checked DB opener에 readOnly 옵션: 기존 안전 경로 검사를 재사용하되 디렉터리/파일을 만들지 않고 SQLite readOnly 연결을 사용한다. 추가 MODIFY `packages/lina-core/src/store.ts`와 `packages/lina-memory/src/engine/store.ts`에 읽기 전용 factory/옵션을 제공한다. 이 경로는 현재 스키마(journal v2/mind v4)를 먼저 확인한 뒤 기존 decoder/audit를 재사용하고, BEGIN read transaction으로 검사하며 WAL 설정·migration·recovery를 실행하지 않는다. public 반환 타입은 읽기/close로 제한하고 SQLite 자체도 쓰기를 거부한다. 이전 스키마는 migration-required로 보류하며 일반 owner가 여는 기존 migration 경로를 변경하지 않는다.
+
+새 `packages/lina-runtime/src/persona/source-owner.ts`는 Fleet의 binding 경로 계산을 사용하며 임의 모델 인자로 파일 경로를 받지 않는다. 현재 읽기 범위에 필요한 owner만 열고 lease/close 책임을 명시한다. 원본 proof 검사와 memory eligibility는 기존 메서드를 재사용하며 SQL을 새로 복제하지 않는다. 읽기 transaction을 await/model 호출 동안 유지하지 않는다. dispatch/commit guard는 최신 읽기를 다시 수행하고, expiry를 현재 clock으로 검사한다. 여러 DB의 정합은 journal proof/current record를 두 번 대조하여 변동 중 결과를 보류한다.
+
+위에서 명시한 async ensurePersonalSources는 이 가벼운 읽기 owner만 확보한다. availability는 digest를 바꾸지 않고, 실패 시 동작을 보류한다. 새 `packages/lina-runtime/test/persona-source-owner.test.ts`와 `packages/lina-core/test/store-readonly.test.ts`에서 inactive agent 재시작 후 읽기 성공, 외래 binding/누락/legacy/corrupt 거부, 가능한 mutation의 실제 SQLite 거부, app/Codex/model factory 호출 0, main DB/WAL의 데이터 불변을 검증한다.
+
+위임 보완: 두 번째 executor는 world codec 대신 이 읽기 전용 opener/store/source-owner와 해당 테스트를 담당한다. 첫 executor는 behavior owner 신규 파일만 유지한다. main이 AgentStore/schema·공통 composition·world codec·runtime producer/consumers를 순차 연결한다. dependency가 없는 새 테스트/모듈만 병렬로 작성하고 동일 파일 쓰기는 하지 않는다.
