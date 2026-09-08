@@ -135,14 +135,36 @@ Implemented in this checkpoint:
   resolution for attempts sharing a source. Current permission checks are not
   cached, and later revocation/corrupt reopen remain covered.
 
-Verification for this checkpoint is being recorded below. The earlier266-test
-incremental run and060's2,885-test result are separate revisions, not proof of the
-whole current image implementation. All new runtime calls use temporary state and
-synthetic local transports. Real model/image quality and browser presentation have
-not been qualified.
+Verification at source commit `aab0c9c`:
+
+| Command | Result |
+| --- | --- |
+| `LINA_LIFE_NATIVE_TEST=1 LINA_AUTHOR_NATIVE_TEST=1 bun test` | 3,316 pass,1 fail;17,501 assertions across471 files,424.20s. Exit1. |
+| `bun run typecheck` | Pass; root and browser TypeScript. |
+| `bun run lint` | Pass;20 warnings and informational diagnostics remain. |
+| `bun run ci:build` | Pass; runtime web assets and read-only CLI smoke. |
+| `bun run ci:validate` | Pass; CI workflow/forms/contribution links. |
+| `bun scripts/ci/audit.ts` | Pass; lockfile and30 installed package names, including bundled copies. |
+| `bash scripts/ci/secrets.sh` | Pass; full Git history through the source checkpoint, no leaks. |
+| `git diff --check` and LIFE plan links | Pass;46 local links resolve. |
+
+The sole failing case is the event-image integration timeout below; the full run
+reproduced it in8.67s before finishing all downstream test files. Source/config/test
+hashes remained unchanged across the checks. No skip or timeout relaxation was
+added. This is a failed overall test gate and an incomplete070 review, despite the
+other passing checks.
+
+The earlier266-test incremental run and060's2,885-test result are separate
+revisions. All new runtime calls use temporary state and synthetic local
+transports. Real model/image quality and browser presentation are not qualified.
 
 ### Remaining work before070 completion
 
+- Integrate current `dev` image-owner changes before merge. A read-only merge
+  preview found13 conflicting files in attachments, Fleet, the image client/jobs/
+  store/tools and their tests. No merge/rebase or conflict-marker edits were made
+  during this checkpoint. GitHub reports the PR as conflicting; no current-head
+  Actions run or check run was observed.
 - Repair the event-image integration performance failure: the default5-second
   test times out (the focused current run took9.19s). A14.32-second diagnostic run
   with an explicit60-second timeout reached all14 assertions; it is not a passing
