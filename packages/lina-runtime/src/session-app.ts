@@ -336,6 +336,7 @@ export async function startPersistentApp(options: AppOptions) {
 						memoryBridge.mind,
 						journal,
 						services.reasonMemory,
+						options.enginePolicy,
 					);
 				installResponsePolicy(host, responsePolicy);
 				if (options.persona) {

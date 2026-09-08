@@ -75,15 +75,21 @@ for (const mixed of [false, true]) {
 			{ query: "topic?" },
 			new AbortController().signal,
 		);
-		expect(result.details).toEqual({
+		expect(result.details).toMatchObject({
 			answer: "SYNTHETIC_SECRET [evidence]",
 			sources: ["evidence"],
+			coverage: {
+				searchRounds: 1,
+				visitedSources: 1,
+				incomplete: false,
+			},
 		});
 		expect(result.content).toEqual([
 			{ type: "text", text: JSON.stringify(result.details) },
 		]);
 		expect(Object.keys(result.details as object).sort()).toEqual([
 			"answer",
+			"coverage",
 			"sources",
 		]);
 		if (
