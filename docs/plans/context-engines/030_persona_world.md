@@ -1,6 +1,35 @@
 # 030 — 개인 성장과 월드 순환
 
+## 실행 범위
+
+Satisfy-spec/C4 사이클이다. 사용자가 승인한 자체 엔진 완성 작업에서 memory D의 다음 방향을 이어받는다. 목표는 작성 정체성을 보존하면서 검증된 개인 성장과 LIFE 성장을 일반 대화·행동·게시글 작성에 일관되게 전달하는 것이다. UI, 모델 품질 인증, 공통 자료 활동과 tier 연결(070), 푸시·머지·배포·설치 데이터 변경은 범위 밖이다. 별도 시간·토큰 예산은 지정되지 않았다.
+
+계획은 이 문서, 실행·감사·검증 증거는 `.codexclaw/evidence/01a08149-2fcd-7b83-b427-a104f083df05/persona-*`에 남긴다. 수용 조건과 관련 회귀 검사가 통과하면 이 단위를 닫고 context로 진행한다. 실패는 원인과 미충족 조건을 기록하며 완료로 바꾸지 않는다. 제품 의미를 바꾸는 미정 권한은 사용자 판단이 필요하고, 통상 구현 선택은 main이 결정한다. 구현 위임은 P에서 쓰기 범위를 확정한 뒤 수행하며, 서로 다른 두 담당이 같은 과제에 실패하면 main이 회수한다.
+
+memory D의 결론은 `7aa4229`에서 590개 범위 테스트와 타입·lint·빌드 검증 통과이며, 다음 방향은 “origin-specific memory and LIFE growth composed without exposing events/secrets”다. 이 단위는 그 방향을 유지한다. 일반 source of truth 갱신 대상은 `docs/ARCHITECTURE.md`와 `docs/PERSONA_CONTEXT.md`다.
+
+## 현재 소스에서 확인한 계획 보완점
+
+- `runtime/persona/hooks.ts`의 snapshot은 nativeDynamics일 때 빈 Dynamics를 사용한다. nativeState는 성장 조회 도구에서만 읽는다. 일반 대화 입력의 현재 개인 성향 투영을 추가해야 한다.
+- 실제 LIFE persona 직렬화는 `core/world/autonomy-views.ts::buildLifeModelInput()`에 있다. `runtime/life/actor.ts`만 수정해서는 actor·target·reflection의 입력이 바뀌지 않는다. 이 경로와 `fleet/life-runtime.ts::fleetPublicationAuthor()`를 변경 지도에 포함한다.
+- `EngineRecord`의 self/relationship text는 구조화된 공개 성향이 아니다. 원문·근거·개인 사실을 그대로 LIFE 또는 게시글 입력으로 보내지 않는다. 상대별 관계도 자유문장의 이름을 agent id로 추측하지 않는다. 공유용 투영은 허용된 dimension/target과 검증된 값만 내보내고 출처 검사는 host에 남겨야 한다.
+- IdentityPolicySnapshot에 revision 참조만 추가하면 실제 개인 성장 값의 생성·저장·동결 경로가 빠진다. P에서 이 경로를 확정한 후 A로 진행한다. v1 저장 기록을 현재 인격으로 다시 해석하지 않는다.
+
+기존 기준 검사 `bun test packages/lina-core/test/life-persona.test.ts packages/lina-core/test/life-persona-v1-reopen.test.ts packages/lina-core/test/life-autonomy-persona.test.ts packages/lina-runtime/test/life-persona-hooks.test.ts packages/lina-runtime/test/persona-runtime.test.ts`는 exit 0, 7 pass/44 assertions다. 경로를 직접 지정하여 기존 persona/LIFE 투영과 v1 복원을 검사했으며 아직 새 연결을 검증하지는 않는다. 로그는 `persona-baseline.log`다.
+
+추가 수용 시나리오: native 자기 성향 생성 후 일반 요청에 반영; 동일 원문을 다른 request id로 재처리해도 성장 근거 증가 없음; 근거 정정·철회·만료 뒤 다음 요청에서 제거; manual/locked 전환 중 응답 도착 시 반영 거부; A→B 관계가 B→A로 복제되지 않음; 원문 비밀 표식이 actor/publication의 공유 성향에 없음; 성장 변경 중 아직 dispatch하지 않은 요청 거부; file DB 재개방 후 과거 step 입력은 동일하고 새 step만 현재 성장 사용. 실제 모델의 해석 품질은 이 합성 테스트와 별도로 표시한다.
+
+## PR #3 연결 검토 기준점 (2026-09-08)
+
+LIFE `cefaffcbb4d767848ace6bc0151b9271bf336bf2`를 상대 계약 기준으로 삼는다. 검토 범위와 CI 증거는 [070의 PR 연결 검토](070_runtime_integration.md#pr-3-연결-검토-기준점-2026-09-08)에 기록했다. 아직 이 포크에 통합하지 않았다.
+
+`fleetLifeIdentity()`는 AgentStore의 profile revision/evolution으로 실행 정체성을 구성하고, `fleetPublicationAuthor()`는 `projectSharedPersona()`의 traits/habits/attitudes를 소비한다. 따라서 일반 대화와 actor뿐 아니라 게시글 작성자도 새 공통 투영의 소비자로 검사해야 한다. LIFE 성장과 대화 성장을 별도 수정 가능한 복제본으로 만들지 않는다. 작성 정체성·manual evolution을 보존하고, 성장 근거 철회 및 revision 변경을 다음 읽기에 반영한다.
+
+사건·비밀은 공통 성향에 넣지 않는다. 일반 대화의 shared-growth/disclosed-life 출처 표시와 기억 엔진의 학습 제외 계약을 유지하며, 회고·요약·재시작 이후에도 허구가 실제 경험으로 다시 저장되지 않는 교차 엔진 테스트를 추가한다. LIFE 자체의 완료 및 별도 CI는 이 결합 수용 조건을 대신하지 않는다.
+
 상태: P 설계 초안. 감사 전이며 구현 완료가 아니다. 단위 `persona`, 선행 `memory`.
+
+현재 실행 설계는 [031 개인 성장 투영](031_persona_projection.md)이다. 아래 초기 설계와 다르면 031의 owner·생성·저장·버전 계약이 우선한다. 특히 revision-only identity 확장은 실제 typed 값과 source stamp를 고정하는 설계로 대체한다.
 
 ## 변경 지도
 

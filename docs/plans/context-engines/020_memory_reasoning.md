@@ -1,6 +1,6 @@
 # 020 — 근거 연결과 기억 재검토
 
-상태: B 구현 중. 독립 A 잔여 수정 반영 후 진입했으며 전체 구현 완료가 아니다. 단위 `memory`, 선행 `routing`.
+상태: memory D 완료. `7aa4229`에서 독립 검토와 590개 범위 테스트, 타입·lint·문서·CI 구성·빌드 검증을 마쳤다. 증거는 `.codexclaw/evidence/01a08149-2fcd-7b83-b427-a104f083df05/memory-done.md`와 `memory-test-receipt.json`이다. 실제 모델 품질과 전체 엔진 통합 검증은 아직 남았다. 단위 `memory`, 선행 `routing`.
 
 원본 확인: 2026-09-08 Honcho `5a2f807b8b905cbb20e88267a9138f53c1e8d755`의 [dream orchestrator](https://github.com/plastic-labs/honcho/blob/5a2f807b8b905cbb20e88267a9138f53c1e8d755/src/dreamer/orchestrator.py)를 읽었다. 연역 다음 귀납을 실행하며 각 실행의 성공·실패와 반복 수를 따로 기록한다. 모델 호출 중 DB transaction을 유지하지 않는다. LINA에서는 이 책임 분리를 자체 기록·출처 검증·내구 큐에 적용한다. upstream 전체 구현의 동등성을 주장하지 않는다.
 

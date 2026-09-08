@@ -1,5 +1,16 @@
 # 070 — 실행 연결과 외부 어댑터 퇴역
 
+## PR #3 연결 검토 기준점 (2026-09-08)
+
+[LIFE PR #3](https://github.com/thisisjun786/lina/pull/3)의 검토 기준은 `cefaffcbb4d767848ace6bc0151b9271bf336bf2`, 이 포크는 `7aa42297f0ccb6a3e684ee015db01eae7748c876`이다. 공통 조상 `0b68b2f40b8f4368a78111ad1228626886a43797` 이후 변경 경로는 각각 63개와 58개이며 교집합은 없다. 이는 파일 충돌 비교이며 결합 실행 검증이 아니다. PR은 OPEN/Draft이고 [CI 34262430773](https://github.com/thisisjun786/lina/actions/runs/34262430773)은 tests/types/lint/build/dev-gate가 통과했다. 이 포크에 PR 코드를 합치거나 결합 테스트를 실행하지 않았다.
+
+- `fleet/life-runtime.ts`는 현재 director/actor의 정확한 provider/model과 유일한 profile을 선택한다. 공통 4단계 라우팅 연결은 이 단위의 남은 구현이며, 설정 revision과 outbound 직전 검사, 동결된 요청을 보존해야 한다.
+- `life/work-bridge.ts`는 TaskManager receipt/outbox를 사용한다. 현재 PR의 완료는 task 없는 검색·글쓰기·정리 활동까지 공유 자료 엔진으로 연결됐다는 뜻이 아니다. 위의 resource-activity 계약으로 확장하고 기존 task 경로를 보존한다.
+- `fleet/life-runtime-installation.ts`의 DB 복사 감사와 손상 저장소 격리 이후에도 일반 대화가 계속되는 계약을 유지한다. 자체 기억·자료 owner 추가 후 초기화 실패와 종료·checkpoint를 함께 검증한다.
+- PR의 replay/canonical JSON 최적화와 CI 통과는 아래 timeout 문제의 새 상류 증거다. 기존 포크 실패는 결합 candidate에서 해당 시나리오를 검증하기 전까지 닫지 않는다.
+
+결합 수용 조건: 출처 철회가 기억·성장·LIFE 미실행 입력까지 전달됨, 재시작 뒤 중복 반영 없음, 모델 설정 변경 시 과거 요청 재해석 없음, LIFE 손상 시 일반 대화 지속, checkpoint 복원 뒤 각 owner의 원본과 참조 일치. 실제 모델 품질·UI·설치 데이터 이전은 이 소스 검토의 검증 범위 밖이다.
+
 상태: P 설계 초안. 감사 전이며 구현 완료가 아니다. 단위 `integration`, 선행 `persona + context + shared-memory`.
 
 ## 변경 지도
