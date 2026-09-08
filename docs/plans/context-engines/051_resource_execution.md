@@ -24,6 +24,8 @@ ResourceScope는 host가 공급하는 principalId/agentId/allowedVisibilities다
 
 자료 기반 파생 입력은 ResourceVersionRef `{resourceId,resourceRevision,versionId:null|string}`로 고정한다. private 근거에서 shared derivation을 만들지 않는다. 모델의 임의 source label은 권한 증명이 아니다. 일반 supplied text의 의미를 검사해 비밀 여부를 판별한다고 주장하지 않는다. 060/070의 host source context가 개인 기억→공유 자료의 전송 권한을 소유한다.
 
+권한 변경/이동은 primary 하위와 secondary memberships까지 같은 transaction에서 검사하며 안전하지 않은 조합은 전체 거부한다. operation replay는 저장 당시 성공을 새 권한으로 간주하지 않는다. 현재 scope와 역사 버전 권한을 다시 검사한 뒤 허용된 결과만 반환한다. runtime은 scope snapshot뿐 아니라 host의 currentScope getter를 받으며 dispatch와 최종 응답 직전에 재확인한다. 취소/권한 회수 뒤 받은 모델 text를 공개하거나 현재 파생물로 활성화하지 않는다.
+
 ## 저장과 복구
 
 설치별 SQLite catalog와 불변 hash blob 디렉터리다. 현재 resourceRoot 변수는 배포 asset root이므로 재사용하지 않는다. 새 owner는 명시적 전용 state root를 받는다. Scope는 DB 경로가 아니라 같은 catalog의 접근 범위다.
@@ -32,13 +34,19 @@ ResourceScope는 host가 공급하는 principalId/agentId/allowedVisibilities다
 
 Blob은 해시·길이를 검증한 staging 파일에서 atomic rename 및 directory fsync를 마친 후 DB version/current pointer와 operation receipt를 같은 transaction에 commit한다. DB 실패 시 생긴 미참조 blob은 성공으로 기록하지 않으며 다음 동일 hash 저장에서 검증 후 재사용할 수 있다. 시작 시 참조된 모든 blob의 누락/변조를 거부한다. 무관한 사용자 파일을 자동 삭제하지 않는다. operation receipt와 최종 resource/version/projection 정합을 감사하며 unknown schema/enum, unsafe counter, orphan DB reference를 거부한다.
 
-원본 저장 한도와 파서 한도는 분리한다. 저장은 기존64MiB storage 기술 ceiling 안에서 명시적 owner 한도를 받는다. 기존 문서 추출기의2MiB 입력 제한은 우선 그대로 유지하고 초과 문서는 원본 보존+extraction unavailable로 표시한다. 이 제한을 전체 문서 이해 성공으로 감추지 않는다. 더 큰 파일 지원을 이유로 첨부 UI의 기존 한도를 바꾸지 않는다.
+원본 저장 한도와 파서 한도는 분리한다. owner는 maxFileBytes, maxCatalogBytes, maxExtractionBytes를 각각 명시한다. 기존64MiB는 aggregate 첨부 저장 한도이지 단일 파일 한도가 아니다. maxFileBytes ≤ maxCatalogBytes ≤ 64MiB, maxExtractionBytes ≤ 2MiB를 검사한다. catalog 한도는 보존된 역사/tombstone blob과 미참조 완성 blob까지 포함한 실제 고유 hash bytes 합에 적용한다. 동일 hash는 한 번만 계산한다. 자동 재시도로 orphan을 무한히 쌓지 않으며 신규 bytes 수용 전 writer transaction에서 한도를 검사한다. 기존 문서 추출기의2MiB 입력 제한은 우선 그대로 유지하고 초과 문서는 원본 보존+extraction unavailable로 표시한다. 이 제한을 전체 문서 이해 성공으로 감추지 않는다. 더 큰 파일 지원을 이유로 첨부 UI의 기존 한도를 바꾸지 않는다.
+
+SQL의 resource_versions는 owner_id/visibility를 명시 열로 저장한다. resource_derivations의 키는 `(resource_id, source_digest, policy_revision, model_settings_revision, kind)`이며 source_digest는 canonical source_versions_json의 hash다. jobs에도 model_settings_revision과 같은 UNIQUE를 두며 collection의 null version_id를 STRICT PRIMARY KEY에 넣지 않는다. 별도의 resource_job_attempts는 `(resource_id, source_digest, kind)`별 총 소비 횟수를 저장하여 정책/모델 변경으로 재시도 한도가 초기화되지 않게 한다.
+
+FTS5는 `(resource_id UNINDEXED, source_digest UNINDEXED, text)`의 파생 검색 테이블이다. title/추출/brief/overview 원문별 현재 ref를 보관하고 current resource/derivation과 join한 뒤 scope를 검사한다. FTS hit 자체를 공개 응답으로 사용하지 않는다. 과거 version은 일반 검색에 넣지 않으며 명시적 version read에서만 현재+당시 권한을 검사한다. shared 개요는 source_refs 전부의 현재 shared 공개 범위를 다시 검사한다.
+
+API host principal은 설치 소유자의 안정된 `installation:<id>`, agent tool principal은 `agent:<agentId>`다. 두 agent의 private 자료는 서로 조회할 수 없고 caller가 principal 문자열을 공급할 수 없다. 설치 관리의 별도 권한 상승은 이번 계약에 없으며 private owner 일치 규칙을 그대로 적용한다.
 
 ## 색인·검색·모델 호출
 
 원본 commit은 중복 없는 extract/brief/overview 작업을 enqueue한다. 텍스트와 JSON/CSV/Markdown은 bounded UTF-8 text, PDF/Office는 기존 파서, 이미지 분석은 선택된 vision service다. 원본 저장, 추출, 모델 개요, FTS 검색 준비를 별도 상태로 노출한다. unsupported/failed/cancelled/unknown은 ready가 아니다.
 
-worker는 pending→prepared claim과 소비 attempt를 먼저 저장하고 transaction 밖에서 처리한다. 완료 전 source refs/policy/model 설정을 다시 검사한다. prepared 재시작은 unknown outcome을 남긴다. retry는 명시 요청과 기존 maxAttempts 안에서 가능하며 새 fingerprint로 같은 근거를 무제한 호출하지 않는다. 원문이 바뀐 old job은 현재 derivation으로 활성화하지 않는다. collection 하위/멤버십 변경은 visible source 집합이 바뀐 경우만 새 개요 작업을 만든다.
+worker는 pending→prepared claim과 소비 attempt를 먼저 저장하고 transaction 밖에서 처리한다. 완료 전 source refs/policy/model 설정을 다시 검사한다. prepared 재시작은 unknown outcome을 남긴다. 단, 일반 catalog connection을 열 때 다른 worker의 prepared를 회수하지 않는다. 설치 runtime의 단일 worker owner가 exclusive recovery 권한을 얻은 뒤 명시적 recoverInterrupted를 호출한다. 두 catalog connection의 CAS 테스트는 recovery를 호출하지 않는다. worker owner/close 조립은070에서 검증하고 이번 단위에서는 explicit recovery와 늦은 claim token 결과의 거부를 검증한다. retry는 명시 요청과 기존 maxAttempts 안에서 가능하며 새 fingerprint로 같은 근거를 무제한 호출하지 않는다. 원문이 바뀐 old job은 현재 derivation으로 활성화하지 않는다. collection 하위/멤버십 변경은 visible source 집합이 바뀐 경우만 새 개요 작업을 만든다.
 
 빠른 find는 scope 필터 후 title/FTS/literal 후보를 반환한다. search는 허용된 collection의 brief/overview→query planning→자료 후보→rerank를 호출 예산과 방문 한도 안에서 실행한다. planner/reranker는 입력으로 받은 ID만 선택하며 신규 권한·임의 URL/filepath를 만들 수 없다. 한국어3자 미만 query는 literal 후보를 사용한다. model 미설정/오류나 한도 소진은 lexical fallback과 incomplete 이유를 반환하고 의미 검색 성공을 가장하지 않는다. fake embedding은 만들지 않는다.
 
@@ -66,6 +74,8 @@ worker는 pending→prepared claim과 소비 attempt를 먼저 저장하고 tran
 | NEW | `packages/lina-runtime/src/fleet/resource-routes.ts` | 기존 gateway에서 받을 scoped Request→Response API adapter; 실제 설치 조립070 |
 
 각 resource/version/job/source state는 types→codec→SQL+blob→decode/audit→read/search/tools/routes까지 전달한다. 050 test 신규 경로에 실제owner 테스트를 만들고 기존 파서/source/승인 회귀를 포함한다. 일반 대화 모델은 fixed selection을 유지하고 새 resource call만 기존 shared tier resolver를 쓴다.
+
+analyzeImage의 기존 두 인자는 유지하고 optional beforeDispatch/maxTokens를 추가하여 resource vision도 실제 completeOptions의 마지막 dispatch guard/출력 상한에 연결한다. 자료 service가 호출 직전에 검사하는 것만으로 async provider 경로의 권한 유지가 증명됐다고 하지 않는다. 기존 이미지 consumer는 인자를 생략해 이전 계약을 유지한다.
 
 ## 수용과 분업
 
