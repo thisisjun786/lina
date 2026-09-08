@@ -96,3 +96,67 @@ for (const revoke of [false, true])
 			rmSync(root, { recursive: true, force: true });
 		}
 	});
+
+test("ResourceEngine close joins an in-flight memory dispatch before reopening its ledger", async () => {
+	const { ResourceEngine } = await import("../src/resources/services.ts");
+	const root = mkdtempSync(join(tmpdir(), "lina-memory-close-")),
+		policy = defaultEnginePolicy(),
+		entered = Promise.withResolvers<void>();
+	const svc: ContextServices = {
+		estimateText: conservativeEstimator.text,
+		estimateMessages: conservativeEstimator.messages,
+		estimator: conservativeEstimator,
+		systemTokens: 0,
+		contextWindow: 32768,
+		reserveTokens: 1024,
+		summarize: async () => "",
+		prepare: () => {
+			throw Error("unused");
+		},
+		memoryInputOverhead: () => 20,
+		deriveResourceMemory: async (_text, signal, before) => {
+			before?.();
+			entered.resolve();
+			return new Promise((_resolve, reject) =>
+				signal.addEventListener("abort", () => reject(signal.reason), {
+					once: true,
+				}),
+			);
+		},
+	};
+	const engine = new ResourceEngine({
+		root,
+		limits,
+		scope: () => scope,
+		services: () => svc,
+		policy: () => policy,
+	});
+	try {
+		const r = engine.store.create(scope, {
+			operationId: "d",
+			kind: "document",
+			title: "Notes",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("Evidence"),
+			deriveMemory: true,
+		});
+		const running = engine.runPending(r.id, new AbortController().signal);
+		await entered.promise;
+		await engine.close();
+		await running;
+		const reopened = new ResourceStore(root, limits, undefined, () =>
+			memoryGeneration(svc, policy),
+		);
+		try {
+			const j = reopened.memories.jobs(scope, r.id)[0];
+			expect(j?.state).toBe("failed");
+			expect(j?.attempt).toBe(1);
+		} finally {
+			reopened.close();
+		}
+	} finally {
+		await engine.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

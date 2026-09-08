@@ -1,6 +1,6 @@
 # 061 — 자료 기반 기억과 공통 소비 실행 계약
 
-상태: P, 독립 감사 전. 선행 resources는 fd4d1e7에서 종료했다. 515개 관련 테스트와 독립 검토가 통과했다. 다음 방향은 원문 권한과 revision을 유지하는 공통 기억이다. 전체 설치 연결은 070이 맡는다.
+상태: B 구현·독립 검토 중. c6fcad7 계획 독립 A PASS. 선행 resources는 fd4d1e7에서 종료했다. 515개 관련 테스트와 독립 검토가 통과했다. 다음 방향은 원문 권한과 revision을 유지하는 공통 기억이다. 전체 설치 연결은 070이 맡는다.
 
 유형 satisfy-spec, 계기 060 실행. 목표는 에이전트 A/B와 Codex가 같은 자료와 자료 기반 기억을 이어 쓰되 개인 직접경험으로 오인하지 않는 것이다. 사용자 대화 모델 선택, UI, 설치 데이터 변경, 외부 호출, 푸시·머지는 범위 밖이다. 성공 조건은 아래 시나리오와 관련 타입·린트 검증 통과 및 독립 검토다. 기록은 이 문서와 세션 evidence/shared-memory-*에 남긴다. 로컬 완료 뒤 070으로 진행하며 라이브 검증은 별도 허가가 필요하다. 사용자가 지정하지 않은 시간·토큰 예산은 만들지 않는다. 두 실행자가 같은 위임 작업에 실패하면 주 에이전트가 회수한다. 새 위임은 P 수정으로 범위를 먼저 고정한다.
 
@@ -89,3 +89,12 @@ P 기준선: `bun test packages/lina-memory/test/resources-store.test.ts package
 두 차단 문제를 수용했다. 004에 memory jobs/attempts/intents/memories의 실제 DDL과 PK/UNIQUE, JSON 연결을 고정했다. memory attempt는 기존 resource_job_attempts와 auditJobs를 건드리지 않는다. version별 expected DDL과 meta 값(v1/v2), open 검사→기존 감사→migration→새 감사→commit 순서도 명시했다. ResourceStore constructor를 이 순서로 재구성하고 mutation은 v2만 검증한다. 추후 실패가 발생하면 동일 transaction을 rollback한다.
 
 자료 memory overhead는 별도 callback을 쓰거나 exhaustive kind mapping으로 계산한다. rank ternary의 암묵적 else에 맡기지 않는다. 테스트는 실제 memory prompt frame의 추정치와 callback 값이 일치함을 확인한다(다른 prompt와 숫자가 달라야 한다는 임의 조건은 두지 않는다). context 읽기 경로는 refresh/runPending/capture를 호출하지 않는다. 주 에이전트는 이를 수용한 수정 계획의 재검토를 요청한다.
+
+
+## B 구현 연결과 검증 기록
+
+903122f까지 자체 capture ledger·source snapshot·strict 복구 감사, standard observation callback, 실제 provider input/output cap, resourceMemoryContext, 확인 모드 기억 읽기, task 없는 공통 consumer와 TaskManager RPC 연결을 구현했다. 원문 텍스트 또는 추출 결과의 blobHash/extractionId/textHash/complete를 저장하고, 잘린 입력은 inputComplete=false로 따로 표시한다. ready 기록은 completedToken+outputHash+memoryIds로 재현·감사한다. 기억 state는 저장 시 active, revision1이며 현재 intent/source/generation과 맞는 기록만 반환한다. 역사 기록을 현재 지식으로 자동 복원하지 않는다.
+
+관련 테스트 395 pass/0 fail, 54 files, 1715 assertions. 이는 로컬 임시 DB·가짜 provider fetch·가짜 Codex RPC 증거이며 실제 모델 품질이나 설치 완료를 뜻하지 않는다. 소스 커밋 이후 독립 검토를 기다린다. 전체 관련 C 검증 receipt와 최종 문서 정합은 아직 진행 전이다.
+
+TaskManager owner 인자는 실제 task에서만 생성한다. 도구 실행은 인계가 가능한 큐 밖에서 처리하고, 최종 응답은 task 큐에서 owner/revision을 다시 검사한다. 겹친 RPC request id도 개별 promise로 추적해 종료 시 전부 기다리고, 완료된 promise는 제거한다. 자료 소비자의 null owner는 shared-only지만 TaskStore의 기존 owner 필드 자체를 nullable로 바꾸지는 않는다.
