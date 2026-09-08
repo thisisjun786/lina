@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ResourceContent } from "../src/resources/content.ts";
@@ -55,6 +55,26 @@ test("missing owner limits are rejected before creating content storage", () => 
 		expect(
 			() => new ResourceContent(join(root, "invalid"), {} as never),
 		).toThrow(/limit/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("a symlink at a hash path is rejected without reading another file", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-link-"));
+	try {
+		const folder = join(root, "blobs");
+		const content = new ResourceContent(folder, {
+			maxFileBytes: 16,
+			maxCatalogBytes: 32,
+			maxExtractionBytes: 16,
+		});
+		const saved = content.put(new Uint8Array([1, 2, 3]));
+		rmSync(join(folder, saved.hash));
+		writeFileSync(join(root, "outside"), new Uint8Array([1, 2, 3]));
+		symlinkSync(join(root, "outside"), join(folder, saved.hash));
+		expect(() => content.put(new Uint8Array([1, 2, 3]))).toThrow();
+		expect(() => content.read(saved)).toThrow();
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
