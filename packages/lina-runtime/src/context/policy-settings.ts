@@ -1,5 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import { openCheckedDatabase } from "../../../lina-core/src/session-binding.ts";
+import {
+	type ContextBudgetPolicy,
+	DEFAULT_CONTEXT_POLICY,
+	parseContextBudgetPolicy,
+} from "./policy.ts";
 
 const SCHEMA_VERSION = 1;
 const SCHEMA =
@@ -14,7 +19,7 @@ const MEMORY_KEYS = [
 	"maxAttempts",
 ];
 
-export type EnginePolicyInput = {
+type MemoryPolicyInput = {
 	version: 1;
 	memory: {
 		enabled: boolean;
@@ -30,7 +35,19 @@ export type EnginePolicyInput = {
 	};
 };
 
-export type EnginePolicySnapshot = EnginePolicyInput & {
+export type EnginePolicyInput =
+	| MemoryPolicyInput
+	| {
+			version: 2;
+			memory: MemoryPolicyInput["memory"];
+			context: ContextBudgetPolicy;
+	  };
+
+export type EnginePolicySnapshot = {
+	version: 2;
+	memory: MemoryPolicyInput["memory"];
+	context: ContextBudgetPolicy;
+} & {
 	revision: number;
 };
 
@@ -94,16 +111,26 @@ function validPolicyRevision(value: unknown): number {
 	return value;
 }
 
-function parseEnginePolicyInput(value: unknown): EnginePolicyInput {
+function parseEnginePolicyInput(
+	value: unknown,
+): Omit<EnginePolicySnapshot, "revision"> {
 	const input = object(value, "engine policy");
-	exactFields(input, INPUT_KEYS, "engine policy");
-	if (input["version"] !== 1) throw new Error("unknown engine policy version");
+	exactFields(
+		input,
+		input["version"] === 2 ? [...INPUT_KEYS, "context"] : INPUT_KEYS,
+		"engine policy",
+	);
+	if (input["version"] !== 1 && input["version"] !== 2)
+		throw new Error("unknown engine policy version");
 	const memory = object(input["memory"], "engine policy memory");
 	exactFields(memory, MEMORY_KEYS, "engine policy memory");
 	if (typeof memory["enabled"] !== "boolean")
 		throw new Error("invalid engine policy enabled");
 	return {
-		version: 1,
+		version: 2,
+		context: parseContextBudgetPolicy(
+			input["version"] === 1 ? DEFAULT_CONTEXT_POLICY : input["context"],
+		),
 		memory: {
 			enabled: memory["enabled"],
 			maxSearchRounds: boundedInt(
@@ -127,7 +154,8 @@ function parseEnginePolicyInput(value: unknown): EnginePolicyInput {
 
 function freezeSnapshot(value: EnginePolicySnapshot): EnginePolicySnapshot {
 	return Object.freeze({
-		version: 1,
+		version: 2,
+		context: Object.freeze({ ...value.context }),
 		revision: value.revision,
 		memory: Object.freeze({ ...value.memory }),
 	});

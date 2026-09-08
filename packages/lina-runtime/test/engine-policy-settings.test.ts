@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { DEFAULT_CONTEXT_POLICY } from "../src/context/policy.ts";
 import {
 	defaultEnginePolicy,
 	type EnginePolicyInput,
@@ -18,9 +19,10 @@ import {
 
 function input(
 	memory: Partial<EnginePolicyInput["memory"]> = {},
-): EnginePolicyInput {
+): Extract<EnginePolicyInput, { version: 2 }> {
 	return {
-		version: 1,
+		version: 2,
+		context: { ...DEFAULT_CONTEXT_POLICY },
 		memory: {
 			enabled: true,
 			maxSearchRounds: 2,
@@ -72,7 +74,8 @@ describe("engine policy settings", () => {
 		expect(existsSync(path)).toBe(false);
 		const first = defaultEnginePolicy();
 		expect(first).toEqual({
-			version: 1,
+			version: 2,
+			context: { ...DEFAULT_CONTEXT_POLICY },
 			revision: 0,
 			memory: DEFAULT_MEMORY,
 		});
@@ -162,7 +165,7 @@ describe("engine policy settings", () => {
 			"unknown memory field",
 			() => ({ ...input(), memory: { ...input().memory, extra: 1 } }),
 		],
-		["unknown version", () => ({ ...input(), version: 2 })],
+		["unknown version", () => ({ ...input(), version: 3 })],
 		["missing memory", () => ({ version: 1 })],
 		["array input", () => []],
 		["null input", () => null],
@@ -259,7 +262,7 @@ describe("engine policy settings", () => {
 			"unknown settings field",
 			() => JSON.stringify({ ...input(), revision: 100 }),
 		],
-		["unknown version", () => JSON.stringify({ ...input(), version: 2 })],
+		["unknown version", () => JSON.stringify({ ...input(), version: 3 })],
 		[
 			"unknown memory field",
 			() =>
