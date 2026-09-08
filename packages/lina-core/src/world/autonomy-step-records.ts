@@ -113,6 +113,12 @@ export class LifeStepRecords {
 			"publication",
 			"images",
 			"avatars",
+			...(typeof s.config === "object" &&
+			s.config !== null &&
+			"version" in s.config &&
+			s.config.version === 2
+				? ["work"]
+				: []),
 		]);
 		const {
 			worldId: configWorldId,

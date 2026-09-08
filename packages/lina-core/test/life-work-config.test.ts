@@ -73,3 +73,27 @@ test("persists work settings and rejects unknown families before changing config
 	cleanup.push(() => reopened.close());
 	expect(reopened.lifeConfig(worldId)).toEqual(saved);
 });
+
+test("an explicitly unset work group survives autonomous step serialization and reopen", () => {
+	const fixture = autonomyStoreFixture();
+	cleanup.push(() => fixture.close());
+	const { worldId, revision, ...old } = fixture.store.lifeConfig(
+		fixture.request.worldId,
+	);
+	fixture.store.setLifeConfig(
+		worldId,
+		revision,
+		parseLifeConfigInput({ ...old, version: 2, work: null }),
+	);
+	const step = fixture.store.prepareLifeStep(
+		{ ...fixture.request, expectedConfigRevision: revision + 1 },
+		() => 42,
+	);
+	expect(fixture.store.lifeStep(worldId, step.id)?.source.config.version).toBe(
+		2,
+	);
+	fixture.store.close();
+	const reopened = new WorldStore(fixture.path, fixture.clock);
+	cleanup.push(() => reopened.close());
+	expect(reopened.lifeStep(worldId, step.id)?.source.config.version).toBe(2);
+});
