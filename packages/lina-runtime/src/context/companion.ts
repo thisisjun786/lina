@@ -79,6 +79,7 @@ export class CompanionMemory {
 	private recallText = "";
 	private recallProofs: SourceProof[] = [];
 	private recallRevision: number | undefined;
+	private recallRecordIds: string[] = [];
 	constructor(
 		private readonly options: {
 			path: string;
@@ -132,6 +133,7 @@ export class CompanionMemory {
 	}
 	status(): MemorySnapshot {
 		if (
+			(this.recallText && !this.mind.currentRecords(this.recallRecordIds)) ||
 			(this.recallText &&
 				this.recallRevision !== this.mind.currentRevision()) ||
 			!sourceProofsCurrent(this.recallProofs, (id) =>
@@ -169,6 +171,7 @@ export class CompanionMemory {
 			!text ||
 			text !== this.recallText ||
 			this.recallRevision !== this.mind.currentRevision() ||
+			!this.mind.currentRecords(this.recallRecordIds) ||
 			!sourceProofsCurrent(this.recallProofs, (id) =>
 				this.options.journal.sourceEntry(id),
 			)
@@ -210,6 +213,7 @@ export class CompanionMemory {
 			? mergeProofs(...records.map((record) => record.sourceProofs))
 			: [];
 		this.recallRevision = state.revision;
+		this.recallRecordIds = records.map((record) => record.id);
 		this.recallText = renderMemoryReference({ ...state, records }, 4096, (id) =>
 			this.options.journal.sourceEntry(id),
 		);
@@ -546,6 +550,7 @@ export class CompanionMemory {
 		this.recallText = "";
 		this.recallProofs = [];
 		this.recallRevision = undefined;
+		this.recallRecordIds = [];
 		this.cancelWake?.();
 		this.controller.abort();
 		this.closing = (async () => {

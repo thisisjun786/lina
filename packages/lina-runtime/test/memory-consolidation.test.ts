@@ -202,3 +202,50 @@ test("consolidation can inspect bounded original evidence rather than only obser
 		await f.close();
 	}
 });
+
+test("expired memory is withheld from cached context without a database write", async () => {
+	const f = createRuntimeFixture();
+	trustNativeFixture(f.store, f.runtime.binding);
+	let now = 1800000000000;
+	const memory = new CompanionMemory({
+		path: join(f.root, "mind.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		now: () => now,
+		schedule: () => () => {},
+	});
+	memory.configure(async () =>
+		JSON.stringify([
+			{
+				subject: "user",
+				kind: "mood",
+				key: "mood",
+				text: "Feeling hopeful",
+				evidence: "explicit",
+				sources: [{ entryId: "u", quote: "hopeful" }],
+			},
+		]),
+	);
+	try {
+		f.store.createRequest("r", "hopeful");
+		f.store.appendEntry({
+			entryId: "u",
+			role: "user",
+			text: "hopeful",
+			timestamp: new Date(now).toISOString(),
+			raw: {},
+		});
+		f.store.setRequest("r", "accepted", { entryId: "u" });
+		f.store.setRequest("r", "settled");
+		await memory.refresh();
+		const text = await memory.recall("hopeful");
+		expect(text).toContain("Feeling hopeful");
+		const revision = memory.mind.currentRevision();
+		now += 7 * 60 * 60 * 1000;
+		expect(memory.mind.currentRevision()).toBe(revision);
+		expect(memory.recallSourceProofs(text)).toBeUndefined();
+	} finally {
+		await memory.close();
+		await f.close();
+	}
+});

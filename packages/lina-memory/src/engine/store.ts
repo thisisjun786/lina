@@ -97,6 +97,13 @@ export class EngineStore {
 		this.assertOpen();
 		return this.revision();
 	}
+	currentRecords(ids: readonly string[]): boolean {
+		this.assertOpen();
+		return ids.every((id) => {
+			const record = this.get(engineIdSchema.parse(id));
+			return !!record && this.reasoningEligible(record);
+		});
+	}
 	state(): EngineState {
 		return this.read(true);
 	}
