@@ -8,7 +8,6 @@ import {
 	readRegular,
 } from "../../../lina-core/src/attachments/filesystem.ts";
 import { inspectContent } from "../../../lina-core/src/attachments/validation.ts";
-import { HonchoClient } from "../../../lina-memory/src/honcho/client.ts";
 import { defaultConversation } from "../persona/conversation.ts";
 import { companionRoutes } from "./companion-routes.ts";
 import { introRoutes } from "./intro-routes.ts";
@@ -265,12 +264,15 @@ export async function startFleetServer(
 						);
 					}
 					if (action === "memory" && request.method === "POST") {
-						const app = await fleet.app(id),
-							config = fleet.memoryConfig(id);
-						if (!config)
-							return response({ error: "Honcho 연결 설정이 필요합니다." }, 409);
-						await new HonchoClient(config).initialize(request.signal);
-						await app.memory.refresh();
+						if (!(await fleet.initializeMemory(id, request.signal)))
+							return response(
+								{
+									error:
+										"Honcho 연결 설정과 에이전트 소유 범위 확인이 필요합니다.",
+								},
+								409,
+							);
+						const app = await fleet.app(id);
 						return response(app.memory.status());
 					}
 					if (action === "avatar" && request.method === "POST") {

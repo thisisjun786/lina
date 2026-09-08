@@ -642,6 +642,11 @@ export class AuthoringPersistence {
 				scope,
 			),
 			pack = currentDraft.pack;
+		if (pack && this.world.exists(pack.worldId)) {
+			const config = this.lifeConfig(pack.worldId);
+			if (config.version === 2 && config.work)
+				assertWorkConfigReferences(config.work, pack);
+		}
 		if (
 			!pack ||
 			!preview.canActivate ||
@@ -870,9 +875,12 @@ export class AuthoringPersistence {
 			.get(worldId) as
 			| { revision: number; config_json: string; digest: string }
 			| undefined;
-		return row
+		const config: LifeConfig = row
 			? this.readConfig(worldId, row)
 			: { ...structuredClone(EMPTY_CONFIG), worldId, revision: 0 };
+		if (config.version === 2 && config.work)
+			assertWorkConfigReferences(config.work, this.currentPack(worldId));
+		return config;
 	}
 	lifeConfigAt(worldId: string, configRevision: number): LifeConfig {
 		integer(configRevision, "runtime configuration revision", 1);

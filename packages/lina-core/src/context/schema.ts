@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import type { BotBinding } from "../protocol.ts";
 
-export const CONTEXT_SCHEMA_VERSION = 1;
+export const CONTEXT_SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE context_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
@@ -31,9 +31,30 @@ CREATE TABLE working_state (
 ) STRICT;
 `;
 
-function verifySchema(db: DatabaseSync): void {
+const PROVENANCE_SCHEMA = `
+CREATE TABLE summary_provenance (
+	summary_id TEXT PRIMARY KEY REFERENCES summaries(id), source_proofs TEXT NOT NULL
+) STRICT;
+CREATE TABLE context_artifacts (
+	id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('working','note')),
+	content TEXT NOT NULL, creations TEXT NOT NULL, dependencies TEXT NOT NULL,
+	status TEXT NOT NULL CHECK(status IN ('pending','finalized','withheld')),
+	reason TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE context_finalizations (
+	artifact_id TEXT PRIMARY KEY REFERENCES context_artifacts(id),
+	status TEXT NOT NULL CHECK(status IN ('finalized','withheld')),
+	source_proofs TEXT NOT NULL, reason TEXT NOT NULL
+) STRICT;
+`;
+
+function verifySchema(db: DatabaseSync, version: number): void {
 	const normalize = (sql: string) => sql.trim().replace(/\s+/g, " ");
-	const expected = SCHEMA.split(";").map(normalize).filter(Boolean).sort();
+	const expected = (SCHEMA + (version === 2 ? PROVENANCE_SCHEMA : ""))
+		.split(";")
+		.map(normalize)
+		.filter(Boolean)
+		.sort();
 	const actual = db
 		.prepare("SELECT sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
 		.all()
@@ -43,6 +64,8 @@ function verifySchema(db: DatabaseSync): void {
 		throw new Error("unknown context store schema");
 	const working = db.prepare("SELECT COUNT(*) AS n FROM working_state").get();
 	if (working?.["n"] !== 1) throw new Error("corrupt context working state");
+	if (db.prepare("PRAGMA foreign_key_check").all().length)
+		throw Error("corrupt context relationships");
 }
 
 /** Runs inside the caller's transaction; the caller owns commit/rollback. */
@@ -56,13 +79,13 @@ export function initializeContextSchema(
 		.prepare("SELECT name FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
 		.all();
 	if (version !== 0 || tables.length > 0) {
-		if (version !== CONTEXT_SCHEMA_VERSION)
+		if (version !== 1 && version !== CONTEXT_SCHEMA_VERSION)
 			throw new Error("unknown context store schema");
-		verifySchema(db);
+		verifySchema(db, version);
 		const schema = db
 			.prepare("SELECT value FROM context_meta WHERE key = 'schema_version'")
 			.get()?.["value"];
-		if (schema !== String(CONTEXT_SCHEMA_VERSION))
+		if (schema !== String(version))
 			throw new Error("unknown context store schema");
 		const saved = db
 			.prepare("SELECT value FROM context_meta WHERE key = 'binding'")
@@ -72,10 +95,19 @@ export function initializeContextSchema(
 			!isDeepStrictEqual(JSON.parse(saved), binding)
 		)
 			throw new Error("foreign context store binding");
+		if (version === 1) {
+			// Preserve all v1 bytes as human history; no proof is invented for old text.
+			db.exec(PROVENANCE_SCHEMA);
+			db.prepare(
+				"UPDATE context_meta SET value = '2' WHERE key = 'schema_version'",
+			).run();
+			db.exec("PRAGMA user_version = 2");
+		}
+		verifySchema(db, 2);
 		return;
 	}
 	if (!fresh) throw new Error("unknown context store schema");
-	db.exec(SCHEMA);
+	db.exec(SCHEMA + PROVENANCE_SCHEMA);
 	const insert = db.prepare(
 		"INSERT INTO context_meta(key, value) VALUES (?, ?)",
 	);

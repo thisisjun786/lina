@@ -6,6 +6,7 @@ import { archiveText } from "../src/context/archive.ts";
 import { ContextStore } from "../src/context/store.ts";
 import type { SourceRef } from "../src/context/types.ts";
 import type { DurableStore } from "../src/store.ts";
+import { appendContextEntry } from "./context-journal-fixture.ts";
 import { entry, Fixture } from "./fixture.ts";
 
 function native(id: string, role: string, content: unknown) {
@@ -24,14 +25,19 @@ describe("context store", () => {
 	let file: string;
 	const open = () =>
 		fixture.keep(
-			new ContextStore(file, fixture.binding, (id) => durable.entry(id)),
+			new ContextStore(file, fixture.binding, (id) => durable.sourceEntry(id), {
+				lookupRequest: (id) =>
+					durable.sourceEntry(durable.request(id)?.entryId ?? ""),
+			}),
 		);
 	beforeEach(() => {
 		fixture = new Fixture();
 		durable = fixture.store();
 		file = join(fixture.dir, "context.sqlite");
 		for (let i = 1; i <= 70; i++)
-			durable.appendEntry(
+			appendContextEntry(
+				durable,
+				fixture.binding.sessionId,
 				entry(`e${i}`, { role: i % 2 ? "user" : "assistant" }),
 			);
 	});
@@ -277,6 +283,11 @@ describe("context store", () => {
 
 	it("replaces working state with optimistic concurrency and real user source IDs", () => {
 		let store = open();
+		const update = (
+			revision: number,
+			fields: Parameters<typeof store.updateWorking>[1],
+		) =>
+			store.updateWorking(revision, fields, { activeRequestId: "context-e1" });
 		expect(store.working()).toEqual({
 			revision: 0,
 			goal: "",
@@ -285,7 +296,7 @@ describe("context store", () => {
 			nextSteps: [],
 			sourceEntryIds: [],
 		});
-		const next = store.updateWorking(0, {
+		const next = update(0, {
 			goal: "ship context",
 			decisions: ["use sqlite"],
 			sourceEntryIds: ["e1", "e3"],
@@ -298,7 +309,7 @@ describe("context store", () => {
 			nextSteps: [],
 			sourceEntryIds: ["e1", "e3"],
 		});
-		expect(() => store.updateWorking(0, { goal: "again" })).toThrow(
+		expect(() => update(0, { goal: "again" })).toThrow(
 			/stale working revision/,
 		);
 		const bad: [RegExp, Parameters<typeof store.updateWorking>[1]][] = [
@@ -323,16 +334,14 @@ describe("context store", () => {
 		];
 		for (const [pattern, fields] of bad) {
 			expect(
-				() => store.updateWorking(1, { goal: "partial", ...fields }),
+				() => update(1, { goal: "partial", ...fields }),
 				String(pattern),
 			).toThrow(pattern);
 		}
 		expect(store.working()).toEqual(next);
-		expect(() => store.updateWorking(-1, {})).toThrow(
-			/invalid working revision/,
-		);
+		expect(() => update(-1, {})).toThrow(/invalid working revision/);
 		// Replacement, never append: an empty list clears.
-		const cleared = store.updateWorking(1, {
+		const cleared = update(1, {
 			decisions: [],
 			sourceEntryIds: [],
 		});
@@ -350,13 +359,17 @@ describe("context store", () => {
 	it("expands one level with bounded text and source pages that reach tool-only originals", () => {
 		const store = open();
 		const long = "가".repeat(5000);
-		durable.appendEntry(
+		appendContextEntry(
+			durable,
+			fixture.binding.sessionId,
 			entry("long", {
 				text: long,
 				raw: native("long", "user", [{ type: "text", text: long }]),
 			}),
 		);
-		durable.appendEntry(
+		appendContextEntry(
+			durable,
+			fixture.binding.sessionId,
 			entry("tool-only", {
 				text: "",
 				raw: native("tool-only", "assistant", [
@@ -370,7 +383,9 @@ describe("context store", () => {
 				]),
 			}),
 		);
-		durable.appendEntry(
+		appendContextEntry(
+			durable,
+			fixture.binding.sessionId,
 			entry("image", {
 				role: "user",
 				text: "look",

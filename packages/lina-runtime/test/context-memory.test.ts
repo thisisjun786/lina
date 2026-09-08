@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { HonchoClient } from "../../lina-memory/src/honcho/index.ts";
-import { config, FakeHoncho } from "../../lina-memory/test/honcho-fixture.ts";
+import {
+	qualifiedConfig as config,
+	FakeHoncho,
+} from "../../lina-memory/test/honcho-fixture.ts";
 import { MemoryBridge } from "../src/context/memory.ts";
+import { honchoOptions, qualifyRequest } from "./context-honcho-fixture.ts";
 import { createRuntimeFixture } from "./runtime-fixture.ts";
 
 test("disabled memory and unavailable recall leave conversation state untouched", async () => {
@@ -26,13 +30,14 @@ test("disabled memory and unavailable recall leave conversation state untouched"
 test("configured memory checks scoped resources, captures settled text and exposes freshness as unknown", async () => {
 	const f = createRuntimeFixture(),
 		fake = new FakeHoncho();
-	await new HonchoClient(config, { fetch: fake.fetch }).initialize();
+	const clientOptions = honchoOptions(f.store, f.runtime.binding, fake);
+	await new HonchoClient(config, clientOptions).initialize();
 	const memory = new MemoryBridge({
 		path: join(f.root, "memory.sqlite"),
 		binding: f.runtime.binding,
 		journal: f.store,
 		config,
-		clientOptions: { fetch: fake.fetch },
+		clientOptions,
 	});
 	try {
 		f.store.appendEntry({
@@ -44,6 +49,7 @@ test("configured memory checks scoped resources, captures settled text and expos
 		});
 		f.store.createRequest("request", "Prefer dark mode");
 		f.store.setRequest("request", "accepted", { entryId: "user" });
+		qualifyRequest(f.store, f.runtime.binding, "request", ["user"]);
 		f.store.setRequest("request", "settled");
 		await memory.refresh();
 		expect(memory.status()).toMatchObject({
@@ -51,7 +57,7 @@ test("configured memory checks scoped resources, captures settled text and expos
 			accepted: 1,
 			freshness: "unknown",
 		});
-		fake.behavior = () => {
+		clientOptions.qualifiedAdapter.recall = async () => {
 			throw new Error("offline");
 		};
 		expect(await memory.recall("preference")).toBe("");
@@ -66,13 +72,14 @@ test("configured memory checks scoped resources, captures settled text and expos
 test("a turn settling during another refresh triggers a further capture scan", async () => {
 	const f = createRuntimeFixture(),
 		fake = new FakeHoncho();
-	await new HonchoClient(config, { fetch: fake.fetch }).initialize();
+	const clientOptions = honchoOptions(f.store, f.runtime.binding, fake);
+	await new HonchoClient(config, clientOptions).initialize();
 	const memory = new MemoryBridge({
 		path: join(f.root, "memory.sqlite"),
 		binding: f.runtime.binding,
 		journal: f.store,
 		config,
-		clientOptions: { fetch: fake.fetch },
+		clientOptions,
 	});
 	try {
 		f.store.appendEntry({
@@ -84,6 +91,7 @@ test("a turn settling during another refresh triggers a further capture scan", a
 		});
 		f.store.createRequest("request", "Queued preference");
 		f.store.setRequest("request", "accepted", { entryId: "user" });
+		qualifyRequest(f.store, f.runtime.binding, "request", ["user"]);
 		const entered = Promise.withResolvers<void>(),
 			reply = Promise.withResolvers<Response>();
 		fake.behavior = () => {

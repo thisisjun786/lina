@@ -1,4 +1,5 @@
 import type { EntryInput } from "../protocol.ts";
+import { isOrdinarySource, type SourceEntry } from "../source-policy.ts";
 
 type Block = Record<string, unknown>;
 
@@ -6,6 +7,19 @@ function record(value: unknown): Block | undefined {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
 		? (value as Block)
 		: undefined;
+}
+
+/** Native summary wrappers have no independent ancestry; use ContextStore nodes. */
+export function isOrdinaryArchiveEntry(
+	entry: (EntryInput & SourceEntry) | undefined,
+): entry is EntryInput & SourceEntry {
+	if (!entry || !isOrdinarySource(entry) || entry.role === "meta") return false;
+	const raw = record(entry.raw),
+		message = record(raw?.["message"]);
+	return (
+		!["compaction", "branch_summary"].includes(String(raw?.["type"])) &&
+		!["compactionSummary", "branchSummary"].includes(String(message?.["role"]))
+	);
 }
 
 function stableJson(value: unknown): string {

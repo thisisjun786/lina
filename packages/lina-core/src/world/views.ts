@@ -29,6 +29,7 @@ import {
 } from "./life-validation.ts";
 import type { WorldContext, WorldEvent, WorldSnapshot } from "./types.ts";
 import { knownAgents } from "./validation.ts";
+import type { WorkSubject } from "./work-types.ts";
 
 function paired(world: WorldSnapshot, life: LifeState, worldId: string): void {
 	if (
@@ -116,13 +117,29 @@ export function projectAuthorInspection(
 	return structuredClone({ world, life, definition, events });
 }
 export function projectLifePerception(
-	world: WorldSnapshot,
-	life: LifeState,
+	worldSource: WorldSnapshot,
+	lifeSource: LifeState,
 	definition: LifeDefinition,
 	scope: PerceptionScope,
 	limits: LifeViewLimits,
+	workAllowed: (subject: WorkSubject) => boolean = () => true,
 ): LifePerception {
 	const checked = parsePerceptionScope(scope);
+	const world = {
+		...worldSource,
+		facts: worldSource.facts.filter((f) =>
+			workAllowed({ kind: "world_fact", id: f.id }),
+		),
+	};
+	const life = {
+		...lifeSource,
+		claims: lifeSource.claims.filter((c) =>
+			workAllowed({ kind: "life_claim", id: c.id }),
+		),
+		experiences: lifeSource.experiences.filter((e) =>
+			workAllowed({ kind: "experience", id: e.id }),
+		),
+	};
 	paired(world, life, checked.worldId);
 	definitionFor(life, definition);
 	knownAgents([checked.agentId], definition.participants);
@@ -144,6 +161,7 @@ export function projectLifePerception(
 	const scene = sceneFor(world, agentId);
 	if (
 		scene &&
+		workAllowed({ kind: "world_scene", id: scene.id }) &&
 		definition.projection.disclosures.some(
 			(x) =>
 				x.subject.kind === "world_scene" &&
@@ -310,6 +328,7 @@ export function projectPublication(
 	currentPolicy: ProjectionPolicy,
 	scope: PublicationScope,
 	limits: LifeViewLimits,
+	workAllowed: (subject: WorkSubject) => boolean = () => true,
 ): PublicationView {
 	const checked = parsePublicationScope(scope);
 	paired(world, life, checked.worldId);
@@ -319,6 +338,7 @@ export function projectPublication(
 		kind: "world_event" | "world_scene" | "world_fact" | "life_claim",
 		id: string,
 	) =>
+		workAllowed({ kind, id }) &&
 		publicationAllowed(
 			policy.disclosures.find(
 				(x) => x.subject.kind === kind && x.subject.id === id,

@@ -176,7 +176,9 @@ test("keyed draw and weights are stable under authored list ordering and private
 		first = selectLifeEvent(source, "stable");
 	source.pack.roles.reverse();
 	source.pack.autonomy.goals.reverse();
-	required(source.inputs[0]).source.text = "UNTRUSTED_ALTERNATE";
+	const input = required(source.inputs[0]);
+	if (input.version !== 1) throw Error("Expected legacy application input");
+	input.source.text = "UNTRUSTED_ALTERNATE";
 	source.autonomy.variables["secret"] = "unobserved";
 	expect(selectLifeEvent(source, "stable")).toEqual(first);
 	const distinct = selectLifeEvent(source, "different");

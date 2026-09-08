@@ -30,6 +30,7 @@ export type ContextSnapshot = {
 		accepted: number;
 		unknown: number;
 		failed: number;
+		withheld: number;
 		freshness: "unknown";
 		recallText: string;
 	};
@@ -128,6 +129,7 @@ function parseSnapshot(raw: unknown): ContextSnapshot | undefined {
 		!["disabled", "ready", "unavailable"].includes(String(memory["service"])) ||
 		memory["freshness"] !== "unknown" ||
 		!string(memory["recallText"], 4096) ||
+		!(memory["withheld"] === undefined || integer(memory["withheld"])) ||
 		!["pending", "sending", "accepted", "unknown", "failed"].every((key) =>
 			integer(memory[key]),
 		)
@@ -167,6 +169,7 @@ function parseSnapshot(raw: unknown): ContextSnapshot | undefined {
 			accepted: memory["accepted"] as number,
 			unknown: memory["unknown"] as number,
 			failed: memory["failed"] as number,
+			withheld: (memory["withheld"] as number | undefined) ?? 0,
 			freshness: "unknown",
 			recallText: memory["recallText"],
 		},

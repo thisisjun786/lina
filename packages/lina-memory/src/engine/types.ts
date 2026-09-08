@@ -1,3 +1,10 @@
+import type {
+	SourceLookup,
+	SourceProof,
+} from "../../../lina-core/src/source-policy-types.ts";
+
+export type { SourceEntry } from "../../../lina-core/src/source-policy-types.ts";
+
 /** These records are reference data, never authored identity or preference writes. */
 export interface Observation {
 	subject: "user" | "self" | "relationship";
@@ -12,19 +19,17 @@ export interface SourceQuote {
 	entryId: string;
 	quote: string;
 }
-export interface SourceEntry {
-	entryId: string;
-	role?: "user" | "assistant" | "tool" | "meta" | undefined;
-	text: string;
-	timestamp?: string;
-}
-export type LookupEntry = (entryId: string) => SourceEntry | undefined;
+export type LookupEntry = SourceLookup;
 export interface EngineOptions {
 	now?: () => number;
 	lookup: LookupEntry;
 	sourceSequence?: (entryId: string) => number | undefined;
 }
 export interface EngineRecord extends Omit<Observation, "status"> {
+	/** Originating processing receipt; omission keeps old records unqualified. */
+	sourceRequestId?: string;
+	/** Absent only on preserved legacy records; those are never model eligible. */
+	sourceProofs?: SourceProof[];
 	id: string;
 	agentId: string;
 	status: "active" | "resolved" | "retracted";
@@ -48,6 +53,8 @@ export interface EngineSnapshot {
 }
 export type EngineState = EngineSnapshot;
 export interface ApplyInput {
+	/** Missing proofs fail closed, including empty deltas. */
+	sourceProofs?: SourceProof[];
 	requestId: string;
 	expectedRevision: number;
 	observations: Observation[];

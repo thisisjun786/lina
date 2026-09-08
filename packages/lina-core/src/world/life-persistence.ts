@@ -713,6 +713,25 @@ export class LifePersistence {
 				.all(worldId) as EffectRow[]
 		).map(decodeEffect);
 	}
+
+	invalidateBindings(worldId: string): void {
+		for (const row of this.db
+			.prepare(
+				"SELECT agent_id,policy_json FROM world_bindings WHERE world_id=?",
+			)
+			.all(worldId)) {
+			const current = parseWorldBinding(JSON.parse(String(row["policy_json"])));
+			const next = parseWorldBinding({
+				...current,
+				revision: current.revision + 1,
+			});
+			this.db
+				.prepare(
+					"UPDATE world_bindings SET revision=?,policy_json=? WHERE agent_id=?",
+				)
+				.run(next.revision, canonicalLifeJson(next), next.agentId);
+		}
+	}
 	binding(agentId: string): WorldBinding | null {
 		const row = this.db
 			.prepare(

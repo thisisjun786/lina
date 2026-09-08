@@ -15,6 +15,7 @@ import {
 	readCodexContextBindings,
 	readCodexSessionHeader,
 } from "./identity.ts";
+import type { CodexSourceProvenance } from "./source-provenance.ts";
 
 type ContextRun = {
 	type: "context_run";
@@ -31,6 +32,8 @@ function object(value: unknown): value is Record<string, unknown> {
 export function validateContextOptions(
 	options: SdkSessionOptions,
 ): SessionContextPolicy | undefined {
+	if (options.sourcePolicy && !options.contextPolicy)
+		throw Error("Managed source sink requires an explicit context policy");
 	if (options.contextPolicy === undefined) return;
 	const policy = parseSessionContextPolicy(options.contextPolicy);
 	if (!options.currentContextPolicy || !options.contextExposure)
@@ -47,6 +50,7 @@ export function validateContextOptions(
 
 /** Native transport lineage. All receipts originate here, never in model text. */
 export class CodexContextPolicy {
+	source: CodexSourceProvenance | undefined;
 	private readonly exposures = new Map<string, SessionContextExposure>();
 	private readonly runs = new Map<string, ContextRun>();
 	private policy: SessionContextPolicy | undefined;
@@ -228,7 +232,12 @@ export class CodexContextPolicy {
 				(m) =>
 					(m.kind === "author-world" && policy.purpose !== "world-author") ||
 					(policy.purpose === "world-author" && m.kind !== "author-world") ||
-					(policy.purpose === "conversation" && m.kind === "disclosed-life"),
+					(policy.purpose === "conversation" &&
+						m.kind === "disclosed-life" &&
+						(policy.version !== 3 ||
+							policy.conversationRecipientId === null ||
+							source.kind !== "tool" ||
+							source.toolName !== "lina_world_read")),
 			)
 		)
 			throw new Error(`Context material is not allowed for ${policy.purpose}`);
@@ -244,6 +253,7 @@ export class CodexContextPolicy {
 		});
 		appendCodexJournal(this.file, receipt);
 		this.exposures.set(receipt.id, receipt);
+		this.source?.exposure(receipt);
 		return receipt;
 	}
 	delivered(receipt: SessionContextExposure | undefined): void {
@@ -254,10 +264,23 @@ export class CodexContextPolicy {
 		});
 		appendCodexJournal(this.file, delivered);
 		this.exposures.set(receipt.id, delivered);
+		this.source?.exposure(delivered);
 	}
-	begin(threadId: string, requestId: string): void {
+	begin(threadId: string, requestId: string, managed = false): void {
 		this.requestId = requestId;
 		if (!this.policy) return;
+		if (managed)
+			this.source?.begin({
+				version: 1,
+				purpose: this.policy.purpose,
+				sessionId: readCodexSessionHeader(this.file, this.workspace).id,
+				requestId,
+				nativeEpoch: this.nativeEpoch,
+				scopeDigest: this.policy.scopeDigest,
+				contextReceiptIds: [...this.exposures.values()]
+					.filter((r) => r.nativeEpoch === this.nativeEpoch)
+					.map((r) => r.id),
+			});
 		this.record({
 			type: "context_run",
 			version: 1,
@@ -327,5 +350,6 @@ export class CodexContextPolicy {
 	private record(run: ContextRun): void {
 		appendCodexJournal(this.file, run);
 		this.runs.set(run.requestId, run);
+		this.source?.run(run);
 	}
 }

@@ -7,10 +7,14 @@ import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.
 import { DialogueStore } from "../../../lina-core/src/onboarding/dialogue-store.ts";
 import { OnboardingStore } from "../../../lina-core/src/onboarding/store.ts";
 import { HonchoClient } from "../../../lina-memory/src/honcho/client.ts";
-import { validateHonchoConfig } from "../../../lina-memory/src/honcho/config.ts";
+import {
+	selectHonchoConfig,
+	validateHonchoConfig,
+} from "../../../lina-memory/src/honcho/config.ts";
 import {
 	type HonchoConfig,
 	HonchoRequestError,
+	type QualifiedHonchoAdapter,
 } from "../../../lina-memory/src/honcho/types.ts";
 import { boundWorkspace } from "../installation.ts";
 import type {
@@ -91,7 +95,10 @@ export class AgentFleet {
 		return splitPolicy(this.options.systemPrompt).common;
 	}
 	async authoring(
-		input: Parameters<NonNullable<ModelControl["authoring"]>>[0],
+		input: Parameters<NonNullable<ModelControl["authoring"]>>[0] & {
+			/** Trusted caller guard; never part of model-visible prompt data. */
+			beforeDispatch?: () => void;
+		},
 		signal: AbortSignal,
 	) {
 		if (this.closing || this.closed) throw Error("Fleet is closed");
@@ -103,6 +110,8 @@ export class AgentFleet {
 		if (!control?.authoring) throw Error("Authoring model unavailable");
 		const finish = this.lifeForeground.begin();
 		try {
+			signal.throwIfAborted();
+			input.beforeDispatch?.();
 			return await control.authoring(input, signal);
 		} finally {
 			finish();
@@ -161,6 +170,8 @@ export class AgentFleet {
 			agentDir: string;
 			systemPrompt: string;
 			honcho?: HonchoConfig;
+			honchoByAgent?: Record<string, HonchoConfig>;
+			qualifiedHonchoAdapter?: QualifiedHonchoAdapter;
 			memoryBackend?: AppOptions["memoryBackend"];
 			honchoClientOptions?: AppOptions["honchoClientOptions"];
 			contextBudget?: number;
@@ -229,13 +240,22 @@ export class AgentFleet {
 		}
 	}
 	memoryConfig(id: string): HonchoConfig | undefined {
-		const base = this.options.honcho;
 		if (
 			this.options.memoryBackend === "native" ||
 			this.options.memoryBackend === "disabled"
 		)
 			return;
+		const explicit = Object.hasOwn(this.options.honchoByAgent ?? {}, id)
+			? this.options.honchoByAgent?.[id]
+			: undefined;
+		if (
+			explicit?.ordinaryNamespace &&
+			explicit.ordinaryNamespace.ownerBotId !== id
+		)
+			throw Error("Honcho map key does not match namespace owner");
+		const base = selectHonchoConfig(explicit ?? this.options.honcho, id);
 		if (!base) return;
+		if (base.ordinaryNamespace) return base;
 		return validateHonchoConfig({
 			...base,
 			sessionId: `lina-${id}`,
@@ -273,6 +293,7 @@ export class AgentFleet {
 			agentDir: this.options.agentDir,
 			systemPrompt: this.options.systemPrompt,
 			modelSettings: () => this.modelSettings.snapshot(),
+			world: () => this.lifeInstallation.conversationSource(id),
 			port: 0,
 			botId: id,
 			persona: {
@@ -287,11 +308,24 @@ export class AgentFleet {
 					),
 			},
 		};
-		if (config) appOptions.honcho = config;
+		// Keep a rejected global owner configured so MemoryBridge reports it as
+		// unavailable. Missing qualification must not select a native backend.
+		const requested = config ?? this.options.honcho;
+		if (
+			requested &&
+			this.options.memoryBackend !== "native" &&
+			this.options.memoryBackend !== "disabled"
+		)
+			appOptions.honcho = requested;
 		appOptions.memoryBackend =
-			this.options.memoryBackend ?? (config ? "honcho" : "native");
-		if (this.options.honchoClientOptions)
-			appOptions.honchoClientOptions = this.options.honchoClientOptions;
+			this.options.memoryBackend ?? (requested ? "honcho" : "native");
+		if (this.options.honchoClientOptions || this.options.qualifiedHonchoAdapter)
+			appOptions.honchoClientOptions = {
+				...this.options.honchoClientOptions,
+				...(this.options.qualifiedHonchoAdapter
+					? { qualifiedAdapter: this.options.qualifiedHonchoAdapter }
+					: {}),
+			};
 		if (this.options.contextBudget !== undefined)
 			appOptions.contextBudget = this.options.contextBudget;
 		if (this.options.approvalMode !== undefined)
@@ -306,7 +340,7 @@ export class AgentFleet {
 				this.ready.set(id, app);
 				if (this.options.createLifeRuntime)
 					this.lifeForeground.track(app.runtime);
-				if (config) this.initializeMemory(id, app, config);
+				if (config) this.startMemoryInitialization(id, app, config);
 				return app;
 			})
 			.catch((error) => {
@@ -349,7 +383,9 @@ export class AgentFleet {
 				sessionId: app?.binding.sessionId ?? null,
 				memory:
 					app?.memory.status().service ??
-					(this.options.honcho ? "unavailable" : "disabled"),
+					(this.options.honcho || this.options.honchoByAgent?.[profile.id]
+						? "unavailable"
+						: "disabled"),
 			};
 		});
 	}
@@ -414,7 +450,51 @@ export class AgentFleet {
 		this.closed = true;
 		this.closing = false;
 	}
-	private initializeMemory(id: string, app: App, config: HonchoConfig): void {
+	async initializeMemory(id: string, signal: AbortSignal): Promise<boolean> {
+		const config = this.memoryConfig(id);
+		if (!config) return false;
+		const app = await this.app(id);
+		await this.memoryInit.get(id)?.promise;
+		try {
+			await this.checkMemoryInitialization(app, config, signal);
+		} catch (error) {
+			if (error instanceof HonchoRequestError && error.kind === "body")
+				return false;
+			throw error;
+		}
+		await app.memory.refresh();
+		return true;
+	}
+	private async checkMemoryInitialization(
+		app: App,
+		config: HonchoConfig,
+		signal: AbortSignal,
+	) {
+		const client = new HonchoClient(config, {
+			...this.options.honchoClientOptions,
+			...(this.options.qualifiedHonchoAdapter
+				? { qualifiedAdapter: this.options.qualifiedHonchoAdapter }
+				: {}),
+			binding: app.binding,
+			sourceLookup: (id) => app.runtime.store.sourceEntry(id),
+		});
+		if (config.ordinaryNamespace && !(await client.qualify(signal)))
+			throw new HonchoRequestError(
+				"Honcho namespace qualification unavailable",
+				"body",
+			);
+		const current = await client.check(signal).catch((error: unknown) => {
+			if (error instanceof HonchoRequestError && error.status === 404)
+				return { ok: false, missing: ["workspace"] };
+			throw error;
+		});
+		if (!current.ok) await client.initialize(signal);
+	}
+	private startMemoryInitialization(
+		id: string,
+		app: App,
+		config: HonchoConfig,
+	): void {
 		const controller = new AbortController();
 		const signal = AbortSignal.any([
 			controller.signal,
@@ -422,16 +502,7 @@ export class AgentFleet {
 		]);
 		const promise = (async () => {
 			try {
-				const client = new HonchoClient(
-					config,
-					this.options.honchoClientOptions,
-				);
-				const current = await client.check(signal).catch((error: unknown) => {
-					if (error instanceof HonchoRequestError && error.status === 404)
-						return { ok: false, missing: ["workspace"] };
-					throw error;
-				});
-				if (!current.ok) await client.initialize(signal);
+				await this.checkMemoryInitialization(app, config, signal);
 				// MemoryBridge owns and cancels capture; init must not wait for a
 				// large outbox before app.stop() gets the chance to close it.
 				void app.memory.refresh();

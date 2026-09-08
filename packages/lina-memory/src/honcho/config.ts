@@ -1,4 +1,8 @@
-import type { HonchoConfig, HonchoIdentity } from "./types.ts";
+import type {
+	HonchoConfig,
+	HonchoIdentity,
+	OrdinaryNamespace,
+} from "./types.ts";
 
 // Honcho a026beb RESOURCE_NAME_PATTERN for workspace/peer/session names.
 const RESOURCE_NAME = /^[a-zA-Z0-9_-]{1,512}$/;
@@ -14,6 +18,7 @@ const ENV_KEYS = {
 	userPeerId: "LINA_HONCHO_USER_PEER_ID",
 	observerPeerId: "LINA_HONCHO_OBSERVER_PEER_ID",
 	apiKey: "LINA_HONCHO_API_KEY",
+	ordinaryNamespace: "LINA_HONCHO_ORDINARY_NAMESPACE_JSON",
 } as const;
 
 function name(object: Record<string, unknown>, key: string): string {
@@ -65,6 +70,15 @@ export function validateHonchoConfig(value: unknown): HonchoConfig {
 			throw new Error("invalid honcho apiKey");
 		config.apiKey = apiKey;
 	}
+	if (object["ordinaryNamespace"] !== undefined) {
+		config.ordinaryNamespace = validateOrdinaryNamespace(
+			object["ordinaryNamespace"],
+		);
+		if (config.ordinaryNamespace.workspaceId === config.workspaceId)
+			throw new Error(
+				"ordinary namespace must isolate the legacy workspace aggregate",
+			);
+	}
 	return config;
 }
 
@@ -77,16 +91,77 @@ export function parseHonchoEnv(
 	);
 	if (present.length === 0) return undefined;
 	const raw: Record<string, unknown> = {};
-	for (const [field, envKey] of present) raw[field] = env[envKey];
+	for (const [field, envKey] of present) {
+		const value = env[envKey];
+		if (field === "ordinaryNamespace") {
+			try {
+				raw[field] = JSON.parse(value ?? "");
+			} catch {
+				throw new Error("invalid honcho ordinary namespace JSON");
+			}
+		} else raw[field] = value;
+	}
 	return validateHonchoConfig(raw);
 }
 
 export function publicIdentity(config: HonchoConfig): HonchoIdentity {
+	const selected = config.ordinaryNamespace ?? config;
 	return {
 		baseUrl: config.baseUrl,
-		workspaceId: config.workspaceId,
-		sessionId: config.sessionId,
-		userPeerId: config.userPeerId,
-		observerPeerId: config.observerPeerId,
+		workspaceId: selected.workspaceId,
+		sessionId: selected.sessionId,
+		userPeerId: selected.userPeerId,
+		observerPeerId: selected.observerPeerId,
 	};
+}
+
+export function validateOrdinaryNamespace(value: unknown): OrdinaryNamespace {
+	if (!value || typeof value !== "object" || Array.isArray(value))
+		throw new Error("invalid honcho ordinary namespace");
+	const input = value as Record<string, unknown>;
+	const keys = [
+		"version",
+		"ownerBotId",
+		"generationId",
+		"workspaceId",
+		"sessionId",
+		"userPeerId",
+		"observerPeerId",
+		"sourcePolicyVersion",
+		"qualificationId",
+	];
+	if (
+		Object.keys(input).length !== keys.length ||
+		keys.some((key) => !Object.hasOwn(input, key)) ||
+		input["version"] !== 1 ||
+		input["sourcePolicyVersion"] !== 1
+	)
+		throw new Error("invalid honcho ordinary namespace fields");
+	const selected: OrdinaryNamespace = {
+		version: 1,
+		ownerBotId: name(input, "ownerBotId"),
+		generationId: name(input, "generationId"),
+		workspaceId: name(input, "workspaceId"),
+		sessionId: name(input, "sessionId"),
+		userPeerId: name(input, "userPeerId"),
+		observerPeerId: name(input, "observerPeerId"),
+		sourcePolicyVersion: 1,
+		qualificationId: name(input, "qualificationId"),
+	};
+	if (selected.userPeerId === selected.observerPeerId)
+		throw new Error("honcho user and observer peers must differ");
+	return selected;
+}
+
+/** Fleet selects its exact map entry first, then uses this owner check. */
+export function selectHonchoConfig(
+	config: HonchoConfig | undefined,
+	botId: string,
+): HonchoConfig | undefined {
+	if (!config) return undefined;
+	const checked = validateHonchoConfig(config);
+	return checked.ordinaryNamespace &&
+		checked.ordinaryNamespace.ownerBotId !== botId
+		? undefined
+		: checked;
 }

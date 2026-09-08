@@ -21,9 +21,22 @@ export interface ContextServices {
 	reserveTokens: number;
 	summarize: SummaryCall;
 	summaryCacheKey?: () => string;
-	reflect?: (text: string, signal: AbortSignal) => Promise<string>;
-	observe?: (text: string, signal: AbortSignal) => Promise<string>;
-	reasonMemory?: (text: string, signal: AbortSignal) => Promise<string>;
+	/** Optional callbacks are trusted synchronous checks, never payload metadata. */
+	reflect?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+	) => Promise<string>;
+	observe?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+	) => Promise<string>;
+	reasonMemory?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+	) => Promise<string>;
 	analyzeImage?: (
 		input: ImageAnalysisRequest,
 		signal: AbortSignal,

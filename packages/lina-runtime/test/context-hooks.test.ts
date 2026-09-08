@@ -19,7 +19,10 @@ test("Codex hooks refresh external context and preserve current messages as sour
 			refreshed += 1;
 		},
 		setRecall: () => {},
-		injection: () => "UNTRUSTED_REFERENCE",
+		readInjection: () => ({
+			content: "UNTRUSTED_REFERENCE",
+			beforeDeliver: () => {},
+		}),
 	} as unknown as ContextCoordinator;
 	installContextHooks(host, coordinator, async () => "");
 	expect(handlers.has("session_before_compact")).toBe(false);

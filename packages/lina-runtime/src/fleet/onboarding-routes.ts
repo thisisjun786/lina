@@ -1,3 +1,4 @@
+import { unionLearnedProofs } from "../../../lina-core/src/agents/learned-provenance.ts";
 import { composePersonaPrompt } from "../../../lina-core/src/agents/persona.ts";
 import { emptyDynamics } from "../../../lina-core/src/agents/validation.ts";
 import {
@@ -26,6 +27,7 @@ import {
 	CHAPTERS,
 	MAX_AUTOMATIC_FOLLOWUPS,
 } from "../../../lina-core/src/onboarding/types.ts";
+import { sourceProofsCurrent } from "../../../lina-core/src/source-policy.ts";
 import { ModelRequestError } from "../models/errors.ts";
 import {
 	defaultConversation,
@@ -262,18 +264,33 @@ export async function onboardingRoutes(
 				const conversation = configured?.revision
 					? configured
 					: defaultConversation(draft.targetAgentId ?? draft.profile.id);
-				const prefs = draft.targetAgentId
-					? preferenceInstructions(
-							fleet.conversations.getPreferences(draft.targetAgentId).items,
-						)
-					: "";
+				const target = draft.targetAgentId;
+				// Preview remains usable without opening a real conversation session.
+				// An unavailable journal cannot qualify any historical learned text.
+				const journal = target
+					? fleet.opened(target)?.runtime.store
+					: undefined;
+				const lookup = (entryId: string) => journal?.sourceEntry(entryId);
+				const preferences = target
+					? fleet.conversations.modelPreferences(target, lookup)
+					: undefined;
+				const learned = target
+					? fleet.agents.modelDynamics(target, lookup)
+					: undefined;
+				const sourceProofs = structuredClone(
+					unionLearnedProofs(
+						preferences?.sourceProofs ?? [],
+						learned?.sourceProofs ?? [],
+					),
+				);
+				const prefs = preferenceInstructions(preferences?.items ?? []);
 				const user = store.user();
 				const confirmed = shareUser ? user.confirmed : null;
 				const systemPrompt =
 					composePersonaPrompt(
 						fleet.onboardingBase(),
 						{ ...draft.profile, revision: draft.baseRevision ?? 1 },
-						emptyDynamics(),
+						learned?.dynamics ?? emptyDynamics(),
 						{
 							conversation,
 							memoryMode: "disabled",
@@ -291,15 +308,27 @@ export async function onboardingRoutes(
 							: {}),
 					}) +
 					PREVIEW_NOTICE;
+				const beforeDispatch = () => {
+					if (sourceProofs.length && !sourceProofsCurrent(sourceProofs, lookup))
+						throw Error("stale preview source proof");
+					if (store.getDraft(id)?.revision !== revision)
+						throw Error("stale draft revision");
+					if (shareUser && store.user().revision !== user.revision)
+						throw Error("stale user revision");
+				};
 				const result = await model(
 					fleet,
-					{ agentId: draft.profile.id, systemPrompt, messages: turns },
+					{
+						agentId: draft.profile.id,
+						systemPrompt,
+						messages: turns,
+						beforeDispatch,
+					},
 					signal,
 				);
-				if (store.getDraft(id)?.revision !== revision)
-					throw Error("stale draft revision");
-				if (shareUser && store.user().revision !== user.revision)
-					throw Error("stale user revision");
+				// Validate the original full-prompt ancestry after every model wrapper
+				// await, immediately before serializing its derived result.
+				beforeDispatch();
 				return reply(result);
 			} finally {
 				busy.delete(fleet);

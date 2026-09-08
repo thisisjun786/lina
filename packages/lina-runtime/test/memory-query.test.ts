@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { captureSourceProofs } from "../../lina-core/src/source-policy.ts";
+import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
 import { EngineStore } from "../../lina-memory/src/engine/store.ts";
 import { queryMemory } from "../src/context/memory-query.ts";
 import { createRuntimeFixture } from "./runtime-fixture.ts";
@@ -7,10 +9,10 @@ import { createRuntimeFixture } from "./runtime-fixture.ts";
 test("deep memory query retrieves original evidence without writing memory", async () => {
 	const f = createRuntimeFixture();
 	const mind = new EngineStore(join(f.root, "mind.sqlite"), f.runtime.binding, {
-		lookup: (id) => f.store.entry(id),
+		lookup: (id) => f.store.sourceEntry(id),
 	});
 	try {
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: "u",
 			role: "user",
 			text: "I prefer jasmine tea.",
@@ -18,6 +20,7 @@ test("deep memory query retrieves original evidence without writing memory", asy
 			raw: {},
 		});
 		mind.apply({
+			sourceProofs: captureSourceProofs(["u"], (id) => f.store.sourceEntry(id)),
 			requestId: "r",
 			expectedRevision: 0,
 			observations: [
@@ -58,10 +61,10 @@ test("deep memory query retrieves original evidence without writing memory", asy
 test("deep query includes cited evidence near the end of a long original", async () => {
 	const f = createRuntimeFixture();
 	const mind = new EngineStore(join(f.root, "long.sqlite"), f.runtime.binding, {
-		lookup: (id) => f.store.entry(id),
+		lookup: (id) => f.store.sourceEntry(id),
 	});
 	try {
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: "long",
 			role: "user",
 			text: "background ".repeat(1000) + "I now prefer oolong.",
@@ -69,6 +72,9 @@ test("deep query includes cited evidence near the end of a long original", async
 			raw: {},
 		});
 		mind.apply({
+			sourceProofs: captureSourceProofs(["long"], (id) =>
+				f.store.sourceEntry(id),
+			),
 			requestId: "r",
 			expectedRevision: 0,
 			observations: [
@@ -105,17 +111,17 @@ test("memory reasoning can request a bounded source search beyond its recent con
 	const mind = new EngineStore(
 		join(f.root, "search.sqlite"),
 		f.runtime.binding,
-		{ lookup: (id) => f.store.entry(id) },
+		{ lookup: (id) => f.store.sourceEntry(id) },
 	);
 	try {
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: "old",
 			role: "user",
 			text: "The old project codename is ORCHID.",
 			timestamp: new Date().toISOString(),
 			raw: {},
 		});
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: "new",
 			role: "user",
 			text: "Today we discussed tea.",
@@ -123,6 +129,9 @@ test("memory reasoning can request a bounded source search beyond its recent con
 			raw: {},
 		});
 		mind.apply({
+			sourceProofs: captureSourceProofs(["new"], (id) =>
+				f.store.sourceEntry(id),
+			),
 			requestId: "r",
 			expectedRevision: 0,
 			observations: [
@@ -163,10 +172,10 @@ test("source search does not reintroduce evidence invalidated by memory retracti
 	const mind = new EngineStore(
 		join(f.root, "retract.sqlite"),
 		f.runtime.binding,
-		{ lookup: (id) => f.store.entry(id) },
+		{ lookup: (id) => f.store.sourceEntry(id) },
 	);
 	try {
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: "u",
 			role: "user",
 			text: "SECRET-PREFERENCE",
@@ -174,6 +183,7 @@ test("source search does not reintroduce evidence invalidated by memory retracti
 			raw: {},
 		});
 		const added = mind.apply({
+			sourceProofs: captureSourceProofs(["u"], (id) => f.store.sourceEntry(id)),
 			requestId: "r",
 			expectedRevision: 0,
 			observations: [

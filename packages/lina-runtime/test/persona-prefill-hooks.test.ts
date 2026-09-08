@@ -28,7 +28,7 @@ test("current authored persona stays verbatim in prefill and settings apply with
 		const hook = handlers.get("before_agent_start");
 		const first = hook?.({ prompt: "안녕?" }) as { systemPrompt: string };
 		expect(first.systemPrompt).toContain(seed.voice);
-		expect(first.systemPrompt).not.toContain(seed.appearance);
+		expect(first.systemPrompt).toContain(seed.appearance);
 		expect(services.systemTokens).toBe(first.systemPrompt.length);
 		const p = agents.get(seed.id);
 		if (!p) throw Error("profile");

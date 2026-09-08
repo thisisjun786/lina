@@ -11,7 +11,10 @@ import { createEvaluationContext } from "./rules.ts";
 import { compileSocialPack } from "./social-compile.ts";
 import { projectSocialActorView, socialValueVisible } from "./social-views.ts";
 import type { WorldSnapshot } from "./types.ts";
-import { projectLifePerception } from "./views.ts";
+import { projectLifePerception, projectSharedPersona } from "./views.ts";
+import { workSubjectAllowed } from "./work-ancestry.ts";
+import { projectWorkObservations } from "./work-selection.ts";
+import type { WorkSubject } from "./work-types.ts";
 
 function permittedAttempt(step: LifeStep, agentId: string): unknown {
 	const inspected = completedStepIntent(step),
@@ -74,12 +77,16 @@ export function buildLifeModelInput(
 		policy = source.identity.profiles.find((x) => x.agentId === agentId);
 	if (!profile || !policy || profile.revision !== policy.profileRevision)
 		throw Error("Autonomy identity view mismatch");
+	const workAllowed = (subject: WorkSubject) =>
+		!source.work ||
+		workSubjectAllowed(source.work, source.workAncestry ?? [], subject);
 	const perception = projectLifePerception(
 		world,
 		life,
 		pack.life,
 		{ purpose: "life", worldId: step.worldId, agentId },
 		{ maxChars: limits.maxChars, maxRecords: limits.maxRecords },
+		workAllowed,
 	);
 	const compiled = compileSocialPack(pack),
 		active = compiled.cast.find((c) => c.agentId === agentId && c.active);
@@ -109,7 +116,9 @@ export function buildLifeModelInput(
 		.filter((c) => !opportunity || opportunity.capabilityIds.includes(c.id))
 		.sort((a, b) => (a.id < b.id ? -1 : 1));
 	const ownGoals = source.autonomy.goals
-		.filter((x) => x.agentId === agentId)
+		.filter(
+			(x) => x.agentId === agentId && workAllowed({ kind: "goal", id: x.id }),
+		)
 		.map((x) => ({
 			id: x.id,
 			description: x.description,
@@ -145,6 +154,29 @@ export function buildLifeModelInput(
 			? { experiences: perception.experiences, beliefs: perception.beliefs }
 			: null;
 	const body = {
+		...(step.version === 2
+			? {
+					sharedPersona: sharedPersonaBehavior(
+						profile,
+						projectSharedPersona(
+							life,
+							pack.life,
+							{
+								version: 1,
+								agentId,
+								worldId: step.worldId,
+								revision: 1,
+								projectionPolicyRevision: pack.life.projection.revision,
+							},
+							source.identity,
+							{ maxChars: limits.maxChars, maxRecords: limits.maxRecords },
+						),
+					),
+				}
+			: {}),
+		...(step.version === 2
+			? { work: projectWorkObservations(source, agentId) }
+			: {}),
 		agentId,
 		origin: "fictional",
 		simulationTime: world.simulationTime,
@@ -196,5 +228,16 @@ export function buildLifeModelInput(
 		Buffer.byteLength(serialized) > 256 * 1024
 	)
 		throw Error("Autonomy scoped input capacity exceeded");
-	return { systemPrompt: INSTRUCTIONS[lane], input: serialized };
+	return {
+		systemPrompt:
+			step.version === 2
+				? `${INSTRUCTIONS[lane]}\n${SHARED_PERSONA_AUTHORITY}`
+				: INSTRUCTIONS[lane],
+		input: serialized,
+	};
 }
+
+import {
+	SHARED_PERSONA_AUTHORITY,
+	sharedPersonaBehavior,
+} from "../agents/persona.ts";

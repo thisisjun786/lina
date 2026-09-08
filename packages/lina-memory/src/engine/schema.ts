@@ -16,17 +16,22 @@ CREATE TABLE engine_observations (request_id TEXT NOT NULL REFERENCES engine_rec
 `;
 const SLOT_SCHEMA =
 	"CREATE TABLE engine_slot_fences (record_id TEXT NOT NULL, entry_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), PRIMARY KEY(record_id,entry_id)) STRICT;";
+const PROOF_SCHEMA = `
+CREATE TABLE engine_request_sources (request_id TEXT PRIMARY KEY REFERENCES engine_receipts(request_id), source_proofs TEXT NOT NULL, input_source_proofs TEXT NOT NULL) STRICT;
+CREATE TABLE engine_record_history (id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(id,revision)) STRICT;
+`;
 export function initializeEngine(
 	db: DatabaseSync,
 	binding: BotBinding,
 	fresh: boolean,
 ): void {
 	if (fresh) {
-		db.exec(SCHEMA + SLOT_SCHEMA);
+		db.exec(SCHEMA + SLOT_SCHEMA + PROOF_SCHEMA);
 		const insert = db.prepare("INSERT INTO engine_meta VALUES (?, ?)");
 		insert.run("binding", JSON.stringify(binding));
 		insert.run("revision", "0");
-		db.exec("PRAGMA user_version = 2");
+		db.exec("PRAGMA user_version = 3");
+		initializeEngine(db, binding, false);
 		return;
 	}
 	const normalize = (sql: string) => sql.trim().replace(/\s+/g, " ");
@@ -37,10 +42,14 @@ export function initializeEngine(
 		.map((row) => normalize(String(row["sql"])))
 		.sort();
 	if (
-		(version !== 1 && version !== 2) ||
+		(version !== 1 && version !== 2 && version !== 3) ||
 		!isDeepStrictEqual(
 			actual,
-			(SCHEMA + (version === 2 ? SLOT_SCHEMA : ""))
+			(
+				SCHEMA +
+				(version !== 1 ? SLOT_SCHEMA : "") +
+				(version === 3 ? PROOF_SCHEMA : "")
+			)
 				.split(";")
 				.map(normalize)
 				.filter(Boolean)
@@ -81,8 +90,12 @@ export function initializeEngine(
 		)
 			throw new Error("invalid engine record binding or projection");
 	}
-	if (version === 1) db.exec(SLOT_SCHEMA + "PRAGMA user_version=2;");
-	auditEngineData(db, current);
+	auditEngineData(db, current, Number(version), binding.botId);
+	if (version !== 3) {
+		if (version === 1) db.exec(SLOT_SCHEMA);
+		db.exec(PROOF_SCHEMA + "PRAGMA user_version=3;");
+		initializeEngine(db, binding, false);
+	}
 	if (db.prepare("PRAGMA foreign_key_check").get())
 		throw new Error("invalid engine foreign key");
 }

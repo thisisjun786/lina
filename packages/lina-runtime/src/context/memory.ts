@@ -6,8 +6,12 @@ import {
 	type HonchoClientOptions,
 	type HonchoConfig,
 	HonchoOutbox,
+	openGenerationOutbox,
 	publicIdentity,
+	type RecallProof,
+	selectHonchoConfig,
 	validateHonchoConfig,
+	validateRecallProof,
 } from "../../../lina-memory/src/honcho/index.ts";
 import { scanCaptures } from "./capture-scan.ts";
 
@@ -26,6 +30,7 @@ export type MemorySnapshot = {
 	accepted: number;
 	unknown: number;
 	failed: number;
+	withheld: number;
 	freshness: "unknown";
 	recallText: string;
 };
@@ -39,16 +44,29 @@ export class MemoryBridge {
 	private verified = false;
 	private closed = false;
 	private recallText = "";
+	private recallProof: RecallProof | undefined;
 	constructor(private readonly options: Options) {
 		if (!options.config) return;
-		const config = validateHonchoConfig(options.config);
-		this.outbox = new HonchoOutbox(
-			options.path,
-			options.binding,
-			publicIdentity(config),
+		const config = selectHonchoConfig(
+			validateHonchoConfig(options.config),
+			options.binding.botId,
 		);
+		if (!config) return;
+		const sourceLookup = (id: string) => options.journal.sourceEntry(id);
+		this.outbox = config.ordinaryNamespace
+			? openGenerationOutbox(
+					options.path,
+					options.binding,
+					config,
+					sourceLookup,
+				)
+			: new HonchoOutbox(options.path, options.binding, publicIdentity(config));
 		try {
-			this.client = new HonchoClient(config, options.clientOptions);
+			this.client = new HonchoClient(config, {
+				...options.clientOptions,
+				binding: options.binding,
+				sourceLookup,
+			});
 			this.delivery = new CaptureDelivery({
 				outbox: this.outbox,
 				client: this.client,
@@ -62,18 +80,36 @@ export class MemoryBridge {
 	private changed(): void {
 		if (!this.closed) this.options.onChange?.();
 	}
+	private currentRecall(): boolean {
+		if (!this.recallProof || !this.client?.owner) return false;
+		try {
+			validateRecallProof(this.recallProof, this.client.owner, (id) =>
+				this.options.journal.sourceEntry(id),
+			);
+			return true;
+		} catch {
+			return false;
+		}
+	}
 	status(): MemorySnapshot {
+		if (!this.currentRecall()) {
+			this.recallText = "";
+			this.recallProof = undefined;
+		}
 		const counts = this.outbox?.counts() ?? {
 			pending: 0,
 			sending: 0,
 			accepted: 0,
 			unknown: 0,
 			failed: 0,
+			withheld: 0,
 		};
 		return {
 			...counts,
 			service: !this.client
-				? "disabled"
+				? this.options.config
+					? "unavailable"
+					: "disabled"
 				: this.verified && this.delivery?.status().service !== "unavailable"
 					? "ready"
 					: "unavailable",
@@ -81,19 +117,40 @@ export class MemoryBridge {
 			recallText: this.recallText,
 		};
 	}
+	recallSourceProofs(text: string) {
+		if (
+			this.closed ||
+			!text ||
+			text !== this.recallText ||
+			!this.currentRecall()
+		)
+			return undefined;
+		return structuredClone(this.recallProof?.sourceProofs);
+	}
 	async recall(query: string, signal?: AbortSignal): Promise<string> {
-		if (!this.client || this.closed || !query.trim()) return "";
+		if (!this.client || this.closed || !query.trim()) {
+			this.recallText = "";
+			this.recallProof = undefined;
+			return "";
+		}
 		try {
 			const result = await this.client.recall(
 				query,
 				AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]),
 			);
 			if (this.closed) return "";
-			this.verified = true;
+			this.recallProof = result.proof;
+			this.verified = this.currentRecall();
+			if (!this.verified) {
+				this.recallText = "";
+				this.recallProof = undefined;
+				return "";
+			}
 			this.recallText = result.text.slice(0, 4096);
 		} catch {
 			this.verified = false;
 			this.recallText = "";
+			this.recallProof = undefined;
 		}
 		this.changed();
 		return this.recallText;
@@ -119,7 +176,9 @@ export class MemoryBridge {
 					)
 						await new Promise<void>((resolve) => setImmediate(resolve));
 					this.changed();
-					this.verified = (await client.check(this.controller.signal)).ok;
+					this.verified = await client.qualify(this.controller.signal);
+					if (this.verified)
+						this.verified = (await client.check(this.controller.signal)).ok;
 					let previous = -1;
 					while (this.verified && !this.closed) {
 						const pending = outbox.counts().pending;
@@ -130,6 +189,8 @@ export class MemoryBridge {
 					}
 				} catch {
 					this.verified = false;
+					this.recallText = "";
+					this.recallProof = undefined;
 				} finally {
 					this.changed();
 				}
@@ -142,6 +203,8 @@ export class MemoryBridge {
 	async close(): Promise<void> {
 		if (this.closed) return;
 		this.closed = true;
+		this.recallText = "";
+		this.recallProof = undefined;
 		this.controller.abort();
 		await this.delivery?.close();
 		await this.refreshing;

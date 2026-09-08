@@ -28,6 +28,8 @@ import {
 	parseLifeState,
 } from "./life-validation.ts";
 import { fields } from "./validation.ts";
+import { parseWorkAncestry } from "./work-ancestry.ts";
+import { parseWorkEvidence } from "./work-validation.ts";
 
 type Row = {
 	world_id: string;
@@ -100,8 +102,9 @@ export class LifeStepRecords {
 			"autonomy",
 			"inputs",
 			"modelSettingsRevision",
+			...(raw.version === 2 ? ["work", "workAncestry"] : []),
 		]);
-		fields(s.config, [
+		fields(s["config"], [
 			"version",
 			"worldId",
 			"revision",
@@ -113,10 +116,10 @@ export class LifeStepRecords {
 			"publication",
 			"images",
 			"avatars",
-			...(typeof s.config === "object" &&
-			s.config !== null &&
-			"version" in s.config &&
-			s.config.version === 2
+			...(typeof s["config"] === "object" &&
+			s["config"] !== null &&
+			"version" in s["config"] &&
+			s["config"].version === 2
 				? ["work"]
 				: []),
 		]);
@@ -124,29 +127,35 @@ export class LifeStepRecords {
 			worldId: configWorldId,
 			revision: configRevision,
 			...config
-		} = s.config;
-		const pack = parseWorldPack(s.pack);
+		} = s["config"];
+		const pack = parseWorldPack(s["pack"]);
 		if (pack.schemaVersion !== 3) throw Error("Corrupt autonomous world pack");
-		if (!Array.isArray(s.inputs)) throw Error("Corrupt autonomous inputs");
+		if (!Array.isArray(s["inputs"])) throw Error("Corrupt autonomous inputs");
 		const source: AutonomySource = {
-			world: s.world as AutonomySource["world"],
-			life: parseLifeState(s.life),
+			...(raw.version === 2
+				? {
+						work: parseWorkEvidence(s["work"]),
+						workAncestry: parseWorkAncestry(s["workAncestry"]),
+					}
+				: {}),
+			world: s["world"] as AutonomySource["world"],
+			life: parseLifeState(s["life"]),
 			pack,
 			config: {
 				...parseLifeConfigInput(config),
 				worldId: identifier(configWorldId),
 				revision: revision(configRevision, 1),
 			},
-			identity: parseIdentityPolicy(s.identity),
-			profiles: autonomyProfiles(s.profiles),
-			autonomy: parseAutonomyState(s.autonomy),
-			inputs: s.inputs.map(parseLifeInput),
-			modelSettingsRevision: revision(s.modelSettingsRevision),
+			identity: parseIdentityPolicy(s["identity"]),
+			profiles: autonomyProfiles(s["profiles"]),
+			autonomy: parseAutonomyState(s["autonomy"]),
+			inputs: s["inputs"].map(parseLifeInput),
+			modelSettingsRevision: revision(s["modelSettingsRevision"]),
 		};
 		assertAutonomySource(source);
 		const step = raw as unknown as LifeStep;
 		if (
-			raw.version !== 1 ||
+			(raw.version !== 1 && raw.version !== 2) ||
 			row.world_id !== identifier(raw.worldId) ||
 			row.step_id !== identifier(raw.id) ||
 			row.idempotency_key !== identifier(raw.idempotencyKey) ||
@@ -223,7 +232,9 @@ export class LifeStepRecords {
 			if (
 				step.outcome.version !== 1 ||
 				step.outcome.stepId !== step.id ||
-				!["quiet", "activity", "extension_required"].includes(step.outcome.kind)
+				!["quiet", "work", "activity", "extension_required"].includes(
+					step.outcome.kind,
+				)
 			)
 				throw Error("Corrupt LIFE outcome");
 			parseLifeCommit(step.outcome.commit);

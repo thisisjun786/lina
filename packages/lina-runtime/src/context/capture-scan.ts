@@ -1,4 +1,5 @@
 import type { EntryInput } from "../../../lina-core/src/protocol.ts";
+import { isOrdinarySource } from "../../../lina-core/src/source-policy.ts";
 import type { DurableStore } from "../../../lina-core/src/store.ts";
 import type { HonchoOutbox } from "../../../lina-memory/src/honcho/index.ts";
 
@@ -24,18 +25,24 @@ export function scanCaptures(
 	const page = journal.scanAfter(state.after, limit);
 	let visited = 0;
 	for (const row of page) {
-		if (row.entry.role === "user") {
-			if (row.requestStatus === "accepted" || row.requestStatus === "queued")
-				break;
-			state.eligibleUser = row.requestStatus === "settled";
-		}
+		const source = journal.sourceEntry(row.entry.entryId);
+		// Accepted requests may still gain disclosures/exposures; wait for settlement.
 		if (
-			state.eligibleUser &&
-			row.entry.text.trim() &&
-			(row.entry.role === "user" ||
-				(row.entry.role === "assistant" && finalAssistant(row.entry)))
+			source?.requestStatus === "accepted" ||
+			source?.requestStatus === "queued" ||
+			(row.entry.role === "user" &&
+				(row.requestStatus === "accepted" || row.requestStatus === "queued"))
 		)
-			outbox.enqueue(row.entry.entryId, row.entry.role, row.entry.text);
+			break;
+		state.eligibleUser = isOrdinarySource(source);
+		if (
+			outbox.policyScope &&
+			isOrdinarySource(source) &&
+			source?.text.trim() &&
+			(source.role === "user" ||
+				(source.role === "assistant" && finalAssistant(row.entry)))
+		)
+			outbox.enqueue(source.entryId, source.role, source.text);
 		state.after = row.seq;
 		outbox.setScanState(state);
 		visited++;

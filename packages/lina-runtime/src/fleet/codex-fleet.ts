@@ -208,6 +208,7 @@ async function startUnlocked(
 			createLifeRuntime: (context) =>
 				createFleetLifeRuntime({
 					...context,
+					workSource: tasks,
 					stateRoot,
 					connection() {
 						if (!ownsInstallation())
@@ -349,7 +350,6 @@ async function startUnlocked(
 		);
 	updateForegroundTasks();
 	subscriptions.push(tasks.subscribe(updateForegroundTasks));
-	void tasks.restore().catch(() => undefined);
 	tasks.setNotifier(async (marker, text) => {
 		const task = tasks.list().find((item) => item.id === marker.jobId);
 		const app = task ? fleet.opened(task.ownerAgentId) : undefined;
@@ -357,6 +357,8 @@ async function startUnlocked(
 	});
 	let server: Awaited<ReturnType<typeof startFleetServer>> | undefined;
 	try {
+		// Source reconciliation settles before a retained world's runtime can start.
+		await tasks.restore();
 		server = await startFleetServer(fleet, port, resourceRoot, botId, {
 			lazy: true,
 			route: async (request, json) =>
@@ -365,10 +367,10 @@ async function startUnlocked(
 		});
 		fleet.resumeLife();
 	} catch (error) {
-		await tasks.close();
-		await transport.close();
 		await server?.stop();
 		await fleet.close();
+		await tasks.close();
+		await transport.close();
 		throw error;
 	}
 	return {
@@ -381,9 +383,10 @@ async function startUnlocked(
 			stopped = true;
 			fleet.lifeForeground.set("shutdown", true);
 			for (const off of subscriptions.splice(0)) off();
+			// LIFE drains and detaches its work bridge while the source journal is still open.
+			await server?.stop();
 			await tasks.close();
 			await transport.close();
-			await server?.stop();
 			fullyStopped = true;
 		},
 	};

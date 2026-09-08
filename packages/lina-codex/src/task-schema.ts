@@ -1,9 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 
-export const TASK_SCHEMA_VERSION = 1;
+import { TASK_WORK_SCHEMA } from "./task-work-schema.ts";
 
-export const TASK_SCHEMA = `
+export const TASK_SCHEMA_VERSION = 2;
+
+export const TASK_SCHEMA_V1 = `
 CREATE TABLE task_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE tasks (
  id TEXT PRIMARY KEY,
@@ -55,28 +57,59 @@ function statements(sql: string): string[] {
 		.filter(Boolean);
 }
 
-export function initializeTaskSchema(db: DatabaseSync, fresh: boolean): void {
+export const TASK_SCHEMA = TASK_SCHEMA_V1 + TASK_WORK_SCHEMA;
+
+function validateSchema(db: DatabaseSync, version: number): void {
+	const actual = db
+		.prepare("SELECT sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
+		.all()
+		.map((row) => String(row["sql"]).trim().replace(/\s+/g, " "))
+		.sort();
+	const expected = statements(
+		version === 1 ? TASK_SCHEMA_V1 : TASK_SCHEMA,
+	).sort();
+	if (!isDeepStrictEqual(actual, expected))
+		throw new Error("unknown task store schema");
+	const meta = db.prepare("SELECT key,value FROM task_meta").all();
+	if (
+		meta.length !== 1 ||
+		meta[0]?.["key"] !== "schema_version" ||
+		meta[0]?.["value"] !== String(version)
+	)
+		throw new Error("invalid task store schema metadata");
+	if (db.prepare("PRAGMA foreign_key_check").all().length)
+		throw new Error("orphan task store row");
+}
+
+/** Caller owns BEGIN/COMMIT: both old rows and final schema/rows validate before commit. */
+export function initializeTaskSchema(
+	db: DatabaseSync,
+	fresh: boolean,
+	validateRows: (version: number) => void,
+): void {
 	const version = db.prepare("PRAGMA user_version").get()?.["user_version"];
 	const tables = db
 		.prepare("SELECT name FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
 		.all();
-	if (version !== 0 || tables.length) {
-		if (version !== TASK_SCHEMA_VERSION)
+	if (version === 0 && tables.length === 0 && fresh) {
+		db.exec(TASK_SCHEMA);
+		db.prepare(
+			"INSERT INTO task_meta(key,value) VALUES ('schema_version',?)",
+		).run(String(TASK_SCHEMA_VERSION));
+		db.exec(`PRAGMA user_version = ${TASK_SCHEMA_VERSION}`);
+	} else {
+		if (version !== 1 && version !== TASK_SCHEMA_VERSION)
 			throw new Error("unknown task store schema");
-		const actual = db
-			.prepare("SELECT sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
-			.all()
-			.map((row) => String(row["sql"]).trim().replace(/\s+/g, " "))
-			.sort();
-		const expected = statements(TASK_SCHEMA).sort();
-		if (!isDeepStrictEqual(actual, expected))
-			throw new Error("unknown task store schema");
-		return;
+		validateSchema(db, version);
+		validateRows(version);
+		if (version === 1) {
+			db.exec(TASK_WORK_SCHEMA);
+			db.prepare("UPDATE task_meta SET value=? WHERE key='schema_version'").run(
+				String(TASK_SCHEMA_VERSION),
+			);
+			db.exec(`PRAGMA user_version = ${TASK_SCHEMA_VERSION}`);
+		}
 	}
-	if (!fresh) throw new Error("unknown task store schema");
-	db.exec(TASK_SCHEMA);
-	db.prepare(
-		"INSERT INTO task_meta(key,value) VALUES ('schema_version',?)",
-	).run(String(TASK_SCHEMA_VERSION));
-	db.exec(`PRAGMA user_version = ${TASK_SCHEMA_VERSION}`);
+	validateSchema(db, TASK_SCHEMA_VERSION);
+	validateRows(TASK_SCHEMA_VERSION);
 }

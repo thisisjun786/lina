@@ -52,6 +52,7 @@ import type {
 import type { SocialAutonomyInput } from "./social-types.ts";
 import type { WorldSnapshot } from "./types.ts";
 import { fields, integer } from "./validation.ts";
+import type { WorkAncestryRecord, WorkEvidenceSnapshot } from "./work-types.ts";
 
 type Source = { world: WorldSnapshot; life: LifeState };
 type Access = {
@@ -62,6 +63,14 @@ type Access = {
 	config(worldId: string): LifeConfig;
 	configAt(worldId: string, revision: number): LifeConfig;
 	inputs(worldId: string): LifeInput[];
+	work(worldId: string, revision?: number): WorkEvidenceSnapshot;
+	workAncestry(worldId: string, lifeRevision: number): WorkAncestryRecord[];
+	recordWorkStep(step: LifeStep): void;
+	workInputsAt(
+		worldId: string,
+		workRevision: number,
+		lifeRevision: number,
+	): LifeInput[];
 	accept(commit: LifeCommit, identity: IdentityPolicySnapshot): LifeReceipt;
 	social(
 		worldId: string,
@@ -191,6 +200,27 @@ export class AutonomyPersistence {
 			});
 		}
 	}
+
+	invalidateWork(worldId: string): void {
+		const current = this.access.work(worldId);
+		const steps = this.steps
+			.list(worldId)
+			.filter(
+				(step) =>
+					!TERMINAL.has(step.status) &&
+					lifeDigest(step.source.work ?? null) !== lifeDigest(current),
+			);
+		if (!steps.length) return;
+		this.schedules.invalidate(worldId);
+		for (const step of steps) {
+			this.models.cancelPrepared(
+				worldId,
+				step.id,
+				"work_changed_before_dispatch",
+			);
+			this.steps.save({ ...step, status: "stale", error: "work_changed" });
+		}
+	}
 	invalidateIdentity(
 		worldId: string,
 		current: Pick<
@@ -288,6 +318,28 @@ export class AutonomyPersistence {
 		};
 	}
 	private assertSource(step: LifeStep, source: Source): void {
+		if (step.source.work)
+			same(
+				step.source.inputs.filter((input) => input.version === 2),
+				this.access.workInputsAt(
+					step.worldId,
+					step.source.work.revision,
+					step.source.life.revision,
+				),
+				"Corrupt frozen work input source",
+			);
+		if (step.source.work) {
+			same(
+				step.source.work,
+				this.access.work(step.worldId, step.source.work.revision),
+				"Corrupt frozen work source",
+			);
+			same(
+				step.source.workAncestry,
+				this.access.workAncestry(step.worldId, step.source.life.revision),
+				"Corrupt frozen work ancestry",
+			);
+		}
 		same(
 			step.source.world,
 			source.world,
@@ -333,6 +385,12 @@ export class AutonomyPersistence {
 		)
 			throw Error("Stale LIFE step lease");
 		this.assertSource(step, this.access.source(step.worldId));
+		if (step.source.work)
+			same(
+				step.source.work,
+				this.access.work(step.worldId),
+				"Stale work source",
+			);
 		if (
 			this.access.config(step.worldId).revision !== step.source.config.revision
 		)
@@ -422,6 +480,11 @@ export class AutonomyPersistence {
 		const id = `step-${lifeDigest([value.worldId, value.idempotencyKey]).slice(0, 48)}`;
 		const existing = this.state(value.worldId);
 		const source: AutonomySource = {
+			work: this.access.work(value.worldId),
+			workAncestry: this.access.workAncestry(
+				value.worldId,
+				current.life.revision,
+			),
 			...current,
 			pack,
 			config,
@@ -446,7 +509,7 @@ export class AutonomyPersistence {
 				value.leaseMs,
 			);
 		return this.steps.save({
-			version: 1,
+			version: 2,
 			id,
 			worldId: value.worldId,
 			idempotencyKey: value.idempotencyKey,
@@ -696,6 +759,7 @@ export class AutonomyPersistence {
 		);
 		this.saveState(step.outcome.nextState);
 		this.steps.save({ ...step, status: "accepted", receipt, error: null });
+		this.access.recordWorkStep({ ...step, status: "accepted", receipt });
 		this.schedules.accepted(lease, step.id);
 		return receipt;
 	}
@@ -726,6 +790,9 @@ export class AutonomyPersistence {
 				`${reason}_before_dispatch`,
 			);
 		return this.steps.save({ ...step, status, error: reason });
+	}
+	acceptedSteps(): LifeStep[] {
+		return this.steps.list().filter((step) => step.status === "accepted");
 	}
 	audit(): void {
 		this.schedules.audit();

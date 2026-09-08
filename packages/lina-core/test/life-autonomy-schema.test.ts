@@ -30,14 +30,14 @@ function v4() {
 	}
 	const raw = new DatabaseSync(path);
 	raw.exec(
-		"DROP TABLE IF EXISTS life_model_receipts; DROP TABLE IF EXISTS life_steps; DROP TABLE IF EXISTS life_autonomy_state; DROP TABLE IF EXISTS life_schedules; PRAGMA user_version = 4",
+		"DROP TABLE IF EXISTS life_work_ancestry; DROP TABLE IF EXISTS life_work_experiences; DROP TABLE IF EXISTS life_work_history; DROP TABLE IF EXISTS life_work_state; DROP TABLE IF EXISTS life_model_receipts; DROP TABLE IF EXISTS life_steps; DROP TABLE IF EXISTS life_autonomy_state; DROP TABLE IF EXISTS life_schedules; PRAGMA user_version = 4",
 	);
 	const snapshot = raw.prepare("SELECT * FROM life_states").all();
 	raw.close();
 	return { path, snapshot };
 }
 
-test("an actual v4 file migrates to v5 without rewriting historical LIFE bytes", () => {
+test("an actual v4 file migrates to v6 without rewriting historical LIFE bytes", () => {
 	const { path, snapshot } = v4();
 	const store = new WorldStore(path);
 	try {
@@ -48,7 +48,7 @@ test("an actual v4 file migrates to v5 without rewriting historical LIFE bytes",
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 5,
+			user_version: 6,
 		});
 		expect(raw.prepare("SELECT * FROM life_states").all()).toEqual(snapshot);
 		expect(

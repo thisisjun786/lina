@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
+import type { SourceLookup } from "../source-policy.ts";
+import { AgentLearning } from "./agent-learning.ts";
+import { initializeAgents } from "./agent-schema.ts";
+import {
+	assertLearnedProvenance,
+	type LearnedProvenance,
+} from "./learned-provenance.ts";
+import { emptyLearningState } from "./learning-state.ts";
 import type {
 	AgentChange,
 	AgentInput,
@@ -17,13 +25,6 @@ import {
 	validateReflection,
 } from "./validation.ts";
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS agent_profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, personality TEXT NOT NULL, voice TEXT NOT NULL, profile TEXT NOT NULL, appearance TEXT NOT NULL, interests TEXT NOT NULL, avatar_id TEXT, evolution TEXT NOT NULL, revision INTEGER NOT NULL) STRICT;
-CREATE TABLE IF NOT EXISTS agent_dynamics (agent_id TEXT PRIMARY KEY REFERENCES agent_profiles(id), revision INTEGER NOT NULL, mood TEXT, interests TEXT NOT NULL, preferences TEXT NOT NULL, relationship TEXT NOT NULL, last_request_id TEXT) STRICT;
-CREATE TABLE IF NOT EXISTS agent_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL REFERENCES agent_profiles(id), kind TEXT NOT NULL, created_at TEXT NOT NULL, source_entry_ids TEXT NOT NULL, summary TEXT NOT NULL, before_state TEXT, after_state TEXT, target_change_id INTEGER) STRICT;
-CREATE TABLE IF NOT EXISTS agent_receipts (agent_id TEXT NOT NULL REFERENCES agent_profiles(id), request_id TEXT NOT NULL, PRIMARY KEY(agent_id, request_id)) STRICT;
-CREATE TABLE IF NOT EXISTS agent_authored_receipts (receipt_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agent_profiles(id), payload_hash TEXT NOT NULL, profile_json TEXT NOT NULL) STRICT;`;
-const CANDIDATE_SCHEMA = `CREATE TABLE IF NOT EXISTS agent_candidates (agent_id TEXT NOT NULL REFERENCES agent_profiles(id), kind TEXT NOT NULL, value TEXT NOT NULL, request_ids TEXT NOT NULL, PRIMARY KEY(agent_id, kind, value)) STRICT;`;
 const MAX_PENDING_CANDIDATES = 32;
 const MAX_PROMOTED_VALUES = 16;
 
@@ -61,6 +62,7 @@ function clone<T>(value: T): T {
 export class AgentStore {
 	private readonly db: DatabaseSync;
 	private readonly now: () => number;
+	private readonly learning: AgentLearning;
 	private closed = false;
 
 	constructor(path: string, now: () => number = Date.now) {
@@ -72,12 +74,14 @@ export class AgentStore {
 			throw new Error("invalid agent store arguments");
 		this.now = now;
 		this.db = new DatabaseSync(path);
+		this.learning = new AgentLearning(this.db);
 		try {
 			this.db.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE");
-			this.assertNoForeignTables();
-			for (const sql of `${SCHEMA}${CANDIDATE_SCHEMA}`.split(";"))
-				if (sql.trim()) this.db.exec(sql);
-			this.verifySchema();
+			initializeAgents(
+				this.db,
+				() => this.auditData(),
+				(value) => this.validateStoredDynamics(value),
+			);
 			this.db.exec(
 				"COMMIT; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL",
 			);
@@ -189,6 +193,7 @@ export class AgentStore {
 				);
 			this.db.prepare("DELETE FROM agent_candidates WHERE agent_id=?").run(id);
 			this.addChange(id, "edit", [], "기본 설정 수정", null, null);
+			this.learning.edit(id, this.dynamics(id));
 			return { ...checked, revision: current.revision + 1 };
 		});
 	}
@@ -204,16 +209,26 @@ export class AgentStore {
 		);
 	}
 
+	modelDynamics(id: string, lookup: SourceLookup) {
+		return this.learning.model(id, this.dynamics(id), lookup, this.now());
+	}
 	applyReflection(
 		id: string,
 		input: ReflectionInput,
 		validSource: (entryId: string) => boolean,
+		provenance?: LearnedProvenance,
 	): Dynamics {
 		this.assertOpen();
 		boundedId(id, "agent id");
 		if (typeof validSource !== "function")
 			throw new Error("invalid source validator");
 		const value = validateReflection(input);
+		if (provenance)
+			assertLearnedProvenance(
+				provenance,
+				value.requestId,
+				value.sourceEntryIds,
+			);
 		return this.transaction(() => {
 			const profile = this.get(id);
 			if (!profile) throw new Error("agent not found");
@@ -227,12 +242,16 @@ export class AgentStore {
 						"SELECT 1 FROM agent_receipts WHERE agent_id=? AND request_id=?",
 					)
 					.get(id, value.requestId)
-			)
+			) {
+				if (provenance) this.learning.receipt(id, value, provenance);
 				return current;
+			}
 			if (value.dynamicsRevision !== current.revision)
 				throw new Error("stale dynamics revision");
 			if (value.sourceEntryIds.some((entryId) => !validSource(entryId)))
 				throw new Error("reflection source is not a valid user entry");
+			if (provenance)
+				return this.applyQualifiedReflection(id, value, current, provenance);
 			const interests = this.confirmCandidates(
 				id,
 				"interest",
@@ -280,12 +299,14 @@ export class AgentStore {
 			if (!visibleChanged) {
 				next.revision = current.revision;
 				this.saveDynamics(id, next);
+				this.learning.save(id, emptyLearningState(), "legacy", current, next);
 				this.db
 					.prepare("INSERT INTO agent_receipts VALUES (?, ?)")
 					.run(id, value.requestId);
 				return next;
 			}
 			this.saveDynamics(id, next);
+			this.learning.save(id, emptyLearningState(), "legacy", current, next);
 			this.db
 				.prepare("INSERT INTO agent_receipts VALUES (?, ?)")
 				.run(id, value.requestId);
@@ -380,6 +401,7 @@ export class AgentStore {
 			const restored = json<Dynamics>(row.before_state, "dynamics snapshot");
 			restored.revision = current.revision + 1;
 			this.saveDynamics(id, restored);
+			this.learning.revert(id, changeId, current, restored);
 			this.addChange(
 				id,
 				"revert",
@@ -495,6 +517,7 @@ export class AgentStore {
 				.prepare("DELETE FROM agent_candidates WHERE agent_id=?")
 				.run(value.id);
 			this.addChange(value.id, "edit", [], "기본 설정 수정", null, null);
+			this.learning.edit(value.id, this.dynamics(value.id));
 			this.db
 				.prepare("INSERT INTO agent_authored_receipts VALUES (?, ?, ?, ?)")
 				.run(receiptId, value.id, payloadHash, JSON.stringify(next));
@@ -509,6 +532,164 @@ export class AgentStore {
 		}
 	}
 
+	private applyQualifiedReflection(
+		id: string,
+		input: ReflectionInput,
+		current: Dynamics,
+		provenance: LearnedProvenance,
+	): Dynamics {
+		assertLearnedProvenance(provenance, input.requestId, input.sourceEntryIds);
+		this.db
+			.prepare("INSERT INTO agent_receipts VALUES(?,?)")
+			.run(id, input.requestId);
+		const state = this.learning.propose(id, input, provenance, this.now());
+		const next: Dynamics = {
+			revision: current.revision,
+			mood: state.mood?.value ?? null,
+			interests: state.values.interests.map((v) => v.value),
+			preferences: state.values.preferences.map((v) => v.value),
+			relationship: state.values.relationship.map((v) => v.value),
+			lastRequestId: input.requestId,
+		};
+		const visible = (v: Dynamics) => ({
+			mood: v.mood,
+			interests: v.interests,
+			preferences: v.preferences,
+			relationship: v.relationship,
+		});
+		let changeId: number | null = null;
+		if (!isDeepStrictEqual(visible(current), visible(next))) {
+			next.revision++;
+			this.addChange(
+				id,
+				"reflection",
+				input.sourceEntryIds,
+				"대화에서 배운 변화",
+				JSON.stringify(current),
+				JSON.stringify(next),
+			);
+			changeId = Number(
+				this.db.prepare("SELECT last_insert_rowid() id").get()?.["id"],
+			);
+		}
+		this.learning.save(id, state, "reflection", current, next, changeId);
+		this.saveDynamics(id, next);
+		if (!this.learning.proofs(id, input.requestId, provenance.lookup))
+			throw Error("stale learned prompt ancestry");
+		assertLearnedProvenance(provenance, input.requestId, input.sourceEntryIds);
+		return next;
+	}
+	private auditData(): void {
+		for (const profile of this.list()) {
+			const { revision, ...input } = profile;
+			validateAgentInput(input);
+			if (!Number.isSafeInteger(revision) || revision < 1)
+				throw Error("invalid agent revision");
+		}
+		for (const row of this.db
+			.prepare(
+				"SELECT agent_id,revision,mood,interests,preferences,relationship,last_request_id FROM agent_dynamics",
+			)
+			.iterate()) {
+			if (!this.get(String(row["agent_id"])))
+				throw Error("orphan agent dynamics");
+			this.validateStoredDynamics({
+				revision: row["revision"],
+				mood: row["mood"] === null ? null : JSON.parse(String(row["mood"])),
+				interests: JSON.parse(String(row["interests"])),
+				preferences: JSON.parse(String(row["preferences"])),
+				relationship: JSON.parse(String(row["relationship"])),
+				lastRequestId: row["last_request_id"],
+			});
+		}
+		for (const row of this.db
+			.prepare(
+				"SELECT kind,source_entry_ids,before_state,after_state FROM agent_changes",
+			)
+			.iterate()) {
+			if (!["edit", "reflection", "revert"].includes(String(row["kind"])))
+				throw Error("invalid agent change kind");
+			const sources = JSON.parse(String(row["source_entry_ids"]));
+			if (
+				!Array.isArray(sources) ||
+				sources.some((v) => typeof v !== "string" || !v.trim())
+			)
+				throw Error("invalid agent change sources");
+			for (const k of ["before_state", "after_state"])
+				if (row[k] !== null)
+					this.validateStoredDynamics(JSON.parse(String(row[k])));
+		}
+		if (
+			this.db
+				.prepare("SELECT 1 FROM sqlite_schema WHERE name='agent_candidates'")
+				.get()
+		)
+			for (const row of this.db
+				.prepare("SELECT agent_id,kind,value,request_ids FROM agent_candidates")
+				.iterate()) {
+				if (
+					!["interest", "preference", "relationship"].includes(
+						String(row["kind"]),
+					)
+				)
+					throw Error("invalid candidate kind");
+				boundedId(row["value"], "candidate value");
+				const ids = JSON.parse(String(row["request_ids"]));
+				if (
+					!Array.isArray(ids) ||
+					!ids.length ||
+					new Set(ids).size !== ids.length
+				)
+					throw Error("invalid candidate requests");
+				for (const id of ids) {
+					boundedId(id, "candidate request");
+					if (
+						!this.db
+							.prepare(
+								"SELECT 1 FROM agent_receipts WHERE agent_id=? AND request_id=?",
+							)
+							.get(String(row["agent_id"]), id)
+					)
+						throw Error("orphan candidate receipt");
+				}
+			}
+	}
+	private validateStoredDynamics(value: unknown): void {
+		if (!value || typeof value !== "object" || Array.isArray(value))
+			throw Error("invalid dynamics snapshot");
+		const v = value as Dynamics;
+		if (
+			v.mood !== null &&
+			(!v.mood || typeof v.mood !== "object" || Array.isArray(v.mood))
+		)
+			throw Error("invalid persisted mood");
+		if (
+			Object.keys(v).sort().join(",") !==
+				"interests,lastRequestId,mood,preferences,relationship,revision" ||
+			!Number.isSafeInteger(v.revision) ||
+			v.revision < 0
+		)
+			throw Error("invalid dynamics snapshot");
+		validateReflection({
+			profileRevision: 1,
+			dynamicsRevision: v.revision,
+			requestId: v.lastRequestId ?? "validation",
+			sourceEntryIds: ["validation"],
+			interests: v.interests,
+			preferences: v.preferences,
+			relationship: v.relationship,
+			...(v.mood
+				? { mood: { label: v.mood.label, reason: v.mood.reason } }
+				: {}),
+		});
+		if (
+			v.mood &&
+			(!Number.isSafeInteger(v.mood.expiresAt) ||
+				v.mood.expiresAt < 0 ||
+				Object.keys(v.mood).sort().join(",") !== "expiresAt,label,reason")
+		)
+			throw Error("invalid persisted mood");
+	}
 	private decodeProfile(row: ProfileRow): AgentProfile {
 		return {
 			id: row.id,
@@ -573,79 +754,6 @@ export class AgentStore {
 				afterState,
 				targetChangeId,
 			);
-	}
-	private verifySchema(): void {
-		const expected: Record<string, string[]> = {
-			agent_profiles: [
-				"id",
-				"name",
-				"role",
-				"personality",
-				"voice",
-				"profile",
-				"appearance",
-				"interests",
-				"avatar_id",
-				"evolution",
-				"revision",
-			],
-			agent_dynamics: [
-				"agent_id",
-				"revision",
-				"mood",
-				"interests",
-				"preferences",
-				"relationship",
-				"last_request_id",
-			],
-			agent_changes: [
-				"id",
-				"agent_id",
-				"kind",
-				"created_at",
-				"source_entry_ids",
-				"summary",
-				"before_state",
-				"after_state",
-				"target_change_id",
-			],
-			agent_receipts: ["agent_id", "request_id"],
-			agent_authored_receipts: [
-				"receipt_id",
-				"agent_id",
-				"payload_hash",
-				"profile_json",
-			],
-			agent_candidates: ["agent_id", "kind", "value", "request_ids"],
-		};
-		for (const [table, columns] of Object.entries(expected)) {
-			const actual = (
-				this.db.prepare(`PRAGMA table_info(${table})`).all() as {
-					name: string;
-				}[]
-			).map((row) => row.name);
-			if (!isDeepStrictEqual(actual, columns))
-				throw new Error("unknown agent schema");
-		}
-	}
-	private assertNoForeignTables(): void {
-		const owned = new Set([
-			"agent_profiles",
-			"agent_dynamics",
-			"agent_changes",
-			"agent_receipts",
-			"agent_authored_receipts",
-			"agent_candidates",
-		]);
-		const tables = (
-			this.db
-				.prepare(
-					"SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'",
-				)
-				.all() as { name: string }[]
-		).map((row) => row.name);
-		if (tables.some((table) => !owned.has(table)))
-			throw new Error("foreign agent database schema");
 	}
 	private confirmCandidates(
 		id: string,

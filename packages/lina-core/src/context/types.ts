@@ -1,4 +1,5 @@
 import type { EntryInput } from "../protocol.ts";
+import type { SourceEntry, SourceProof } from "../source-policy-types.ts";
 
 export const SUMMARY_TEXT_MAX_CHARS = 8192;
 export const SUMMARY_SOURCES_MAX = 64;
@@ -26,6 +27,7 @@ export interface SummaryNode {
 	depth: number;
 	sources: SourceRef[];
 	fingerprint: string;
+	sourceProofs: SourceProof[];
 }
 
 export interface StageInput {
@@ -73,4 +75,21 @@ export interface ExpandPage {
 }
 
 /** Resolves an immutable durable entry by ID; never arbitrary file contents. */
-export type LookupEntry = (id: string) => EntryInput | undefined;
+export type LookupEntry = (
+	id: string,
+) => (EntryInput & SourceEntry) | undefined;
+
+export interface ContextStoreOptions {
+	/** Trusted request lookup returning the creating user entry, never model input. */
+	lookupRequest?: (requestId: string) => SourceEntry | undefined;
+}
+export type ArtifactStatus = "pending" | "finalized" | "withheld";
+export interface NoteReceipt {
+	id: string;
+	status: ArtifactStatus;
+}
+export interface ManagedNote {
+	id: string;
+	text: string;
+	createdAt: string;
+}

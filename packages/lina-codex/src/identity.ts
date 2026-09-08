@@ -342,6 +342,7 @@ export function prepareCodexContext(
 	sessionFile: string,
 	workspace: string,
 	policy: SessionContextPolicy,
+	requireCleanEpoch = false,
 ): CodexSessionHeader {
 	const target = parseSessionContextPolicy(policy);
 	const header = readCodexSessionHeader(sessionFile, workspace);
@@ -352,7 +353,11 @@ export function prepareCodexContext(
 			throw new Error("Context transition target changed; attention required");
 		return header;
 	}
-	if (header.contextPolicy?.scopeDigest === target.scopeDigest) return header;
+	if (
+		!requireCleanEpoch &&
+		header.contextPolicy?.scopeDigest === target.scopeDigest
+	)
+		return header;
 	if ((header.nativeEpoch ?? 0) >= Number.MAX_SAFE_INTEGER)
 		throw new Error("Native epoch exhausted");
 	const id = randomUUID();

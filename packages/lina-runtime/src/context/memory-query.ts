@@ -1,10 +1,25 @@
 import { Type } from "typebox";
-import { archiveText } from "../../../lina-core/src/context/archive.ts";
+import {
+	archiveText,
+	isOrdinaryArchiveEntry,
+} from "../../../lina-core/src/context/archive.ts";
+import {
+	captureSourceProofs,
+	type SourceProof,
+	sourceProofsCurrent,
+} from "../../../lina-core/src/source-policy.ts";
 import type { DurableStore } from "../../../lina-core/src/store.ts";
 import type { EngineStore } from "../../../lina-memory/src/engine/store.ts";
 import type { LinaHost } from "../host.ts";
+import { searchContextHistory } from "./tools.ts";
 
-type Reason = (input: string, signal: AbortSignal) => Promise<string>;
+type Reason = (
+	input: string,
+	signal: AbortSignal,
+	beforeDispatch?: () => void,
+) => Promise<string>;
+// Keep original evidence off the public query/details shape across async wrappers.
+const DELIVERY_GUARDS = new WeakMap<object, () => void>();
 /** Read-only synthesis with bounded originals, never an alternative memory writer. */
 export async function queryMemory(
 	query: string,
@@ -17,18 +32,44 @@ export async function queryMemory(
 	if (!query.trim() || query.length > 2000)
 		throw Error("Invalid memory question");
 	const state = mind.state();
+	const lookup = (id: string) => journal.sourceEntry(id);
+	const proofs: SourceProof[] = [];
+	const assertCurrent = (captured = proofs) => {
+		signal.throwIfAborted();
+		if (
+			(captured.length &&
+				!sourceProofsCurrent(
+					[...new Map(captured.map((p) => [p.entryId, p])).values()],
+					lookup,
+				)) ||
+			mind.snapshot().revision !== state.revision
+		)
+			throw Error(
+				"Memory source provenance changed during query; retry with current evidence",
+			);
+	};
 	const exact = mind.recall(query, { limit: 12 });
 	const records = [
 		...new Map([...exact, ...state.records].map((r) => [r.id, r])).values(),
-	].slice(0, 20);
+	]
+		.filter(
+			(record) =>
+				sourceProofsCurrent(record.sourceProofs ?? [], lookup) &&
+				record.sources.every((source) =>
+					isOrdinaryArchiveEntry(lookup(source.entryId)),
+				),
+		)
+		.slice(0, 20);
+	proofs.push(...records.flatMap((record) => record.sourceProofs ?? []));
 	const ids = [
 		...new Set(records.flatMap((r) => r.sources.map((s) => s.entryId))),
 	].slice(0, 24);
 	const sources: { id: string; text: string; clipped: boolean }[] = [];
 	let budget = 22000;
 	for (const id of ids) {
-		const e = journal.entry(id);
-		if (!e) continue;
+		const e = lookup(id);
+		if (!isOrdinaryArchiveEntry(e)) continue;
+		proofs.push(...captureSourceProofs([id], lookup));
 		const all = archiveText(e);
 		const quote = records
 			.flatMap((r) => r.sources)
@@ -62,7 +103,8 @@ export async function queryMemory(
 			sources,
 		});
 	const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(30_000)]);
-	let answer = await reason(input(1), boundedSignal);
+	let answer = await reason(input(1), boundedSignal, () => assertCurrent());
+	assertCurrent();
 	let plan: unknown;
 	try {
 		plan = JSON.parse(answer);
@@ -79,7 +121,8 @@ export async function queryMemory(
 			throw Error("Invalid memory search request");
 		for (const term of queries as string[]) {
 			boundedSignal.throwIfAborted();
-			for (const hit of journal.search(term, { limit: 8 }).messages) {
+			for (const hit of searchContextHistory(journal, term, { limit: 8 })
+				.messages) {
 				if (
 					mind.sourceInvalidated(hit.entryId) ||
 					sources.some((s) => s.id === hit.entryId) ||
@@ -87,8 +130,9 @@ export async function queryMemory(
 					budget <= 0
 				)
 					continue;
-				const entry = journal.entry(hit.entryId);
-				if (!entry) continue;
+				const entry = lookup(hit.entryId);
+				if (!isOrdinaryArchiveEntry(entry)) continue;
+				proofs.push(...captureSourceProofs([hit.entryId], lookup));
 				const all = archiveText(entry);
 				const start = Math.max(0, all.indexOf(term) - 200);
 				const text = all.slice(start, start + Math.min(2400, budget));
@@ -100,12 +144,20 @@ export async function queryMemory(
 				budget -= text.length;
 			}
 		}
-		answer = await reason(input(0), boundedSignal);
+		assertCurrent();
+		answer = await reason(input(0), boundedSignal, () => assertCurrent());
+		assertCurrent();
 	}
 	signal.throwIfAborted();
 	if (mind.snapshot().revision !== revision)
 		throw Error("Memory changed during query; retry with current evidence");
-	return { answer: answer.slice(0, 8000), sources: sources.map((s) => s.id) };
+	const result = {
+		answer: answer.slice(0, 8000),
+		sources: sources.map((s) => s.id),
+	};
+	const originalProofs = proofs.map((proof) => ({ ...proof }));
+	DELIVERY_GUARDS.set(result, () => assertCurrent(originalProofs));
+	return result;
 }
 export function installMemoryQuery(
 	host: LinaHost,
@@ -129,9 +181,13 @@ export function installMemoryQuery(
 				reason,
 				signal ?? new AbortController().signal,
 			);
+			const beforeDeliver = DELIVERY_GUARDS.get(result);
+			if (!beforeDeliver) throw Error("Memory query provenance unavailable");
+			beforeDeliver();
 			return {
 				content: [{ type: "text" as const, text: JSON.stringify(result) }],
 				details: result,
+				beforeDeliver,
 			};
 		},
 	});

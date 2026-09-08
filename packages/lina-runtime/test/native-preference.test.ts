@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { ConversationStore } from "../../lina-core/src/agents/conversation.ts";
+import { captureSourceProofs } from "../../lina-core/src/source-policy.ts";
 import { nativePreferences } from "../src/persona/native-preferences.ts";
-import { createRuntimeFixture } from "./runtime-fixture.ts";
+import { trustNativeFixture } from "./helpers/native-memory-source.ts";
+import { createRuntimeFixture as baseFixture } from "./runtime-fixture.ts";
 
 test("native preference replay uses original request receipt and reset wins across retry", async () => {
 	const f = createRuntimeFixture();
@@ -79,6 +81,13 @@ test("older preference retry cannot replace a newer correction but preserves oth
 			newer.text,
 			[{ dimension: "verbosity", value: "detailed", quote: newer.text }],
 			() => ({ role: "user", entryId: "new", text: newer.text }),
+			undefined,
+			{
+				sourceProofs: captureSourceProofs(["new"], (id) =>
+					f.store.sourceEntry(id),
+				),
+				lookup: (id) => f.store.sourceEntry(id),
+			},
 		);
 		const p = nativePreferences(store, "lina", f.store, async () =>
 			JSON.stringify({
@@ -107,3 +116,9 @@ test("older preference retry cannot replace a newer correction but preserves oth
 		await f.close();
 	}
 });
+
+function createRuntimeFixture() {
+	const f = baseFixture();
+	trustNativeFixture(f.store, f.runtime.binding);
+	return f;
+}

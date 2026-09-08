@@ -17,8 +17,10 @@ import {
 	revision,
 } from "./life-json.ts";
 import { createEvaluationContext, evaluateExpression } from "./rules.ts";
+import { workContributions, workEligible } from "./work-selection.ts";
 
-type WeightSource = Pick<AutonomySource, "pack" | "life" | "autonomy">;
+type WeightSource = Pick<AutonomySource, "pack" | "life" | "autonomy"> &
+	Partial<Pick<AutonomySource, "work" | "config">>;
 
 function candidate(
 	source: WeightSource,
@@ -86,6 +88,14 @@ function candidate(
 		id: family.id,
 		value: finite(-(prior?.count ?? 0) * policy.noveltyPenalty),
 	});
+	if (source.config)
+		contributions.push(
+			...workContributions(
+				{ ...source, config: source.config },
+				family.id,
+				agentId,
+			),
+		);
 	return {
 		id: `candidate-${lifeDigest([family.id, agentId]).slice(0, 40)}`,
 		familyId: family.id,
@@ -184,6 +194,7 @@ export function selectLifeEvent(
 					true
 			)
 				continue;
+			if (!workEligible(source, family.id, role.agentId)) continue;
 			candidates.push(candidate(source, policy, role.agentId));
 		}
 	// A queued causal opportunity still passes the same authored eligibility and weighting gates.

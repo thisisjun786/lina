@@ -1,12 +1,4 @@
-import {
-	closeSync,
-	constants,
-	copyFileSync,
-	existsSync,
-	mkdirSync,
-	openSync,
-	realpathSync,
-} from "node:fs";
+import { closeSync, existsSync, openSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ConversationStore } from "../../lina-core/src/agents/conversation.ts";
 import type { AgentStore } from "../../lina-core/src/agents/store.ts";
@@ -22,10 +14,6 @@ import {
 	type BotBinding,
 	DurableStore,
 } from "../../lina-core/src/index.ts";
-import type {
-	WorldContextLimits,
-	WorldStore,
-} from "../../lina-core/src/world/index.ts";
 import type {
 	HonchoClientOptions,
 	HonchoConfig,
@@ -56,17 +44,17 @@ import type { SessionEngine } from "./session-engine.ts";
 import { createAttachmentTool } from "./tools/attachments.ts";
 import { createNotepadTools } from "./tools/notepad.ts";
 import { createStatusTool } from "./tools/status.ts";
+import {
+	createOrdinaryWorldContext,
+	type OrdinaryWorldSource,
+} from "./world.ts";
 
 export type AppOptions = {
 	engine: SessionEngine;
 	registerTools?: (host: LinaHost) => void;
 	memoryBackend?: "native" | "honcho" | "disabled";
 	modelSettings?: () => ModelSettings;
-	world?: {
-		store: WorldStore;
-		worldId: string;
-		limits: WorldContextLimits;
-	};
+	world?: () => OrdinaryWorldSource | undefined;
 	persona?: {
 		agents: AgentStore;
 		agentId: string;
@@ -91,20 +79,22 @@ export type AppOptions = {
 
 export async function startPersistentApp(options: AppOptions) {
 	const engine = options.engine;
-	if (!engine || engine.kind !== "codex")
+	if (engine?.kind !== "codex")
 		throw Error("An explicit Codex engine is required");
 	if (options.importSession)
 		throw Error(
 			"Legacy session import is no longer supported; existing data was not changed",
 		);
-	if (options.world)
-		throw Error(
-			"LIFE integration requires source-aware memory, history and persona services before activation",
-		);
+	if (options.world !== undefined && typeof options.world !== "function")
+		throw Error("World context requires a trusted source-aware factory");
 	const responsePolicy = new ResponsePolicy(options.systemPrompt);
 	const approvalMode = parseApprovalMode(options.approvalMode);
 	const workspace = realpathSync(options.workspace),
 		botId = options.botId ?? "lina";
+	const worldContext = createOrdinaryWorldContext(botId, () =>
+		options.world?.(),
+	);
+	const ordinaryPolicy = worldContext.policy();
 	const lease = acquireSessionLease(options.stateRoot, botId, workspace);
 	let transcriptLease: { close(): void } | undefined;
 	let native: SessionPort | undefined,
@@ -117,7 +107,7 @@ export async function startPersistentApp(options: AppOptions) {
 	let contextStore: ContextStore | undefined,
 		context: ContextCoordinator | undefined;
 	let reflection: PersonaReflection | undefined;
-	let refreshPersona: (() => string) | undefined;
+	let refreshPersona: ReturnType<typeof installPersona> | undefined;
 	let memory: MemoryBridge | CompanionMemory | undefined,
 		contextChannel: ContextChannel | undefined;
 	const startedAt = new Date().toISOString();
@@ -163,7 +153,11 @@ export async function startPersistentApp(options: AppOptions) {
 		}
 		engine.inspect(sessionFile, workspace);
 		transcriptLease = acquireTranscriptLease(sessionFile, botId, workspace);
-		const identity = await engine.initialize(sessionFile, workspace);
+		const identity = await engine.initialize(
+			sessionFile,
+			workspace,
+			ordinaryPolicy,
+		);
 		if (existing && existing.sessionId !== identity.sessionId)
 			throw new Error("The fixed session ID changed");
 		const binding: BotBinding = { version: 1, botId, workspace, ...identity };
@@ -175,7 +169,13 @@ export async function startPersistentApp(options: AppOptions) {
 		const storedContext = new ContextStore(
 			join(lease.root, "context.sqlite"),
 			binding,
-			(id) => journal.entry(id),
+			(id) => journal.sourceEntry(id),
+			{
+				lookupRequest: (id) => {
+					const entryId = journal.request(id)?.entryId;
+					return entryId ? journal.sourceEntry(entryId) : undefined;
+				},
+			},
 		);
 		contextStore = storedContext;
 		let contextServices: ContextServices | undefined;
@@ -188,6 +188,7 @@ export async function startPersistentApp(options: AppOptions) {
 			nativeTokens: () => native?.usage().tokens ?? null,
 			store: storedContext,
 			busy: () => runtime?.snapshot().state !== "idle",
+			activeRequestId: () => runtime?.currentRequestId(),
 			compact: async () => {
 				if (!native) throw new Error("Native session is unavailable");
 				return native.compact();
@@ -246,13 +247,35 @@ export async function startPersistentApp(options: AppOptions) {
 			}),
 		});
 		execution = coordinator;
+
 		native = await (options.createSession ?? engine.create)({
+			contextPolicy: ordinaryPolicy,
+			currentContextPolicy: worldContext.policy,
+			contextExposure: worldContext.exposure,
+			sourcePolicy: {
+				registerRequestSource: (origin) => {
+					journal.registerRequestSource(origin);
+				},
+				recordSourceExposure: (receipt) => {
+					journal.recordSourceExposure(receipt);
+				},
+				extendRequestSource: (id, receipts) => {
+					journal.extendRequestSource(id, receipts);
+				},
+				appendSourceEntry: (entry, id) => {
+					journal.appendSourceEntry(entry, id);
+				},
+			},
 			workspace,
 			sessionFile,
 			agentDir: options.agentDir,
 			systemPrompt: responsePolicy.sections.common,
 			bootstrapInstructions: () =>
 				refreshPersona?.() ?? responsePolicy.sections.common,
+			bootstrapContext: () =>
+				refreshPersona?.prepare() ?? {
+					systemPrompt: responsePolicy.sections.common,
+				},
 			agentId: botId,
 			...(options.modelSettings
 				? { modelSettings: options.modelSettings }
@@ -263,6 +286,7 @@ export async function startPersistentApp(options: AppOptions) {
 			register(host, services, permissions) {
 				contextServices = services;
 				options.registerTools?.(host);
+				if (options.world) worldContext.install(host);
 				if (memoryBridge instanceof CompanionMemory && services.observe)
 					memoryBridge.configure(
 						services.observe,
@@ -291,6 +315,8 @@ export async function startPersistentApp(options: AppOptions) {
 						responsePolicy.sections.common,
 						services,
 						{
+							sourceLookup: (id) => journal.sourceEntry(id),
+							sharedGrowth: worldContext.growth,
 							conversations: options.persona.conversations,
 							userContext: options.persona.userContext,
 							firstOrdinaryReply: () => !journal.hasNormalAssistantReply(),
@@ -326,57 +352,72 @@ export async function startPersistentApp(options: AppOptions) {
 					),
 				);
 				contextCoordinator.configure(services);
-				installContextHooks(host, contextCoordinator, (query, signal) =>
-					memoryBridge.recall(query, signal),
+				installContextHooks(
+					host,
+					contextCoordinator,
+					(query, signal) => memoryBridge.recall(query, signal),
+					() => memoryBridge.status().recallText,
 				);
 				const tools = createContextTools(
 					storedContext,
 					journal,
 					() => contextCoordinator.changed(),
 					() => contextCoordinator.isBusy,
+					() => runtime?.currentRequestId(),
 				);
 				host.registerTool(tools.update);
 				host.registerTool(tools.search);
 				host.registerTool(tools.expand);
-				const notepadRoot =
-					options.persona || options.resourceRoot
-						? join(lease.root, "notes")
-						: join(workspace, "data");
-				mkdirSync(notepadRoot, { recursive: true, mode: 0o700 });
-				if (
-					options.persona &&
-					botId === "lina" &&
-					!existsSync(join(notepadRoot, "notepad.md")) &&
-					existsSync(join(options.resourceRoot ?? workspace, "data/notepad.md"))
-				)
-					copyFileSync(
-						join(options.resourceRoot ?? workspace, "data/notepad.md"),
-						join(notepadRoot, "notepad.md"),
-						constants.COPYFILE_EXCL,
-					);
-				const notepad = createNotepadTools(notepadRoot);
+				const notepad = createNotepadTools(storedContext, () =>
+					runtime?.currentRequestId(),
+				);
 				host.registerTool(notepad.read);
 				host.registerTool(notepad.append);
-				host.registerTool(
-					createStatusTool(() => ({
-						startedAt,
-						workspace,
-						interventionPort: server?.port ?? options.port,
-						lastAgentEndAt,
-						context: {
-							working: storedContext.working(),
-							activeSummary: contextCoordinator.state().activeId
-								? storedContext.active()
-								: null,
-						},
-					})),
-				);
+				const status = createStatusTool(() => ({
+					startedAt,
+					workspace,
+					interventionPort: server?.port ?? options.port,
+					lastAgentEndAt,
+				}));
+				host.registerTool({
+					...status,
+					async execute() {
+						const snapshot = await status.execute();
+						const working = storedContext.readWorking();
+						const active = contextCoordinator.state().activeId
+							? storedContext.readActive()
+							: undefined;
+						const details = {
+							...snapshot.details,
+							context: {
+								working: working.value,
+								activeSummary: active?.value ?? null,
+							},
+						};
+						return {
+							content: [
+								{ type: "text", text: JSON.stringify(details, null, 2) },
+							],
+							details,
+							beforeDeliver() {
+								working.beforeDeliver();
+								active?.beforeDeliver();
+							},
+						};
+					},
+				});
 				host.on("agent_settled", () => {
 					lastAgentEndAt = new Date().toISOString();
 				});
 			},
 		});
 		runtime = new DurableRuntime(native, store, binding, {
+			finalizeRequest: (id) => {
+				storedContext.finalizeRequest(id);
+			},
+			recoverPending: () => {
+				storedContext.recoverPending();
+			},
 			beforeAbort: () => coordinator.abortAll(),
 			beforeSubmit: () => {
 				refreshPersona?.();

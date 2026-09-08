@@ -1,6 +1,6 @@
 # 040 — Autonomous intentions, events and experience
 
-Status: implementation checkpoint `69448e1`, independent code reviews PASS; final C checks pending, 2026-09-08. P revalidated at `24a596c`; the A-reviewed plan was checkpointed at `76dcbff`. Depends on completed 010–030. The prior D direction is: “040 autonomous event and actor loop … durable steps/model receipts/usage and clock fencing, isolated background Codex sessions, evidence-bound experience/growth and actual serialized request/quiet/recovery tests.” This unit follows that direction; 050–080 remain required.
+Status: DONE at `3ff96e3`, 2026-09-08. Implementation checkpoint `69448e1`; independent native, core and runtime code reviews PASS; C→D closed to IDLE before 050 P. P revalidated at `24a596c`; the A-reviewed plan was checkpointed at `76dcbff`. Depends on completed 010–030. The prior D direction is: “040 autonomous event and actor loop … durable steps/model receipts/usage and clock fencing, isolated background Codex sessions, evidence-bound experience/growth and actual serialized request/quiet/recovery tests.” This unit follows that direction; 050–080 remain required.
 
 ## Unit contract
 
@@ -189,3 +189,9 @@ Focused evidence is under the task-owned `.codexclaw/evidence/01a07c47-20b9-73b1
 Known measurement: cold replay in a synthetic quiet history took roughly 264/944/3819 ms at 10/20/40 steps in the independent core probe. Repeated prefix validation makes long histories increasingly costly; this implementation does not claim an established long-running latency target. Real model interest, installed ordinary memory, publication, images and UI remain the scoped 050–080 work.
 
 Final C uses `/tmp/lina-life-pabcd-01a07c47/check-autonomy.py` through the session-bound `cxc receipt test`, with `LINA_AUTHOR_NATIVE_TEST=1` and `LINA_LIFE_NATIVE_TEST=1`. It records per-command output and an unchanged source manifest in `autonomy-check.json`. The installed HTTP matrix records actual curl headers/bodies, negative cases, source identity and teardown in `qa/autonomy-http`; the D record records their actual results after execution. Neither planned command is counted as already passed.
+
+## C/D result
+
+At `3ff96e35061fae3079301932a3ac85b9012de583`, the recorded check ran 1,890 tests with zero failures and 9,277 assertions across 288 files in 105.68 seconds. Both native flags were enabled. Root/browser type checks, lint (exit 0 with nine warnings), runtime asset build and read-only CLI smoke, CI-control validation, document checks (11 plans, 16 documents, 102 links) and diff check all passed without changing the source. The installed HTTP matrix passed 29 cases at the same clean commit and recorded complete teardown, zero paid-provider calls and no installed-user-data writes. An initial harness expectation for absent Host was corrected from application 403 to the actual HTTP parser 400; the original failure is retained and the complete matrix passed again with no production changes.
+
+`autonomy-test-receipt.json`, `autonomy-check.json`, `autonomy-qa-receipt.json`, `autonomy-code-review.json` and `autonomy-d-summary.md` under the task evidence directory hold exact commands, source hashes, captures and limitations. This closes 040 only. The next unit is 050: actual task receipts, one-time work influence and source-aware ordinary persona/memory integration.

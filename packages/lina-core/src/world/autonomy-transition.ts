@@ -26,6 +26,7 @@ import { validateSocialResult } from "./social-result.ts";
 import type { SocialPreparedResolution } from "./social-store-types.ts";
 import { transition } from "./transition.ts";
 import type { WorldSnapshot } from "./types.ts";
+import { applyWorkExperiences } from "./work-experience.ts";
 
 export {
 	initialAutonomyState,
@@ -225,6 +226,8 @@ function prepareBase(
 				(x) => x.id !== parent.id,
 			);
 	}
+	applyWorkExperiences(step, commit);
+	if (kind === "quiet" && commit.world.kind === "activity") kind = "work";
 	applyAutonomyRules(step, state, commit, kind !== "activity");
 	assertAutonomyVariables(step.source.pack, state.variables);
 	commit.checkpoint = rebindSocialCheckpoint(

@@ -15,9 +15,13 @@ import type {
 	LifeCommit,
 	LifeDefinition,
 	LifeInput,
+	LifeInputV2,
 	LifePreview,
 	LifeReceipt,
 	LifeState,
+	LifeViewLimits,
+	PublicationScope,
+	PublicationView,
 	SideEffectIntent,
 	WorldBinding,
 } from "./life-types.ts";
@@ -47,6 +51,9 @@ import {
 	parseProposal,
 	text,
 } from "./validation.ts";
+import { projectPublication } from "./views.ts";
+import { WorkPersistence } from "./work-persistence.ts";
+import type { WorkEvidenceSnapshot, WorkSubject } from "./work-types.ts";
 
 type WorldRow = { id: string; definition_json: string; state_json: string };
 type EventRow = {
@@ -108,6 +115,7 @@ export class WorldStore
 	private readonly social: SocialPersistence;
 	private readonly author: AuthoringPersistence;
 	private readonly suggestions: AuthoringRequests;
+	private readonly work: WorkPersistence;
 	private closed = false;
 	readonly acquireLifeLease: WorldAutonomyPort["acquireLifeLease"] = (
 		worldId,
@@ -239,7 +247,14 @@ export class WorldStore
 		this.transaction(() => this.author.lifeConfig(...args), false);
 	readonly setLifeConfig: WorldAuthoringPort["setLifeConfig"] = (...args) =>
 		this.transaction(() => {
+			const previousPermission = this.work.snapshot(args[0]).permissionRevision;
 			const config = this.author.setLifeConfig(...args);
+			this.work.configure(config);
+			if (
+				this.work.snapshot(config.worldId).permissionRevision !==
+				previousPermission
+			)
+				this.life.invalidateBindings(config.worldId);
 			this.autonomy.configure(config.worldId, config.revision);
 			return config;
 		}, true);
@@ -355,6 +370,12 @@ export class WorldStore
 				configAt: (worldId, revision) =>
 					this.author.lifeConfigAt(worldId, revision),
 				inputs: (worldId) => this.life.inputs(worldId),
+				work: (worldId, revision) => this.work.snapshot(worldId, revision),
+				workAncestry: (worldId, revision) =>
+					this.work.ancestry(worldId, revision),
+				recordWorkStep: (step) => this.work.recordStep(step),
+				workInputsAt: (worldId, workRevision, lifeRevision) =>
+					this.work.inputsAt(worldId, workRevision, lifeRevision),
 				accept: (commit, identity) => this.life.accept(commit, identity),
 				social: (worldId, requestId, source) =>
 					this.social.getAt(worldId, requestId, source),
@@ -362,6 +383,16 @@ export class WorldStore
 			this.now,
 		);
 		this.suggestions = new AuthoringRequests(this.db, this.author);
+		this.work = new WorkPersistence(this.db, {
+			assertWorld: (worldId) => {
+				this.snapshot(worldId);
+			},
+			config: (worldId) => this.author.lifeConfig(worldId),
+			configAt: (worldId, revision) =>
+				this.author.lifeConfigAt(worldId, revision),
+			inputs: (worldId) => this.life.inputs(worldId),
+			admit: (input) => this.life.admit(input),
+		});
 		let transactionStarted = false;
 		try {
 			this.db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000");
@@ -370,9 +401,14 @@ export class WorldStore
 			initializeWorldSchema(
 				this.db,
 				() => this.auditWorld(),
-				() => this.audit(false, false, false),
-				() => this.audit(true, false, false),
-				() => this.audit(true, true, false),
+				() => this.audit(false, false, false, false),
+				() => this.audit(true, false, false, false),
+				() => this.audit(true, true, false, false),
+				() => this.audit(true, true, true, false),
+				() => {
+					for (const row of this.db.prepare("SELECT id FROM worlds").all())
+						this.work.configure(this.author.lifeConfig(String(row["id"])));
+				},
 			);
 			this.audit();
 			this.suggestions.recover();
@@ -538,7 +574,52 @@ export class WorldStore
 	}
 	admitLifeInput(input: LifeInput): AdmissionReceipt {
 		const parsed = parseLifeInput(input);
+		if (parsed.version === 2)
+			throw Error("Trusted work bridge admission required");
 		return this.transaction(() => this.life.admit(parsed));
+	}
+	/** Trusted source bridge only; never registered as a model tool or step-body field. */
+	admitWorkInput(input: LifeInputV2): AdmissionReceipt {
+		return this.transaction(() => {
+			const receipt = this.work.admit(input);
+			if (!receipt.replayed) {
+				this.life.invalidateBindings(input.worldId);
+				this.autonomy.invalidateWork(input.worldId);
+			}
+			return receipt;
+		});
+	}
+
+	publication(
+		scope: PublicationScope,
+		limits: LifeViewLimits,
+	): PublicationView {
+		return this.transaction(() => {
+			const world = this.snapshot(scope.worldId),
+				life = this.life.snapshot(scope.worldId),
+				definition = this.life.definition(scope.worldId);
+			const events = this.db
+				.prepare(
+					`SELECT ${EVENT_COLUMNS} FROM world_events WHERE world_id=? ORDER BY revision`,
+				)
+				.all(scope.worldId)
+				.map((row) => readEvent(row as EventRow));
+			return projectPublication(
+				world,
+				life,
+				events,
+				definition.projection,
+				scope,
+				limits,
+				(subject) => this.work.allowed(scope.worldId, subject),
+			);
+		}, false);
+	}
+	workSubjectAllowed(worldId: string, subject: WorkSubject): boolean {
+		return this.transaction(() => this.work.allowed(worldId, subject), false);
+	}
+	workEvidence(worldId: string): WorkEvidenceSnapshot {
+		return this.transaction(() => this.work.snapshot(worldId), false);
 	}
 	lifeInputs(worldId: string): LifeInput[] {
 		id(worldId);
@@ -587,6 +668,7 @@ export class WorldStore
 		includeAuthor = true,
 		includeSocial = true,
 		includeAutonomy = true,
+		includeWork = true,
 	): void {
 		this.auditWorld();
 		const definitions = this.db
@@ -633,6 +715,10 @@ export class WorldStore
 		this.life.audit();
 		if (includeSocial) this.social.audit();
 		if (includeAutonomy) this.autonomy.audit();
+		if (includeWork) {
+			for (const world of worlds) this.work.validate(world.id);
+			this.work.validateSteps(this.autonomy.acceptedSteps());
+		}
 		if (includeAuthor) {
 			this.author.audit();
 			this.suggestions.audit();

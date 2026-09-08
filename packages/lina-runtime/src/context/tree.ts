@@ -43,12 +43,38 @@ export async function createSummaryTree(
 	cacheVersion?: string,
 ): Promise<SummaryNode> {
 	signal.throwIfAborted();
-	const key = cacheVersion ? JSON.stringify([cacheVersion, sources]) : null;
+	const eligible = sources.filter((ref) =>
+		ref.kind === "entry" ? !!store.eligibleEntry(ref.id) : !!store.get(ref.id),
+	);
+	const sourceProofs = store.proofs(eligible);
+	const assertCurrent = () => {
+		signal.throwIfAborted();
+		if (!store.proofsCurrent(sourceProofs))
+			throw Error("Context source provenance changed during summary");
+	};
+	assertCurrent();
+	const key = cacheVersion
+		? JSON.stringify([cacheVersion, eligible, sourceProofs])
+		: null;
 	const cache = CACHE.get(store) ?? new Map<string, SummaryNode>();
 	const cached = key ? cache.get(key) : undefined;
 	if (cached && store.get(cached.id) && fits(nativeSummary(cached)))
 		return cached;
-	const result = await buildSummaryTree(sources, store, call, signal, fits);
+	const checkedCall: SummaryCall = async (...args) => {
+		assertCurrent();
+		const result = await call(args[0], args[1], args[2], assertCurrent);
+		assertCurrent();
+		return result;
+	};
+	const result = await buildSummaryTree(
+		eligible,
+		store,
+		checkedCall,
+		signal,
+		fits,
+		assertCurrent,
+	);
+	assertCurrent();
 	if (key) {
 		if (cache.size >= 128) {
 			const oldest = cache.keys().next().value;
@@ -66,6 +92,7 @@ async function buildSummaryTree(
 	call: SummaryCall,
 	signal: AbortSignal,
 	fits: (summary: string) => boolean,
+	assertCurrent: () => void,
 ): Promise<SummaryNode> {
 	if (!sources.length) throw new Error("No recoverable sources to summarize");
 	const originals = unique(sources).map((ref) => ({
@@ -82,6 +109,7 @@ async function buildSummaryTree(
 			fits(nativeSummary({ id: "x".repeat(256), text })),
 		);
 		signal.throwIfAborted();
+		assertCurrent();
 		const node = store.stage({
 			...summary,
 			sources: originals.map(({ ref }) => ref),
@@ -101,6 +129,7 @@ async function buildSummaryTree(
 			call,
 			signal,
 		);
+		assertCurrent();
 		const node = store.stage({ ...summary, sources: unique(refs) });
 		leaves.push({ kind: "summary", id: node.id });
 		refs = [];
@@ -123,6 +152,7 @@ async function buildSummaryTree(
 					signal,
 					(value) => value.length + label.length <= 8192,
 				);
+				assertCurrent();
 				const node = store.stage({
 					...summary,
 					text: label + summary.text,
@@ -172,6 +202,7 @@ async function buildSummaryTree(
 					: undefined,
 			);
 			signal.throwIfAborted();
+			assertCurrent();
 			const node = store.stage({ ...summary, sources: item.refs });
 			if (root) {
 				if (!fits(nativeSummary(node)))

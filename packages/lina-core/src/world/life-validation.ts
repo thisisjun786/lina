@@ -47,6 +47,7 @@ import {
 	parseProposal,
 	text,
 } from "./validation.ts";
+import { parseWorkInputSource } from "./work-validation.ts";
 
 export { canonicalLifeJson, lifeDigest } from "./life-json.ts";
 
@@ -256,6 +257,27 @@ export function parseLifeInput(value: unknown): LifeInput {
 		"source",
 		"consumedLifeRevision",
 	]);
+	if (value.version === 2) {
+		const source = parseWorkInputSource(value.source);
+		if (
+			digest(value.payloadDigest) !== lifeDigest(source) ||
+			value.id !== source.deliveryId ||
+			value.sourceRevision !== source.receipt.receiptRevision
+		)
+			throw Error("LIFE work input identity or digest mismatch");
+		return {
+			version: 2,
+			worldId: identifier(value.worldId),
+			id: identifier(value.id),
+			sourceRevision: revision(value.sourceRevision, 1),
+			payloadDigest: digest(value.payloadDigest),
+			source,
+			consumedLifeRevision:
+				value.consumedLifeRevision === null
+					? null
+					: revision(value.consumedLifeRevision, 1),
+		};
+	}
 	fields(value.source, ["kind", "sourceId", "text"]);
 	text(value.source.text, "LIFE application input");
 	const source = {
@@ -278,36 +300,69 @@ export function parseLifeInput(value: unknown): LifeInput {
 				: revision(value.consumedLifeRevision, 1),
 	};
 }
+
 export function parseBindingSelection(value: unknown): BindingSelection {
 	jsonBoundary(value);
-	fields(value, ["worldId", "projectionPolicyRevision"]);
-	const worldId = nullableId(value.worldId);
-	const projectionPolicyRevision = revision(value.projectionPolicyRevision);
+	const v2 =
+		typeof value === "object" &&
+		value !== null &&
+		"version" in value &&
+		value.version === 2;
+	fields(value, [
+		"worldId",
+		"projectionPolicyRevision",
+		...(v2 ? ["version", "conversationRecipientId"] : []),
+	]);
+	const worldId = nullableId(value["worldId"]),
+		projectionPolicyRevision = revision(value["projectionPolicyRevision"]);
 	if (
-		(worldId === null && projectionPolicyRevision !== 0) ||
-		(worldId !== null && projectionPolicyRevision === 0)
+		worldId === null
+			? projectionPolicyRevision !== 0
+			: projectionPolicyRevision === 0
 	)
 		throw Error("Invalid LIFE binding policy revision");
-	return { worldId, projectionPolicyRevision };
+	if (!v2) return { worldId, projectionPolicyRevision };
+	const conversationRecipientId = nullableId(value["conversationRecipientId"]);
+	if (worldId === null && conversationRecipientId !== null)
+		throw Error("Unbound ordinary recipient");
+	return {
+		version: 2,
+		worldId,
+		projectionPolicyRevision,
+		conversationRecipientId,
+	};
 }
 export function parseWorldBinding(value: unknown): WorldBinding {
 	jsonBoundary(value);
+	const v2 =
+		typeof value === "object" &&
+		value !== null &&
+		"version" in value &&
+		value.version === 2;
 	fields(value, [
 		"version",
 		"agentId",
 		"worldId",
 		"revision",
 		"projectionPolicyRevision",
+		...(v2 ? ["conversationRecipientId"] : []),
 	]);
-	return {
-		version: version(value.version),
-		agentId: identifier(value.agentId),
-		revision: revision(value.revision, 1),
-		...parseBindingSelection({
-			worldId: value.worldId,
-			projectionPolicyRevision: value.projectionPolicyRevision,
-		}),
+	const common = {
+		agentId: identifier(value["agentId"]),
+		revision: revision(value["revision"], 1),
 	};
+	const selection = parseBindingSelection({
+		worldId: value["worldId"],
+		projectionPolicyRevision: value["projectionPolicyRevision"],
+		...(v2
+			? {
+					version: 2,
+					conversationRecipientId: value["conversationRecipientId"],
+				}
+			: {}),
+	});
+	if ("version" in selection) return { ...selection, ...common };
+	return { version: version(value["version"]), ...selection, ...common };
 }
 export function parseLifeViewLimits(value: unknown): LifeViewLimits {
 	jsonBoundary(value);

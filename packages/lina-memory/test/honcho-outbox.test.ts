@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { DatabaseSync } from "node:sqlite";
 import { publicIdentity } from "../src/honcho/config.ts";
 import { HonchoOutbox } from "../src/honcho/outbox.ts";
-import { config, Fixture } from "./honcho-fixture.ts";
+import { qualifiedConfig as config, Fixture } from "./honcho-fixture.ts";
 
 const identity = publicIdentity(config);
 
@@ -11,26 +11,35 @@ describe("HonchoOutbox", () => {
 		const fixture = new Fixture();
 		try {
 			const outbox = fixture.keep(
-				new HonchoOutbox(fixture.file, fixture.binding, identity),
+				new HonchoOutbox(
+					fixture.file,
+					fixture.binding,
+					identity,
+					fixture.outboxOptions,
+				),
 			);
 			const long = "x".repeat(1600);
-			expect(outbox.enqueue("e1", "user", long)).toEqual({
+			expect(fixture.enqueue(outbox, "e1", "user", long)).toEqual({
 				parts: 2,
 				inserted: 2,
 			});
-			expect(outbox.enqueue("e1", "user", long)).toEqual({
+			expect(fixture.enqueue(outbox, "e1", "user", long)).toEqual({
 				parts: 2,
 				inserted: 0,
 			});
-			expect(() => outbox.enqueue("e1", "user", "different")).toThrow(
+			expect(() => fixture.enqueue(outbox, "e1", "user", "different")).toThrow(
 				/differs/,
 			);
-			expect(() => outbox.enqueue("e1", "assistant", long)).toThrow(/differs/);
-			expect(outbox.enqueue("e2", "assistant", "")).toEqual({
+			expect(() => fixture.enqueue(outbox, "e1", "assistant", long)).toThrow(
+				/differs/,
+			);
+			expect(fixture.enqueue(outbox, "e2", "assistant", "")).toEqual({
 				parts: 0,
 				inserted: 0,
 			});
-			expect(() => outbox.enqueue("e3", "tool" as "user", "x")).toThrow(/role/);
+			expect(() =>
+				fixture.enqueue(outbox, "e3", "tool" as "user", "x"),
+			).toThrow(/role/);
 			const next = outbox.next();
 			expect(next.map((p) => [p.entryId, p.partIndex, p.state])).toEqual([
 				["e1", 0, "pending"],
@@ -43,6 +52,7 @@ describe("HonchoOutbox", () => {
 				accepted: 0,
 				unknown: 0,
 				failed: 0,
+				withheld: 0,
 			});
 		} finally {
 			fixture.close();
@@ -52,9 +62,14 @@ describe("HonchoOutbox", () => {
 	it("follows exact state transitions and turns interrupted sends into unknown on reopen", () => {
 		const fixture = new Fixture();
 		try {
-			let outbox = new HonchoOutbox(fixture.file, fixture.binding, identity);
-			outbox.enqueue("e1", "user", "hello");
-			outbox.enqueue("e2", "assistant", "world");
+			let outbox = new HonchoOutbox(
+				fixture.file,
+				fixture.binding,
+				identity,
+				fixture.outboxOptions,
+			);
+			fixture.enqueue(outbox, "e1", "user", "hello");
+			fixture.enqueue(outbox, "e2", "assistant", "world");
 			const [a, b] = outbox.next();
 			if (!a || !b) throw new Error("expected two parts");
 			expect(() => outbox.markAccepted(a.id, "msg_1")).toThrow(/not in/);
@@ -64,7 +79,12 @@ describe("HonchoOutbox", () => {
 			outbox.markFailed(b.id, "422 rejected");
 			outbox.close();
 			outbox = fixture.keep(
-				new HonchoOutbox(fixture.file, fixture.binding, identity),
+				new HonchoOutbox(
+					fixture.file,
+					fixture.binding,
+					identity,
+					fixture.outboxOptions,
+				),
 			);
 			expect(outbox.counts()).toEqual({
 				pending: 0,
@@ -72,6 +92,7 @@ describe("HonchoOutbox", () => {
 				accepted: 0,
 				unknown: 1,
 				failed: 1,
+				withheld: 0,
 			});
 			expect(outbox.unknown()[0]?.error).toBe("interrupted while sending");
 			outbox.markAccepted(a.id, "msg_9");
@@ -85,7 +106,12 @@ describe("HonchoOutbox", () => {
 	it("persists scan state atomically as a pair and validates it", () => {
 		const fixture = new Fixture();
 		try {
-			let outbox = new HonchoOutbox(fixture.file, fixture.binding, identity);
+			let outbox = new HonchoOutbox(
+				fixture.file,
+				fixture.binding,
+				identity,
+				fixture.outboxOptions,
+			);
 			expect(outbox.scanState()).toEqual({ after: 0, eligibleUser: false });
 			outbox.setScanState({ after: 42, eligibleUser: true });
 			expect(() =>
@@ -99,7 +125,12 @@ describe("HonchoOutbox", () => {
 			).toThrow();
 			outbox.close();
 			outbox = fixture.keep(
-				new HonchoOutbox(fixture.file, fixture.binding, identity),
+				new HonchoOutbox(
+					fixture.file,
+					fixture.binding,
+					identity,
+					fixture.outboxOptions,
+				),
 			);
 			expect(outbox.scanState()).toEqual({ after: 42, eligibleUser: true });
 		} finally {
@@ -110,7 +141,12 @@ describe("HonchoOutbox", () => {
 	it("rejects foreign bindings, foreign identities and unknown schemas", () => {
 		const fixture = new Fixture();
 		try {
-			new HonchoOutbox(fixture.file, fixture.binding, identity).close();
+			new HonchoOutbox(
+				fixture.file,
+				fixture.binding,
+				identity,
+				fixture.outboxOptions,
+			).close();
 			expect(
 				() =>
 					new HonchoOutbox(
@@ -137,9 +173,15 @@ describe("HonchoOutbox", () => {
 			const db = new DatabaseSync(stray);
 			db.exec("CREATE TABLE junk(x)");
 			db.close();
-			expect(() => new HonchoOutbox(stray, fixture.binding, identity)).toThrow(
-				/unknown outbox schema/,
-			);
+			expect(
+				() =>
+					new HonchoOutbox(
+						stray,
+						fixture.binding,
+						identity,
+						fixture.outboxOptions,
+					),
+			).toThrow(/unknown outbox schema/);
 		} finally {
 			fixture.close();
 		}

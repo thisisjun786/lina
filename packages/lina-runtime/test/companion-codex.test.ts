@@ -143,7 +143,7 @@ test("real Codex dialogue derives source-linked memory, injects it next turn and
 		} finally {
 			off();
 		}
-		const sourceId = "codex:companion-turn-1:user:0";
+		const sourceId = "codex-v2:1:companion-turn-1:user:0";
 		const record = app.memory.mind.state().records[0];
 		if (!record) throw Error("Accepted memory record missing");
 		expect(record).toMatchObject({
@@ -255,7 +255,7 @@ test("Codex settled final assistant remains an observation source alongside the 
 		await submitAndSettle(app, rpc, "first", "I like jasmine tea.");
 		await app.context.refresh();
 		expect(
-			app.runtime.store.entry("codex:companion-turn-1:assistant:0"),
+			app.runtime.store.entry("codex-v2:1:companion-turn-1:assistant:0"),
 		).toMatchObject({
 			role: "assistant",
 			text: "반가워요.",
@@ -265,12 +265,12 @@ test("Codex settled final assistant remains an observation source alongside the 
 			episodes[0]?.map(({ entryId, role, text }) => ({ entryId, role, text })),
 		).toEqual([
 			{
-				entryId: "codex:companion-turn-1:user:0",
+				entryId: "codex-v2:1:companion-turn-1:user:0",
 				role: "user",
 				text: "I like jasmine tea.",
 			},
 			{
-				entryId: "codex:companion-turn-1:assistant:0",
+				entryId: "codex-v2:1:companion-turn-1:assistant:0",
 				role: "assistant",
 				text: "반가워요.",
 			},

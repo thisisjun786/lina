@@ -44,9 +44,13 @@ function fixture() {
 	return { ...fixture, options, hosts };
 }
 
-test("installed world configuration is refused before unguarded collectors or session writes", async () => {
+test("legacy inline world configuration is refused before unguarded collectors or session writes", async () => {
 	const { options, store, hosts } = fixture();
-	options.world = { store, worldId: "island", limits };
+	options.world = {
+		store,
+		worldId: "island",
+		limits,
+	} as unknown as NonNullable<AppOptions["world"]>;
 	let initialized = false;
 	options.engine = {
 		...options.engine,
@@ -94,8 +98,8 @@ test("ordinary bootstrap exposes current authored persona through the pure regis
 	expect(typeof captured?.bootstrapInstructions).toBe("function");
 	expect(captured?.bootstrapInstructions?.()).toContain("Personality: Curious");
 	expect(captured?.bootstrapInstructions?.()).toContain("Navigator");
-	// Biography is reference data; bootstrap reuses the authored behavior compiler.
-	expect(captured?.bootstrapInstructions?.()).not.toContain(
+	// Bootstrap preserves the complete authored identity as character setting.
+	expect(captured?.bootstrapInstructions?.()).toContain(
 		"Exact authored identity for bootstrap",
 	);
 	agents.update("rumi", 1, { personality: "Careful authored curiosity" });
@@ -126,7 +130,11 @@ test("invalid world startup fails before engine initialization or local session 
 			throw Error("Unexpected engine initialization");
 		},
 	};
-	options.world = { store, worldId: "missing", limits };
+	options.world = {
+		store,
+		worldId: "missing",
+		limits,
+	} as unknown as NonNullable<AppOptions["world"]>;
 	await expect(startPersistentApp(options)).rejects.toThrow();
 	expect(initialized).toBe(false);
 	expect(hosts).toEqual([]);

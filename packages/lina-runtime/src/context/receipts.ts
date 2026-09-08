@@ -1,8 +1,16 @@
+import { isDeepStrictEqual } from "node:util";
 import type { ContextStore } from "../../../lina-core/src/context/index.ts";
+import { decodeProofs } from "../../../lina-core/src/context/validation.ts";
+import type { SourceProof } from "../../../lina-core/src/source-policy.ts";
 import { nativeSummary } from "./tree.ts";
 
 export type SummaryReceipt = {
-	linaContext: { version: 1; id: string; expectedActiveId: string | null };
+	linaContext: {
+		version: 2;
+		id: string;
+		expectedActiveId: string | null;
+		sourceProofs: SourceProof[];
+	};
 };
 export type CompactionCandidate = {
 	summary: string;
@@ -27,13 +35,17 @@ export function activateReceipt(store: ContextStore, raw: unknown): boolean {
 		entry?.["type"] !== "compaction" ||
 		typeof entry["id"] !== "string" ||
 		typeof entry["firstKeptEntryId"] !== "string" ||
-		receipt["version"] !== 1 ||
+		receipt["version"] !== 2 ||
 		typeof id !== "string" ||
 		!(expected === null || typeof expected === "string")
 	)
 		throw new Error("Invalid context receipt");
 	const node = store.get(id);
-	if (!node || entry["summary"] !== nativeSummary(node))
+	if (
+		!node ||
+		entry["summary"] !== nativeSummary(node) ||
+		!isDeepStrictEqual(decodeProofs(receipt["sourceProofs"]), node.sourceProofs)
+	)
 		throw new Error("Context receipt does not match staged summary");
 	store.activate({
 		id,

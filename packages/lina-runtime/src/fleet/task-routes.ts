@@ -1,5 +1,7 @@
+import { type TaskWorkOperations, taskWorkRoutes } from "./task-work-routes.ts";
+
 /** HTTP only depends on task operations; the Codex manager owns native execution. */
-export interface TaskRoutePort {
+export interface TaskRoutePort extends Partial<TaskWorkOperations> {
 	reply?(
 		id: string,
 		input: {
@@ -63,15 +65,17 @@ export async function taskRoutes(
 	validOwner: (id: string) => boolean,
 	json: () => Promise<Record<string, unknown>>,
 ): Promise<Response | undefined> {
-	const url = new URL(request.url),
-		match =
-			/^\/api\/tasks(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(messages|interrupt|owner|approval))?)?$/.exec(
-				url.pathname,
-			);
-	if (!match) return;
-	if (url.search) return reply({ error: "요청 주소를 확인해주세요." }, 400);
-	const [, id, action] = match;
 	try {
+		const work = await taskWorkRoutes(request, tasks, validOwner, json);
+		if (work) return work;
+		const url = new URL(request.url),
+			match =
+				/^\/api\/tasks(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(messages|interrupt|owner|approval))?)?$/.exec(
+					url.pathname,
+				);
+		if (!match) return;
+		if (url.search) return reply({ error: "요청 주소를 확인해주세요." }, 400);
+		const [, id, action] = match;
 		if (request.method === "GET" && !action)
 			return reply(id ? await tasks.read(id) : { tasks: await tasks.list() });
 		if (request.method !== "POST")
@@ -169,6 +173,7 @@ export async function taskRoutes(
 				? String(error.code)
 				: "";
 		const statuses: Record<string, number> = {
+			unauthorized: 403,
 			unknown_task: 404,
 			conflict: 409,
 			revision_mismatch: 409,

@@ -40,19 +40,15 @@ test("manual native composition pins actual profiles, routes and settings with o
 		expect(step.source.modelSettingsRevision).toBe(1);
 		for (const { prepared } of step.models) {
 			const request = prepared.request;
-			expect(f.selections[0]?.selection(request)).toMatchObject({
-				settingsRevision: 1,
-				selected: {
-					provider: "opencodex",
-					model: request.lane === "director" ? "route/director" : "route/actor",
-				},
+			expect(request).toMatchObject({
+				provider: "opencodex",
+				model: request.lane === "director" ? "route/director" : "route/actor",
+				modelSettingsRevision: 1,
 			});
-			expect(() =>
-				f.selections[0]?.selection({ ...request, model: "foreign/model" }),
-			).toThrow();
-			expect(() =>
-				f.selections[0]?.selection({ ...request, modelSettingsRevision: 0 }),
-			).toThrow();
+			// Completed model receipts may replay, but cannot authorize another outbound request.
+			expect(() => f.selections[0]?.selection(request)).toThrow(
+				"snapshot changed",
+			);
 		}
 		expect(JSON.stringify(runtime.step("test-world", step.id))).toContain(
 			"PRIVATE_FLEET_DIRECTOR",

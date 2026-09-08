@@ -1,50 +1,60 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { type Static, Type } from "typebox";
+import type { ContextStore } from "../../../lina-core/src/context/store.ts";
 
-const appendParams = Type.Object({
-	text: Type.String({ minLength: 1, description: "One line to remember" }),
-});
-type AppendParams = Static<typeof appendParams>;
+const appendParams = Type.Object(
+	{
+		text: Type.String({
+			minLength: 1,
+			maxLength: 8192,
+			description: "One note to remember",
+		}),
+	},
+	{ additionalProperties: false },
+);
 
-export function createNotepadTools(dataDir: string) {
-	const file = join(dataDir, "notepad.md");
-	const read = {
-		name: "lina_notepad_read",
-		label: "Notepad read",
-		description:
-			"Read Lina's working notepad (hypotheses, decisions, loose ends).",
-		parameters: Type.Object({}),
-		async execute() {
-			let text: string;
-			try {
-				text = await readFile(file, "utf8");
-			} catch (error) {
-				if (
-					error instanceof Error &&
-					"code" in error &&
-					error.code === "ENOENT"
-				)
-					text = "(empty)";
-				else throw error;
-			}
-			return { content: [{ type: "text" as const, text }], details: { file } };
+/** Managed notes only. The old plaintext file remains available to its human owner. */
+export function createNotepadTools(
+	store: ContextStore,
+	activeRequestId: () => string | undefined,
+) {
+	return {
+		read: {
+			name: "lina_notepad_read",
+			label: "Notepad read",
+			description: "Read eligible finalized notes from Lina's working notepad.",
+			parameters: Type.Object({}, { additionalProperties: false }),
+			async execute() {
+				const { value: notes, beforeDeliver } = store.readNotes();
+				const text =
+					notes
+						.map((note) => `- [${note.createdAt}] ${note.text}`)
+						.join("\n")
+						.slice(0, 16384) || "(empty)";
+				return {
+					content: [{ type: "text" as const, text }],
+					details: {},
+					beforeDeliver,
+				};
+			},
+		},
+		append: {
+			name: "lina_notepad_append",
+			label: "Notepad append",
+			description:
+				"Save a working note pending this request's ordinary completion.",
+			parameters: appendParams,
+			async execute(id: string, params: Static<typeof appendParams>) {
+				const requestId = activeRequestId();
+				const receipt = store.appendNote(
+					id,
+					params.text,
+					requestId ? { activeRequestId: requestId } : {},
+				);
+				return {
+					content: [{ type: "text" as const, text: `Note ${receipt.status}.` }],
+					details: receipt,
+				};
+			},
 		},
 	};
-	const append = {
-		name: "lina_notepad_append",
-		label: "Notepad append",
-		description: "Append one timestamped line to Lina's working notepad.",
-		parameters: appendParams,
-		async execute(_id: string, params: AppendParams) {
-			await mkdir(dataDir, { recursive: true });
-			const line = `- [${new Date().toISOString()}] ${params.text}\n`;
-			await appendFile(file, line, "utf8");
-			return {
-				content: [{ type: "text" as const, text: `appended: ${params.text}` }],
-				details: { file },
-			};
-		},
-	};
-	return { read, append };
 }

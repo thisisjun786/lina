@@ -9,6 +9,7 @@ import { MemoryBridge } from "../src/context/memory.ts";
 import type { ContextServices } from "../src/context/port.ts";
 import { readPresets } from "../src/fleet/presets.ts";
 import { PersonaReflection } from "../src/persona/reflection.ts";
+import { trustNativeFixture } from "./helpers/native-memory-source.ts";
 
 test("preference reset during reflection preserves reset and still applies character mood", async () => {
 	const root = mkdtempSync(join(tmpdir(), "lina-reflection-test-")),
@@ -22,6 +23,7 @@ test("preference reset during reflection preserves reset and still applies chara
 		agents = new AgentStore(join(root, "agents.sqlite")),
 		conversations = new ConversationStore(join(root, "conversation.sqlite")),
 		journal = new DurableStore(join(root, "journal.sqlite"), binding);
+	trustNativeFixture(journal, binding);
 	const seed = readPresets(process.cwd()).find((p) => p.id === "lina");
 	if (!seed) throw Error("missing seed");
 	agents.create(seed);

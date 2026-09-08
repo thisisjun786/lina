@@ -11,6 +11,7 @@ import type {
 } from "./life-types.ts";
 import type { SocialExtensionIntent, TargetResponse } from "./social-types.ts";
 import type { WorldSnapshot } from "./types.ts";
+import type { WorkAncestryRecord, WorkEvidenceSnapshot } from "./work-types.ts";
 
 export interface NeedDefinition {
 	id: string;
@@ -90,6 +91,9 @@ export interface AutonomyState {
 	pendingEvents: CausalEvent[];
 }
 export interface AutonomySource {
+	/** Present only in the explicitly versioned v2 step envelope. */
+	work?: WorkEvidenceSnapshot;
+	workAncestry?: WorkAncestryRecord[];
 	world: WorldSnapshot;
 	life: LifeState;
 	pack: WorldPackV3;
@@ -106,7 +110,7 @@ export interface EventCandidate {
 	agentId: string;
 	weight: number;
 	contributions: Array<{
-		kind: "base" | "need" | "goal" | "trait" | "habit" | "novelty";
+		kind: "base" | "need" | "goal" | "trait" | "habit" | "novelty" | "work";
 		id: string;
 		value: number;
 	}>;
@@ -227,7 +231,7 @@ export interface StepReflection {
 export interface AutonomyOutcome {
 	version: 1;
 	stepId: string;
-	kind: "quiet" | "activity" | "extension_required";
+	kind: "quiet" | "work" | "activity" | "extension_required";
 	commit: LifeCommitV3;
 	nextState: AutonomyState;
 }
@@ -250,7 +254,7 @@ export interface LifeSchedule {
 	lastSkippedIntervals: number;
 }
 export interface LifeStep {
-	version: 1;
+	version: 1 | 2;
 	id: string;
 	worldId: string;
 	idempotencyKey: string;

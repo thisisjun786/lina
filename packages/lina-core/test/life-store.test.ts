@@ -301,6 +301,7 @@ test("preview and failed input admission leave the durable state and ownership i
 	expect(store.lifeSnapshot("test-world")).toEqual(before);
 	expect(store.admitLifeInput(workInput()).replayed).toBe(true);
 	const changed = workInput();
+	if (changed.version !== 1) throw Error("Expected legacy application input");
 	changed.source.text = "changed work";
 	changed.payloadDigest = lifeDigest(changed.source);
 	expect(() => store.admitLifeInput(changed)).toThrow(/conflict/i);

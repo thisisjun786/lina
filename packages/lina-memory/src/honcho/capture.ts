@@ -39,7 +39,7 @@ export class CaptureDelivery {
 		)
 			throw new Error("invalid capture batch size");
 		this.onChange = options.onChange;
-		this.service = this.client ? "ready" : "disabled";
+		this.service = this.client ? "unavailable" : "disabled";
 	}
 
 	status(): CaptureStatus {
@@ -72,12 +72,19 @@ export class CaptureDelivery {
 
 	// Never resends: exactly one exact remote match adopts the receipt, zero keeps
 	// the part unknown (an in-flight commit may still land), more than one is ambiguity.
+	private admit(client: HonchoClient, part: OutboxPart): boolean {
+		if (this.outbox.eligible(part) && client.eligible(part)) return true;
+		this.outbox.withhold(part.id, "source_or_namespace_unavailable");
+		return false;
+	}
 	private async reconcile(
 		client: HonchoClient,
 		part: OutboxPart,
 		signal: AbortSignal,
 	): Promise<void> {
+		if (!this.admit(client, part)) return;
 		const candidates = await client.findMessages(part, signal);
+		if (!this.admit(client, part)) return;
 		const exact = candidates.filter((message) => client.matches(message, part));
 		if (exact.length === 1 && exact[0])
 			this.outbox.markAccepted(part.id, exact[0].id);
@@ -95,11 +102,13 @@ export class CaptureDelivery {
 		part: OutboxPart,
 		signal: AbortSignal,
 	): Promise<void> {
+		if (!this.admit(client, part)) return;
 		// The sending state is durable before the request leaves the process.
 		this.outbox.markSending(part.id);
 		try {
 			const { remoteId } = await client.createMessage(part, signal);
 			this.outbox.markAccepted(part.id, remoteId);
+			this.admit(client, part);
 		} catch (error) {
 			if (
 				error instanceof HonchoRequestError &&
@@ -121,6 +130,7 @@ export class CaptureDelivery {
 					part.id,
 					error instanceof Error ? error.message : "send failed",
 				);
+			this.admit(client, part);
 			throw error;
 		}
 	}
@@ -128,6 +138,16 @@ export class CaptureDelivery {
 	private async run(client: HonchoClient): Promise<CaptureStatus> {
 		const signal = this.controller.signal;
 		try {
+			// Withhold stale parts before even a qualification request or unknown lookup.
+			for (const part of [
+				...this.outbox.unknown(this.batchSize),
+				...this.outbox.next(this.batchSize),
+			])
+				this.admit(client, part);
+			if (!(await client.qualify(signal))) {
+				this.service = "unavailable";
+				return this.notify();
+			}
 			for (const part of this.outbox.unknown(this.batchSize)) {
 				if (signal.aborted) break;
 				await this.reconcile(client, part, signal);
@@ -138,6 +158,13 @@ export class CaptureDelivery {
 			}
 			if (!signal.aborted) this.service = "ready";
 		} catch (error) {
+			for (const part of [
+				...this.outbox.unknown(this.batchSize),
+				...this.outbox.next(this.batchSize),
+			])
+				this.admit(client, part);
+			if (error instanceof HonchoRequestError && error.kind === "body")
+				this.service = "unavailable";
 			if (this.unavailable(error) || signal.aborted)
 				this.service = "unavailable";
 			else if (!(error instanceof HonchoRequestError)) throw error;

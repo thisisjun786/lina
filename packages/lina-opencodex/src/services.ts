@@ -92,6 +92,7 @@ function completeOptions(
 	signal: AbortSignal,
 	systemPrompt: string,
 	messages: CompleteRequest["messages"],
+	beforeDispatch?: () => void,
 ): CompleteRequest {
 	const request: CompleteRequest = {
 		origin: runtime.origin(),
@@ -102,6 +103,7 @@ function completeOptions(
 		signal,
 	};
 	const token = runtime.token();
+	if (beforeDispatch !== undefined) request.beforeDispatch = beforeDispatch;
 	if (token) request.token = token;
 	if (runtime.fetchImpl) request.fetchImpl = runtime.fetchImpl;
 	if (model.reasoning && profile.reasoning !== "off")
@@ -199,6 +201,7 @@ export function createOpenCodexModelControl(
 					AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
 					input.systemPrompt,
 					input.messages,
+					input.beforeDispatch,
 				),
 			);
 			if (!reply.text.trim())
@@ -266,6 +269,7 @@ export function createOpenCodexContextServices(
 		prompt: string,
 		text: string,
 		signal: AbortSignal,
+		beforeDispatch?: () => void,
 	) => {
 		const resolved = requireResolved(runtime, settingsGetter(), role, agentId);
 		const request = completeOptions(
@@ -275,6 +279,7 @@ export function createOpenCodexContextServices(
 			signal,
 			prompt,
 			[{ role: "user", content: text }],
+			beforeDispatch,
 		);
 		const reply = await complete(request);
 		return reply.text;
@@ -318,27 +323,35 @@ export function createOpenCodexContextServices(
 				conversationWindow(),
 			]);
 		},
-		async summarize(text, _maxTokens, signal) {
+		async summarize(text, _maxTokens, signal, beforeDispatch) {
 			return roleCall(
 				"summary",
 				SUMMARY_PROMPT,
 				text,
 				AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+				beforeDispatch,
 			);
 		},
-		async observe(text, signal) {
-			return roleCall("observation", OBSERVE_PROMPT, text, signal);
+		async observe(text, signal, beforeDispatch) {
+			return roleCall(
+				"observation",
+				OBSERVE_PROMPT,
+				text,
+				signal,
+				beforeDispatch,
+			);
 		},
-		async reasonMemory(text, signal) {
-			return roleCall("recall", RECALL_PROMPT, text, signal);
+		async reasonMemory(text, signal, beforeDispatch) {
+			return roleCall("recall", RECALL_PROMPT, text, signal, beforeDispatch);
 		},
-		async reflect(text, signal) {
+		async reflect(text, signal, beforeDispatch) {
 			const preferencesOnly = JSON.parse(text).preferencesOnly === true;
 			return roleCall(
 				"reflection",
 				preferencesOnly ? REFLECT_PREFERENCES_PROMPT : REFLECT_PROMPT,
 				text,
 				AbortSignal.any([signal, AbortSignal.timeout(45_000)]),
+				beforeDispatch,
 			);
 		},
 		async analyzeImage(input, signal) {

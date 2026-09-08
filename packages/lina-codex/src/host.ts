@@ -2,6 +2,11 @@ import { type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 import type { PermissionResolver } from "../../lina-runtime/src/approval-policy.ts";
 import type { LinaHost, LinaTool } from "../../lina-runtime/src/host.ts";
+import {
+	composeDeliveryChecks,
+	guardResponse,
+	responseDeliveryCheck,
+} from "./guarded-response.ts";
 
 type Handler = (event: never, context: never) => unknown;
 
@@ -72,14 +77,30 @@ export class CodexHost {
 		event: string,
 		payload: unknown,
 		signal: AbortSignal,
+		beforePublish?: () => void,
 	): Promise<unknown> {
 		let result: unknown;
 		let currentPayload = payload;
+		const guarded = event === "before_agent_start" || event === "context";
+		const deliveryChecks: Array<() => void> = [];
 		for (const handler of this.handlers.get(event) ?? []) {
+			beforePublish?.();
 			const value = await (
 				handler as (event: unknown, context: unknown) => unknown
 			)(currentPayload, { signal, cwd: this.workspace });
-			if (value !== undefined) result = value;
+			beforePublish?.();
+			if (guarded && isRecord(value)) {
+				const { beforeDeliver, ...publicResult } = value;
+				const check = composeDeliveryChecks(
+					responseDeliveryCheck(value),
+					typeof beforeDeliver === "function"
+						? (beforeDeliver as () => void)
+						: undefined,
+				);
+				if (check) deliveryChecks.push(check);
+				// A guard-only hook adds a dependency without replacing prior text.
+				if (!check || Object.keys(publicResult).length) result = publicResult;
+			} else if (value !== undefined) result = value;
 			if (
 				event === "context" &&
 				isRecord(currentPayload) &&
@@ -88,7 +109,12 @@ export class CodexHost {
 			)
 				currentPayload = { ...currentPayload, messages: value["messages"] };
 		}
-		return result;
+		return deliveryChecks.length
+			? guardResponse(
+					isRecord(result) ? result : {},
+					composeDeliveryChecks(...deliveryChecks),
+				)
+			: result;
 	}
 
 	async beforeTurn(
@@ -108,6 +134,11 @@ export class CodexHost {
 			},
 			signal,
 		);
+		const systemPrompt =
+			isRecord(before) && typeof before["systemPrompt"] === "string"
+				? before["systemPrompt"]
+				: undefined;
+		const beforeDeliver = responseDeliveryCheck(before);
 		const context = await this.emit(
 			"context",
 			{
@@ -116,10 +147,6 @@ export class CodexHost {
 			},
 			signal,
 		);
-		const systemPrompt =
-			isRecord(before) && typeof before["systemPrompt"] === "string"
-				? before["systemPrompt"]
-				: undefined;
 		const messages =
 			isRecord(context) && Array.isArray(context["messages"])
 				? context["messages"]
@@ -134,10 +161,13 @@ export class CodexHost {
 			return typeof message["content"] === "string" ? [message["content"]] : [];
 		});
 		const reference = injected.filter(Boolean).join("\n\n");
-		return {
-			...(systemPrompt ? { systemPrompt } : {}),
-			...(reference ? { context: reference } : {}),
-		};
+		return guardResponse(
+			{
+				...(systemPrompt ? { systemPrompt } : {}),
+				...(reference ? { context: reference } : {}),
+			},
+			composeDeliveryChecks(beforeDeliver, responseDeliveryCheck(context)),
+		);
 	}
 
 	async invokeTool(
@@ -193,7 +223,7 @@ export class CodexHost {
 			};
 		}
 		try {
-			const result = await tool.execute(
+			const { beforeDeliver, ...result } = await tool.execute(
 				callId,
 				params as never,
 				signal,
@@ -204,6 +234,7 @@ export class CodexHost {
 				} as never,
 			);
 			guard?.();
+			beforeDeliver?.();
 			await this.emit(
 				"tool_execution_end",
 				{
@@ -214,11 +245,15 @@ export class CodexHost {
 					isError: false,
 				},
 				signal,
+				composeDeliveryChecks(guard, beforeDeliver),
 			);
-			return {
-				contentItems: [{ type: "inputText", text: toolText(result) || "ok" }],
-				success: true,
-			};
+			return guardResponse(
+				{
+					contentItems: [{ type: "inputText", text: toolText(result) || "ok" }],
+					success: true,
+				},
+				beforeDeliver,
+			);
 		} catch (error) {
 			guard?.();
 			const message = guard

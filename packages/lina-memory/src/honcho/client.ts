@@ -1,5 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
-import { publicIdentity } from "./config.ts";
+import {
+	type SourceLookup,
+	sourceProofsCurrent,
+} from "../../../lina-core/src/source-policy.ts";
+import { chunkText } from "./chunk.ts";
+import { publicIdentity, validateHonchoConfig } from "./config.ts";
 import {
 	type Json,
 	object,
@@ -7,19 +12,30 @@ import {
 	partKey,
 	string,
 } from "./messages.ts";
+import {
+	generationOwner,
+	validateNamespaceProof,
+	validateRecallProof,
+} from "./qualification.ts";
 import { queryPrefix, recallPrefix } from "./text.ts";
 import { type FetchLike, HonchoTransport } from "./transport.ts";
 import {
+	type BotBinding,
+	type GenerationOwner,
 	type HonchoConfig,
 	type HonchoIdentity,
 	HonchoRequestError,
 	type OutboxPart,
+	type QualifiedHonchoAdapter,
 	type RecallResult,
 	type RemoteMessage,
 } from "./types.ts";
 
 export interface HonchoClientOptions {
 	fetch?: FetchLike;
+	binding?: BotBinding;
+	sourceLookup?: SourceLookup;
+	qualifiedAdapter?: QualifiedHonchoAdapter;
 	timeoutMs?: number;
 	bodyCapBytes?: number;
 }
@@ -35,10 +51,26 @@ export class HonchoClient {
 	readonly identity: HonchoIdentity;
 	private readonly config: HonchoConfig;
 	private readonly transport: HonchoTransport;
+	readonly owner: GenerationOwner | undefined;
+	private readonly lookup: SourceLookup | undefined;
+	private readonly adapter: QualifiedHonchoAdapter | undefined;
 
 	constructor(config: HonchoConfig, options: HonchoClientOptions = {}) {
-		this.config = { ...config };
-		this.identity = publicIdentity(config);
+		const checked = validateHonchoConfig(config);
+		this.identity = Object.freeze(publicIdentity(checked));
+		this.config = { ...checked, ...this.identity };
+		this.lookup = options.sourceLookup;
+		this.adapter = options.qualifiedAdapter;
+		this.owner =
+			checked.ordinaryNamespace && options.binding
+				? generationOwner(options.binding, checked)
+				: undefined;
+		if (this.owner) {
+			Object.freeze(this.owner.binding);
+			Object.freeze(this.owner.identity);
+			Object.freeze(this.owner.ordinaryNamespace);
+			Object.freeze(this.owner);
+		}
 		this.transport = new HonchoTransport({
 			baseUrl: config.baseUrl,
 			apiKey: config.apiKey,
@@ -48,6 +80,52 @@ export class HonchoClient {
 		});
 	}
 
+	async qualify(signal?: AbortSignal): Promise<boolean> {
+		if (!this.owner || !this.adapter || signal?.aborted) return false;
+		const proof = await this.adapter.qualify(
+			structuredClone(this.owner),
+			signal,
+		);
+		if (signal?.aborted) return false;
+		validateNamespaceProof(proof, this.owner);
+		return true;
+	}
+	eligible(part: OutboxPart): boolean {
+		if (
+			!this.owner ||
+			!this.lookup ||
+			part.version !== 2 ||
+			!part.sourceProofs ||
+			!isDeepStrictEqual(part.policyScope, this.owner.ordinaryNamespace) ||
+			!sourceProofsCurrent(part.sourceProofs, this.lookup)
+		)
+			return false;
+		const entry = this.lookup(part.entryId);
+		const chunk = entry ? chunkText(entry.text)[part.partIndex] : undefined;
+		return (
+			entry?.role === part.role &&
+			chunk?.content === part.content &&
+			chunk.contentHash === part.contentHash
+		);
+	}
+	private async admit(part: OutboxPart, signal?: AbortSignal): Promise<void> {
+		if (
+			!this.eligible(part) ||
+			!(await this.qualify(signal)) ||
+			!this.eligible(part)
+		)
+			throw new HonchoRequestError(
+				"honcho capture qualification or source unavailable",
+				"body",
+			);
+	}
+	private requireCurrentSource(part: OutboxPart): void {
+		if (!this.eligible(part))
+			throw new HonchoRequestError(
+				"honcho capture source changed before dispatch",
+				"body",
+			);
+	}
 	private items(body: unknown): unknown[] {
 		const items = object(body, "page")["items"];
 		if (!Array.isArray(items))
@@ -83,15 +161,21 @@ export class HonchoClient {
 		part: OutboxPart,
 		signal?: AbortSignal,
 	): Promise<{ remoteId: string }> {
+		// Keep the original proof and content together across admission awaits.
+		const captured = structuredClone(part);
+		await this.admit(captured, signal);
 		const body = {
 			messages: [
 				{
-					content: part.content,
-					peer_id: this.peerFor(part.role),
-					metadata: { lina: partKey(part) },
+					content: captured.content,
+					peer_id: this.peerFor(captured.role),
+					metadata: { lina: partKey(captured) },
 				},
 			],
 		};
+		// request() invokes fetch before its first await. No async hop may follow
+		// this check before dispatch, including an awaited admission helper.
+		this.requireCurrentSource(captured);
 		const created = this.transport.expect(
 			await this.transport.request("POST", this.messagesPath(), body, signal),
 			[201],
@@ -102,7 +186,7 @@ export class HonchoClient {
 				"body",
 			);
 		const message = parseRemoteMessage(created[0]);
-		if (!this.matches(message, part))
+		if (!this.matches(message, captured))
 			throw new HonchoRequestError(
 				"honcho receipt does not match the sent part",
 				"body",
@@ -115,12 +199,16 @@ export class HonchoClient {
 		part: OutboxPart,
 		signal?: AbortSignal,
 	): Promise<RemoteMessage[]> {
+		// Keep the original proof and content together across admission awaits.
+		const captured = structuredClone(part);
+		await this.admit(captured, signal);
 		const body = {
 			filters: {
-				peer_id: this.peerFor(part.role),
-				metadata: { lina: partKey(part) },
+				peer_id: this.peerFor(captured.role),
+				metadata: { lina: partKey(captured) },
 			},
 		};
+		this.requireCurrentSource(captured);
 		const page = this.transport.expect(
 			await this.transport.request(
 				"POST",
@@ -146,40 +234,51 @@ export class HonchoClient {
 		return items.map((item) => parseRemoteMessage(item));
 	}
 
-	// READ despite POST: representation of the user peer as seen by the observer peer.
+	// Ordinary model recall requires an explicit adapter proof, never a stock
+	// HTTP/v3 representation or a scope copied from local configuration.
 	async recall(query: string, signal?: AbortSignal): Promise<RecallResult> {
-		const scope = { ...this.identity };
-		if (typeof query !== "string" || !query.trim())
-			return { text: "", scope, freshness: "unknown" };
-		const searchQuery = queryPrefix(query);
-		if (!searchQuery.trim()) return { text: "", scope, freshness: "unknown" };
-		const { workspaceId, observerPeerId, userPeerId, sessionId } = this.config;
-		const body = {
-			target: userPeerId,
-			session_id: sessionId,
-			search_query: searchQuery,
-			search_top_k: RECALL_TOP_K,
-			max_conclusions: RECALL_TOP_K,
+		const empty: RecallResult = {
+			text: "",
+			scope: { ...this.identity },
+			freshness: "unknown",
 		};
-		const result = this.transport.expect(
-			await this.transport.request(
-				"POST",
-				`/workspaces/${workspaceId}/peers/${observerPeerId}/representation`,
-				body,
+		if (
+			typeof query !== "string" ||
+			!query.trim() ||
+			!this.owner ||
+			!this.adapter ||
+			!this.lookup
+		)
+			return empty;
+		const searchQuery = queryPrefix(query);
+		if (!searchQuery.trim() || !(await this.qualify(signal))) return empty;
+		const response = object(
+			await this.adapter.recall(
+				{
+					owner: structuredClone(this.owner),
+					query: searchQuery,
+					topK: RECALL_TOP_K,
+				},
 				signal,
 			),
-			[200],
+			"qualified recall",
 		);
-		const representation = object(result, "representation")["representation"];
-		if (typeof representation !== "string")
+		if (signal?.aborted) return empty;
+		if (typeof response["text"] !== "string")
 			throw new HonchoRequestError(
 				"honcho representation is not a string",
 				"body",
 			);
+		const proof = validateRecallProof(
+			response["proof"],
+			this.owner,
+			this.lookup,
+		);
 		return {
-			text: recallPrefix(representation),
-			scope,
+			text: recallPrefix(response["text"]),
+			scope: { ...this.identity },
 			freshness: "unknown",
+			proof,
 		};
 	}
 
@@ -219,6 +318,11 @@ export class HonchoClient {
 
 	// WRITES: get-or-create exactly the configured workspace, two peers and session.
 	async initialize(signal?: AbortSignal): Promise<{ created: string[] }> {
+		if (this.config.ordinaryNamespace && !(await this.qualify(signal)))
+			throw new HonchoRequestError(
+				"honcho namespace qualification unavailable",
+				"body",
+			);
 		const { workspaceId, sessionId, userPeerId, observerPeerId } = this.config;
 		const created: string[] = [];
 		const create = async (path: string, body: Json, label: string) => {

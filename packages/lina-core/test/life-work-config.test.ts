@@ -2,6 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { parseLifeConfigInput } from "../src/world/authoring-request-validation.ts";
 import { WorldStore } from "../src/world/store.ts";
 import { unconfigured } from "./life-authoring-fixture.ts";
+import {
+	activateBaseline,
+	migrationFixture,
+	nextPack,
+	proposePack,
+} from "./life-autonomy-migration-fixture.ts";
 import { autonomyStoreFixture } from "./life-autonomy-store-fixture.ts";
 
 const cleanup: Array<() => void> = [];
@@ -96,4 +102,30 @@ test("an explicitly unset work group survives autonomous step serialization and 
 	const reopened = new WorldStore(fixture.path, fixture.clock);
 	cleanup.push(() => reopened.close());
 	expect(reopened.lifeStep(worldId, step.id)?.source.config.version).toBe(2);
+});
+
+test("pack activation cannot orphan an explicitly configured work family", () => {
+	const f = migrationFixture();
+	cleanup.push(() => f.close());
+	activateBaseline(f);
+	const { worldId, revision, ...old } = f.store.lifeConfig(f.pack.worldId);
+	f.store.setLifeConfig(
+		worldId,
+		revision,
+		parseLifeConfigInput({
+			...old,
+			version: 2,
+			work: { rules: [rule("meet")] },
+		}),
+	);
+	const pack = nextPack(f);
+	pack.eventFamilies = [];
+	pack.autonomy.goals = [];
+	pack.autonomy.events = [];
+	const proposal = proposePack(f.store, pack),
+		before = f.store.snapshot(worldId);
+	expect(() => f.store.activateWorldDraft(proposal.confirmation)).toThrow(
+		/work.*family|work event/i,
+	);
+	expect(f.store.snapshot(worldId)).toEqual(before);
 });

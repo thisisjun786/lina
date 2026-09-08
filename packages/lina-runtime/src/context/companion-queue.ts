@@ -1,11 +1,18 @@
 import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { isDeepStrictEqual } from "node:util";
 import type { BotBinding } from "../../../lina-core/src/protocol.ts";
 import {
 	openCheckedDatabase,
 	validateBinding,
 } from "../../../lina-core/src/session-binding.ts";
+import {
+	captureSourceProofs,
+	type SourceLookup,
+	type SourceProof,
+	sourceProofsCurrent,
+} from "../../../lina-core/src/source-policy.ts";
+import { SourceEpisodeError } from "./companion-provenance.ts";
+import { initializeCompanion } from "./companion-queue-schema.ts";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 1000;
@@ -14,13 +21,6 @@ const JOB_BATCH = 20;
 // Cross-process ownership is the existing session-app lease, held until memory.close().
 // This also catches duplicate construction inside that owner; it is not another lease.
 const owners = new Set<string>();
-const SCHEMA = `
-CREATE TABLE companion_meta (id INTEGER PRIMARY KEY CHECK(id=1), binding TEXT NOT NULL, cursor INTEGER NOT NULL CHECK(cursor>=0), user_id TEXT, assistant_id TEXT) STRICT;
-CREATE TABLE companion_jobs (id TEXT PRIMARY KEY, sources TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','running','done','failed')), attempts INTEGER NOT NULL CHECK(attempts>=0), retry_at INTEGER NOT NULL CHECK(retry_at>=0), error TEXT) STRICT;
-CREATE INDEX companion_ready ON companion_jobs(state,retry_at);`;
-const EXTRA_SCHEMA = `
-CREATE TABLE companion_job_meta (id TEXT PRIMARY KEY REFERENCES companion_jobs(id), allowance INTEGER NOT NULL, outcome TEXT, reset_revision INTEGER) STRICT;
-CREATE TABLE companion_history (seq INTEGER PRIMARY KEY, id TEXT NOT NULL, event TEXT NOT NULL, attempt INTEGER NOT NULL, at INTEGER NOT NULL, error TEXT) STRICT;`;
 export interface CompanionScan {
 	after: number;
 	user: string | null;
@@ -29,6 +29,7 @@ export interface CompanionScan {
 export interface CompanionJob {
 	id: string;
 	sources: string[];
+	sourceProofs?: SourceProof[];
 }
 
 /** Open/recover only under the app's session lease. Sources and scan progress commit together. */
@@ -37,64 +38,31 @@ export class CompanionQueue {
 	private readonly path: string;
 	private readonly now: () => number;
 	private closed = false;
-	private receiptAfter = 0;
-	private receiptsChecked = false;
+	private readonly lookup: SourceLookup;
+	private readonly validateEpisode:
+		| ((id: string, proofs: SourceProof[]) => void)
+		| undefined;
 	constructor(
 		path: string,
 		binding: BotBinding,
-		options: { now?: () => number } = {},
+		options: {
+			now?: () => number;
+			lookup?: SourceLookup;
+			validateEpisode?: (id: string, proofs: SourceProof[]) => void;
+		} = {},
 	) {
 		this.path = resolve(path);
 		if (owners.has(this.path))
 			throw Error("Companion queue already has an owner");
 		const owner = validateBinding(binding);
 		this.now = options.now ?? Date.now;
+		this.lookup = options.lookup ?? (() => undefined);
+		this.validateEpisode = options.validateEpisode;
 		const opened = openCheckedDatabase(path);
 		this.db = opened.db;
 		try {
 			this.db.exec("BEGIN IMMEDIATE");
-			if (opened.fresh) {
-				this.db.exec(SCHEMA);
-				this.db
-					.prepare("INSERT INTO companion_meta VALUES (1,?,0,NULL,NULL)")
-					.run(JSON.stringify(owner));
-				this.db.exec("PRAGMA user_version=2");
-			}
-			const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
-			const version = this.db.prepare("PRAGMA user_version").get()?.[
-				"user_version"
-			];
-			const expected = (SCHEMA + (version === 3 ? EXTRA_SCHEMA : ""))
-				.split(";")
-				.map(normalize)
-				.filter(Boolean)
-				.sort();
-			const actual = this.db
-				.prepare("SELECT sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")
-				.all()
-				.map((r) => normalize(String(r["sql"])))
-				.sort();
-			if (
-				(version !== 2 && version !== 3) ||
-				!isDeepStrictEqual(actual, expected)
-			)
-				throw Error(
-					"Unknown companion queue schema; legacy jobs require explicit migration",
-				);
-			const saved = this.db
-				.prepare("SELECT binding FROM companion_meta WHERE id=1")
-				.get()?.["binding"];
-			if (
-				typeof saved !== "string" ||
-				!isDeepStrictEqual(JSON.parse(saved), owner)
-			)
-				throw Error("Foreign companion queue binding");
-			if (version === 2) {
-				this.db.exec(EXTRA_SCHEMA);
-				this.db.exec(
-					"INSERT INTO companion_job_meta SELECT id,3,NULL,NULL FROM companion_jobs; INSERT INTO companion_history(id,event,attempt,at,error) SELECT id,'legacy',attempts,0,error FROM companion_jobs; PRAGMA user_version=3",
-				);
-			}
+			initializeCompanion(this.db, opened.fresh, owner);
 			// An interrupted attempt has no provider verdict; retain it in history
 			// and replace its allowance instead of silently exhausting work.
 			this.db.exec(
@@ -163,9 +131,9 @@ export class CompanionQueue {
 			throw Error("Companion job source conflict");
 		this.db
 			.prepare(
-				"INSERT INTO companion_jobs VALUES (?,?,'pending',0,0,NULL) ON CONFLICT(id) DO NOTHING",
+				"INSERT INTO companion_jobs VALUES (?,?,'pending',0,0,NULL,?,NULL) ON CONFLICT(id) DO NOTHING",
 			)
-			.run(id, encoded);
+			.run(id, encoded, this.capture(sources));
 		this.db
 			.prepare(
 				"INSERT INTO companion_job_meta VALUES (?,3,NULL,NULL) ON CONFLICT(id) DO NOTHING",
@@ -180,36 +148,34 @@ export class CompanionQueue {
 			.run(cursor);
 	}
 	pending(): CompanionJob[] {
+		this.revalidate();
 		return this.db
 			.prepare(
-				"SELECT j.id,j.sources FROM companion_jobs j JOIN companion_job_meta m ON m.id=j.id WHERE state='pending' OR (state='failed' AND attempts<m.allowance AND retry_at<=?) ORDER BY j.rowid LIMIT ?",
+				"SELECT j.id,j.sources,j.source_proofs FROM companion_jobs j JOIN companion_job_meta m ON m.id=j.id WHERE state='pending' OR (state='failed' AND attempts<m.allowance AND retry_at<=?) ORDER BY j.rowid LIMIT ?",
 			)
 			.all(this.now(), JOB_BATCH)
 			.map((r) => ({
 				id: String(r["id"]),
 				sources: JSON.parse(String(r["sources"])) as string[],
+				sourceProofs: JSON.parse(String(r["source_proofs"])) as SourceProof[],
 			}));
 	}
 	/** Queue completion is not evidence of an engine commit. Audit in bounded pages. */
 	reconcileReceipts(hasReceipt: (id: string) => boolean): boolean {
-		if (this.receiptsChecked) return false;
-		const rows = this.db
-			.prepare(
-				"SELECT rowid,id FROM companion_jobs WHERE rowid>? AND state='done' ORDER BY rowid LIMIT ?",
-			)
-			.all(this.receiptAfter, JOB_BATCH);
-		for (const row of rows) {
+		this.revalidate();
+		for (const row of this.db
+			.prepare("SELECT id FROM companion_jobs WHERE state='done'")
+			.iterate()) {
 			const id = String(row["id"]);
 			if (!hasReceipt(id))
 				this.db
 					.prepare("UPDATE companion_jobs SET state='pending' WHERE id=?")
 					.run(id);
-			this.receiptAfter = Number(row["rowid"]);
 		}
-		this.receiptsChecked = rows.length < JOB_BATCH;
-		return !this.receiptsChecked;
+		return false;
 	}
 	start(id: string): boolean {
+		this.revalidate();
 		return this.transaction(() => {
 			const started =
 				Number(
@@ -251,6 +217,7 @@ export class CompanionQueue {
 	recover(ids: string[], reason: string): number {
 		if (!reason.trim() || reason.length > 256 || ids.length > 1000)
 			throw Error("Invalid recovery request");
+		this.revalidate();
 		let n = 0;
 		this.transaction(() => {
 			for (const id of new Set(ids)) {
@@ -268,8 +235,7 @@ export class CompanionQueue {
 					)
 					.get(id);
 				if (
-					!row ||
-					row["state"] !== "failed" ||
+					row?.["state"] !== "failed" ||
 					Number(row["attempts"]) < Number(row["allowance"])
 				)
 					continue;
@@ -290,12 +256,14 @@ export class CompanionQueue {
 		return n;
 	}
 	processing() {
+		this.revalidate();
 		const value = {
 			changed: 0,
 			unchanged: 0,
 			retrying: 0,
 			failed: 0,
 			processedUnknown: 0,
+			withheld: 0,
 		};
 		for (const row of this.db
 			.prepare(
@@ -306,7 +274,8 @@ export class CompanionQueue {
 				if (row["outcome"] === "changed") value.changed++;
 				else if (row["outcome"] === "unchanged") value.unchanged++;
 				else value.processedUnknown++;
-			} else if (row["state"] === "failed") {
+			} else if (row["state"] === "withheld") value.withheld++;
+			else if (row["state"] === "failed") {
 				if (Number(row["attempts"]) < Number(row["allowance"]))
 					value.retrying++;
 				else value.failed++;
@@ -338,11 +307,13 @@ export class CompanionQueue {
 		error: string | null = null,
 		outcome: "changed" | "unchanged" | "done" = "done",
 	): void {
+		this.revalidate();
 		this.transaction(() => {
 			const row = this.db
-				.prepare("SELECT attempts FROM companion_jobs WHERE id=?")
+				.prepare("SELECT attempts,state FROM companion_jobs WHERE id=?")
 				.get(id);
 			if (!row) throw Error("Unknown companion job");
+			if (row["state"] === "withheld") return;
 			const delay = Math.min(
 				RETRY_MAX_MS,
 				RETRY_BASE_MS * 2 ** Math.max(0, Number(row["attempts"]) - 1),
@@ -382,17 +353,19 @@ export class CompanionQueue {
 	error(): string | null {
 		const row = this.db
 			.prepare(
-				"SELECT error FROM companion_jobs WHERE state='failed' ORDER BY rowid LIMIT 1",
+				"SELECT error FROM companion_jobs WHERE error IS NOT NULL ORDER BY rowid LIMIT 1",
 			)
 			.get();
 		return typeof row?.["error"] === "string" ? row["error"] : null;
 	}
 	counts() {
+		this.revalidate();
 		const result = {
 			pending: 0,
 			sending: 0,
 			accepted: 0,
 			unknown: 0,
+			withheld: 0,
 			failed: 0,
 		};
 		for (const row of this.db
@@ -409,12 +382,52 @@ export class CompanionQueue {
 				case "done":
 					result.accepted = n;
 					break;
+				case "withheld":
+					result.withheld = n;
+					break;
 				case "failed":
 					result.failed = n;
 					break;
 			}
 		}
 		return result;
+	}
+	private capture(sources: string[]): string | null {
+		try {
+			return JSON.stringify(captureSourceProofs(sources, this.lookup));
+		} catch {
+			return null;
+		}
+	}
+	withhold(id: string, reason = "source_provenance_ineligible_or_stale"): void {
+		this.transaction(() => {
+			const result = this.db
+				.prepare(
+					"UPDATE companion_jobs SET state='withheld',withheld_reason=? WHERE id=? AND state!='withheld'",
+				)
+				.run(reason, id);
+			if (Number(result.changes)) this.event(id, "withheld", reason);
+		});
+	}
+	private revalidate(): void {
+		for (const row of this.db
+			.prepare(
+				"SELECT id,source_proofs FROM companion_jobs WHERE state!='withheld'",
+			)
+			.all()) {
+			const proofs =
+				row["source_proofs"] === null
+					? []
+					: JSON.parse(String(row["source_proofs"]));
+			try {
+				this.validateEpisode?.(String(row["id"]), proofs);
+				if (!sourceProofsCurrent(proofs, this.lookup))
+					throw new SourceEpisodeError();
+			} catch (error) {
+				if (!(error instanceof SourceEpisodeError)) throw error;
+				this.withhold(String(row["id"]));
+			}
+		}
 	}
 	close(): void {
 		if (this.closed) return;

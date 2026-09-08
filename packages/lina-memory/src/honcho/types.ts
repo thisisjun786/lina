@@ -1,4 +1,5 @@
 import type { BotBinding } from "../../../lina-core/src/protocol.ts";
+import type { SourceProof } from "../../../lina-core/src/source-policy.ts";
 
 export type { BotBinding };
 
@@ -10,6 +11,7 @@ export interface HonchoConfig {
 	userPeerId: string;
 	observerPeerId: string;
 	apiKey?: string;
+	ordinaryNamespace?: OrdinaryNamespace;
 }
 
 export interface HonchoIdentity {
@@ -26,7 +28,8 @@ export type OutboxState =
 	| "sending"
 	| "accepted"
 	| "unknown"
-	| "failed";
+	| "failed"
+	| "withheld";
 
 export interface OutboxCounts {
 	pending: number;
@@ -34,6 +37,7 @@ export interface OutboxCounts {
 	accepted: number;
 	unknown: number;
 	failed: number;
+	withheld: number;
 }
 
 export interface ScanState {
@@ -43,6 +47,9 @@ export interface ScanState {
 
 // The exact application match key stored as metadata.lina on every remote message.
 export interface PartKey {
+	version?: 2;
+	sourceProofs?: SourceProof[];
+	policyScope?: OrdinaryNamespace;
 	entryId: string;
 	partIndex: number;
 	contentHash: string;
@@ -55,6 +62,7 @@ export interface OutboxPart extends PartKey {
 	state: OutboxState;
 	remoteId?: string;
 	error?: string;
+	withheldReason?: string;
 }
 
 export interface RemoteMessage {
@@ -67,6 +75,7 @@ export interface RemoteMessage {
 }
 
 export interface RecallResult {
+	proof?: RecallProof;
 	text: string;
 	scope: HonchoIdentity;
 	freshness: "unknown";
@@ -89,4 +98,41 @@ export class HonchoRequestError extends Error {
 		super(message);
 		this.name = "HonchoRequestError";
 	}
+}
+
+// Operator selection is a destination, not evidence that an adapter enforces it.
+export interface OrdinaryNamespace {
+	version: 1;
+	ownerBotId: string;
+	generationId: string;
+	workspaceId: string;
+	sessionId: string;
+	userPeerId: string;
+	observerPeerId: string;
+	sourcePolicyVersion: 1;
+	qualificationId: string;
+}
+export interface GenerationOwner {
+	binding: BotBinding;
+	identity: HonchoIdentity;
+	ordinaryNamespace: OrdinaryNamespace;
+}
+export interface NamespaceProof {
+	version: 1;
+	owner: GenerationOwner;
+	isolation: "workspace";
+	ordinaryOnly: true;
+}
+export interface RecallProof extends NamespaceProof {
+	sourceProofs: SourceProof[];
+}
+// Explicit trusted adapter capability. The stock HTTP/v3 adapter has none.
+// Implementations must verify a remote ordinary-only namespace and complete
+// derivation provenance; echoing this request is not qualification.
+export interface QualifiedHonchoAdapter {
+	qualify(owner: GenerationOwner, signal?: AbortSignal): Promise<unknown>;
+	recall(
+		request: { owner: GenerationOwner; query: string; topK: number },
+		signal?: AbortSignal,
+	): Promise<unknown>;
 }

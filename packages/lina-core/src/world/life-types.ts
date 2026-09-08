@@ -5,6 +5,7 @@ import type {
 	WorldProposal,
 	WorldSnapshot,
 } from "./types.ts";
+import type { WorkInputSource } from "./work-types.ts";
 
 export type ClaimRef = { kind: "world_fact" | "life_claim"; id: string };
 export type DisclosureSubject = {
@@ -217,7 +218,7 @@ export type LifeCommitV3 = Omit<
 	socialResolutionId: string | null;
 };
 export type LifeCommit = LifeCommitV1 | LifeCommitV2 | LifeCommitV3;
-export interface LifeInput {
+export interface LifeInputV1 {
 	version: 1;
 	worldId: string;
 	id: string;
@@ -226,21 +227,36 @@ export interface LifeInput {
 	source: { kind: "application"; sourceId: string; text: string };
 	consumedLifeRevision: number | null;
 }
+export type LifeInputV2 = Omit<LifeInputV1, "version" | "source"> & {
+	version: 2;
+	source: WorkInputSource;
+};
+export type LifeInput = LifeInputV1 | LifeInputV2;
 export interface AdmissionReceipt {
 	worldId: string;
 	inputId: string;
 	payloadDigest: string;
 	replayed: boolean;
 }
-export interface BindingSelection {
+export interface BindingSelectionV1 {
 	worldId: string | null;
 	projectionPolicyRevision: number;
 }
-export interface WorldBinding extends BindingSelection {
+export interface BindingSelectionV2 extends BindingSelectionV1 {
+	version: 2;
+	conversationRecipientId: string | null;
+}
+export type BindingSelection = BindingSelectionV1 | BindingSelectionV2;
+export interface WorldBindingV1 extends BindingSelectionV1 {
 	version: 1;
 	agentId: string;
 	revision: number;
 }
+export interface WorldBindingV2 extends BindingSelectionV2 {
+	agentId: string;
+	revision: number;
+}
+export type WorldBinding = WorldBindingV1 | WorldBindingV2;
 export interface LifeReceipt {
 	worldId: string;
 	eventId: string;

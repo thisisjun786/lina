@@ -11,6 +11,17 @@ import {
 	type TaskSource,
 	type TaskSummary,
 } from "./task-types.ts";
+import { auditTaskWork } from "./task-work-audit.ts";
+import { TaskWorkStore } from "./task-work-store.ts";
+import type {
+	ConfirmWorkInput,
+	CorrectWorkInput,
+	ShareWorkInput,
+	WorkAuthority,
+	WorkChange,
+	WorkProof,
+} from "./task-work-types.ts";
+import { nativeWorkStatus } from "./task-work-validation.ts";
 import {
 	activeTurnId,
 	hasExternalUserInput,
@@ -151,17 +162,25 @@ export function toSummary(task: StoredTask): TaskSummary {
 export class TaskStore {
 	private readonly db: DatabaseSync;
 	private closed = false;
+	private readonly work: TaskWorkStore;
+	private readonly workListeners = new Set<(change: WorkChange) => void>();
+	private workChanges: WorkChange[] = [];
 	constructor(
 		path: string,
 		private readonly clock: () => string = nowIso,
 	) {
 		const opened = openCheckedDatabase(path);
 		this.db = opened.db;
+		this.work = new TaskWorkStore(
+			this.db,
+			(id) => this.require(id),
+			(change) => this.workChanges.push(change),
+		);
 		try {
 			this.db.exec("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE");
-			initializeTaskSchema(this.db, opened.fresh);
-			for (const row of this.db.prepare("SELECT * FROM tasks").all())
-				fromRow(row);
+			initializeTaskSchema(this.db, opened.fresh, (version) =>
+				this.validateRows(version),
+			);
 			this.db.exec("COMMIT");
 			this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL");
 		} catch (error) {
@@ -169,6 +188,118 @@ export class TaskStore {
 			this.db.close();
 			throw error;
 		}
+	}
+
+	workReceipts(taskId: string) {
+		return this.work.receipts(taskId);
+	}
+	workSharing(taskId: string, receiptId: string) {
+		return this.work.sharing(taskId, receiptId);
+	}
+	confirmWork(
+		taskId: string,
+		input: ConfirmWorkInput,
+		authority: WorkAuthority,
+	) {
+		return this.tx(() => this.work.confirm(taskId, input, authority));
+	}
+	correctWork(
+		taskId: string,
+		input: CorrectWorkInput,
+		authority: WorkAuthority,
+	) {
+		return this.tx(() => this.work.correct(taskId, input, authority));
+	}
+	shareWork(taskId: string, input: ShareWorkInput, authority: WorkAuthority) {
+		return this.tx(() => this.work.share(taskId, input, authority));
+	}
+	pendingWorkDeliveries() {
+		return this.work.outbox.pending();
+	}
+	workDeliveries() {
+		return this.work.outbox.all();
+	}
+	workDeliveryAttempts(deliveryId: string) {
+		return this.work.outbox.attempts(deliveryId);
+	}
+	workDeliveryCurrent(deliveryId: string, payloadDigest: string): boolean {
+		try {
+			return this.work.outbox.currentPayload(
+				this.work.outbox.require(deliveryId, payloadDigest),
+			);
+		} catch {
+			return false;
+		}
+	}
+
+	workProofCurrent(proof: WorkProof): boolean {
+		return this.work.outbox.proofCurrent(proof);
+	}
+	acknowledgeWorkDelivery(deliveryId: string, payloadDigest: string): void {
+		this.tx(() => this.work.outbox.acknowledge(deliveryId, payloadDigest));
+	}
+	recordWorkDeliveryAttempt(
+		deliveryId: string,
+		payloadDigest: string,
+		status: "failed" | "withheld",
+		reason: string,
+	): void {
+		this.tx(() =>
+			this.work.outbox.recordAttempt(deliveryId, payloadDigest, status, reason),
+		);
+	}
+	retryWorkDelivery(deliveryId: string, payloadDigest: string): void {
+		this.tx(() => {
+			const before = this.work.outbox.require(deliveryId, payloadDigest);
+			this.work.outbox.retry(deliveryId, payloadDigest);
+			if (before.status !== "delivered" && before.status !== "pending")
+				this.workChanges.push({
+					taskId: before.receipt.taskId,
+					receiptId: before.receipt.id,
+				});
+		});
+	}
+	subscribeWork(listener: (change: WorkChange) => void): () => void {
+		this.workListeners.add(listener);
+		return () => {
+			this.workListeners.delete(listener);
+		};
+	}
+
+	rejectWorkInput(taskId: string, requestId: string): void {
+		this.tx(() => this.work.rejectInput(taskId, requestId));
+	}
+	hasPendingWorkAttribution(taskId: string): boolean {
+		return this.work.hasPendingAttribution(taskId);
+	}
+
+	/** Trusted TaskManager notification boundary, not a management/model operation. */
+	applyNativeCompletion(
+		id: string,
+		turnId: string | null,
+		status: string,
+	): StoredTask {
+		return this.tx(() => {
+			const terminal = nativeWorkStatus(status);
+			const task = this.completeTurn(id, {
+				turnId,
+				status: terminal
+					? terminal === "completed"
+						? "idle"
+						: terminal
+					: "needs_attention",
+			});
+			if (
+				turnId &&
+				terminal &&
+				!this.work.observeWorkTurn(id, turnId, terminal)
+			)
+				return this.patch(id, {
+					status: "needs_attention",
+					lastError: "Work receipt is awaiting exact native input correlation.",
+				});
+			return task;
+		});
 	}
 
 	clearApprovals(): void {
@@ -264,6 +395,7 @@ export class TaskStore {
 					"INSERT INTO task_requests(request_id,task_id,kind,digest) VALUES (?,?,?,?)",
 				)
 				.run(input.requestId, input.id, "create", digestHex(input.digest));
+			this.work.recordInput(this.require(input.id), input.requestId);
 		});
 		return this.require(input.id);
 	}
@@ -289,24 +421,28 @@ export class TaskStore {
 			pendingKind?: PendingKind | null;
 		},
 	): StoredTask {
-		const task = this.require(id);
-		const knownTurnIds =
-			input.turnId && !task.knownTurnIds.includes(input.turnId)
-				? [...task.knownTurnIds, input.turnId]
-				: task.knownTurnIds;
-		const knownMessageIds =
-			input.messageId && !task.knownMessageIds.includes(input.messageId)
-				? [...task.knownMessageIds, input.messageId]
-				: task.knownMessageIds;
-		return this.patch(id, {
-			status: input.status,
-			lastTurnId: input.turnId ?? task.lastTurnId,
-			pendingKind: input.pendingKind === undefined ? null : input.pendingKind,
-			pendingRequestId: input.pendingKind ? task.pendingRequestId : null,
-			lastError: null,
-			knownTurnIds,
-			knownMessageIds,
-			source: task.source,
+		return this.tx(() => {
+			const task = this.require(id);
+			if (input.turnId && input.messageId)
+				this.work.bindInput(id, input.messageId, input.turnId);
+			const knownTurnIds =
+				input.turnId && !task.knownTurnIds.includes(input.turnId)
+					? [...task.knownTurnIds, input.turnId]
+					: task.knownTurnIds;
+			const knownMessageIds =
+				input.messageId && !task.knownMessageIds.includes(input.messageId)
+					? [...task.knownMessageIds, input.messageId]
+					: task.knownMessageIds;
+			return this.patch(id, {
+				status: input.status,
+				lastTurnId: input.turnId ?? task.lastTurnId,
+				pendingKind: input.pendingKind === undefined ? null : input.pendingKind,
+				pendingRequestId: input.pendingKind ? task.pendingRequestId : null,
+				lastError: null,
+				knownTurnIds,
+				knownMessageIds,
+				source: task.source,
+			});
 		});
 	}
 
@@ -338,40 +474,52 @@ export class TaskStore {
 	}
 
 	handover(id: string, ownerAgentId: string): StoredTask {
-		return this.patch(id, { ownerAgentId });
+		return this.tx(() => {
+			const before = this.require(id);
+			const after = this.patch(id, { ownerAgentId });
+			this.work.handover(before, after);
+			return after;
+		});
 	}
 
 	applyNative(id: string, thread: TaskThread): StoredTask {
-		const task = this.require(id);
-		const known = new Set(task.knownMessageIds);
-		const external = hasExternalUserInput(thread, known);
-		const mapped = mapThreadStatus(thread.status);
-		const status =
-			(task.status === "interrupted" || task.status === "failed") &&
-			mapped === "idle"
-				? task.status
-				: mapped;
-		const turnId = activeTurnId(thread) ?? task.lastTurnId;
-		const model = thread.model ?? task.model;
-		const source: TaskSource = external ? "external" : task.source;
-		const knownTurnIds = [...task.knownTurnIds];
-		for (const turn of thread.turns) {
-			if (!knownTurnIds.includes(turn.id)) knownTurnIds.push(turn.id);
-		}
-		if (
-			task.status === status &&
-			task.source === source &&
-			task.lastTurnId === turnId &&
-			task.model === model
-		)
-			return task;
-		return this.patch(id, {
-			status,
-			source,
-			lastTurnId: turnId,
-			model,
-			knownTurnIds,
-			lastError: status === "failed" ? task.lastError : null,
+		return this.tx(() => {
+			const task = this.require(id);
+			this.work.reconcile(id, thread);
+			const known = new Set(task.knownMessageIds);
+			const external = hasExternalUserInput(thread, known);
+			const mapped = thread.turns.some(
+				(t) => t.status !== "inProgress" && !nativeWorkStatus(t.status),
+			)
+				? "needs_attention"
+				: mapThreadStatus(thread.status);
+			const status =
+				(task.status === "interrupted" || task.status === "failed") &&
+				mapped === "idle"
+					? task.status
+					: mapped;
+			const turnId = activeTurnId(thread) ?? task.lastTurnId;
+			const model = thread.model ?? task.model;
+			const source: TaskSource = external ? "external" : task.source;
+			const knownTurnIds = [...task.knownTurnIds];
+			for (const turn of thread.turns) {
+				if (!knownTurnIds.includes(turn.id)) knownTurnIds.push(turn.id);
+			}
+			if (
+				task.status === status &&
+				task.source === source &&
+				task.lastTurnId === turnId &&
+				task.model === model
+			)
+				return task;
+			return this.patch(id, {
+				status,
+				source,
+				lastTurnId: turnId,
+				model,
+				knownTurnIds,
+				lastError: status === "failed" ? task.lastError : null,
+			});
 		});
 	}
 
@@ -421,6 +569,8 @@ export class TaskStore {
 					"INSERT INTO task_requests(request_id,task_id,kind,digest) VALUES (?,?,?,?)",
 				)
 				.run(requestId, taskId, kind, digestHex(digest));
+			if (kind === "message")
+				this.work.recordInput(this.require(taskId), requestId);
 		});
 		return { requestId, taskId, kind, digest: digestHex(digest) };
 	}
@@ -559,6 +709,7 @@ export class TaskStore {
 	close(): void {
 		if (this.closed) return;
 		this.db.close();
+		this.workListeners.clear();
 		this.closed = true;
 	}
 
@@ -624,14 +775,42 @@ export class TaskStore {
 		return this.require(id);
 	}
 
-	private tx(fn: () => void): void {
+	private validateRows(version: number): void {
+		for (const row of this.db.prepare("SELECT * FROM tasks").all()) {
+			const task = fromRow(row);
+			this.approvals(task.id);
+		}
+		for (const row of this.db
+			.prepare("SELECT request_id FROM task_requests")
+			.all())
+			this.findRequest(String(row["request_id"]));
+		if (version === 2) auditTaskWork(this.db, this.work);
+	}
+	private tx<T>(fn: () => T): T {
+		if (this.db.isTransaction) return fn();
 		this.db.exec("BEGIN IMMEDIATE");
+		let result: T;
 		try {
-			fn();
+			result = fn();
 			this.db.exec("COMMIT");
 		} catch (error) {
-			this.db.exec("ROLLBACK");
+			if (this.db.isTransaction) this.db.exec("ROLLBACK");
+			this.workChanges = [];
 			throw error;
 		}
+		const changes = this.workChanges;
+		this.workChanges = [];
+		for (const change of changes)
+			for (const listener of this.workListeners) {
+				try {
+					listener(change);
+				} catch (error) {
+					console.error(
+						"[task-work] change listener failed",
+						error instanceof Error ? error.message : String(error),
+					);
+				}
+			}
+		return result;
 	}
 }

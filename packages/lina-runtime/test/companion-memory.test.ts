@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { captureSourceProofs } from "../../lina-core/src/source-policy.ts";
 import { CompanionMemory } from "../src/context/companion.ts";
 import { CompanionQueue } from "../src/context/companion-queue.ts";
-import { createRuntimeFixture } from "./runtime-fixture.ts";
+import { trustNativeFixture } from "./helpers/native-memory-source.ts";
+import { createRuntimeFixture as baseFixture } from "./runtime-fixture.ts";
 
 test("settled evidence becomes scoped memory without a Honcho request and survives reopening", async () => {
 	const f = createRuntimeFixture();
@@ -364,7 +366,9 @@ test("concurrent apply discards stale generation and retries with a fresh snapsh
 		entry(f, "seed", "user");
 		f.store.createRequest("seed-r", "seed");
 		f.store.setRequest("seed-r", "accepted", { entryId: "seed" });
-		f.store.setRequest("seed-r", "interrupted");
+		f.store.setRequest("seed-r", "settled");
+		memory.configure(async () => "[]");
+		await memory.refresh();
 		user(f, "u");
 		memory.configure(async (prompt) => {
 			prompts.push(prompt);
@@ -378,8 +382,11 @@ test("concurrent apply discards stale generation and retries with a fresh snapsh
 		const refresh = memory.refresh();
 		await started.promise;
 		memory.mind.apply({
+			sourceProofs: captureSourceProofs(["seed"], (id) =>
+				f.store.sourceEntry(id),
+			),
 			requestId: "other",
-			expectedRevision: 0,
+			expectedRevision: 1,
 			observations: [observation("seed", "concurrent preference", "other")],
 		});
 		output.resolve(JSON.stringify([observation("u", "stale")]));
@@ -421,6 +428,7 @@ test("retraction during observation fences regenerated output through retry exha
 	try {
 		user(f, "u");
 		const seed = memory.mind.apply({
+			sourceProofs: captureSourceProofs(["u"], (id) => f.store.sourceEntry(id)),
 			requestId: "seed",
 			expectedRevision: 0,
 			observations: [observation("u", "original")],
@@ -516,7 +524,9 @@ test("restart reconciles done jobs against actual engine receipts", async () => 
 	const f = createRuntimeFixture();
 	const path = join(f.root, "mind.sqlite");
 	user(f, "u");
-	const q = new CompanionQueue(`${path}.queue`, f.runtime.binding);
+	const q = new CompanionQueue(`${path}.queue`, f.runtime.binding, {
+		lookup: (id) => f.store.sourceEntry(id),
+	});
 	q.add("u", ["u"], 1);
 	q.start("u");
 	q.finish("u", true);
@@ -552,9 +562,17 @@ test("committed receipt recovers a crash on the final queue attempt without gene
 		journal: f.store,
 		...time,
 	});
-	memory.mind.apply({ requestId: "u", expectedRevision: 0, observations: [] });
+	memory.mind.apply({
+		sourceProofs: captureSourceProofs(["u"], (id) => f.store.sourceEntry(id)),
+		requestId: "u",
+		expectedRevision: 0,
+		observations: [],
+	});
 	await memory.close();
-	const q = new CompanionQueue(`${path}.queue`, f.runtime.binding, time);
+	const q = new CompanionQueue(`${path}.queue`, f.runtime.binding, {
+		...time,
+		lookup: (id) => f.store.sourceEntry(id),
+	});
 	q.add("u", ["u"], 1);
 	for (let i = 0; i < 2; i++) {
 		q.start("u");
@@ -610,6 +628,46 @@ test("scan failure preserves pending work without a zero-delay background loop",
 		expect(memory.status().accepted).toBe(1);
 	} finally {
 		f.store.scanAfter = scan;
+		await memory.close();
+		await f.close();
+	}
+});
+
+test("journal episode lookup failure preserves pending work and resumes without dispatching during the outage", async () => {
+	const f = createRuntimeFixture();
+	const time = clock();
+	const memory = new CompanionMemory({
+		path: join(f.root, "episode-outage.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		...time,
+	});
+	const episode = f.store.sourceEpisode.bind(f.store);
+	let calls = 0;
+	try {
+		user(f, "u");
+		entry(f, "a", "assistant");
+		await memory.refresh();
+		memory.configure(async () => {
+			calls++;
+			return "[]";
+		});
+		f.store.sourceEpisode = () => {
+			f.store.sourceEpisode = episode;
+			throw Error("episode lookup unavailable");
+		};
+		await memory.refresh();
+		expect(calls).toBe(0);
+		expect(memory.status().pending).toBe(1);
+		expect(memory.status().withheld).toBe(0);
+		expect(memory.status().service).toBe("unavailable");
+		expect(time.count()).toBe(0);
+		await memory.refresh();
+		expect(calls).toBe(1);
+		expect(memory.mind.hasReceipt("u")).toBe(true);
+		expect(memory.status().accepted).toBe(1);
+	} finally {
+		f.store.sourceEpisode = episode;
 		await memory.close();
 		await f.close();
 	}
@@ -767,6 +825,7 @@ test("native preference stage survives observation failure and is not replayed a
 	const preferences = {
 		resetRevision: () => 0,
 		hasReceipt: () => saved,
+		receiptWithheld: () => false,
 		process: async () => {
 			calls++;
 			saved = true;
@@ -831,3 +890,9 @@ test("validation retry explains duplicate slots to observer without weakening va
 		await f.close();
 	}
 });
+
+function createRuntimeFixture() {
+	const f = baseFixture();
+	trustNativeFixture(f.store, f.runtime.binding);
+	return f;
+}

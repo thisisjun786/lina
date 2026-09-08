@@ -23,7 +23,10 @@ import {
 } from "./life-runtime-fixture.ts";
 
 export async function fleetLifeFixture(
-	overrides: Pick<CodexFleetOptions, "createTaskRpc" | "createLifeModel"> = {},
+	overrides: Pick<
+		CodexFleetOptions,
+		"createTaskRpc" | "createLifeModel" | "createApp"
+	> = {},
 	respond?: (request: Request) => Response | Promise<Response>,
 ) {
 	const root = mkdtempSync(join(tmpdir(), "lina-life-composition-"));

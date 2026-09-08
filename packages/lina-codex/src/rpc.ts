@@ -1,8 +1,29 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
+import { responseDeliveryCheck } from "./guarded-response.ts";
 
 export type JsonRpcId = string | number;
+
+const remoteErrors = new WeakSet<object>();
+
+/** A decoded native error response; trusted fixtures may construct one explicitly. */
+export class CodexRpcRemoteError extends Error {
+	constructor(
+		message: string,
+		readonly code: number = -32603,
+	) {
+		super(message);
+		this.name = "CodexRpcRemoteError";
+		remoteErrors.add(this);
+	}
+}
+
+export function isCodexRpcRemoteError(
+	error: unknown,
+): error is CodexRpcRemoteError {
+	return typeof error === "object" && error !== null && remoteErrors.has(error);
+}
 
 export type CodexRpcNotification = {
 	method: string;
@@ -37,6 +58,8 @@ export type CodexRpc = {
 		method: string,
 		params?: unknown,
 		signal?: AbortSignal,
+		/** Trusted synchronous check after serialization, immediately before writing. */
+		beforeSend?: () => void,
 	): Promise<T>;
 	notify(method: string, params?: unknown): void;
 	subscribe(listener: (method: string, params: unknown) => void): () => void;
@@ -190,7 +213,17 @@ export async function createCodexRpc(
 			clearTimeout(item.timer);
 			item.abort?.();
 			if ("error" in raw) {
-				item.settle(new Error(errorMessage(raw["error"], "Codex RPC error")));
+				const error = raw["error"];
+				if (
+					!("result" in raw) &&
+					!("method" in raw) &&
+					isRecord(error) &&
+					typeof error["code"] === "number" &&
+					Number.isSafeInteger(error["code"]) &&
+					typeof error["message"] === "string"
+				)
+					item.settle(new CodexRpcRemoteError(error["message"], error["code"]));
+				else item.settle(new Error(errorMessage(error, "Codex RPC error")));
 				return;
 			}
 			item.settle(undefined, raw["result"]);
@@ -227,6 +260,8 @@ export async function createCodexRpc(
 				});
 				return;
 			}
+			const resultCheck = responseDeliveryCheck(result);
+			if (resultCheck) deliveryChecks.push(resultCheck);
 			writeSafe({ id, result }, () => {
 				for (const check of deliveryChecks) check();
 			});
@@ -298,6 +333,7 @@ export async function createCodexRpc(
 			method: string,
 			params?: unknown,
 			signal?: AbortSignal,
+			beforeSend?: () => void,
 		): Promise<T> {
 			if (closed) return Promise.reject(new Error("Codex RPC is closed"));
 			signal?.throwIfAborted();
@@ -331,17 +367,27 @@ export async function createCodexRpc(
 					item.abort = () => signal.removeEventListener("abort", onAbort);
 				}
 				pending.set(id, item);
-				if (
-					!writeSafe({
-						id,
-						method,
-						...(params === undefined ? {} : { params }),
-					})
-				) {
+				let failure: Error | undefined;
+				try {
+					if (
+						!writeSafe(
+							{
+								id,
+								method,
+								...(params === undefined ? {} : { params }),
+							},
+							beforeSend,
+						)
+					)
+						failure = new Error("Codex RPC write failed");
+				} catch {
+					failure = new Error("Codex request dispatch blocked");
+				}
+				if (failure) {
 					pending.delete(id);
 					clearTimeout(item.timer);
 					item.abort?.();
-					reject(new Error("Codex RPC write failed"));
+					reject(failure);
 				}
 			});
 		},

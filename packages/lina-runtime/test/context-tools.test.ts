@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { ContextStore } from "../../lina-core/src/context/index.ts";
+import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
 import { createContextTools } from "../src/context/tools.ts";
 import { createRuntimeFixture } from "./runtime-fixture.ts";
 
@@ -9,7 +10,11 @@ test("history/expansion tools bound results and working replacement respects the
 	const store = new ContextStore(
 		join(f.root, "context.sqlite"),
 		f.runtime.binding,
-		(id) => f.store.entry(id),
+		(id) => f.store.sourceEntry(id),
+		{
+			lookupRequest: (id) =>
+				f.store.sourceEntry(f.store.request(id)?.entryId ?? ""),
+		},
 	);
 	let busy = false;
 	const tools = createContextTools(
@@ -17,9 +22,10 @@ test("history/expansion tools bound results and working replacement respects the
 		f.store,
 		() => {},
 		() => busy,
+		() => "context-source",
 	);
 	try {
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: "source",
 			role: "user",
 			text: "User chose dark mode. ".repeat(500),

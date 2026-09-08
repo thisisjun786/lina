@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
 import { ContextStore } from "../../lina-core/src/context/index.ts";
+import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
 import { ContextCoordinator } from "../src/context/coordinator.ts";
 import type { CompactSourceEvent } from "../src/context/native.ts";
 import type { ContextServices } from "../src/context/port.ts";
@@ -13,7 +14,7 @@ afterEach(async () => {
 function setup() {
 	const f = createRuntimeFixture();
 	for (const id of ["old", "kept"])
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: id,
 			role: "user",
 			text: `${id} decision and unfinished work. `.repeat(30),
@@ -23,7 +24,11 @@ function setup() {
 	const store = new ContextStore(
 		join(f.root, "context.sqlite"),
 		f.runtime.binding,
-		(id) => f.store.entry(id),
+		(id) => f.store.sourceEntry(id),
+		{
+			lookupRequest: (id) =>
+				f.store.sourceEntry(f.store.request(id)?.entryId ?? ""),
+		},
 	);
 	const services: ContextServices = {
 		estimateText: (text) => Math.ceil(text.length / 4),
@@ -128,11 +133,15 @@ test("manual compaction owns its fence and releases it after pre-hook native fai
 });
 test("working-state injection drops optional recall before bounded capsule and preserves input", () => {
 	const f = setup();
-	f.contextStore.updateWorking(0, {
-		goal: "User's current goal",
-		openItems: ["Finish the migration"],
-		sourceEntryIds: ["old"],
-	});
+	f.contextStore.updateWorking(
+		0,
+		{
+			goal: "User's current goal",
+			openItems: ["Finish the migration"],
+			sourceEntryIds: ["old"],
+		},
+		{ activeRequestId: "context-old" },
+	);
 	f.coordinator.setRecall("Remembered preference. ".repeat(400));
 	const messages = [{ role: "user", content: "Latest instruction" }];
 	const text = f.coordinator.injection(messages);
@@ -167,14 +176,14 @@ test("a lost summary database degrades then rebuilds from native originals", asy
 		new AbortController().signal,
 	);
 	const receipt = { id: "c1", type: "compaction", ...candidate };
-	f.store.appendEntry({
+	appendContextEntry(f.store, f.runtime.binding.sessionId, {
 		entryId: "c1",
 		role: "meta",
 		text: "",
 		timestamp: "2026-09-05T00:00:00Z",
 		raw: receipt,
 	});
-	f.store.appendEntry({
+	appendContextEntry(f.store, f.runtime.binding.sessionId, {
 		entryId: "tail",
 		role: "user",
 		text: "Recent work",
@@ -184,7 +193,11 @@ test("a lost summary database degrades then rebuilds from native originals", asy
 	const fresh = new ContextStore(
 		join(f.root, "fresh-context.sqlite"),
 		f.runtime.binding,
-		(id) => f.store.entry(id),
+		(id) => f.store.sourceEntry(id),
+		{
+			lookupRequest: (id) =>
+				f.store.sourceEntry(f.store.request(id)?.entryId ?? ""),
+		},
 	);
 	const rebuilt = new ContextCoordinator({
 		store: fresh,
@@ -240,14 +253,14 @@ test("a later untracked native summary can replace the prior checkpoint after re
 		firstKeptEntryId: "kept",
 	};
 	for (const raw of [first, foreign])
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: raw.id,
 			role: "meta",
 			text: "",
 			timestamp: "2026-09-05T00:00:00Z",
 			raw,
 		});
-	f.store.appendEntry({
+	appendContextEntry(f.store, f.runtime.binding.sessionId, {
 		entryId: "tail",
 		role: "user",
 		text: "Recent work",

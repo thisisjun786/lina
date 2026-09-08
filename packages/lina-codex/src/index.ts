@@ -46,3 +46,38 @@ export {
 	createCodexEngine,
 	createCodexSession,
 } from "./session.ts";
+export { TaskStore } from "./task-store.ts";
+export {
+	createWorkManagementAuthority,
+	createWorkVerifierAuthority,
+} from "./task-work-authority.ts";
+export type {
+	ConfirmWorkInput,
+	CorrectWorkInput,
+	SharedWorkFields,
+	ShareWorkInput,
+	WorkAuthority,
+	WorkChange,
+	WorkDelivery,
+	WorkDeliveryAttempt,
+	WorkDeliveryPayload,
+	WorkDeliveryStatus,
+	WorkEvidenceRef,
+	WorkNativeStatus,
+	WorkOutcome,
+	WorkProof,
+	WorkReceipt,
+	WorkSharingDecision,
+	WorkSharingSelection,
+	WorkVerifierContext,
+} from "./task-work-types.ts";
+export {
+	parseConfirmWorkInput,
+	parseCorrectWorkInput,
+	parseShareWorkInput,
+	parseWorkReceipt,
+	parseWorkSharingDecision,
+	workExperienceKey,
+	workProof,
+} from "./task-work-validation.ts";
+export { TaskManager } from "./tasks.ts";

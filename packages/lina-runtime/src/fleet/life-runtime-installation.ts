@@ -5,9 +5,15 @@ import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.
 import { WorldStore } from "../../../lina-core/src/world/store.ts";
 import { WorldAuthoring } from "../life/authoring.ts";
 import type { LifeForeground } from "../life/runner.ts";
+import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import type { ModelControl } from "../models/port.ts";
 import type { ModelSettingsStore } from "../models/settings.ts";
-import type { FleetLifeContext, FleetLifeRuntime } from "./life-runtime.ts";
+import type { OrdinaryWorldSource } from "../world.ts";
+import {
+	type FleetLifeContext,
+	type FleetLifeRuntime,
+	fleetLifeIdentity,
+} from "./life-runtime.ts";
 
 /** Lazily opens the installation database, and keeps native ownership until its drain succeeds. */
 export class FleetLifeInstallation {
@@ -66,6 +72,34 @@ export class FleetLifeInstallation {
 		void this.authoring;
 		if (!this.background) throw Error("LIFE runtime unavailable");
 		return this.background;
+	}
+	conversationSource(agentId: string): OrdinaryWorldSource | undefined {
+		if (
+			!this.store &&
+			existsSync(join(this.options.root, "life", "world.sqlite"))
+		)
+			void this.authoring;
+		const store = this.store;
+		if (!store) return;
+		const worldId = store.worldBinding(agentId)?.worldId;
+		const limits = worldId
+			? store.lifeConfig(worldId).limits?.evaluation
+			: null;
+		return {
+			store,
+			limits: limits
+				? { maxChars: limits.maxChars, maxRecords: limits.maxRecords }
+				: null,
+			identityPolicy: () => {
+				const selected = store.worldBinding(agentId)?.worldId;
+				if (!selected) throw Error("Ordinary world is not bound");
+				return fleetLifeIdentity(store, this.options.agents, selected).identity;
+			},
+			assertSourceCurrent: (selected) => {
+				if (this.background) this.background.assertWorkCurrent(selected);
+				else assertWorkSourceCurrent(undefined, store.workEvidence(selected));
+			},
+		};
 	}
 	resume() {
 		if (

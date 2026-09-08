@@ -2,26 +2,78 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { acquireSessionLease } from "../../lina-core/src/session-binding.ts";
+import { ordinarySource } from "../../lina-memory/test/fixtures/native-sources.ts";
 import { CompanionQueue } from "../src/context/companion-queue.ts";
 import { createRuntimeFixture } from "./runtime-fixture.ts";
 
+function queue(
+	path: string,
+	binding: ConstructorParameters<typeof CompanionQueue>[1],
+	options: ConstructorParameters<typeof CompanionQueue>[2] = {},
+) {
+	return new CompanionQueue(path, binding, {
+		...options,
+		lookup: (id) => ordinarySource({ entryId: id, role: "user", text: id }),
+	});
+}
+test("episode lookup outage preserves pending and failed jobs with attempts and history across reopen", async () => {
+	const f = createRuntimeFixture();
+	const path = join(f.root, "lookup-outage.sqlite");
+	let unavailable = false;
+	const options = {
+		now: () => 1000,
+		validateEpisode: () => {
+			if (unavailable) throw Error("episode lookup unavailable");
+		},
+	};
+	let q = queue(path, f.runtime.binding, options);
+	const db = new DatabaseSync(path);
+	const snapshot = () => ({
+		jobs: db.prepare("SELECT * FROM companion_jobs ORDER BY id").all(),
+		history: db.prepare("SELECT * FROM companion_history ORDER BY seq").all(),
+	});
+	try {
+		q.add("pending", ["pending"], 1);
+		q.add("failed", ["failed"], 2);
+		q.start("failed");
+		q.finish("failed", false, "observer_failed");
+		const before = snapshot();
+		unavailable = true;
+		expect(() => q.pending()).toThrow("episode lookup unavailable");
+		expect(snapshot()).toEqual(before);
+		q.close();
+		q = queue(path, f.runtime.binding, options);
+		expect(() => q.pending()).toThrow("episode lookup unavailable");
+		expect(snapshot()).toEqual(before);
+		unavailable = false;
+		expect(q.pending().map((job) => job.id)).toEqual(["pending"]);
+		expect(q.counts().failed).toBe(1);
+		q.start("pending");
+		q.finish("pending", true);
+		expect(q.counts().accepted).toBe(1);
+	} finally {
+		q.close();
+		db.close();
+		await f.close();
+	}
+});
 test("derived work survives restart and coalesces replay without merging another room", async () => {
 	const f = createRuntimeFixture();
 	const path = join(f.root, "queue.sqlite");
-	let q = new CompanionQueue(path, f.runtime.binding);
+	let q = queue(path, f.runtime.binding);
 	try {
 		q.add("u1", ["u1", "a1"], 2);
 		q.add("u1", ["u1", "a1"], 2);
 		expect(q.pending()).toHaveLength(1);
 		q.start("u1");
 		q.close();
-		q = new CompanionQueue(path, f.runtime.binding);
+		q = queue(path, f.runtime.binding);
 		expect(q.pending()[0]?.id).toBe("u1");
 		expect(q.cursor()).toBe(2);
 		q.finish("u1", true);
 		expect(q.pending()).toHaveLength(0);
-		expect(
-			() => new CompanionQueue(path, { ...f.runtime.binding, botId: "other" }),
+		expect(() =>
+			queue(path, { ...f.runtime.binding, botId: "other" }),
 		).toThrow();
 	} finally {
 		q.close();
@@ -34,7 +86,7 @@ test("retry deadlines and attempt cap survive reopening without sleeps", async (
 	const f = createRuntimeFixture();
 	const path = join(f.root, "queue.sqlite");
 	let now = 1000;
-	let q = new CompanionQueue(path, f.runtime.binding, { now: () => now });
+	let q = queue(path, f.runtime.binding, { now: () => now });
 	try {
 		q.add("u", ["u"], 1);
 		expect(q.start("u")).toBe(true);
@@ -42,7 +94,7 @@ test("retry deadlines and attempt cap survive reopening without sleeps", async (
 		q.finish("u", false, "observer_failed");
 		expect(q.pending()).toEqual([]);
 		q.close();
-		q = new CompanionQueue(path, f.runtime.binding, { now: () => now });
+		q = queue(path, f.runtime.binding, { now: () => now });
 		expect(q.pending()).toEqual([]);
 		now = 2000;
 		expect(q.pending()).toHaveLength(1);
@@ -66,13 +118,13 @@ test("retry deadlines and attempt cap survive reopening without sleeps", async (
 test("a second in-process queue owner cannot recover active work", async () => {
 	const f = createRuntimeFixture();
 	const path = join(f.root, "queue.sqlite");
-	const q = new CompanionQueue(path, f.runtime.binding);
+	const q = queue(path, f.runtime.binding);
 	let second: CompanionQueue | undefined;
 	try {
 		q.add("u", ["u"], 1);
 		q.start("u");
 		expect(() => {
-			second = new CompanionQueue(path, f.runtime.binding);
+			second = queue(path, f.runtime.binding);
 		}).toThrow();
 		expect(q.counts().sending).toBe(1);
 	} finally {
@@ -84,7 +136,7 @@ test("a second in-process queue owner cannot recover active work", async () => {
 
 test("conflicting replay cannot advance the cursor or replace source evidence", async () => {
 	const f = createRuntimeFixture();
-	const q = new CompanionQueue(join(f.root, "queue.sqlite"), f.runtime.binding);
+	const q = queue(join(f.root, "queue.sqlite"), f.runtime.binding);
 	try {
 		q.add("u", ["u", "a"], 2);
 		expect(() => q.add("u", ["u", "other"], 10)).toThrow();
@@ -111,7 +163,7 @@ test("legacy queue schema is rejected without changing its sources or cursor", a
 			"old",
 			'["u"]',
 		);
-		expect(() => new CompanionQueue(path, f.runtime.binding)).toThrow(
+		expect(() => queue(path, f.runtime.binding)).toThrow(
 			"legacy jobs require explicit migration",
 		);
 		expect(db.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(1);
@@ -131,10 +183,7 @@ test("existing session lease excludes another app until its queue is closed", as
 	const f = createRuntimeFixture();
 	const stateRoot = join(f.root, "state");
 	const owner = acquireSessionLease(stateRoot, f.runtime.binding.botId, f.root);
-	const q = new CompanionQueue(
-		join(owner.root, "queue.sqlite"),
-		f.runtime.binding,
-	);
+	const q = queue(join(owner.root, "queue.sqlite"), f.runtime.binding);
 	try {
 		q.add("u", ["u"], 1);
 		q.start("u");
@@ -151,12 +200,12 @@ test("existing session lease excludes another app until its queue is closed", as
 		f.runtime.binding.botId,
 		f.root,
 	);
-	const recovered = new CompanionQueue(
+	const recovered = queue(
 		join(successor.root, "queue.sqlite"),
 		f.runtime.binding,
 	);
 	try {
-		expect(recovered.pending()).toEqual([{ id: "u", sources: ["u"] }]);
+		expect(recovered.pending()).toMatchObject([{ id: "u", sources: ["u"] }]);
 	} finally {
 		recovered.close();
 		successor.close();
@@ -168,7 +217,7 @@ test("explicit recovery preserves old attempts and errors and grants only bounde
 	const f = createRuntimeFixture();
 	const path = join(f.root, "recovery.sqlite");
 	let now = 1000;
-	let q = new CompanionQueue(path, f.runtime.binding, { now: () => now });
+	let q = queue(path, f.runtime.binding, { now: () => now });
 	try {
 		q.add("u", ["u"], 1);
 		for (let i = 0; i < 3; i++) {
@@ -182,7 +231,7 @@ test("explicit recovery preserves old attempts and errors and grants only bounde
 		expect(q.start("u")).toBe(true);
 		q.finish("u", true, null, "unchanged");
 		q.close();
-		q = new CompanionQueue(path, f.runtime.binding, { now: () => now });
+		q = queue(path, f.runtime.binding, { now: () => now });
 		expect(q.processing()).toMatchObject({
 			unchanged: 1,
 			changed: 0,
@@ -217,7 +266,7 @@ test("explicit recovery preserves old attempts and errors and grants only bounde
 test("exact v2 migration preserves failed sources, cursor and consumed attempts", async () => {
 	const f = createRuntimeFixture();
 	const path = join(f.root, "v2.sqlite");
-	let q = new CompanionQueue(path, f.runtime.binding);
+	let q = queue(path, f.runtime.binding);
 	try {
 		q.add("u", ["u", "a"], 7);
 		q.start("u");
@@ -225,10 +274,16 @@ test("exact v2 migration preserves failed sources, cursor and consumed attempts"
 		q.close();
 		const db = new DatabaseSync(path);
 		db.exec(
-			"DROP TABLE companion_history; DROP TABLE companion_job_meta; PRAGMA user_version=2",
+			`DROP TABLE companion_history; DROP TABLE companion_job_meta; DROP INDEX companion_ready;
+ALTER TABLE companion_jobs RENAME TO old_jobs;
+CREATE TABLE companion_jobs (id TEXT PRIMARY KEY, sources TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','running','done','failed')), attempts INTEGER NOT NULL CHECK(attempts>=0), retry_at INTEGER NOT NULL CHECK(retry_at>=0), error TEXT) STRICT;
+INSERT INTO companion_jobs SELECT id,sources,state,attempts,retry_at,error FROM old_jobs;
+DROP TABLE old_jobs;
+CREATE INDEX companion_ready ON companion_jobs(state,retry_at);
+PRAGMA user_version=2`,
 		);
 		db.close();
-		q = new CompanionQueue(path, f.runtime.binding);
+		q = queue(path, f.runtime.binding);
 		expect(q.cursor()).toBe(7);
 		expect(q.error()).toBe("legacy_provider_failure");
 		const check = new DatabaseSync(path);
@@ -239,7 +294,7 @@ test("exact v2 migration preserves failed sources, cursor and consumed attempts"
 					.get(),
 			).toEqual({ sources: '["u","a"]', attempts: 1 });
 			expect(check.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(
-				3,
+				4,
 			);
 		} finally {
 			check.close();
@@ -253,7 +308,7 @@ test("exact v2 migration preserves failed sources, cursor and consumed attempts"
 test("the same recovery authorization cannot grant unlimited attempts after failure", async () => {
 	const f = createRuntimeFixture();
 	let now = 1000;
-	const q = new CompanionQueue(join(f.root, "once.sqlite"), f.runtime.binding, {
+	const q = queue(join(f.root, "once.sqlite"), f.runtime.binding, {
 		now: () => now,
 	});
 	try {

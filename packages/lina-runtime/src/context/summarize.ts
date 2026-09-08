@@ -2,6 +2,8 @@ export type SummaryCall = (
 	text: string,
 	maxTokens: number,
 	signal: AbortSignal,
+	/** Trusted synchronous source check; not serialized into the summary prompt. */
+	beforeDispatch?: () => void,
 ) => Promise<string>;
 
 /** A bounded escalation path, with visible degradation and no source deletion. */

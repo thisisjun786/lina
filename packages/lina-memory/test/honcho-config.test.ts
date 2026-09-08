@@ -87,3 +87,44 @@ describe("honcho chunking", () => {
 		expect(chunkText("\0\0")).toEqual([]);
 	});
 });
+
+describe("explicit ordinary namespace environment transport", () => {
+	it("accepts full explicit JSON and never substitutes it for required base fields", () => {
+		const namespace = {
+			version: 1 as const,
+			ownerBotId: "lina",
+			generationId: "g1",
+			workspaceId: "ordinary-workspace",
+			sessionId: "ordinary-session",
+			userPeerId: "ordinary-user",
+			observerPeerId: "ordinary-observer",
+			sourcePolicyVersion: 1 as const,
+			qualificationId: "q1",
+		};
+		const env = {
+			LINA_HONCHO_BASE_URL: config.baseUrl,
+			LINA_HONCHO_WORKSPACE_ID: config.workspaceId,
+			LINA_HONCHO_SESSION_ID: config.sessionId,
+			LINA_HONCHO_USER_PEER_ID: config.userPeerId,
+			LINA_HONCHO_OBSERVER_PEER_ID: config.observerPeerId,
+			LINA_HONCHO_ORDINARY_NAMESPACE_JSON: JSON.stringify(namespace),
+		};
+		expect(parseHonchoEnv(env)?.ordinaryNamespace).toEqual(namespace);
+		expect(() =>
+			parseHonchoEnv({
+				LINA_HONCHO_ORDINARY_NAMESPACE_JSON: JSON.stringify(namespace),
+			}),
+		).toThrow();
+		for (const input of [
+			"{",
+			"null",
+			"[]",
+			JSON.stringify({ ...namespace, qualificationId: undefined }),
+			JSON.stringify({ ...namespace, ownerBotId: undefined }),
+			JSON.stringify({ ...namespace, extra: true }),
+		])
+			expect(() =>
+				parseHonchoEnv({ ...env, LINA_HONCHO_ORDINARY_NAMESPACE_JSON: input }),
+			).toThrow();
+	});
+});

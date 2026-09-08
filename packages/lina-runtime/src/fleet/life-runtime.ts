@@ -2,12 +2,18 @@ import { join } from "node:path";
 import { createCodexLifeModel } from "../../../lina-codex/src/life-model.ts";
 import type { CodexLifeModelOptions } from "../../../lina-codex/src/life-model-policy.ts";
 import type { AgentStore } from "../../../lina-core/src/agents/store.ts";
+import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
 import type { IdentityPolicySnapshot } from "../../../lina-core/src/world/life-types.ts";
 import type { WorldStore } from "../../../lina-core/src/world/store.ts";
 import type { LifeForeground } from "../life/runner.ts";
 import { createLifeRuntime, systemLifeClock } from "../life/runtime.ts";
 import type { LifeClock } from "../life/scheduler.ts";
 import { createEnsembleSocialEngine } from "../life/social/ensemble.ts";
+import {
+	createWorkBridge,
+	type WorkBridgeSource,
+} from "../life/work-bridge.ts";
+import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import type { ModelSettingsStore } from "../models/settings.ts";
 
 export interface FleetLifeContext {
@@ -17,6 +23,7 @@ export interface FleetLifeContext {
 	foreground: LifeForeground;
 }
 export interface FleetLifeOptions extends FleetLifeContext {
+	workSource?: WorkBridgeSource;
 	stateRoot: string;
 	connection(): ReturnType<CodexLifeModelOptions["selection"]>["connection"];
 	providerEnv: NonNullable<CodexLifeModelOptions["providerEnv"]>;
@@ -26,10 +33,52 @@ export interface FleetLifeOptions extends FleetLifeContext {
 	createModel?: typeof createCodexLifeModel;
 }
 
+export function fleetLifeIdentity(
+	store: WorldStore,
+	agents: AgentStore,
+	worldId: string,
+) {
+	const definition = store.lifeDefinition(worldId);
+	const profiles = definition.participants.map((id) => {
+		const profile = agents.get(id);
+		if (!profile) throw Error("LIFE participant profile unavailable");
+		return profile;
+	});
+	const identity: IdentityPolicySnapshot = {
+		version: 1,
+		profiles: profiles.map((profile) => ({
+			agentId: profile.id,
+			profileRevision: profile.revision,
+			evolution: profile.evolution,
+			lockedTraitIds:
+				profile.evolution === "manual"
+					? definition.traits.map((axis) => axis.id)
+					: [],
+			lockedHabitIds:
+				profile.evolution === "manual"
+					? definition.habits.map((axis) => axis.id)
+					: [],
+			lockedAttitudeIds:
+				profile.evolution === "manual"
+					? definition.attitudes.map((axis) => axis.id)
+					: [],
+		})),
+	};
+	return { identity, profiles };
+}
+
 /** One installation owns this runtime and its native transport; store ownership stays in fleet. */
 export function createFleetLifeRuntime(options: FleetLifeOptions) {
 	const { store, agents, modelSettings, foreground } = options;
 	const clock = options.clock ?? systemLifeClock;
+	const bridge = options.workSource
+		? createWorkBridge({
+				source: options.workSource,
+				world: store,
+				// Delivery attempts are durably visible in task management; never log task content.
+				onError() {},
+			})
+		: undefined;
 	const worldIds = () => {
 		const ids: string[] = [];
 		let afterId: string | null = null;
@@ -52,8 +101,31 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		providerEnv: options.providerEnv,
 		...(options.command ? { command: options.command } : {}),
 		selection(request) {
-			const settings = modelSettings.snapshot();
+			const step = store.lifeStep(request.worldId, request.stepId);
 			const config = store.lifeConfig(request.worldId);
+			if (
+				["accepted", "failed", "stale", "needs_attention"].includes(
+					step.status,
+				) ||
+				lifeDigest(config) !== lifeDigest(step.source.config) ||
+				store.snapshot(request.worldId).revision !==
+					step.source.world.revision ||
+				store.lifeSnapshot(request.worldId).revision !==
+					step.source.life.revision ||
+				(step.source.work &&
+					lifeDigest(store.workEvidence(request.worldId)) !==
+						lifeDigest(step.source.work)) ||
+				lifeDigest(fleetLifeIdentity(store, agents, request.worldId)) !==
+					lifeDigest({
+						identity: step.source.identity,
+						profiles: step.source.profiles,
+					})
+			)
+				throw Error(
+					"LIFE destination or source snapshot changed before model dispatch",
+				);
+			assertWorkSourceCurrent(options.workSource, step.source.work);
+			const settings = modelSettings.snapshot();
 			const route =
 				config.models?.[request.lane === "director" ? "director" : "actor"];
 			if (
@@ -86,35 +158,15 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		clock,
 		engine: createEnsembleSocialEngine(),
 		worldIds,
+		beforePrepare: () => {
+			bridge?.poll();
+		},
+		assertSourceCurrent: (step) =>
+			assertWorkSourceCurrent(options.workSource, step.source.work),
 		config: (worldId) => store.lifeConfig(worldId),
 		acquireLease: (...args) => store.acquireLifeLease(...args),
 		identity(worldId) {
-			const definition = store.lifeDefinition(worldId);
-			const profiles = definition.participants.map((id) => {
-				const profile = agents.get(id);
-				if (!profile) throw Error("LIFE participant profile unavailable");
-				return profile;
-			});
-			const identity: IdentityPolicySnapshot = {
-				version: 1,
-				profiles: profiles.map((profile) => ({
-					agentId: profile.id,
-					profileRevision: profile.revision,
-					evolution: profile.evolution,
-					lockedTraitIds:
-						profile.evolution === "manual"
-							? definition.traits.map((axis) => axis.id)
-							: [],
-					lockedHabitIds:
-						profile.evolution === "manual"
-							? definition.habits.map((axis) => axis.id)
-							: [],
-					lockedAttitudeIds:
-						profile.evolution === "manual"
-							? definition.attitudes.map((axis) => axis.id)
-							: [],
-				})),
-			};
+			const { identity, profiles } = fleetLifeIdentity(store, agents, worldId);
 			return {
 				identity,
 				profiles,
@@ -128,6 +180,16 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 	});
 	return {
 		...runtime,
+		assertWorkCurrent: (worldId: string) =>
+			assertWorkSourceCurrent(options.workSource, store.workEvidence(worldId)),
+		start() {
+			bridge?.start();
+			runtime.start();
+		},
+		async close() {
+			bridge?.close();
+			await runtime.close();
+		},
 		status: (worldId: string) => ({
 			...runtime.status(worldId),
 			schedulerError:

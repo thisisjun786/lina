@@ -36,6 +36,7 @@ const snapshot = (epoch = "one", revision = 2): ContextSnapshot => ({
 		accepted: 0,
 		unknown: 0,
 		failed: 0,
+		withheld: 0,
 		freshness: "unknown",
 		recallText: "",
 	},

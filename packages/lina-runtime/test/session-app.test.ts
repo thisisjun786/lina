@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexHost } from "../../lina-codex/src/host.ts";
 import { acquireSessionLease } from "../../lina-core/src/index.ts";
+import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
 import {
 	initializeSessionFile,
 	type SdkSessionOptions,
@@ -75,17 +76,26 @@ test("working capsule survives restart and manual compaction fences durable subm
 		return create(options);
 	};
 	const app = await startPersistentApp(config);
-	app.runtime.store.appendEntry({
-		entryId: "decision",
-		role: "user",
-		text: "Use a dark interface",
-		timestamp: "2026-09-05T00:00:00Z",
-		raw: {},
-	});
-	app.contextStore.updateWorking(0, {
-		goal: "Keep the blue accent subtle",
-		sourceEntryIds: ["decision"],
-	});
+	const creatingRequest = appendContextEntry(
+		app.runtime.store,
+		app.binding.sessionId,
+		{
+			entryId: "decision",
+			role: "user",
+			text: "Use a dark interface",
+			timestamp: "2026-09-05T00:00:00Z",
+			raw: {},
+		},
+	);
+	app.contextStore.updateWorking(
+		0,
+		{
+			goal: "Keep the blue accent subtle",
+			sourceEntryIds: ["decision"],
+		},
+		{ activeRequestId: creatingRequest },
+	);
+	app.contextStore.finalizeRequest(creatingRequest);
 	const compact = app.context.compact();
 	await summarizing.promise;
 	expect(() =>

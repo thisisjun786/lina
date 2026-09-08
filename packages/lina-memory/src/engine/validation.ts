@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
+	isOrdinarySource,
+	parseSourceProof,
+	type SourceProof,
+} from "../../../lina-core/src/source-policy.ts";
+import {
 	ENGINE_BATCH_MAX,
 	ENGINE_SOURCES_MAX,
 	ENGINE_TEXT_MAX,
@@ -46,6 +51,8 @@ const observationSchema = z.strictObject({
 	status: z.enum(["active", "resolved", "retracted"]).default("active"),
 });
 const recordSchema = z.strictObject({
+	sourceRequestId: engineIdSchema.optional(),
+	sourceProofs: z.unknown().optional(),
 	...fields,
 	id: engineIdSchema,
 	agentId: engineIdSchema,
@@ -92,12 +99,33 @@ export function parseApply(value: unknown) {
 			requestId: engineIdSchema,
 			expectedRevision: revisionSchema,
 			observations: z.unknown(),
+			sourceProofs: z.unknown(),
 		})
 		.parse(value);
-	return { ...input, observations: parseObservations(input.observations) };
+	return {
+		...input,
+		sourceProofs: parseProofs(input.sourceProofs),
+		observations: parseObservations(input.observations),
+	};
 }
 export function parseRecord(value: unknown): EngineRecord {
-	const record = recordSchema.parse(value);
+	const parsed = recordSchema.parse(value);
+	const { sourceProofs, sourceRequestId, ...fields } = parsed;
+	const record: EngineRecord = {
+		...fields,
+		...(sourceRequestId === undefined ? {} : { sourceRequestId }),
+		...(sourceProofs === undefined
+			? {}
+			: { sourceProofs: parseProofs(sourceProofs) }),
+	};
+	if (
+		record.sourceProofs &&
+		record.sources.some(
+			(source) =>
+				!record.sourceProofs?.some((proof) => proof.entryId === source.entryId),
+		)
+	)
+		throw Error("record source proof missing");
 	validateFacet(record);
 	const distinct = new Set(
 		record.userSourceIds ?? record.sources.map((s) => s.entryId),
@@ -129,6 +157,7 @@ export function validateSources(
 		for (const source of observation.sources) {
 			const entry = lookup(source.entryId);
 			if (
+				!isOrdinarySource(entry) ||
 				!entry ||
 				entry.entryId !== source.entryId ||
 				(entry.role !== "user" && entry.role !== "assistant")
@@ -153,4 +182,13 @@ export function recordId(
 }
 export function validTime(now: () => number): number {
 	return timeSchema.parse(now());
+}
+
+export function parseProofs(value: unknown): SourceProof[] {
+	if (!Array.isArray(value) || !value.length || value.length > 65536)
+		throw Error("invalid engine source proofs");
+	const proofs = value.map(parseSourceProof);
+	if (new Set(proofs.map((p) => p.entryId)).size !== proofs.length)
+		throw Error("duplicate engine source proof");
+	return proofs.sort((a, b) => a.entryId.localeCompare(b.entryId));
 }

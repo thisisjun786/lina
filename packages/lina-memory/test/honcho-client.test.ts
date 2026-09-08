@@ -1,38 +1,59 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { HonchoClient } from "../src/honcho/client.ts";
 import { HonchoRequestError, type OutboxPart } from "../src/honcho/types.ts";
-import { config, FakeHoncho } from "./honcho-fixture.ts";
+import {
+	qualifiedConfig as config,
+	FakeHoncho,
+	Fixture,
+} from "./honcho-fixture.ts";
 
+let fixture: Fixture;
+beforeEach(() => {
+	fixture = new Fixture();
+});
+afterEach(() => fixture.close());
 function part(patch: Partial<OutboxPart> = {}): OutboxPart {
+	return fixture.part(patch);
+}
+function metadata() {
+	const p = part();
 	return {
-		id: 1,
-		entryId: "e1",
-		partIndex: 0,
-		role: "user",
-		content: "hello",
-		contentHash: "h1",
-		state: "pending",
-		...patch,
+		entryId: p.entryId,
+		partIndex: p.partIndex,
+		contentHash: p.contentHash,
+		version: 2,
+		sourceProofs: p.sourceProofs,
+		policyScope: p.policyScope,
 	};
 }
 
 describe("HonchoClient", () => {
 	it("recall query respects the embedding byte budget and returned text fits the wire limit", async () => {
 		const fake = new FakeHoncho();
-		fake.behavior = () =>
-			Response.json({ representation: "가" + "😀".repeat(5000) });
-		const client = new HonchoClient(config, { fetch: fake.fetch });
+		part();
+		const options = fixture.clientOptions(fake),
+			adapter = options.qualifiedAdapter;
+		if (!adapter) throw new Error("missing fixture adapter");
+		let sent = "";
+		const client = new HonchoClient(config, {
+			...options,
+			qualifiedAdapter: {
+				...adapter,
+				async recall(request) {
+					sent = request.query;
+					const result = (await adapter.recall(request)) as { proof: unknown };
+					return { text: "가" + "😀".repeat(5000), proof: result.proof };
+				},
+			},
+		});
 		const result = await client.recall("긴 대화 😀 ".repeat(1000));
-		const body = fake.seen[0]?.body as { search_query: string };
-		expect(Buffer.byteLength(body.search_query, "utf8")).toBeLessThanOrEqual(
-			1500,
-		);
+		expect(Buffer.byteLength(sent, "utf8")).toBeLessThanOrEqual(1500);
 		expect(result.text.length).toBeLessThanOrEqual(4096);
 		expect(result.text.endsWith("😀")).toBe(true);
 	});
 	it("does not treat an incomplete reconciliation page as proof of a unique receipt", async () => {
 		const fake = new FakeHoncho();
-		const client = new HonchoClient(config, { fetch: fake.fetch });
+		const client = new HonchoClient(config, fixture.clientOptions(fake));
 		await client.createMessage(part());
 		fake.behavior = () =>
 			Response.json({
@@ -46,7 +67,7 @@ describe("HonchoClient", () => {
 	});
 	it("posts one message per part to the pinned route with the exact match key and validates the receipt", async () => {
 		const fake = new FakeHoncho();
-		const client = new HonchoClient(config, { fetch: fake.fetch });
+		const client = new HonchoClient(config, fixture.clientOptions(fake));
 		const receipt = await client.createMessage(part({ role: "assistant" }));
 		expect(receipt).toEqual({ remoteId: "msg_1" });
 		const seen = fake.seen[0];
@@ -60,7 +81,7 @@ describe("HonchoClient", () => {
 					content: "hello",
 					peer_id: "lina",
 					metadata: {
-						lina: { entryId: "e1", partIndex: 0, contentHash: "h1" },
+						lina: metadata(),
 					},
 				},
 			],
@@ -69,7 +90,7 @@ describe("HonchoClient", () => {
 
 	it("refuses a receipt whose scope, peer, content or key differs", async () => {
 		const fake = new FakeHoncho();
-		const client = new HonchoClient(config, { fetch: fake.fetch });
+		const client = new HonchoClient(config, fixture.clientOptions(fake));
 		const wrong = (patch: Record<string, unknown>) => {
 			fake.behavior = () =>
 				new Response(
@@ -81,7 +102,7 @@ describe("HonchoClient", () => {
 							peer_id: "example",
 							content: "hello",
 							metadata: {
-								lina: { entryId: "e1", partIndex: 0, contentHash: "h1" },
+								lina: metadata(),
 							},
 							...patch,
 						},
@@ -101,7 +122,7 @@ describe("HonchoClient", () => {
 		await expect(
 			wrong({
 				metadata: {
-					lina: { entryId: "e1", partIndex: 0, contentHash: "h1", extra: 1 },
+					lina: { ...metadata(), extra: 1 },
 				},
 			}),
 		).rejects.toThrow(/unexpected keys/);
@@ -111,6 +132,7 @@ describe("HonchoClient", () => {
 	it("surfaces HTTP status, redirect, timeout, oversized and malformed bodies without retrying", async () => {
 		const fake = new FakeHoncho();
 		const client = new HonchoClient(config, {
+			...fixture.clientOptions(fake),
 			fetch: fake.fetch,
 			timeoutMs: 50,
 			bodyCapBytes: 64,
@@ -160,44 +182,51 @@ describe("HonchoClient", () => {
 		).toBe(true);
 	});
 
-	it("recall reads the observer representation scoped to user and session, short-circuits empty queries and bounds text", async () => {
+	it("recall requires qualified provenance, short-circuits empty queries and rejects malformed text", async () => {
 		const fake = new FakeHoncho();
-		const client = new HonchoClient(config, { fetch: fake.fetch });
+		part();
+		const options = fixture.clientOptions(fake),
+			adapter = options.qualifiedAdapter;
+		if (!adapter) throw new Error("missing fixture adapter");
+		let captured: unknown;
+		const client = new HonchoClient(config, {
+			...options,
+			qualifiedAdapter: {
+				...adapter,
+				async recall(request) {
+					captured = request;
+					return adapter.recall(request);
+				},
+			},
+		});
 		expect(await client.recall("   ")).toEqual({
 			text: "",
 			scope: client.identity,
 			freshness: "unknown",
 		});
-		expect(fake.seen.length).toBe(0);
+		expect(captured).toBeUndefined();
 		const result = await client.recall("coffee");
 		expect(result.text).toBe("Representation for example: coffee");
-		expect(result.freshness).toBe("unknown");
-		expect(fake.seen[0]?.url).toBe(
-			"http://127.0.0.1:8000/v3/workspaces/lina-test/peers/lina/representation",
-		);
-		expect(fake.seen[0]?.body).toEqual({
-			target: "example",
-			session_id: "lina-main",
-			search_query: "coffee",
-			search_top_k: 8,
-			max_conclusions: 8,
+		expect(result.proof?.owner.ordinaryNamespace.ownerBotId).toBe("lina");
+		expect(captured).toMatchObject({
+			query: "coffee",
+			topK: 8,
+			owner: { identity: client.identity },
 		});
-		fake.behavior = () =>
-			new Response(JSON.stringify({ representation: "😀".repeat(5000) }), {
-				status: 200,
-			});
-		const long = await client.recall("x");
-		// Match the browser wire's UTF-16 limit without splitting an emoji.
-		expect(long.text.length).toBe(4096);
-		expect(long.text.endsWith("😀")).toBe(true);
-		fake.behavior = () =>
-			new Response(JSON.stringify({ representation: 7 }), { status: 200 });
-		await expect(client.recall("x")).rejects.toThrow(/not a string/);
+		const malformed = new HonchoClient(config, {
+			...options,
+			qualifiedAdapter: {
+				...adapter,
+				async recall() {
+					return { text: 7 };
+				},
+			},
+		});
+		await expect(malformed.recall("x")).rejects.toThrow(/not a string/);
 	});
-
 	it("check only lists resources while initialize creates exactly the configured ones", async () => {
 		const fake = new FakeHoncho();
-		const client = new HonchoClient(config, { fetch: fake.fetch });
+		const client = new HonchoClient(config, fixture.clientOptions(fake));
 		expect(await client.check()).toEqual({
 			ok: false,
 			missing: ["peer:example", "peer:lina", "session:lina-main"],

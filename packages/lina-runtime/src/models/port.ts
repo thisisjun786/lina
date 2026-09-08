@@ -26,6 +26,8 @@ export interface ModelControl {
 			agentId: string;
 			/** Optional for existing onboarding callers; pins a captured author request. */
 			expectedSettingsRevision?: number;
+			/** Trusted synchronous source check, run immediately before provider dispatch. */
+			beforeDispatch?: () => void;
 			systemPrompt: string;
 			messages: Array<{ role: "user" | "assistant"; content: string }>;
 		},

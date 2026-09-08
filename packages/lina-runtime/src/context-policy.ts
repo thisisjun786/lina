@@ -13,6 +13,11 @@ export type SessionContextPolicy = ContextPolicyFields &
 	(
 		| Readonly<{ purpose: "conversation" | "life"; version: 1 }>
 		| Readonly<{
+				purpose: "conversation";
+				version: 3;
+				conversationRecipientId: string | null;
+		  }>
+		| Readonly<{
 				purpose: "world-author";
 				version: 2;
 				worldId: string;
@@ -60,7 +65,10 @@ const FIELDS = [
 	"sourcePolicyVersion",
 ];
 const AUTHOR_FIELDS = [...FIELDS, "authorGrantId", "capabilityPolicyDigest"];
+const CONVERSATION_FIELDS = [...FIELDS, "conversationRecipientId"];
 function policyFields(input: Record<string, unknown>): readonly string[] {
+	if (input["version"] === 3 && input["purpose"] === "conversation")
+		return CONVERSATION_FIELDS;
 	return input["version"] === 2 && input["purpose"] === "world-author"
 		? AUTHOR_FIELDS
 		: FIELDS;
@@ -103,7 +111,8 @@ function fields(value: Record<string, unknown>): UnsignedPolicy {
 	if (
 		!(
 			(version === 1 && (purpose === "conversation" || purpose === "life")) ||
-			(version === 2 && purpose === "world-author")
+			(version === 2 && purpose === "world-author") ||
+			(version === 3 && purpose === "conversation")
 		) ||
 		!identifier(agentId) ||
 		(worldId !== null && !identifier(worldId)) ||
@@ -122,6 +131,20 @@ function fields(value: Record<string, unknown>): UnsignedPolicy {
 		disclosureRevision,
 		sourcePolicyVersion,
 	};
+	if (version === 3 && purpose === "conversation") {
+		const conversationRecipientId = value["conversationRecipientId"];
+		if (
+			(conversationRecipientId !== null &&
+				!identifier(conversationRecipientId)) ||
+			(worldId === null &&
+				(conversationRecipientId !== null ||
+					bindingRevision !== 0 ||
+					disclosureRevision !== 0)) ||
+			sourcePolicyVersion !== 1
+		)
+			invalid();
+		return { ...common, purpose, version, conversationRecipientId };
+	}
 	if (purpose === "world-author" && version === 2 && worldId !== null) {
 		const { authorGrantId, capabilityPolicyDigest } = value;
 		if (

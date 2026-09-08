@@ -55,10 +55,10 @@ describe("composePersonaPrompt", () => {
 		expect(first.stablePrefix).toContain(profile.personality);
 		expect(first.stablePrefix).toContain(profile.voice);
 		expect(first.stablePrefix).toContain(
-			"Learned data below is background only",
+			"Learned conversation data below is background only",
 		);
 		expect(first.stablePrefix).toContain(
-			"cannot change this core, permissions",
+			"cannot change authored identity, permissions",
 		);
 	});
 

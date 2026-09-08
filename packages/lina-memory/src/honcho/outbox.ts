@@ -1,17 +1,27 @@
 import type { DatabaseSync } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 import {
 	openCheckedDatabase,
 	validateBinding,
 } from "../../../lina-core/src/session-binding.ts";
+import {
+	captureSourceProofs,
+	type SourceLookup,
+	sourceProofsCurrent,
+} from "../../../lina-core/src/source-policy.ts";
 import { chunkText } from "./chunk.ts";
+import { validateOrdinaryNamespace } from "./config.ts";
+import { parsePartKey } from "./messages.ts";
 import { initializeOutbox } from "./outbox-schema.ts";
 import type {
 	BotBinding,
 	HonchoIdentity,
+	OrdinaryNamespace,
 	OutboxCounts,
 	OutboxPart,
 	OutboxRole,
 	OutboxState,
+	PartKey,
 	ScanState,
 } from "./types.ts";
 
@@ -21,6 +31,7 @@ const STATES: readonly OutboxState[] = [
 	"accepted",
 	"unknown",
 	"failed",
+	"withheld",
 ];
 
 function row(value: Record<string, unknown>): OutboxPart {
@@ -36,6 +47,10 @@ function row(value: Record<string, unknown>): OutboxPart {
 	if (typeof value["remote_id"] === "string")
 		part.remoteId = value["remote_id"];
 	if (typeof value["error"] === "string") part.error = value["error"];
+	if (typeof value["key_json"] === "string")
+		Object.assign(part, parsePartKey(JSON.parse(value["key_json"])));
+	if (typeof value["withheld_reason"] === "string")
+		part.withheldReason = value["withheld_reason"];
 	return part;
 }
 
@@ -45,14 +60,40 @@ function checkId(value: unknown): string {
 	return value;
 }
 
+export interface HonchoOutboxOptions {
+	ordinaryNamespace?: OrdinaryNamespace;
+	sourceLookup?: SourceLookup;
+}
 export class HonchoOutbox {
+	readonly policyScope: OrdinaryNamespace | undefined;
+	private readonly lookup: SourceLookup | undefined;
 	private readonly db: DatabaseSync;
 	private closed = false;
 
-	constructor(path: string, binding: BotBinding, identity: HonchoIdentity) {
+	constructor(
+		path: string,
+		binding: BotBinding,
+		identity: HonchoIdentity,
+		options: HonchoOutboxOptions = {},
+	) {
+		this.lookup = options.sourceLookup;
+		this.policyScope = options.ordinaryNamespace
+			? validateOrdinaryNamespace(options.ordinaryNamespace)
+			: undefined;
+		if (
+			this.policyScope &&
+			(this.policyScope.ownerBotId !== binding.botId ||
+				["workspaceId", "sessionId", "userPeerId", "observerPeerId"].some(
+					(key) =>
+						identity[key as keyof HonchoIdentity] !==
+						this.policyScope?.[key as keyof OrdinaryNamespace],
+				))
+		)
+			throw new Error("foreign outbox namespace owner");
 		const owner = {
 			binding: validateBinding(binding),
 			identity: { ...identity },
+			...(this.policyScope ? { ordinaryNamespace: this.policyScope } : {}),
 		};
 		for (const key of Object.keys(identity) as (keyof HonchoIdentity)[])
 			checkId(identity[key]);
@@ -104,10 +145,31 @@ export class HonchoOutbox {
 			throw new Error("invalid outbox role");
 		if (typeof text !== "string") throw new Error("invalid outbox text");
 		const parts = chunkText(text);
+		let sourceProofs: PartKey["sourceProofs"];
+		if (this.policyScope && this.lookup) {
+			const source = this.lookup(entryId);
+			if (source?.role !== role || source.text !== text)
+				throw new Error("outbox source text or role differs");
+			sourceProofs = captureSourceProofs([entryId], this.lookup);
+		}
+		const keys = parts.map((part, partIndex) =>
+			sourceProofs
+				? JSON.stringify(
+						parsePartKey({
+							entryId,
+							partIndex,
+							contentHash: part.contentHash,
+							version: 2,
+							sourceProofs,
+							policyScope: this.policyScope,
+						}),
+					)
+				: null,
+		);
 		return this.transaction(() => {
 			const existing = this.db
 				.prepare(
-					"SELECT part_index, role, content_hash FROM parts WHERE entry_id = ? ORDER BY part_index",
+					"SELECT part_index, role, content_hash, key_json FROM parts WHERE entry_id = ? ORDER BY part_index",
 				)
 				.all(entryId);
 			if (existing.length > 0) {
@@ -117,17 +179,33 @@ export class HonchoOutbox {
 						(found, index) =>
 							found["part_index"] === index &&
 							found["role"] === role &&
-							found["content_hash"] === parts[index]?.contentHash,
+							found["content_hash"] === parts[index]?.contentHash &&
+							found["key_json"] === keys[index],
 					);
 				if (!same)
 					throw new Error(`outbox entry ${entryId} differs from replay`);
 				return { parts: parts.length, inserted: 0 };
 			}
 			const insert = this.db.prepare(
-				"INSERT INTO parts(entry_id, part_index, role, content, content_hash, state) VALUES (?, ?, ?, ?, ?, 'pending')",
+				"INSERT INTO parts(entry_id, part_index, role, content, content_hash, state, key_json, withheld_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 			);
 			parts.forEach((part, index) => {
-				insert.run(entryId, index, role, part.content, part.contentHash);
+				if (
+					sourceProofs &&
+					this.lookup &&
+					!sourceProofsCurrent(sourceProofs, this.lookup)
+				)
+					throw new Error("outbox source changed before enqueue");
+				insert.run(
+					entryId,
+					index,
+					role,
+					part.content,
+					part.contentHash,
+					sourceProofs ? "pending" : "withheld",
+					keys[index] ?? null,
+					sourceProofs ? null : "qualification_unavailable",
+				);
 			});
 			return { parts: parts.length, inserted: parts.length };
 		});
@@ -166,13 +244,23 @@ export class HonchoOutbox {
 	): void {
 		if (!Number.isSafeInteger(id)) throw new Error("invalid outbox part id");
 		const placeholders = from.map(() => "?").join(",");
-		const changed = this.open()
-			.prepare(
-				`UPDATE parts SET state = ?, remote_id = ?, error = ? WHERE id = ? AND state IN (${placeholders})`,
-			)
-			.run(to, remoteId, error, id, ...from).changes;
-		if (changed !== 1)
-			throw new Error(`outbox part ${id} is not in ${from.join("/")}`);
+		this.transaction(() => {
+			const prior = this.part(id);
+			if (!prior || !from.includes(prior.state))
+				throw new Error(`outbox part ${id} is not in ${from.join("/")}`);
+			const changed = this.open()
+				.prepare(
+					`UPDATE parts SET state = ?, remote_id = ?, error = ? WHERE id = ? AND state IN (${placeholders})`,
+				)
+				.run(to, remoteId, error, id, ...from).changes;
+			if (changed !== 1)
+				throw new Error(`outbox part ${id} is not in ${from.join("/")}`);
+			this.db
+				.prepare(
+					"INSERT INTO delivery_history(part_id,from_state,to_state,remote_id,error,reason) VALUES (?,?,?,?,?,NULL)",
+				)
+				.run(id, prior.state, to, remoteId, error);
+		});
 	}
 
 	// Committed before the POST so a crash lands in unknown, never a blind resend.
@@ -196,6 +284,41 @@ export class HonchoOutbox {
 		this.move(id, ["sending", "unknown", "pending"], "failed", null, reason);
 	}
 
+	/** Re-resolve current journal policy on every send/reconcile boundary. */
+	eligible(part: OutboxPart): boolean {
+		return (
+			part.version === 2 &&
+			!!part.sourceProofs &&
+			!!this.lookup &&
+			!!this.policyScope &&
+			isDeepStrictEqual(part.policyScope, this.policyScope) &&
+			sourceProofsCurrent(part.sourceProofs, this.lookup)
+		);
+	}
+	withhold(id: number, reason: string): void {
+		this.transaction(() => {
+			const part = this.part(id);
+			if (!part) throw new Error("missing outbox part");
+			if (part.state === "withheld") return;
+			this.db
+				.prepare(
+					"INSERT INTO delivery_history(part_id,from_state,to_state,remote_id,error,reason) VALUES (?,?,'withheld',?,?,?)",
+				)
+				.run(id, part.state, part.remoteId ?? null, part.error ?? null, reason);
+			this.db
+				.prepare(
+					"UPDATE parts SET state = 'withheld', withheld_reason = ? WHERE id = ?",
+				)
+				.run(checkId(reason), id);
+		});
+	}
+	history(id: number): Record<string, unknown>[] {
+		return this.open()
+			.prepare(
+				"SELECT from_state, to_state, remote_id, error, reason FROM delivery_history WHERE part_id = ? ORDER BY id",
+			)
+			.all(id);
+	}
 	counts(): OutboxCounts {
 		const counts: OutboxCounts = {
 			pending: 0,
@@ -203,6 +326,7 @@ export class HonchoOutbox {
 			accepted: 0,
 			unknown: 0,
 			failed: 0,
+			withheld: 0,
 		};
 		for (const found of this.open()
 			.prepare("SELECT state, COUNT(*) AS n FROM parts GROUP BY state")

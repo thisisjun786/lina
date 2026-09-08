@@ -12,12 +12,27 @@ export type {
 } from "./context-policy.ts";
 
 import type { Static, TSchema } from "typebox";
+import type { EntryInput } from "../../lina-core/src/protocol.ts";
+import type {
+	SourceExposure,
+	SourceRequestOrigin,
+} from "../../lina-core/src/source-policy-origin.ts";
 import type { PermissionResolver } from "./approval-policy.ts";
 import type { StreamEvent } from "./broadcast/activity.ts";
 import type { ContextServices } from "./context/port.ts";
 import type { ModelSettings } from "./models/types.ts";
 
+/** Synchronous durable writes. A throw fences native delivery; JSONL can replay them. */
+export interface SessionSourceSink {
+	registerRequestSource(origin: SourceRequestOrigin): void;
+	recordSourceExposure(receipt: SourceExposure): void;
+	extendRequestSource(requestId: string, receiptIds: readonly string[]): void;
+	appendSourceEntry(entry: EntryInput, requestId: string): void;
+}
+
 export type LinaToolResult = {
+	/** Trusted synchronous proof check at final delivery; never serialized. */
+	beforeDeliver?: () => void;
 	content: Array<
 		| { type: "text"; text: string }
 		| { type: "image"; data: string; mimeType: string }
@@ -42,6 +57,16 @@ export interface LinaTool<T extends TSchema = TSchema> {
 }
 
 type ToolIdentity = { toolCallId: string; toolName: string };
+/** Trusted hook output; the proof callback is carried privately to native dispatch. */
+export type LinaBeforeAgentStartResult = {
+	systemPrompt?: string;
+	beforeDeliver?: () => void;
+};
+/** Every context producer retains its own frozen source check through dispatch. */
+export type LinaContextHookResult = {
+	messages?: readonly unknown[];
+	beforeDeliver?: () => void;
+};
 export type LinaEvents = {
 	before_agent_start: { prompt: string; systemPrompt?: string };
 	context: { messages: readonly unknown[] };
@@ -68,8 +93,14 @@ export interface LinaHost {
 
 /** Shared session construction input, independent of any engine SDK. */
 export type SdkSessionOptions = {
+	readonly sourcePolicy?: SessionSourceSink;
 	readonly contextPolicy?: SessionContextPolicy;
 	readonly bootstrapInstructions?: () => string;
+	/** Frozen persona/learned source check retained through the actual native bootstrap write. */
+	readonly bootstrapContext?: () => {
+		systemPrompt: string;
+		beforeDeliver?: () => void;
+	};
 	readonly currentContextPolicy?: () => SessionContextPolicy;
 	readonly contextExposure?: (
 		source: SessionContextSource,

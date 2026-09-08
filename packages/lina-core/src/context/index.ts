@@ -4,9 +4,13 @@ export { ContextStore } from "./store.ts";
 export type {
 	ActivateInput,
 	ActiveSummary,
+	ArtifactStatus,
+	ContextStoreOptions,
 	ExpandOptions,
 	ExpandPage,
 	LookupEntry,
+	ManagedNote,
+	NoteReceipt,
 	SourceKind,
 	SourceRef,
 	StageInput,

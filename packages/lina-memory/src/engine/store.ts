@@ -4,6 +4,13 @@ import {
 	openCheckedDatabase,
 	validateBinding,
 } from "../../../lina-core/src/session-binding.ts";
+import type { SourceProof } from "../../../lina-core/src/source-policy.ts";
+import {
+	eligibleRecord,
+	mergeProofs,
+	requireCurrentProofs,
+} from "./provenance.ts";
+import { readEngineReceipt, validateRecordReceipt } from "./receipts.ts";
 import { deriveRecord, mergeSources, sameValue } from "./records.ts";
 import { initializeEngine } from "./schema.ts";
 import {
@@ -19,6 +26,7 @@ import {
 	engineIdSchema,
 	hash,
 	parseApply,
+	parseProofs,
 	parseRecord,
 	recordId,
 	revisionSchema,
@@ -84,10 +92,24 @@ export class EngineStore {
 	hasReceipt(requestId: string): boolean {
 		this.assertOpen();
 		engineIdSchema.parse(requestId);
+		try {
+			const receipt = readEngineReceipt(this.db, requestId);
+			if (!receipt?.sourceProofs) return false;
+			requireCurrentProofs(receipt.sourceProofs, this.lookup);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	/** Historical commit exists but is not reusable as current model evidence. */
+	receiptWithheld(requestId: string): boolean {
+		this.assertOpen();
+		engineIdSchema.parse(requestId);
 		return (
-			this.db
-				.prepare("SELECT 1 FROM engine_receipts WHERE request_id = ?")
-				.get(requestId) !== undefined
+			!!this.db
+				.prepare("SELECT 1 FROM engine_receipts WHERE request_id=?")
+				.get(requestId) && !this.hasReceipt(requestId)
 		);
 	}
 	recall(query: string, options: { limit?: number } = {}): EngineRecord[] {
@@ -98,53 +120,111 @@ export class EngineStore {
 		if (!Number.isSafeInteger(requested) || requested < 0)
 			throw new Error("invalid recall limit");
 		const now = validTime(this.now);
-		return this.db
+		const records: EngineRecord[] = [];
+		const limit = Math.min(requested, ENGINE_READ_MAX);
+		if (!limit) return records;
+		for (const row of this.db
 			.prepare(
-				"SELECT data FROM engine_records WHERE agent_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND (instr(lower(json_extract(data, '$.text')), lower(?)) > 0 OR instr(lower(json_extract(data, '$.key')), lower(?)) > 0) ORDER BY updated_at DESC, id LIMIT ?",
+				"SELECT data FROM engine_records WHERE agent_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND (instr(lower(json_extract(data, '$.text')), lower(?)) > 0 OR instr(lower(json_extract(data, '$.key')), lower(?)) > 0) ORDER BY updated_at DESC, id",
 			)
-			.all(
-				this.agentId,
-				now,
-				query.trim(),
-				query.trim(),
-				Math.min(requested, ENGINE_READ_MAX),
-			)
-			.map((row) => this.decode(row["data"]));
+			.iterate(this.agentId, now, query.trim(), query.trim())) {
+			const record = this.decode(row["data"]);
+			if (!eligibleRecord(record, this.lookup)) continue;
+			records.push(record);
+			if (records.length === limit) break;
+		}
+		return records;
 	}
 	apply(input: ApplyInput, signal?: AbortSignal): EngineSnapshot {
 		this.assertOpen();
 		signal?.throwIfAborted();
 		const parsed = parseApply(input);
-		const fingerprint = hash({
-			expectedRevision: parsed.expectedRevision,
-			observations: parsed.observations.map((o) => ({
-				...o,
-				sources: mergeSources(o.sources),
-			})),
-		});
-		if (this.receipt(parsed.requestId, fingerprint)) return this.snapshot();
+		requireCurrentProofs(parsed.sourceProofs, this.lookup);
+		if (
+			!parsed.sourceProofs.some(
+				(proof) => this.lookup(proof.entryId)?.role === "user",
+			)
+		)
+			throw Error("engine observation requires a user episode");
+		if (
+			parsed.observations.some((o) =>
+				o.sources.some(
+					(s) => !parsed.sourceProofs.some((p) => p.entryId === s.entryId),
+				),
+			)
+		)
+			throw Error("observation outside source proofs");
+		const fingerprintFor = (sourceProofs: SourceProof[]) =>
+			hash({
+				expectedRevision: parsed.expectedRevision,
+				inputSourceProofs: parsed.sourceProofs,
+				sourceProofs,
+				observations: parsed.observations.map((o) => ({
+					...o,
+					sources: mergeSources(o.sources),
+				})),
+			});
+		const saved = this.db
+			.prepare(
+				"SELECT source_proofs FROM engine_request_sources WHERE request_id=?",
+			)
+			.get(parsed.requestId);
+		if (
+			saved &&
+			this.receipt(
+				parsed.requestId,
+				fingerprintFor(parseProofs(JSON.parse(String(saved["source_proofs"])))),
+			)
+		)
+			return this.snapshot();
 		this.checkRevision(parsed.expectedRevision);
 		// Call untrusted/injected lookup outside the write transaction. Recheck the
 		// generation afterwards so a reentrant retraction cannot be overwritten.
 		validateSources(parsed.observations, this.lookup);
+		// Store both the exact input for replay and every prior used by ranking/merge.
+		const consultedProofs = mergeProofs(
+			parsed.sourceProofs,
+			...parsed.observations.flatMap((candidate) => {
+				const previous = this.get(recordId(this.agentId, candidate));
+				return previous && eligibleRecord(previous, this.lookup)
+					? [previous.sourceProofs]
+					: [];
+			}),
+		);
+		requireCurrentProofs(consultedProofs, this.lookup);
+		const fingerprint = fingerprintFor(consultedProofs);
 		signal?.throwIfAborted();
 		const now = validTime(this.now);
 		this.transaction(() => {
 			if (this.receipt(parsed.requestId, fingerprint)) return;
 			this.checkRevision(parsed.expectedRevision);
 			const revision = parsed.expectedRevision + 1;
-			for (const candidate of parsed.observations)
-				this.applyOne(candidate, revision, now);
-			signal?.throwIfAborted();
 			this.db
 				.prepare("INSERT INTO engine_receipts VALUES (?, ?, ?)")
 				.run(parsed.requestId, fingerprint, revision);
+			this.db
+				.prepare("INSERT INTO engine_request_sources VALUES (?,?,?)")
+				.run(
+					parsed.requestId,
+					JSON.stringify(consultedProofs),
+					JSON.stringify(parsed.sourceProofs),
+				);
 			const insert = this.db.prepare(
 				"INSERT INTO engine_observations VALUES (?, ?, ?)",
 			);
 			parsed.observations.forEach((candidate, ordinal) => {
 				insert.run(parsed.requestId, ordinal, JSON.stringify(candidate));
 			});
+			for (const candidate of parsed.observations)
+				this.applyOne(
+					candidate,
+					revision,
+					now,
+					consultedProofs,
+					parsed.requestId,
+				);
+			signal?.throwIfAborted();
+			requireCurrentProofs(consultedProofs, this.lookup);
 			this.setRevision(revision);
 		});
 		return this.snapshot();
@@ -174,6 +254,8 @@ export class EngineStore {
 		candidate: Observation,
 		revision: number,
 		now: number,
+		proofs: SourceProof[],
+		requestId: string,
 	): void {
 		for (const source of candidate.sources) {
 			if (
@@ -194,7 +276,9 @@ export class EngineStore {
 			)
 		)
 			throw Error("invalidated slot evidence");
-		const old = this.get(recordId(this.agentId, candidate));
+		const previous = this.get(recordId(this.agentId, candidate));
+		const old =
+			previous && eligibleRecord(previous, this.lookup) ? previous : undefined;
 		// Explicit user statements outrank later model interpretation. The processing
 		// receipt still records this ignored proposal without changing the memory.
 		if (old?.evidence === "explicit" && candidate.evidence === "inferred")
@@ -227,9 +311,11 @@ export class EngineStore {
 						)
 						.run(old.id, source.entryId, revision);
 		}
-		this.save(
-			deriveRecord(this.agentId, candidate, old, revision, now, this.lookup),
-		);
+		this.save({
+			...deriveRecord(this.agentId, candidate, old, revision, now, this.lookup),
+			sourceProofs: mergeProofs(proofs, same ? old?.sourceProofs : undefined),
+			sourceRequestId: requestId,
+		});
 	}
 	private invalidate(
 		record: EngineRecord,
@@ -263,6 +349,13 @@ export class EngineStore {
 	}
 	private save(record: EngineRecord): void {
 		parseRecord(record);
+		if (record.sourceProofs && record.status !== "retracted")
+			requireCurrentProofs(record.sourceProofs, this.lookup);
+		this.db
+			.prepare(
+				"INSERT OR IGNORE INTO engine_record_history SELECT id,json_extract(data, '$.revision'),data FROM engine_records WHERE id=?",
+			)
+			.run(record.id);
 		this.db
 			.prepare(
 				"INSERT INTO engine_records VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, expires_at=excluded.expires_at, updated_at=excluded.updated_at, data=excluded.data",
@@ -288,24 +381,29 @@ export class EngineStore {
 		this.assertOpen();
 		const now = validTime(this.now);
 		return this.transaction(() => {
-			const rows = active
+			const rows: EngineRecord[] = [];
+			const query = active
 				? this.db
 						.prepare(
-							"SELECT data FROM engine_records WHERE agent_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY updated_at DESC, id LIMIT ?",
+							"SELECT data FROM engine_records WHERE agent_id=? AND status='active' AND (expires_at IS NULL OR expires_at>?) ORDER BY updated_at DESC,id",
 						)
-						.all(this.agentId, now, ENGINE_READ_MAX + 1)
+						.iterate(this.agentId, now)
 				: this.db
 						.prepare(
-							"SELECT data FROM engine_records WHERE agent_id = ? ORDER BY updated_at DESC, id LIMIT ?",
+							"SELECT data FROM engine_records WHERE agent_id=? ORDER BY updated_at DESC,id",
 						)
-						.all(this.agentId, ENGINE_READ_MAX + 1);
+						.iterate(this.agentId);
+			for (const row of query) {
+				const record = this.decode(row["data"]);
+				if (!eligibleRecord(record, this.lookup)) continue;
+				rows.push(record);
+				if (rows.length > ENGINE_READ_MAX) break;
+			}
 			return {
 				agentId: this.agentId,
 				revision: this.revision(),
 				asOf: now,
-				records: rows
-					.slice(0, ENGINE_READ_MAX)
-					.map((row) => this.decode(row["data"])),
+				records: rows.slice(0, ENGINE_READ_MAX),
 				truncated: rows.length > ENGINE_READ_MAX,
 			};
 		}, false);
@@ -322,6 +420,7 @@ export class EngineStore {
 		const record = parseRecord(JSON.parse(data));
 		if (record.agentId !== this.agentId)
 			throw new Error("foreign engine record binding");
+		validateRecordReceipt(this.db, record);
 		return record;
 	}
 	private receipt(requestId: string, fingerprint: string): boolean {
@@ -330,6 +429,8 @@ export class EngineStore {
 			.get(requestId);
 		if (row && row["fingerprint"] !== fingerprint)
 			throw new Error("receipt requestId conflict");
+		if (row && !this.hasReceipt(requestId))
+			throw Error("ineligible or stale engine receipt");
 		return row !== undefined;
 	}
 	private revision(): number {

@@ -1,8 +1,17 @@
 import { Type } from "typebox";
 import type { ConversationStore } from "../../../lina-core/src/agents/conversation.ts";
-import { composePersonaPrompt } from "../../../lina-core/src/agents/persona.ts";
+import {
+	composePersonaPrompt,
+	sharedPersonaBehavior,
+} from "../../../lina-core/src/agents/persona.ts";
 import type { AgentStore } from "../../../lina-core/src/agents/store.ts";
 import { emptyDynamics } from "../../../lina-core/src/agents/validation.ts";
+import {
+	type SourceLookup,
+	type SourceProof,
+	sourceProofsCurrent,
+} from "../../../lina-core/src/source-policy.ts";
+import type { SharedPersonaView } from "../../../lina-core/src/world/life-types.ts";
 import type { EngineState } from "../../../lina-memory/src/engine/types.ts";
 import type { ContextServices } from "../context/port.ts";
 import type { LinaHost } from "../host.ts";
@@ -23,27 +32,37 @@ export function installPersona(
 		memoryMode?: "automatic" | "disabled";
 		nativeDynamics?: boolean;
 		nativeState?: () => EngineState;
+		sourceLookup?: SourceLookup;
+		sharedGrowth?: () => SharedPersonaView | null;
 	} = {},
-): () => string {
-	const refresh = () => {
+) {
+	const lookup: SourceLookup = options.sourceLookup ?? (() => undefined);
+	const snapshot = () => {
 		const profile = agents.get(agentId);
 		if (!profile) throw Error("Agent persona missing");
 		const configured = options.conversations?.get(agentId);
 		const conversation = configured?.revision
 			? configured
 			: defaultConversation(agentId);
+		const learned = agents.modelDynamics(agentId, lookup);
+		const permittedPreferences = options.conversations?.modelPreferences(
+			agentId,
+			lookup,
+		);
+		const shared = structuredClone(options.sharedGrowth?.() ?? null);
+		const authoredContext = options.authoredContext?.();
 		const compiled = composePersonaPrompt(
 			base,
 			profile,
-			options.nativeDynamics ? emptyDynamics() : agents.dynamics(agentId),
+			options.nativeDynamics ? emptyDynamics() : learned.dynamics,
 			{
 				conversation,
-				authoredContext: options.authoredContext?.(),
+				authoredContext,
+				sharedGrowth: shared,
 				memoryMode: options.memoryMode ?? "disabled",
 			},
 		);
-		const preferences =
-			options.conversations?.getPreferences(agentId).items ?? [];
+		const preferences = permittedPreferences?.items ?? [];
 		const userContext = options.userContext?.() ?? "";
 		const systemPrompt =
 			compiled.systemPrompt +
@@ -61,10 +80,39 @@ export function installPersona(
 			services.systemTokens > services.contextWindow - services.reserveTokens
 		)
 			throw Error("Persona exceeds the available context budget");
-		return systemPrompt;
+		const proofs = structuredClone([
+			learned.sourceProofs,
+			permittedPreferences?.sourceProofs ?? [],
+		]);
+		return {
+			systemPrompt,
+			beforeDeliver: () => {
+				if (
+					proofs.some((p) => p.length && !sourceProofsCurrent(p, lookup)) ||
+					JSON.stringify(agents.modelDynamics(agentId, lookup).dynamics) !==
+						JSON.stringify(learned.dynamics) ||
+					JSON.stringify(
+						options.conversations?.modelPreferences(agentId, lookup).items ??
+							[],
+					) !== JSON.stringify(preferences)
+				)
+					throw Error("Persona source provenance changed before dispatch");
+				if (
+					agents.get(agentId)?.revision !== profile.revision ||
+					JSON.stringify(options.sharedGrowth?.() ?? null) !==
+						JSON.stringify(shared) ||
+					JSON.stringify(options.conversations?.get(agentId)) !==
+						JSON.stringify(configured) ||
+					options.authoredContext?.() !== authoredContext ||
+					(options.userContext?.() ?? "") !== userContext
+				)
+					throw Error("Persona or shared growth changed before dispatch");
+			},
+		};
 	};
+	const refresh = () => snapshot().systemPrompt;
 	refresh();
-	host.on("before_agent_start", () => ({ systemPrompt: refresh() }));
+	host.on("before_agent_start", () => snapshot());
 	host.registerTool({
 		name: "lina_persona_read",
 		label: "페르소나 읽기",
@@ -81,18 +129,86 @@ export function installPersona(
 			signal?.throwIfAborted();
 			const profile = agents.get(agentId);
 			if (!profile) throw Error("Unknown agent");
+
+			const shared = structuredClone(options.sharedGrowth?.() ?? null),
+				behavior = sharedPersonaBehavior(profile, shared);
+			const learned = agents.modelDynamics(agentId, lookup),
+				native = options.nativeState?.();
+			const records = structuredClone(
+				(native?.records ?? []).filter(
+					(r) =>
+						r.subject !== "user" &&
+						r.sourceProofs &&
+						sourceProofsCurrent(r.sourceProofs, lookup),
+				),
+			);
+			const proofs: SourceProof[][] = structuredClone(
+				options.nativeDynamics
+					? records.map((r) => r.sourceProofs ?? [])
+					: [learned.sourceProofs],
+			);
 			const text =
 				params.section === "growth"
 					? JSON.stringify({
-							state: options.nativeState?.() ?? agents.dynamics(agentId),
-							changes: options.nativeDynamics
-								? []
-								: agents.changes(agentId).slice(0, 8),
+							shared: {
+								traits: behavior.traits,
+								habits: behavior.habits,
+								attitudes: behavior.attitudes,
+							},
+							learned: options.nativeDynamics
+								? {
+										revision: native?.revision ?? 0,
+										records: records.map((r) => ({
+											subject: r.subject,
+											kind: r.kind,
+											key: r.key,
+											text: r.text,
+										})),
+									}
+								: {
+										revision: learned.dynamics.revision,
+										mood: learned.dynamics.mood?.label ?? null,
+										interests: learned.dynamics.interests,
+										preferences: learned.dynamics.preferences,
+										relationship: learned.dynamics.relationship,
+									},
 						})
 					: params.section === "appearance"
 						? profile.appearance
 						: profile.profile;
+			const beforeDeliver = () => {
+				if (
+					options.nativeDynamics &&
+					records.some(
+						(row) =>
+							!options
+								.nativeState?.()
+								.records.some(
+									(current) => JSON.stringify(current) === JSON.stringify(row),
+								),
+					)
+				)
+					throw Error("Persona native memory changed before delivery");
+				if (
+					!options.nativeDynamics &&
+					JSON.stringify(agents.modelDynamics(agentId, lookup).dynamics) !==
+						JSON.stringify(learned.dynamics)
+				)
+					throw Error("Persona learned state changed before delivery");
+				if (
+					agents.get(agentId)?.revision !== profile.revision ||
+					JSON.stringify(options.sharedGrowth?.() ?? null) !==
+						JSON.stringify(shared)
+				)
+					throw Error("Persona or shared growth changed before delivery");
+				if (
+					params.section === "growth" &&
+					proofs.some((p) => p.length && !sourceProofsCurrent(p, lookup))
+				)
+					throw Error("Persona source provenance changed before delivery");
+			};
 			return {
+				beforeDeliver,
 				content: [
 					{
 						type: "text" as const,
@@ -103,5 +219,5 @@ export function installPersona(
 			};
 		},
 	});
-	return refresh;
+	return Object.assign(refresh, { prepare: snapshot });
 }

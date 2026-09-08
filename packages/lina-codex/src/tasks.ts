@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { jsonSchemaOf, validateToolArguments } from "./host.ts";
+import { isCodexRpcRemoteError } from "./rpc.ts";
 import {
 	isTaskApprovalMethod,
 	type TaskDynamicTool,
@@ -21,6 +22,15 @@ import {
 	type TaskSummary,
 	type TaskThread,
 } from "./task-types.ts";
+import type {
+	ConfirmWorkInput,
+	CorrectWorkInput,
+	ShareWorkInput,
+	WorkAuthority,
+	WorkChange,
+	WorkProof,
+} from "./task-work-types.ts";
+import { nativeWorkStatus } from "./task-work-validation.ts";
 import {
 	activeTurnId,
 	approvalDecisionResult,
@@ -187,6 +197,80 @@ export class TaskManager {
 		return this.store.list();
 	}
 
+	workReceipts(id: string) {
+		this.ensureOpen();
+		return this.store.workReceipts(taskId(id));
+	}
+	workSharing(id: string, receiptId: string) {
+		this.ensureOpen();
+		return this.store.workSharing(taskId(id), receiptId);
+	}
+	confirmWork(id: string, input: ConfirmWorkInput, authority: WorkAuthority) {
+		this.ensureOpen();
+		return this.enqueue(`task:${taskId(id)}`, async () =>
+			this.store.confirmWork(id, input, authority),
+		);
+	}
+	correctWork(id: string, input: CorrectWorkInput, authority: WorkAuthority) {
+		this.ensureOpen();
+		return this.enqueue(`task:${taskId(id)}`, async () =>
+			this.store.correctWork(id, input, authority),
+		);
+	}
+	shareWork(id: string, input: ShareWorkInput, authority: WorkAuthority) {
+		this.ensureOpen();
+		return this.enqueue(`task:${taskId(id)}`, async () =>
+			this.store.shareWork(id, input, authority),
+		);
+	}
+	pendingWorkDeliveries() {
+		this.ensureOpen();
+		return this.store.pendingWorkDeliveries();
+	}
+	workDeliveries() {
+		this.ensureOpen();
+		return this.store.workDeliveries();
+	}
+	workDeliveryAttempts(deliveryId: string) {
+		this.ensureOpen();
+		return this.store.workDeliveryAttempts(deliveryId);
+	}
+	workDeliveryCurrent(deliveryId: string, payloadDigest: string): boolean {
+		this.ensureOpen();
+		return this.store.workDeliveryCurrent(deliveryId, payloadDigest);
+	}
+
+	workProofCurrent(proof: WorkProof): boolean {
+		this.ensureOpen();
+		return this.store.workProofCurrent(proof);
+	}
+	acknowledgeWorkDelivery(deliveryId: string, payloadDigest: string): void {
+		this.ensureOpen();
+		this.store.acknowledgeWorkDelivery(deliveryId, payloadDigest);
+	}
+	recordWorkDeliveryAttempt(
+		deliveryId: string,
+		payloadDigest: string,
+		status: "failed" | "withheld",
+		reason: string,
+	): void {
+		this.ensureOpen();
+		this.store.recordWorkDeliveryAttempt(
+			deliveryId,
+			payloadDigest,
+			status,
+			reason,
+		);
+	}
+	retryWorkDelivery(deliveryId: string, payloadDigest: string): void {
+		this.ensureOpen();
+		this.store.retryWorkDelivery(deliveryId, payloadDigest);
+	}
+	subscribeWork(listener: (change: WorkChange) => void): () => void {
+		this.ensureOpen();
+		return this.store.subscribeWork(listener);
+	}
+
 	create(input: CreateTaskInput): Promise<TaskSummary> {
 		this.ensureOpen();
 		const ownerAgentId = ownerId(input.ownerAgentId);
@@ -302,6 +386,11 @@ export class TaskManager {
 				this.emitChange(idValue);
 				return this.store.summary(idValue);
 			} catch (error) {
+				if (
+					isCodexRpcRemoteError(error) &&
+					[-32600, -32601, -32602].includes(error.code)
+				)
+					this.store.rejectWorkInput(idValue, requestId);
 				return this.failNative(idValue, error);
 			}
 		});
@@ -499,6 +588,11 @@ export class TaskManager {
 			this.emitChange(id);
 			return this.store.summary(id);
 		} catch (error) {
+			if (
+				isCodexRpcRemoteError(error) &&
+				[-32600, -32601, -32602].includes(error.code)
+			)
+				this.store.rejectWorkInput(id, requestId);
 			return this.failNative(id, error);
 		}
 	}
@@ -618,17 +712,21 @@ export class TaskManager {
 		if (!task) return;
 		if (notification.method === "turn/completed") {
 			const turn = notificationTurn(notification.params);
-			const status =
-				turn?.status === "interrupted"
-					? "interrupted"
-					: turn?.status === "failed"
-						? "failed"
-						: "idle";
-			this.store.completeTurn(task.id, {
-				turnId: turn?.id ?? task.lastTurnId,
-				status,
-			});
-			if (turn) this.completeNotice(task.id, `${turn.id}:${turn.status}`);
+			this.store.applyNativeCompletion(
+				task.id,
+				turn?.id ?? null,
+				turn?.status ?? "unknown",
+			);
+			if (this.store.hasPendingWorkAttribution(task.id)) {
+				try {
+					await this.reconcile(task.id);
+				} catch (error) {
+					this.emitChange(task.id);
+					throw error;
+				}
+			}
+			if (turn && nativeWorkStatus(turn.status))
+				this.completeNotice(task.id, `${turn.id}:${turn.status}`);
 			this.emitChange(task.id);
 			return;
 		}

@@ -32,6 +32,9 @@ export interface LifeRunnerOptions {
 	owner?: string;
 	leaseMs?: number;
 	foreground: LifeForeground;
+	/** Trusted installation bridges, invoked before freezing and at each effect boundary. */
+	beforePrepare?(worldId: string): void;
+	assertSourceCurrent?(step: LifeStep): void;
 }
 export class LifeRunnerUnavailable extends Error {
 	constructor(
@@ -118,6 +121,7 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 	): Promise<LifeStep> {
 		const signal = controller.signal;
 		signal.throwIfAborted();
+		options.beforePrepare?.(worldId);
 		const identity = options.identity(worldId);
 		options.store.invalidateLifeIdentity(
 			worldId,
@@ -156,6 +160,7 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 					"cancelled",
 					"LIFE yielded to foreground work",
 				);
+			options.assertSourceCurrent?.(prepared);
 			const identity = options.identity(worldId);
 			if (
 				lifeDigest(identity) !==

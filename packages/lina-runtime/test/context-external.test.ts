@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
 import { ContextStore } from "../../lina-core/src/context/index.ts";
+import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
 import { ContextCoordinator } from "../src/context/coordinator.ts";
 import { ExternalContext } from "../src/context/external.ts";
 import { createRuntimeFixture } from "./runtime-fixture.ts";
@@ -14,14 +15,14 @@ function setup() {
 	const context = new ContextStore(
 		join(f.root, "external.sqlite"),
 		f.runtime.binding,
-		(id) => f.store.entry(id),
+		(id) => f.store.sourceEntry(id),
 	);
 	cleanups.push(async () => {
 		context.close();
 		await f.close();
 	});
 	const add = (id: string, text: string) =>
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: id,
 			role: "user",
 			text,

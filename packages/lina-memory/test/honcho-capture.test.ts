@@ -4,13 +4,22 @@ import { HonchoClient } from "../src/honcho/client.ts";
 import { publicIdentity } from "../src/honcho/config.ts";
 import { HonchoOutbox } from "../src/honcho/outbox.ts";
 import type { CaptureStatus } from "../src/honcho/types.ts";
-import { config, FakeHoncho, Fixture } from "./honcho-fixture.ts";
+import {
+	qualifiedConfig as config,
+	FakeHoncho,
+	Fixture,
+} from "./honcho-fixture.ts";
 
 const identity = publicIdentity(config);
 
 function setup(fixture: Fixture, fake: FakeHoncho | undefined) {
 	const outbox = fixture.keep(
-		new HonchoOutbox(fixture.file, fixture.binding, identity),
+		new HonchoOutbox(
+			fixture.file,
+			fixture.binding,
+			identity,
+			fixture.outboxOptions,
+		),
 	);
 	const changes: CaptureStatus[] = [];
 	const delivery = new CaptureDelivery({
@@ -20,6 +29,7 @@ function setup(fixture: Fixture, fake: FakeHoncho | undefined) {
 		...(fake
 			? {
 					client: new HonchoClient(config, {
+						...fixture.clientOptions(fake),
 						fetch: fake.fetch,
 						timeoutMs: 50,
 					}),
@@ -36,7 +46,7 @@ describe("CaptureDelivery", () => {
 			try {
 				const fake = new FakeHoncho(),
 					{ outbox, delivery } = setup(fixture, fake);
-				outbox.enqueue("e1", "user", "Keep this preference");
+				fixture.enqueue(outbox, "e1", "user", "Keep this preference");
 				fake.behavior = () =>
 					new Response("Service rejection", { status: code });
 				const rejected = await delivery.flush();
@@ -58,11 +68,18 @@ describe("CaptureDelivery", () => {
 		const fixture = new Fixture();
 		try {
 			const { outbox, delivery } = setup(fixture, undefined);
-			outbox.enqueue("e1", "user", "hello");
+			fixture.enqueue(outbox, "e1", "user", "hello");
 			const status = await delivery.flush();
 			expect(status).toEqual({
 				service: "disabled",
-				counts: { pending: 1, sending: 0, accepted: 0, unknown: 0, failed: 0 },
+				counts: {
+					pending: 1,
+					sending: 0,
+					accepted: 0,
+					unknown: 0,
+					failed: 0,
+					withheld: 0,
+				},
 				freshness: "unknown",
 			});
 			await delivery.close();
@@ -76,9 +93,9 @@ describe("CaptureDelivery", () => {
 		try {
 			const fake = new FakeHoncho();
 			const { outbox, delivery, changes } = setup(fixture, fake);
-			outbox.enqueue("e1", "user", "hi");
-			outbox.enqueue("e2", "assistant", "hello");
-			outbox.enqueue("e3", "user", "again");
+			fixture.enqueue(outbox, "e1", "user", "hi");
+			fixture.enqueue(outbox, "e2", "assistant", "hello");
+			fixture.enqueue(outbox, "e3", "user", "again");
 			const [first, second] = await Promise.all([
 				delivery.flush(),
 				delivery.flush(),
@@ -91,6 +108,7 @@ describe("CaptureDelivery", () => {
 				accepted: 2,
 				unknown: 0,
 				failed: 0,
+				withheld: 0,
 			});
 			expect(
 				fake.seen.map((s) =>
@@ -112,7 +130,7 @@ describe("CaptureDelivery", () => {
 		try {
 			const fake = new FakeHoncho();
 			const { outbox, delivery } = setup(fixture, fake);
-			outbox.enqueue("e1", "user", "hi");
+			fixture.enqueue(outbox, "e1", "user", "hi");
 			fake.behavior = () => new Promise<Response>(() => undefined);
 			const status = await delivery.flush();
 			expect(status.service).toBe("unavailable");
@@ -122,6 +140,7 @@ describe("CaptureDelivery", () => {
 				accepted: 0,
 				unknown: 1,
 				failed: 0,
+				withheld: 0,
 			});
 			fake.behavior = undefined;
 			// Reconcile finds nothing: still unknown, and no POST /messages happened.
@@ -142,22 +161,29 @@ describe("CaptureDelivery", () => {
 		try {
 			const fake = new FakeHoncho();
 			const { outbox, delivery } = setup(fixture, fake);
-			outbox.enqueue("e1", "user", "one");
-			outbox.enqueue("e2", "user", "two");
-			outbox.enqueue("e3", "user", "three");
+			fixture.enqueue(outbox, "e1", "user", "one");
+			fixture.enqueue(outbox, "e2", "user", "two");
+			fixture.enqueue(outbox, "e3", "user", "three");
 			for (const part of outbox.next()) {
 				outbox.markSending(part.id);
 				outbox.markUnknown(part.id, "crash");
 			}
-			const key = (id: string, hash: string) => ({
-				lina: { entryId: id, partIndex: 0, contentHash: hash },
+			const key = (part: import("../src/honcho/types.ts").OutboxPart) => ({
+				lina: {
+					entryId: part.entryId,
+					partIndex: part.partIndex,
+					contentHash: part.contentHash,
+					version: part.version,
+					sourceProofs: part.sourceProofs,
+					policyScope: part.policyScope,
+				},
 			});
 			const [p1, p2, p3] = outbox.unknown(10);
 			if (!p1 || !p2 || !p3) throw new Error("expected three unknown parts");
-			fake.store("example", "one", key("e1", p1.contentHash));
-			fake.store("example", "two", key("e2", p2.contentHash));
-			fake.store("example", "two", key("e2", p2.contentHash));
-			const foreign = fake.store("example", "three", key("e3", p3.contentHash));
+			fake.store("example", "one", key(p1));
+			fake.store("example", "two", key(p2));
+			fake.store("example", "two", key(p2));
+			const foreign = fake.store("example", "three", key(p3));
 			foreign.session_id = "other-session";
 			await delivery.flush();
 			const status = await delivery.flush();
@@ -167,6 +193,7 @@ describe("CaptureDelivery", () => {
 				accepted: 1,
 				unknown: 2,
 				failed: 0,
+				withheld: 0,
 			});
 			expect(outbox.part(p1.id)).toMatchObject({
 				state: "accepted",
@@ -187,12 +214,12 @@ describe("CaptureDelivery", () => {
 		try {
 			const fake = new FakeHoncho();
 			const { outbox, delivery } = setup(fixture, fake);
-			outbox.enqueue("e1", "user", "bad");
+			fixture.enqueue(outbox, "e1", "user", "bad");
 			fake.behavior = () =>
 				new Response(JSON.stringify({ detail: "rejected" }), { status: 422 });
 			expect((await delivery.flush()).counts.failed).toBe(1);
 			expect(outbox.part(1)?.error).toMatch(/422/);
-			outbox.enqueue("e2", "user", "slow");
+			fixture.enqueue(outbox, "e2", "user", "slow");
 			let started: (() => void) | undefined;
 			const begun = new Promise<void>((resolve) => {
 				started = resolve;

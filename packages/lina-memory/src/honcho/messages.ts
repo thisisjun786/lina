@@ -1,4 +1,5 @@
-import { isDeepStrictEqual } from "node:util";
+import { parseSourceProof } from "../../../lina-core/src/source-policy.ts";
+import { validateOrdinaryNamespace } from "./config.ts";
 import {
 	HonchoRequestError,
 	type PartKey,
@@ -20,33 +21,81 @@ export function string(value: unknown, what: string): string {
 }
 
 export function partKey(part: PartKey): PartKey {
-	return {
+	return parsePartKey({
 		entryId: part.entryId,
 		partIndex: part.partIndex,
 		contentHash: part.contentHash,
-	};
+		...(part.version !== undefined
+			? {
+					version: part.version,
+					sourceProofs: part.sourceProofs,
+					policyScope: part.policyScope,
+				}
+			: {}),
+	});
 }
 
-export function parseRemoteMessage(value: unknown): RemoteMessage {
-	const message = object(value, "message");
-	const metadata = object(message["metadata"], "message metadata");
-	const lina = object(metadata["lina"], "message metadata.lina");
+export function parsePartKey(value: unknown): PartKey {
+	const lina = object(value, "metadata.lina");
+	const qualified = lina["version"] !== undefined;
+	const keys = [
+		"entryId",
+		"partIndex",
+		"contentHash",
+		...(qualified ? ["version", "sourceProofs", "policyScope"] : []),
+	];
 	if (
-		!isDeepStrictEqual(Object.keys(lina).sort(), [
-			"contentHash",
-			"entryId",
-			"partIndex",
-		])
+		Object.keys(lina).length !== keys.length ||
+		keys.some((key) => !Object.hasOwn(lina, key))
 	)
 		throw new HonchoRequestError(
 			"honcho metadata.lina has unexpected keys",
 			"body",
 		);
-	if (!Number.isSafeInteger(lina["partIndex"]))
+	if (
+		!Number.isSafeInteger(lina["partIndex"]) ||
+		(lina["partIndex"] as number) < 0
+	)
 		throw new HonchoRequestError(
 			"honcho metadata.lina.partIndex invalid",
 			"body",
 		);
+	const key: PartKey = {
+		entryId: string(lina["entryId"], "entryId"),
+		partIndex: lina["partIndex"] as number,
+		contentHash: string(lina["contentHash"], "contentHash"),
+	};
+	if (qualified) {
+		const proofs = lina["sourceProofs"];
+		if (
+			lina["version"] !== 2 ||
+			!Array.isArray(proofs) ||
+			!proofs.length ||
+			proofs.length > 65536 ||
+			!/^[a-f0-9]{64}$/.test(key.contentHash)
+		)
+			throw new HonchoRequestError("honcho capture provenance invalid", "body");
+		key.version = 2;
+		key.sourceProofs = proofs
+			.map(parseSourceProof)
+			.sort((a, b) => a.entryId.localeCompare(b.entryId));
+		if (
+			new Set(key.sourceProofs.map((p) => p.entryId)).size !== proofs.length ||
+			!key.sourceProofs.some((p) => p.entryId === key.entryId)
+		)
+			throw new HonchoRequestError(
+				"honcho capture provenance missing or duplicate source",
+				"body",
+			);
+		key.policyScope = validateOrdinaryNamespace(lina["policyScope"]);
+	}
+	return key;
+}
+
+export function parseRemoteMessage(value: unknown): RemoteMessage {
+	const message = object(value, "message");
+	const metadata = object(message["metadata"], "message metadata");
+	const key = parsePartKey(metadata["lina"]);
 	return {
 		id: string(message["id"], "message id"),
 		workspaceId: string(message["workspace_id"], "workspace_id"),
@@ -56,10 +105,6 @@ export function parseRemoteMessage(value: unknown): RemoteMessage {
 			typeof message["content"] === "string"
 				? message["content"]
 				: string(undefined, "content"),
-		key: {
-			entryId: string(lina["entryId"], "entryId"),
-			partIndex: lina["partIndex"] as number,
-			contentHash: string(lina["contentHash"], "contentHash"),
-		},
+		key,
 	};
 }

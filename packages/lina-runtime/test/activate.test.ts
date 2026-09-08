@@ -1,7 +1,28 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { join } from "node:path";
 import WebSocket from "ws";
+import { ContextStore } from "../../lina-core/src/context/store.ts";
+import { Fixture } from "../../lina-core/test/fixture.ts";
 import { activate } from "../src/activate.ts";
 import { fakeHost } from "./fake-host.ts";
+
+const fixtures: Fixture[] = [];
+afterEach(() => {
+	for (const f of fixtures.splice(0)) f.close();
+});
+function notepad() {
+	const f = new Fixture();
+	fixtures.push(f);
+	const journal = f.store();
+	return {
+		store: f.keep(
+			new ContextStore(join(f.dir, "context.sqlite"), f.binding, (id) =>
+				journal.sourceEntry(id),
+			),
+		),
+		activeRequestId: () => undefined,
+	};
+}
 
 /** Opens a viewer and reads its connect-time snapshot; the listener is attached before the socket opens. */
 async function firstFrame(port: number): Promise<unknown> {
@@ -20,7 +41,8 @@ describe("activate", () => {
 		const lina = await activate(host.api, {
 			interventionPort: 0,
 			idleTimeoutMs: 0,
-			dataDir: "/tmp/lina-test-data",
+			dataDir: "/unused-legacy-directory",
+			notepad: notepad(),
 		});
 		expect(host.registered).toEqual([
 			"lina_notepad_read",
@@ -36,7 +58,8 @@ describe("activate", () => {
 		const lina = await activate(host.api, {
 			interventionPort: 0,
 			idleTimeoutMs: 0,
-			dataDir: "/tmp/lina-test-data",
+			dataDir: "/unused-legacy-directory",
+			notepad: notepad(),
 		});
 		host.emit("agent_start");
 		expect(await firstFrame(lina.interventionPort)).toEqual({
@@ -51,7 +74,8 @@ describe("activate", () => {
 		const lina = await activate(host.api, {
 			interventionPort: 0,
 			idleTimeoutMs: 0,
-			dataDir: "/tmp/lina-test-data",
+			dataDir: "/unused-legacy-directory",
+			notepad: notepad(),
 		});
 		host.emit("agent_start");
 		host.emit("agent_end");
@@ -61,4 +85,16 @@ describe("activate", () => {
 		});
 		await lina.stop();
 	});
+});
+
+it("requires a managed notepad owner before registering tools or opening listeners", async () => {
+	const host = fakeHost();
+	await expect(
+		activate(host.api, {
+			interventionPort: 0,
+			idleTimeoutMs: 0,
+			dataDir: "/unused",
+		} as Parameters<typeof activate>[1]),
+	).rejects.toThrow(/managed notepad/i);
+	expect(host.registered).toEqual([]);
 });

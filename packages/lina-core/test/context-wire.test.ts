@@ -46,6 +46,7 @@ test("context snapshots validate every state and bound recalled/working content"
 			accepted: 0,
 			unknown: 0,
 			failed: 0,
+			withheld: 2,
 			freshness: "unknown",
 			recallText: "",
 		},
@@ -53,6 +54,10 @@ test("context snapshots validate every state and bound recalled/working content"
 	const parse = () =>
 		parseContextServer(JSON.stringify({ type: "context-state", state }));
 	expect(parse()).toMatchObject({ state: { busy: false } });
+	expect(parse()).toMatchObject({ state: { memory: { withheld: 2 } } });
+	state.memory.withheld = -1;
+	expect(parse()).toBeUndefined();
+	state.memory.withheld = 2;
 	state.memory.freshness = "remembered";
 	expect(parse()).toBeUndefined();
 	state.memory.freshness = "unknown";

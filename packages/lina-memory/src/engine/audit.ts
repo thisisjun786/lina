@@ -1,23 +1,26 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
+import { readEngineReceipt, validateRecordReceipt } from "./receipts.ts";
 import { mergeSources } from "./records.ts";
-import { ENGINE_BATCH_MAX, ENGINE_SOURCES_MAX } from "./types.ts";
-import {
-	engineIdSchema,
-	hash,
-	parseObservations,
-	parseRecord,
-	revisionSchema,
-} from "./validation.ts";
+import { ENGINE_SOURCES_MAX } from "./types.ts";
+import { engineIdSchema, parseRecord, revisionSchema } from "./validation.ts";
 
 /** Refuse corrupt projections and unknown stored values before enabling writes. */
-export function auditEngineData(db: DatabaseSync, current: number): void {
+export function auditEngineData(
+	db: DatabaseSync,
+	current: number,
+	version: number,
+	agentId: string,
+): void {
 	if (db.prepare("SELECT count(*) AS n FROM engine_meta").get()?.["n"] !== 2)
 		throw new Error("unknown engine metadata");
 	for (const row of db
 		.prepare("SELECT id, data FROM engine_records")
 		.iterate()) {
 		const record = parseRecord(JSON.parse(String(row["data"])));
+		if (version < 3 && (record.sourceProofs || record.sourceRequestId))
+			throw Error("unexpected legacy engine proof");
+		if (version === 3) validateRecordReceipt(db, record);
 		const sources = db
 			.prepare(
 				"SELECT entry_id, quote FROM engine_sources WHERE record_id = ? ORDER BY entry_id, quote LIMIT ?",
@@ -47,9 +50,11 @@ export function auditEngineData(db: DatabaseSync, current: number): void {
 		if (revision < 1 || revision > current)
 			throw new Error("invalid engine fence revision");
 	}
-	for (const row of db
-		.prepare("SELECT record_id,entry_id,revision FROM engine_slot_fences")
-		.iterate()) {
+	for (const row of version === 1
+		? []
+		: db
+				.prepare("SELECT record_id,entry_id,revision FROM engine_slot_fences")
+				.iterate()) {
 		engineIdSchema.parse(row["record_id"]);
 		engineIdSchema.parse(row["entry_id"]);
 		const revision = revisionSchema.parse(row["revision"]);
@@ -57,33 +62,30 @@ export function auditEngineData(db: DatabaseSync, current: number): void {
 			throw Error("invalid slot fence revision");
 	}
 
-	for (const row of db
-		.prepare("SELECT request_id, fingerprint, revision FROM engine_receipts")
-		.iterate()) {
-		const requestId = engineIdSchema.parse(row["request_id"]);
-		const revision = revisionSchema.parse(row["revision"]);
-		if (revision < 1 || revision > current)
-			throw new Error("invalid engine receipt revision");
-		const observations = db
-			.prepare(
-				"SELECT ordinal, data FROM engine_observations WHERE request_id = ? ORDER BY ordinal LIMIT ?",
+	if (version === 3)
+		for (const row of db
+			.prepare("SELECT id,revision,data FROM engine_record_history")
+			.iterate()) {
+			const record = parseRecord(JSON.parse(String(row["data"])));
+			if (
+				record.id !== row["id"] ||
+				record.agentId !== agentId ||
+				record.revision !== row["revision"] ||
+				record.revision > current
 			)
-			.all(requestId, ENGINE_BATCH_MAX + 1);
-		const parsed = parseObservations(
-			observations.map((observation, index) => {
-				if (observation["ordinal"] !== index)
-					throw new Error("invalid engine observation ordinal");
-				return JSON.parse(String(observation["data"]));
-			}),
+				throw Error("invalid engine record history");
+			validateRecordReceipt(db, record);
+		}
+
+	for (const row of db
+		.prepare("SELECT request_id FROM engine_receipts")
+		.iterate()) {
+		const receipt = readEngineReceipt(
+			db,
+			String(row["request_id"]),
+			version === 3,
 		);
-		const fingerprint = hash({
-			expectedRevision: revision - 1,
-			observations: parsed.map((o) => ({
-				...o,
-				sources: mergeSources(o.sources),
-			})),
-		});
-		if (row["fingerprint"] !== fingerprint)
-			throw new Error("invalid engine receipt fingerprint");
+		if (!receipt || receipt.revision > current)
+			throw Error("invalid engine receipt revision");
 	}
 }

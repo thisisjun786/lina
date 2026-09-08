@@ -6,6 +6,7 @@ import type {
 } from "./authoring-types.ts";
 import type { AutonomySource } from "./autonomy-types.ts";
 import { lifeDigest } from "./life-json.ts";
+import { parseWorkEvidence } from "./work-validation.ts";
 export function assertAutonomyVariables(
 	pack: WorldPackV3,
 	variables: Record<string, Scalar>,
@@ -33,6 +34,15 @@ export function assertAutonomySource(source: AutonomySource): void {
 		life.definitionRevision !== pack.life.revision
 	)
 		throw Error("Autonomy source boundary mismatch");
+	if (source.work) {
+		const work = parseWorkEvidence(source.work);
+		if (
+			work.worldId !== pack.worldId ||
+			work.workConfigDigest !==
+				lifeDigest(source.config.version === 2 ? source.config.work : null)
+		)
+			throw Error("Work source configuration mismatch");
+	}
 	assertAutonomyVariables(pack, autonomy.variables);
 	if (
 		life.checkpoint.engineId === "ensemble" &&

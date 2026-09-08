@@ -69,6 +69,7 @@ export class ExternalContext {
 				if (row.entry.role === "meta" || !row.entry.text.trim()) continue;
 				if (row.requestStatus === "accepted" || row.requestStatus === "queued")
 					break;
+				if (!this.store.eligibleEntry(row.entry.entryId)) continue;
 				sources.push({ kind: "entry", id: row.entry.entryId });
 				lastId = row.entry.entryId;
 				chars += row.entry.text.length;

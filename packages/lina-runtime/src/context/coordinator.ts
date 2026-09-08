@@ -19,6 +19,7 @@ type Options = {
 	compact: () => Promise<unknown>;
 	external?: ExternalContext;
 	nativeTokens?: () => number | null;
+	activeRequestId?: () => string | undefined;
 };
 type OwnedRequest = {
 	id: string;
@@ -41,6 +42,7 @@ export class ContextCoordinator {
 	private degraded = false;
 	private status: CompactionStatus = "idle";
 	private recall = "";
+	private currentRecall: () => string = () => "";
 	private lastInjection = { text: "", tokens: 0, omitted: false };
 	constructor(private readonly options: Options) {}
 	configure(services: ContextServices): void {
@@ -71,9 +73,34 @@ export class ContextCoordinator {
 	changed(): void {
 		if (!this.closed) for (const listener of this.listeners) listener();
 	}
-	setRecall(text: string): void {
+	setRecall(text: string, current: () => string = () => ""): void {
 		this.recall = text.slice(0, 4096);
+		this.currentRecall = current;
 		this.changed();
+	}
+
+	readInjection(messages: readonly unknown[]) {
+		const requestId = this.options.activeRequestId?.();
+		const working = this.options.store.readWorking(
+			requestId ? { activeRequestId: requestId } : {},
+		);
+		const active = this.options.external
+			? this.options.store.readActive()
+			: undefined;
+		const currentRecall = this.currentRecall;
+		const content = this.injection(messages),
+			recall = this.recall;
+		return {
+			content,
+			beforeDeliver: () => {
+				if (this.closed)
+					throw Error("Context source is closed before delivery");
+				working.beforeDeliver();
+				active?.beforeDeliver();
+				if (recall && currentRecall().slice(0, 4096) !== recall)
+					throw Error("Recall source changed before delivery");
+			},
+		};
 	}
 	injection(messages: readonly unknown[]): string {
 		if (!this.services || this.closed) return "";
@@ -86,8 +113,12 @@ export class ContextCoordinator {
 						Math.max(0, used - this.services.systemTokens),
 				}
 			: this.services;
+		const requestId = this.options.activeRequestId?.();
+		if (this.currentRecall().slice(0, 4096) !== this.recall) this.recall = "";
 		this.lastInjection = contextInjection(
-			this.options.store.working(),
+			this.options.store.working(
+				requestId ? { activeRequestId: requestId } : {},
+			),
 			this.recall,
 			messages,
 			services,
@@ -178,9 +209,10 @@ export class ContextCoordinator {
 				tokensBefore: prepared.tokensBefore,
 				details: {
 					linaContext: {
-						version: 1,
+						version: 2,
 						id: root.id,
 						expectedActiveId: active?.id ?? null,
+						sourceProofs: root.sourceProofs,
 					},
 				},
 			};
