@@ -474,6 +474,7 @@ export class EngineStore {
 			const prepared = prepareConclusions({
 				agentId: this.agentId,
 				proposals,
+				resolveAncestor: (id) => this.get(id),
 				resolve: (id) => {
 					const allowed = frozen.records.find((r) => r.id === id);
 					return allowed ? this.get(id) : undefined;

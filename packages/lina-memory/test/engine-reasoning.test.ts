@@ -600,3 +600,38 @@ test("an explicit source-backed fact cannot be overwritten by a conclusion", () 
 	f.store.close();
 	expect(f.open().state().records).toEqual(result.records);
 });
+
+test("a cited deduction can validate ancestors outside the supplied prompt page", () => {
+	const f = persistentFixture();
+	const first = f.store.beginReasoning({ ...f.seed, stage: "deduction" }, [
+		f.a.id,
+		f.b.id,
+	]);
+	if (!first) throw Error("claim");
+	const result = f.store.applyConclusions({
+		requestId: first.claim.id,
+		expectedRevision: first.input.expectedRevision,
+		proposals: [{ ...f.proposal, reasoningKind: "deduction" }],
+		claim: first.claim,
+	});
+	const parent = result.records.find((r) => r.key === "parks");
+	if (!parent) throw Error("parent");
+	const second = f.store.beginReasoning(f.seed, [parent.id]);
+	if (!second) throw Error("claim");
+	expect(
+		f.store
+			.applyConclusions({
+				requestId: second.claim.id,
+				expectedRevision: second.input.expectedRevision,
+				claim: second.claim,
+				proposals: [
+					{
+						...f.proposal,
+						key: "park.visits",
+						premises: [{ recordId: parent.id, revision: parent.revision }],
+					},
+				],
+			})
+			.records.some((r) => r.key === "park.visits"),
+	).toBe(true);
+});

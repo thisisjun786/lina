@@ -249,3 +249,51 @@ test("expired memory is withheld from cached context without a database write", 
 		await f.close();
 	}
 });
+
+test("missing consolidation route does not stop observation retry scheduling", async () => {
+	const f = createRuntimeFixture();
+	trustNativeFixture(f.store, f.runtime.binding);
+	const wakes: number[] = [];
+	const memory = new CompanionMemory({
+		path: join(f.root, "mind.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		schedule: (_callback, delay) => {
+			wakes.push(delay);
+			return () => {};
+		},
+	});
+	memory.configure(
+		async () => {
+			throw Error("temporary observation failure");
+		},
+		undefined,
+		{
+			consolidate: async () => '{"proposals":[]}',
+			modelSettingsRevision: () => {
+				throw Error("not_configured");
+			},
+		},
+	);
+	try {
+		f.store.createRequest("r", "walking");
+		f.store.appendEntry({
+			entryId: "u",
+			role: "user",
+			text: "walking",
+			timestamp: new Date().toISOString(),
+			raw: {},
+		});
+		f.store.setRequest("r", "accepted", { entryId: "u" });
+		f.store.setRequest("r", "settled");
+		await memory.refresh();
+		expect(memory.detail().processing.error).not.toBe(
+			"Companion scan or queue failed; progress preserved",
+		);
+		expect(wakes.some((delay) => delay > 0 && delay < 60000)).toBe(true);
+		expect(memory.status().consolidation?.state).toBe("unavailable");
+	} finally {
+		await memory.close();
+		await f.close();
+	}
+});

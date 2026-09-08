@@ -102,6 +102,7 @@ export function prepareConclusions(input: {
 	agentId: string;
 	proposals: unknown;
 	resolve: (id: string) => EngineRecord | undefined;
+	resolveAncestor?: (id: string) => EngineRecord | undefined;
 	promptProofs: SourceProof[];
 	lookup: LookupEntry;
 	now: number;
@@ -128,11 +129,11 @@ export function prepareConclusions(input: {
 	const walk = (id: string, target: string, visiting: Set<string>): void => {
 		if (id === target || visiting.has(id))
 			throw Error("conclusion premise cycle");
-		const record = input.resolve(id);
+		const record = (input.resolveAncestor ?? input.resolve)(id);
 		if (!eligible(record)) throw Error("ineligible conclusion premise");
 		visiting.add(id);
 		for (const ref of record.reasoning?.premises ?? []) {
-			const current = input.resolve(ref.recordId);
+			const current = (input.resolveAncestor ?? input.resolve)(ref.recordId);
 			if (!eligible(current) || contentHash(current) !== ref.contentHash)
 				throw Error("stale conclusion premise content");
 			walk(ref.recordId, target, visiting);

@@ -64,6 +64,7 @@ export class MemoryConsolidation {
 	private trigger: string | undefined;
 	private totalPages = 0;
 	private error: string | null = null;
+	private unavailable = false;
 	private coverageIncomplete = false;
 	constructor(
 		private readonly mind: EngineStore,
@@ -93,19 +94,20 @@ export class MemoryConsolidation {
 		).length;
 		const enabled = (this.config?.policy ?? defaultEnginePolicy)().memory
 			.enabled;
-		const state = !this.config
-			? "unavailable"
-			: !enabled
-				? "disabled"
-				: counts.running
-					? "running"
-					: counts.failed
-						? "failed"
-						: counts.withheld
-							? "withheld"
-							: counts.pending || completedPages < this.totalPages
-								? "pending"
-								: "committed";
+		const state =
+			!this.config || this.unavailable
+				? "unavailable"
+				: !enabled
+					? "disabled"
+					: counts.running
+						? "running"
+						: counts.failed
+							? "failed"
+							: counts.withheld
+								? "withheld"
+								: counts.pending || completedPages < this.totalPages
+									? "pending"
+									: "committed";
 		return {
 			state,
 			...counts,
@@ -118,6 +120,7 @@ export class MemoryConsolidation {
 	nextDelay(now: number): number | undefined {
 		if (
 			!this.config ||
+			this.unavailable ||
 			(this.config.policy ?? defaultEnginePolicy)().memory.enabled === false
 		)
 			return undefined;
@@ -141,8 +144,16 @@ export class MemoryConsolidation {
 		if (!config) return;
 		const policy = (config.policy ?? defaultEnginePolicy)();
 		if (!policy.memory.enabled) return;
-		const settingsRevision = config.modelSettingsRevision(),
-			epoch = this.epoch;
+		let settingsRevision: number;
+		try {
+			settingsRevision = config.modelSettingsRevision();
+			this.unavailable = false;
+		} catch {
+			this.error = "not_configured";
+			this.unavailable = true;
+			return;
+		}
+		const epoch = this.epoch;
 		const all = this.mind.reasoningCandidates(),
 			direct = all.filter((r) => !r.reasoning);
 		if (!direct.length) {
