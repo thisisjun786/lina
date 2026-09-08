@@ -8,6 +8,9 @@ export interface CatalogModel {
 	contextWindow: number;
 	maxOutputTokens: number;
 	reasoning: boolean;
+	/** Absent means effort support was not advertised, not unrestricted support. */
+	reasoningEfforts?: string[];
+	defaultReasoning?: string;
 	authenticated: boolean;
 	/** Projected from native model input capabilities; absent means not supported. */
 	imageInput?: boolean;

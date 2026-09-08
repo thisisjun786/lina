@@ -146,6 +146,10 @@ export function publicCatalog(models: readonly HubModel[]): CatalogModel[] {
 			authenticated: model.authenticated,
 		};
 		if (model.imageInput === true) item.imageInput = true;
+		if (model.reasoningEfforts !== undefined)
+			item.reasoningEfforts = [...model.reasoningEfforts];
+		if (model.defaultReasoning !== undefined)
+			item.defaultReasoning = model.defaultReasoning;
 		return item;
 	});
 }

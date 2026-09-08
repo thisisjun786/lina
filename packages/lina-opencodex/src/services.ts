@@ -1,16 +1,19 @@
 import type { ContextServices } from "../../lina-runtime/src/context/port.ts";
 import type {
-	CatalogModel,
 	ModelControl,
 	ModelTrial,
 } from "../../lina-runtime/src/models/port.ts";
-import { resolveProfile } from "../../lina-runtime/src/models/selection.ts";
+import {
+	type ModelRouteResult,
+	resolveModelRoute,
+} from "../../lina-runtime/src/models/routes.ts";
 import type {
 	ModelProfile,
 	ModelRole,
+	ModelRouteRequest,
 	ModelSettings,
 } from "../../lina-runtime/src/models/types.ts";
-import type { HubModel } from "./catalog.ts";
+import { type HubModel, publicCatalog } from "./catalog.ts";
 import type { FetchLike } from "./client.ts";
 import { type CompleteRequest, complete, imageDataUrl } from "./complete.ts";
 import { OpenCodexError } from "./errors.ts";
@@ -58,14 +61,16 @@ function requireResolved(
 	settings: ModelSettings | undefined,
 	role: ModelRole,
 	agentId: string | undefined,
-): { profile: ModelProfile; model: HubModel } {
+	routeRequest?: ModelRouteRequest,
+): { profile: ModelProfile; model: HubModel; route: ModelRouteResult } {
 	if (!settings)
 		throw new OpenCodexError(
 			"not_configured",
 			"No model settings are configured",
 		);
-	const profile = resolveProfile(settings, role, agentId);
-	if (!profile)
+	const route = resolveModelRoute(settings, role, agentId, routeRequest);
+	const profile = route?.profile;
+	if (!profile || !route)
 		throw new OpenCodexError(
 			"not_configured",
 			"No model is configured for the " + role + " role",
@@ -76,25 +81,24 @@ function requireResolved(
 			"OpenCodex only serves provider=opencodex profiles",
 		);
 	const model = catalogModel(runtime.models(), profile.model);
-	if (!model)
+	if (
+		!model ||
+		!model.authenticated ||
+		(model.supportedRoles && !model.supportedRoles.includes(role))
+	)
 		throw new OpenCodexError(
 			"model_unavailable",
 			"Selected model is not available in the OpenCodex catalog: " +
 				profile.model,
 		);
-	return { profile, model };
+	return { profile, model, route };
 }
 
-function completeOptions(
-	runtime: OpenCodexRuntime,
+function appliedOptions(
 	profile: ModelProfile,
 	model: HubModel,
-	signal: AbortSignal,
-	systemPrompt: string,
-	messages: CompleteRequest["messages"],
-	beforeDispatch?: () => void,
 	maxTokens?: number,
-): CompleteRequest {
+) {
 	if (
 		maxTokens !== undefined &&
 		(!Number.isSafeInteger(maxTokens) || maxTokens < 1)
@@ -108,6 +112,57 @@ function completeOptions(
 			"output_budget_exceeded",
 			"Configured output budget exceeds the current model limit",
 		);
+	if (
+		model.reasoning &&
+		profile.reasoning !== "off" &&
+		model.reasoningEfforts &&
+		!model.reasoningEfforts.includes(profile.reasoning)
+	)
+		throw new OpenCodexError(
+			"reasoning_unsupported",
+			"Selected reasoning effort is not supported by the current model",
+		);
+	const applied: Pick<ModelProfile, "reasoning" | "maxOutputTokens"> = {
+		reasoning: model.reasoning ? profile.reasoning : "off",
+	};
+	if (profile.maxOutputTokens !== undefined)
+		applied.maxOutputTokens = profile.maxOutputTokens;
+	if (maxTokens !== undefined)
+		applied.maxOutputTokens = Math.min(
+			maxTokens,
+			profile.maxOutputTokens ?? model.maxOutputTokens,
+			model.maxOutputTokens,
+		);
+	const reasoningStatus = !model.reasoning
+		? ("model_no_reasoning" as const)
+		: profile.reasoning === "off"
+			? ("omitted" as const)
+			: model.reasoningEfforts
+				? ("verified" as const)
+				: ("unverified" as const);
+	return {
+		requested: {
+			reasoning: profile.reasoning,
+			...(profile.maxOutputTokens !== undefined
+				? { maxOutputTokens: profile.maxOutputTokens }
+				: {}),
+		},
+		applied,
+		reasoningStatus,
+	};
+}
+
+function completeOptions(
+	runtime: OpenCodexRuntime,
+	profile: ModelProfile,
+	model: HubModel,
+	signal: AbortSignal,
+	systemPrompt: string,
+	messages: CompleteRequest["messages"],
+	beforeDispatch?: () => void,
+	maxTokens?: number,
+): CompleteRequest {
+	const { applied } = appliedOptions(profile, model, maxTokens);
 	const request: CompleteRequest = {
 		origin: runtime.origin(),
 		model: profile.model,
@@ -120,16 +175,9 @@ function completeOptions(
 	if (beforeDispatch !== undefined) request.beforeDispatch = beforeDispatch;
 	if (token) request.token = token;
 	if (runtime.fetchImpl) request.fetchImpl = runtime.fetchImpl;
-	if (model.reasoning && profile.reasoning !== "off")
-		request.reasoning = profile.reasoning;
-	if (profile.maxOutputTokens !== undefined)
-		request.maxOutputTokens = profile.maxOutputTokens;
-	if (maxTokens !== undefined)
-		request.maxOutputTokens = Math.min(
-			maxTokens,
-			profile.maxOutputTokens ?? model.maxOutputTokens,
-			model.maxOutputTokens,
-		);
+	if (applied.reasoning !== "off") request.reasoning = applied.reasoning;
+	if (applied.maxOutputTokens !== undefined)
+		request.maxOutputTokens = applied.maxOutputTokens;
 	return request;
 }
 
@@ -139,20 +187,7 @@ export function createOpenCodexModelControl(
 	agentId?: string,
 ): ModelControl {
 	return {
-		catalog: () =>
-			runtime.models().map((model) => {
-				const item: CatalogModel = {
-					provider: model.provider,
-					id: model.id,
-					name: model.name,
-					contextWindow: model.contextWindow,
-					maxOutputTokens: model.maxOutputTokens,
-					reasoning: model.reasoning,
-					authenticated: model.authenticated,
-				};
-				if (model.imageInput === true) item.imageInput = true;
-				return item;
-			}),
+		catalog: () => publicCatalog(runtime.models()),
 		state: () => {
 			const settings = settingsGetter();
 			try {
@@ -291,8 +326,15 @@ export function createOpenCodexContextServices(
 		signal: AbortSignal,
 		beforeDispatch?: () => void,
 		maxTokens?: number,
+		routeRequest?: ModelRouteRequest,
 	) => {
-		const resolved = requireResolved(runtime, settingsGetter(), role, agentId);
+		const resolved = requireResolved(
+			runtime,
+			settingsGetter(),
+			role,
+			agentId,
+			routeRequest,
+		);
 		const request = completeOptions(
 			runtime,
 			resolved.profile,
@@ -334,18 +376,43 @@ export function createOpenCodexContextServices(
 			return conversationWindow();
 		},
 		reserveTokens: RESERVE_TOKENS,
-		summaryCacheKey: () => {
-			const settings = settingsGetter();
-			const profile = settings
-				? resolveProfile(settings, "summary", agentId)
-				: null;
-			return JSON.stringify([
-				"summary-v1",
-				profile ?? { provider: "opencodex" },
-				conversationWindow(),
-			]);
+		routeInfo(role, routeRequest, maxTokens) {
+			const resolved = requireResolved(
+				runtime,
+				settingsGetter(),
+				role,
+				agentId,
+				routeRequest,
+			);
+			return {
+				mode: resolved.route.mode,
+				settingsRevision: resolved.route.settingsRevision,
+				...(resolved.route.tier !== undefined
+					? { tier: resolved.route.tier }
+					: {}),
+				profileId: resolved.profile.id,
+				provider: resolved.profile.provider,
+				model: resolved.profile.model,
+				...appliedOptions(resolved.profile, resolved.model, maxTokens),
+			};
 		},
-		async summarize(text, maxTokens, signal, beforeDispatch) {
+		summaryCacheKey: () => {
+			try {
+				return JSON.stringify([
+					"summary-v2",
+					services.routeInfo?.("summary"),
+					conversationWindow(),
+				]);
+			} catch (error) {
+				return JSON.stringify([
+					"summary-v2",
+					settingsGetter()?.revision,
+					error instanceof Error ? error.message : "unavailable",
+					conversationWindow(),
+				]);
+			}
+		},
+		async summarize(text, maxTokens, signal, beforeDispatch, routeRequest) {
 			return roleCall(
 				"summary",
 				SUMMARY_PROMPT,
@@ -353,21 +420,32 @@ export function createOpenCodexContextServices(
 				AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
 				beforeDispatch,
 				maxTokens,
+				routeRequest,
 			);
 		},
-		async observe(text, signal, beforeDispatch) {
+		async observe(text, signal, beforeDispatch, routeRequest) {
 			return roleCall(
 				"observation",
 				OBSERVE_PROMPT,
 				text,
 				signal,
 				beforeDispatch,
+				undefined,
+				routeRequest,
 			);
 		},
-		async reasonMemory(text, signal, beforeDispatch) {
-			return roleCall("recall", RECALL_PROMPT, text, signal, beforeDispatch);
+		async reasonMemory(text, signal, beforeDispatch, routeRequest) {
+			return roleCall(
+				"recall",
+				RECALL_PROMPT,
+				text,
+				signal,
+				beforeDispatch,
+				undefined,
+				routeRequest,
+			);
 		},
-		async reflect(text, signal, beforeDispatch) {
+		async reflect(text, signal, beforeDispatch, routeRequest) {
 			const preferencesOnly = JSON.parse(text).preferencesOnly === true;
 			return roleCall(
 				"reflection",
@@ -375,6 +453,8 @@ export function createOpenCodexContextServices(
 				text,
 				AbortSignal.any([signal, AbortSignal.timeout(45_000)]),
 				beforeDispatch,
+				undefined,
+				routeRequest,
 			);
 		},
 		async analyzeImage(input, signal) {

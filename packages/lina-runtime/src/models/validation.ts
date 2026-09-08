@@ -1,9 +1,13 @@
 import {
 	MODEL_ROLES,
+	MODEL_TIERS,
 	type ModelProfile,
 	type ModelReasoning,
 	type ModelRole,
+	type ModelRoutes,
 	type ModelSettingsInput,
+	type ModelTier,
+	type ModelTierBinding,
 	type RoleReasoning,
 } from "./types.ts";
 
@@ -13,7 +17,7 @@ const MAX_PROFILES = 256;
 const MAX_AGENT_BINDINGS = 256;
 const MAX_OUTPUT_TOKENS = 1_048_576;
 const INPUT_KEYS = ["profiles", "defaultProfileId", "roles", "agentRoles"];
-const OPTIONAL_INPUT_KEYS = ["roleReasoning", "agentRoleReasoning"];
+const OPTIONAL_INPUT_KEYS = ["roleReasoning", "agentRoleReasoning", "routes"];
 const PROFILE_KEYS = ["id", "provider", "model", "reasoning"];
 const OPTIONAL_PROFILE_KEYS = ["maxOutputTokens"];
 
@@ -157,6 +161,54 @@ function agentMap<T>(
 	);
 }
 
+export function validModelTier(value: unknown): ModelTier {
+	for (const tier of MODEL_TIERS) if (tier === value) return tier;
+	throw new Error("unknown model tier");
+}
+
+function routes(value: unknown, ids: Set<string>): ModelRoutes {
+	const input = object(value, "model routes");
+	exactFields(input, ["version", "tiers", "roleTiers"], [], "model routes");
+	if (input["version"] !== 1) throw new Error("unknown model routes version");
+	const rawTiers = object(input["tiers"], "model tiers");
+	exactFields(rawTiers, [...MODEL_TIERS], [], "model tiers");
+	const binding = (tier: ModelTier): ModelTierBinding => {
+		const raw = object(rawTiers[tier], "model tier binding");
+		exactFields(
+			raw,
+			["profileId"],
+			["reasoning", "maxOutputTokens"],
+			"model tier binding",
+		);
+		const result: ModelTierBinding = {
+			profileId: reference(raw["profileId"], ids),
+		};
+		if (Object.hasOwn(raw, "reasoning"))
+			result.reasoning = validModelReasoning(raw["reasoning"]);
+		if (Object.hasOwn(raw, "maxOutputTokens"))
+			result.maxOutputTokens = outputBudget(raw["maxOutputTokens"]);
+		return result;
+	};
+	const rawRoles = object(input["roleTiers"], "role tiers");
+	const roleTiers: ModelRoutes["roleTiers"] = {};
+	for (const key of Object.getOwnPropertyNames(rawRoles)) {
+		const role = validModelRole(key);
+		if (role === "conversation")
+			throw new Error("conversation cannot use model tiers");
+		roleTiers[role] = validModelTier(rawRoles[key]);
+	}
+	return {
+		version: 1,
+		tiers: {
+			quick: binding("quick"),
+			standard: binding("standard"),
+			deep: binding("deep"),
+			intensive: binding("intensive"),
+		},
+		roleTiers,
+	};
+}
+
 /** Validates external input or persisted JSON and returns fully detached data. */
 export function parseModelSettingsInput(value: unknown): ModelSettingsInput {
 	const input = object(value, "model settings");
@@ -188,5 +240,7 @@ export function parseModelSettingsInput(value: unknown): ModelSettingsInput {
 			"agent reasoning bindings",
 			roleReasoning,
 		);
+	if (Object.hasOwn(input, "routes"))
+		result.routes = routes(input["routes"], ids);
 	return result;
 }

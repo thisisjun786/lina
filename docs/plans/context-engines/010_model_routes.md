@@ -75,3 +75,7 @@ Inspector의 GO-WITH-FIXES(blockers=3)를 다음 규칙으로 해소한다. 이 
 ### B 증거: 요약 출력 한도
 
 2026-09-08 services.test.ts에 3개 회귀 추가 후 실행: 5 pass / 3 fail, exit1. caller64/profile1024에서 실제 전송1024, 음수 및 catalog초과에서 resolve되는 실패를 확인했다. services.ts completeOptions에 호출 한도와 설정 상한 검사를 연결한 뒤 같은 파일 8 pass / 0 fail / 24 assertions, exit0. 기존 테스트의 max_output_tokens 미전송 기대는 수정된 계약에 맞게512로 변경했다. fixture HTTP 직렬화 경계 증거이며 실제 제공자 호출은 아니다. 라우팅 전체는 진행 중이다.
+
+B 추가 red/green: advertised effort mismatch는 8pass/1fail 뒤 검사 추가로 9pass/0fail. 인증 해제·역할 미지원 catalog 재검사 테스트는 호출이 성공하는 red 뒤 model_unavailable 검사를 추가해 1pass/0fail. tier 활성/직접 tier/실제 loopback responses·chat 요청 테스트는 아직 연결 전 red 상태이며 통과로 기록하지 않는다. 처음 loopback chat fixture에 finish_reason이 빠진 문제는 fixture에 stop을 넣어 바로잡고 tier effort 미전송이라는 실제 red를 다시 확인했다. 카탈로그 공개 투영에 reasoningEfforts/defaultReasoning 전달을 추가하고 배열 복사도 검증 대상으로 뒀다.
+
+B 연결 검증: main이 지연된 core 구현 범위를 회수했다. types/validation/routes를 구현하고 ContextServices와 SummaryCall을 연결했다. 모델 라우트 테스트는 모듈 부재 red 후 4pass, 실제 SQLite 재열기·손상·CAS 검증 추가 후 기존 저장 테스트와 합쳐40pass/0fail/107assertions. services16pass/0fail/55assertions는 명시 tier, 역할 tier, cache revision, actual loopback responses/chat, observe/recall/reflect guard 보존, requested/applied 지원 상태를 포함한다. bun install --frozen-lockfile로 작업트리의 누락된 node_modules를 준비했고 lockfile 변경은 없다. 테스트 fixture readonly-array 타입을 수정한 뒤 bun run typecheck(root+browser) exit0. API/browser 단위는 별도 executor가 계속 작성 중이므로 전체 routing 완료는 아니다.
