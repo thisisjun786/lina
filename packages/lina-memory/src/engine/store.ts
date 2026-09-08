@@ -73,7 +73,9 @@ export class EngineStore {
 		this.db = opened.db;
 		try {
 			this.db.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE");
-			initializeEngine(this.db, identity, opened.fresh);
+			withReasoningReadScope(this.db, () =>
+				initializeEngine(this.db, identity, opened.fresh),
+			);
 			this.db.exec("COMMIT");
 			this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
 		} catch (error) {
@@ -926,7 +928,10 @@ export class EngineStore {
 		if (this.closed) throw new Error("engine store is closed");
 	}
 	private transaction<T>(action: () => T, write = true): T {
-		if (this.db.isTransaction) return action();
+		if (this.db.isTransaction) {
+			if(write)throw Error("reentrant engine mutation");
+			return action();
+		}
 		this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
 		try {
 			const value = withReasoningReadScope(this.db, action);
