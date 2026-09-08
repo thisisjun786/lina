@@ -118,7 +118,24 @@ export class ResourceMemoryWorker {
 					/* Revoked scope leaves a durable prepared claim for exclusive recovery. */
 				}
 			}
-			return { state: "failed" as const, reason: "memory_generation_failed" };
+			let state:
+				| "unavailable"
+				| "pending"
+				| "prepared"
+				| "ready"
+				| "failed"
+				| "unknown"
+				| "stale"
+				| "exhausted" = "unavailable";
+			try {
+				state =
+					store.memories.jobs(scope(), resourceId).find((j) => j.id === job.id)
+						?.state ?? "unavailable";
+			} catch {}
+			return {
+				state,
+				reason: signal.aborted ? "cancelled" : "memory_generation_failed",
+			};
 		}
 	}
 }

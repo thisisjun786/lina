@@ -199,3 +199,42 @@ test("TaskManager RPC consumes actual scoped resource tool and rejects the previ
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("model memory context keeps useful content instead of internal ledger hashes", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-memory-payload-")),
+		store = new ResourceStore(root, {
+			maxFileBytes: 4096,
+			maxCatalogBytes: 8192,
+			maxExtractionBytes: 4096,
+		});
+	try {
+		const scope = scopeForAgent("a"),
+			r = store.create(scope, {
+				operationId: "d",
+				kind: "document",
+				title: "Notes",
+				visibility: "shared",
+				mediaType: "text/plain",
+				bytes: new TextEncoder().encode("Evidence"),
+				deriveMemory: true,
+			});
+		const j = store.memories.jobs(scope, r.id)[0];
+		if (!j) throw Error("nojob");
+		store.memories.complete(
+			scope,
+			store.memories.prepare(scope, j.id, "Evidence"),
+			Array.from({ length: 16 }, (_, i) => ({
+				kind: "observation",
+				text: `Fact ${i}`,
+				quote: "Evidence",
+			})),
+		);
+		const frame = resourceMemoryContext(store, () => scope, r.id);
+		expect(frame.value.memories).toHaveLength(16);
+		expect(JSON.stringify(frame.value)).not.toContain("fingerprint");
+		expect(JSON.stringify(frame.value)).not.toContain("inputHash");
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

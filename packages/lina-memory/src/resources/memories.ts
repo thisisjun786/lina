@@ -97,6 +97,7 @@ const evidenceSchema = z.strictObject({
 	activityKind,
 });
 export interface ResourceMemory {
+	stale?: boolean;
 	id: string;
 	resourceId: string;
 	versionId: string;
@@ -472,21 +473,35 @@ export class ResourceMemories {
 	list(rawScope: ResourceScope, id: string): ResourceMemory[] {
 		const scope = scopeSchema.parse(rawScope);
 		this.owner.get(scope, id);
+		const ready = this.db
+			.prepare(
+				"SELECT id FROM resource_memory_jobs WHERE resource_id=? ORDER BY rowid DESC",
+			)
+			.all(id)
+			.map((r) => this.job(String(r["id"])));
+		const intent = this.intent(id);
+		const candidates = ready.filter(
+			(j) =>
+				j.state === "ready" &&
+				intent?.enabled &&
+				intent.revision === j.intentRevision &&
+				this.owner.current(scope, [j.ref]),
+		);
+		const job = candidates.find((j) => this.current(scope, j)) ?? candidates[0];
+		if (!job) return [];
+		const stale = !this.current(scope, job);
 		return this.db
 			.prepare(
 				"SELECT * FROM resource_memories WHERE resource_id=? ORDER BY rowid",
 			)
 			.all(id)
 			.map((r) => this.memory(r))
-			.filter((m) => {
-				const j = this.job(m.evidence.jobId);
-				return (
-					j.state === "ready" &&
-					j.memoryIds.includes(m.id) &&
-					this.current(scope, j)
-				);
-			});
+			.filter(
+				(m) => job.memoryIds.includes(m.id) && m.evidence.jobId === job.id,
+			)
+			.map((m) => (stale ? { ...m, stale: true } : m));
 	}
+
 	recoverInterrupted(): number {
 		return this.tx(() => {
 			let count = 0;

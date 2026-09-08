@@ -30,6 +30,7 @@
 | MODIFY | `packages/lina-runtime/test/resources-routes.test.ts` | codec를 상속하는 HTTP create/update의 capture 필드 전달·위조 거부 |
 | NEW | `packages/lina-memory/test/resource-memory-provenance.test.ts` | 실제 임시 DB 재개방·변조·권한·중복·migration |
 | NEW | `packages/lina-runtime/test/shared-resource-consumers.test.ts` | 일반 Lina A/B와 fake Codex RPC 도구 실행, task 없는 읽기와 인계 경쟁 |
+| MODIFY | `packages/lina-opencodex/test/resource-services.test.ts` | 실제 어댑터 fake fetch의 standard 경로·한도·기억 저장 검증 |
 | NEW | `packages/lina-runtime/test/resource-memory-worker.test.ts` | 실제 adapter fake fetch, 한도·취소·실패·복구 |
 | NEW | `packages/lina-codex/test/task-tool-owner.test.ts` | owner 변경 전후 실행·응답 차단 |
 
@@ -82,7 +83,7 @@ null-agent scope에 private가 포함되면 parser에서 거부한다. index 내
 
 P 기준선: `bun test packages/lina-memory/test/resources-store.test.ts packages/lina-runtime/test/resources-tools.test.ts packages/lina-codex/test/tasks.test.ts` → exit0, 17 pass/0 fail, 3 files/104 assertions. 세 경로를 직접 관찰하며 새 기억 구현을 증명하지는 않는다. 최초 명령의 단수 resource-store 오타는 자료 테스트를 실행하지 못했으므로 증거에서 제외하고 복수 경로로 바로잡아 실행했다. 출력은 session evidence/shared-memory-baseline.log다. 구조 검사도 18문서/108경로/9단계 errors[] exit0다.
 
-기억 중복 키의 fingerprint에는 canonical source refs, capture intent revision, effective generation, kind/text/근거를 포함한다. 같은 완료를 재전달하면 같은 ID 목록을 돌려주고, 새 generation은 이전 기억을 대체하되 현재 generation만 반환한다. 취소 뒤 같은 원문에서 재활성화해도 attempt 누적치는 유지한다. 자료를 공동 수정할 수 있는 소비자는 capture intent도 수정할 수 있으며 owner/visibility 자체는 기존 규칙을 따른다. 공유 기억을 개인 성장 기록으로 자동 반입하는 경로는 만들지 않는다. LIFE activity 연결은 070에서 현재 원문/기억 참조의 공개 범위를 다시 검증한다.
+기억 중복 키의 fingerprint에는 canonical source refs, capture intent revision, effective generation, kind/text/근거를 포함한다. 같은 완료를 재전달하면 같은 ID 목록을 돌려주고, 새 generation은 이전 기억을 대체하되 현재 generation을 우선 반환한다. 없으면 같은 원문·intent·권한에 묶인 가장 최근 ready 기억을 stale=true로 반환한다. 취소 뒤 같은 원문에서 재활성화해도 attempt 누적치는 유지한다. 자료를 공동 수정할 수 있는 소비자는 capture intent도 수정할 수 있으며 owner/visibility 자체는 기존 규칙을 따른다. 공유 기억을 개인 성장 기록으로 자동 반입하는 경로는 만들지 않는다. LIFE activity 연결은 070에서 현재 원문/기억 참조의 공개 범위를 다시 검증한다.
 
 ## 독립 A 1차 반영
 
@@ -93,8 +94,15 @@ P 기준선: `bun test packages/lina-memory/test/resources-store.test.ts package
 
 ## B 구현 연결과 검증 기록
 
-903122f까지 자체 capture ledger·source snapshot·strict 복구 감사, standard observation callback, 실제 provider input/output cap, resourceMemoryContext, 확인 모드 기억 읽기, task 없는 공통 consumer와 TaskManager RPC 연결을 구현했다. 원문 텍스트 또는 추출 결과의 blobHash/extractionId/textHash/complete를 저장하고, 잘린 입력은 inputComplete=false로 따로 표시한다. ready 기록은 completedToken+outputHash+memoryIds로 재현·감사한다. 기억 state는 저장 시 active, revision1이며 현재 intent/source/generation과 맞는 기록만 반환한다. 역사 기록을 현재 지식으로 자동 복원하지 않는다.
+903122f까지 자체 capture ledger·source snapshot·strict 복구 감사, standard observation callback, 실제 provider input/output cap, resourceMemoryContext, 확인 모드 기억 읽기, task 없는 공통 consumer와 TaskManager RPC 연결을 구현했다. 원문 텍스트 또는 추출 결과의 blobHash/extractionId/textHash/complete를 저장하고, 잘린 입력은 inputComplete=false로 따로 표시한다. ready 기록은 completedToken+outputHash+memoryIds로 재현·감사한다. 기억 state는 저장 시 active, revision1이며 현재 intent/source/권한에 맞는 기록만 반환한다. 현재 generation이 없으면 가장 최근 이전 generation을 stale=true로 표시한다. 역사 기록을 현재 지식으로 자동 복원하지 않는다.
 
 관련 테스트 395 pass/0 fail, 54 files, 1715 assertions. 이는 로컬 임시 DB·가짜 provider fetch·가짜 Codex RPC 증거이며 실제 모델 품질이나 설치 완료를 뜻하지 않는다. 소스 커밋 이후 독립 검토를 기다린다. 전체 관련 C 검증 receipt와 최종 문서 정합은 아직 진행 전이다.
 
 TaskManager owner 인자는 실제 task에서만 생성한다. 도구 실행은 인계가 가능한 큐 밖에서 처리하고, 최종 응답은 task 큐에서 owner/revision을 다시 검사한다. 겹친 RPC request id도 개별 promise로 추적해 종료 시 전부 기다리고, 완료된 promise는 제거한다. 자료 소비자의 null owner는 shared-only지만 TaskStore의 기존 owner 필드 자체를 nullable로 바꾸지는 않는다.
+
+
+## B 독립 검토 수정
+
+설정 변경 누적 후 교체 호출 한도가 소진되더라도 원문과 권한이 같은 기존 지식은 사라지지 않는다. 현재 generation의 ready 결과가 있으면 우선 쓰고, 없으면 동일 intent/source의 최신 ready 결과를 stale=true로 전달한다. 실패/성공 시도 누적 한도는 유지한다. 원문 revision·intent 또는 공개 범위가 바뀐 기억은 이 fallback에 포함하지 않는다. 이는 이전 초안의 generation 불일치 무조건 비노출을 대체한다.
+
+모델 전달값은 id/kind/text/quote/stale/complete/activityKind와 공통 URI/ref만 포함한다. 내부 generation/hash/claim/proposer 데이터는 host ledger에 남기고 context에서는 제외한다. 16개 짧은 기억이 기본 context 한도 안에 모두 들어가는 검사를 추가했다. pre-claim 실패는 저장된 pending/exhausted 상태를 그대로 보고하며 cancellation 이유를 따로 표시한다. ephemeral task consumer의 CodexHost는 외부 세션/서버를 만들지 않고 호출별 scope를 분리하는 도구 registry로 사용한다.

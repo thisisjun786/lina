@@ -227,3 +227,59 @@ test("republishing metadata cannot turn a private historical version into shared
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("generation exhaustion preserves previous source-valid knowledge with a stale marker", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-memory-generation-"));
+	let revision = 1;
+	const generation = () => ({
+		policyRevision: revision,
+		modelSettingsRevision: revision,
+		routeKey: `route${revision}`,
+		estimatorId: "test",
+		maxAttempts: 3,
+	});
+	const store = new ResourceStore(root, limits, undefined, generation);
+	try {
+		const r = store.create(scope, {
+			operationId: "capture",
+			kind: "document",
+			title: "Notes",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("Evidence"),
+			deriveMemory: true,
+		});
+		for (revision = 1; revision <= 3; revision++) {
+			store.memories.refresh(scope, r.id);
+			const j = store.memories
+				.jobs(scope, r.id)
+				.find((j) => j.generation.policyRevision === revision);
+			if (!j) throw Error("nojob");
+			store.memories.complete(
+				scope,
+				store.memories.prepare(scope, j.id, "Evidence"),
+				[
+					{
+						kind: "observation",
+						text: `knowledge${revision}`,
+						quote: "Evidence",
+					},
+				],
+			);
+		}
+		store.memories.refresh(scope, r.id);
+		const j = store.memories
+			.jobs(scope, r.id)
+			.find((j) => j.generation.policyRevision === revision);
+		if (!j) throw Error("nojob");
+		expect(() => store.memories.prepare(scope, j.id, "Evidence")).toThrow(
+			"exhausted",
+		);
+		expect(store.memories.list(scope, r.id)).toMatchObject([
+			{ text: "knowledge3", stale: true },
+		]);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
