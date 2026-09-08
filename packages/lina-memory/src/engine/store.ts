@@ -370,9 +370,9 @@ export class EngineStore {
 			requireCurrentProofs(record.sourceProofs, this.lookup);
 		this.db
 			.prepare(
-				"INSERT OR IGNORE INTO engine_record_history SELECT id,json_extract(data, '$.revision'),data FROM engine_records WHERE id=?",
+				"INSERT OR IGNORE INTO engine_record_history SELECT id,json_extract(data, '$.revision'),data FROM engine_records WHERE id=? AND json_extract(data, '$.revision')<>?",
 			)
-			.run(record.id);
+			.run(record.id, record.revision);
 		this.db
 			.prepare(
 				"INSERT INTO engine_records VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, expires_at=excluded.expires_at, updated_at=excluded.updated_at, data=excluded.data",
@@ -393,6 +393,12 @@ export class EngineStore {
 		);
 		for (const source of record.sources)
 			insert.run(record.id, source.entryId, source.quote);
+		if (!record.reasoning)
+			this.db
+				.prepare(
+					"UPDATE engine_reasoning_checkpoint SET dirty_revision=? WHERE id=1",
+				)
+				.run(record.revision);
 	}
 	private read(active: boolean): EngineSnapshot {
 		this.assertOpen();

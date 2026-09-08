@@ -51,6 +51,21 @@ const observationSchema = z.strictObject({
 	status: z.enum(["active", "resolved", "retracted"]).default("active"),
 });
 const recordSchema = z.strictObject({
+	reasoning: z
+		.strictObject({
+			kind: z.enum(["deduction", "induction"]),
+			premises: z
+				.array(
+					z.strictObject({
+						recordId: engineIdSchema,
+						revision: revisionSchema,
+						contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+					}),
+				)
+				.min(1)
+				.max(ENGINE_SOURCES_MAX),
+		})
+		.optional(),
 	sourceRequestId: engineIdSchema.optional(),
 	sourceProofs: z.unknown().optional(),
 	...fields,
@@ -110,9 +125,10 @@ export function parseApply(value: unknown) {
 }
 export function parseRecord(value: unknown): EngineRecord {
 	const parsed = recordSchema.parse(value);
-	const { sourceProofs, sourceRequestId, ...fields } = parsed;
+	const { sourceProofs, sourceRequestId, reasoning, ...fields } = parsed;
 	const record: EngineRecord = {
 		...fields,
+		...(reasoning === undefined ? {} : { reasoning }),
 		...(sourceRequestId === undefined ? {} : { sourceRequestId }),
 		...(sourceProofs === undefined
 			? {}
@@ -130,10 +146,21 @@ export function parseRecord(value: unknown): EngineRecord {
 	const distinct = new Set(
 		record.userSourceIds ?? record.sources.map((s) => s.entryId),
 	).size;
-	const expected =
-		record.evidence === "explicit" || distinct >= 2
+	const expected = record.reasoning
+		? record.reasoning.kind === "induction"
+			? "provisional"
+			: record.support
+		: record.evidence === "explicit" || distinct >= 2
 			? "supported"
 			: "provisional";
+	if (
+		record.reasoning &&
+		(record.evidence !== "inferred" ||
+			!record.sourceRequestId?.startsWith("reasoning-") ||
+			new Set(record.reasoning.premises.map((p) => p.recordId)).size !==
+				record.reasoning.premises.length)
+	)
+		throw Error("invalid persisted reasoning record");
 	if (
 		record.support !== expected ||
 		(record.status === "resolved" && expected !== "supported")

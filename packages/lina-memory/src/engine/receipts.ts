@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
+import { validateReasoningRecordReceipt } from "./reasoning-receipts.ts";
 import { mergeSources } from "./records.ts";
 import { ENGINE_BATCH_MAX, type EngineRecord } from "./types.ts";
 import {
@@ -81,7 +82,9 @@ export function readEngineReceipt(
 export function validateRecordReceipt(
 	db: DatabaseSync,
 	record: EngineRecord,
+	seen = new Set<string>(),
 ): boolean {
+	if (record.reasoning) return validateReasoningRecordReceipt(db, record, seen);
 	if (!record.sourceRequestId) return false;
 	const receipt = readEngineReceipt(db, record.sourceRequestId);
 	if (

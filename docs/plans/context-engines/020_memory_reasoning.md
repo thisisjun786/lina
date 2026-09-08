@@ -1,6 +1,6 @@
 # 020 — 근거 연결과 기억 재검토
 
-상태: P 설계 초안. 감사 전이며 구현 완료가 아니다. 단위 `memory`, 선행 `routing`.
+상태: B 구현 중. 독립 A 잔여 수정 반영 후 진입했으며 전체 구현 완료가 아니다. 단위 `memory`, 선행 `routing`.
 
 원본 확인: 2026-09-08 Honcho `5a2f807b8b905cbb20e88267a9138f53c1e8d755`의 [dream orchestrator](https://github.com/plastic-labs/honcho/blob/5a2f807b8b905cbb20e88267a9138f53c1e8d755/src/dreamer/orchestrator.py)를 읽었다. 연역 다음 귀납을 실행하며 각 실행의 성공·실패와 반복 수를 따로 기록한다. 모델 호출 중 DB transaction을 유지하지 않는다. LINA에서는 이 책임 분리를 자체 기록·출처 검증·내구 큐에 적용한다. upstream 전체 구현의 동등성을 주장하지 않는다.
 
@@ -34,6 +34,10 @@
 | MODIFY | `packages/lina-runtime/src/context/memory.ts` | observation과 구분한 선택적 consolidation 상태 |
 | MODIFY | `packages/lina-memory/test/engine.test.ts` | v4 migration·동일 관찰 no-op 회귀 |
 | MODIFY | `packages/lina-memory/test/engine-source-policy.test.ts` | v3 원본 보존 및 v4 전체 맥락 철회 검사 |
+| NEW | `packages/lina-memory/src/engine/reasoning-receipts.ts` | 정규 입력/출력과 전제 history·claim을 대조하는 추론 receipt 검사 |
+| NEW | `packages/lina-memory/test/consolidation.test.ts` | 내구 claim·중복·중단·트랜잭션 rollback 부정 경로 |
+| NEW | `packages/lina-memory/test/engine-reasoning-schema.test.ts` | 실제 DB 재열기와 v4 checkpoint/receipt 손상 거부 |
+| NEW | `packages/lina-memory/test/fixtures/engine-v3.ts` | 이전 schema fixture 생성; 실제 구버전 binary 생성 증거와 구분 |
 
 ## 필드·상태 흐름
 
@@ -130,3 +134,9 @@ Migration audit의 기존 version===3 검사는 version>=3으로 바꾸고 v4 �
 추가 red 사례: 새로운 episode에서 같은 내용 재확인→기존 결론 유지, 두 provisional 전제→provisional 결론, inference만 forget→원본/형제 유지 및 같은 근거 재학습 차단, uncited prompt 철회, unrelated write 후 동일 job 재claim, marker 저장 후 kill/reopen, 실 API의 dedicated system prompt와 출력 한도. 기존74개에 lifecycle baseline17개(97 assertions)도 통과했다. 두 로그는 분리 보존하며 새 구현 증거로 합산하지 않는다.
 
 A 잔여 수정: 관찰 결과의 retracted 상태로 inferred slot을 잊는 경우도 원본/형제를 보존하는 red를 작성한다. v3 동일(id,revision)의 history/current 불일치 fixture도 정상 이전돼야 한다. support 상한의 전제 조회는 applyConclusions/audit가 담당한다. store의 새 id-cursor read는 coverage 계산에 사용한다. 지속적인 새 대화로 superseded가 반복되면 consolidation은 pending/withheld로 남을 수 있으며 완료라고 표시하지 않는다. 동일 관찰 no-op은 updatedAt과 ranking 보존까지 검사한다.
+
+## B 중간 구현 기록
+
+11588d4는 동일 근거 재처리 시 premise revision을 보존한다. 2916005는 정정 뒤 cached recall을 거부한다. 35f3b7f의 전제 검증과7975195의 내구 작업 큐는 단위 검증을 마쳤다. 13bd989는 전용 consolidate 서비스와 정책 저장 owner다. child의 실제 loopback HTTP 검증과 로컬 타입 검사는 통과했으며 유료 모델을 호출하지 않았다.
+
+v4 migration/checkpoint 및 receipt audit를 연결하는 작업은 계속 진행 중이다. 같은 transaction에서 record를 여러 번 바꿀 때 중간 상태를 history에 잘못 남기는 사례는 red로 재현하고 수정했다. 기존 v3의 같은 형태는 migration revision 경계로 보존한다. memory-v4-scope.log는144 pass/0 fail/680 assertions, memory-v4-types.log는 exit0다. 이 증거는 결론 apply·실제 Companion 재검토·다음 답변·재시작 end-to-end 완료를 뜻하지 않는다. 해당 연결은 아직 남아 있으며 memory-proof를 충족했다고 표시하지 않는다.

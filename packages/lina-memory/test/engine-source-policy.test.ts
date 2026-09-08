@@ -11,6 +11,7 @@ import { buildObservationPrompt } from "../src/engine/prompt.ts";
 import { EngineStore } from "../src/engine/store.ts";
 import type { Observation } from "../src/engine/types.ts";
 import { hash, validateSources } from "../src/engine/validation.ts";
+import { removeReasoningSchema } from "./fixtures/engine-v3.ts";
 import { ordinarySource, restrictSource } from "./fixtures/native-sources.ts";
 
 const cleanups: (() => void)[] = [];
@@ -79,6 +80,80 @@ test("repeating identical evidence commits processing without changing premise r
 	s.close();
 	expect(f.open().state().records).toEqual(first.records);
 });
+
+test("changed evidence commits a durable reasoning marker, identical replay leaves it unchanged", () => {
+	const f = fixture(),
+		s = f.open();
+	const sourceProofs = captureSourceProofs(["u"], f.lookup);
+	s.apply({
+		requestId: "changed",
+		expectedRevision: 0,
+		observations: [candidate()],
+		sourceProofs,
+	});
+	s.apply({
+		requestId: "same",
+		expectedRevision: 1,
+		observations: [candidate()],
+		sourceProofs,
+	});
+	s.close();
+	const db = new DatabaseSync(f.path);
+	try {
+		expect(
+			db
+				.prepare("SELECT dirty_revision FROM engine_reasoning_checkpoint")
+				.get()?.["dirty_revision"],
+		).toBe(1);
+	} finally {
+		db.close();
+	}
+	expect(f.open().currentRevision()).toBe(2);
+});
+
+for (const legacy of [false, true])
+	test(`multi-slot withdrawal preserves ${legacy ? "legacy v3 divergent" : "v4 consistent"} history on reopen`, () => {
+		const f = fixture(),
+			s = f.open();
+		const first = s.apply({
+			requestId: "initial",
+			expectedRevision: 0,
+			observations: [candidate("u", "one"), candidate("u", "two")],
+			sourceProofs: captureSourceProofs(["u"], f.lookup),
+		});
+		const result = s.apply({
+			requestId: "withdraw",
+			expectedRevision: 1,
+			observations: [
+				{ ...candidate("fresh", "one"), status: "retracted" },
+				{ ...candidate("fresh", "two"), status: "retracted" },
+			],
+			sourceProofs: captureSourceProofs(["fresh"], f.lookup),
+		});
+		s.close();
+		if (legacy) {
+			const db = new DatabaseSync(f.path);
+			try {
+				removeReasoningSchema(db);
+				const original = first.records[0];
+				if (!original) throw Error("missing original");
+				const intermediate = {
+					...original,
+					status: "retracted",
+					revision: result.revision,
+					generation: original.generation + 1,
+					updatedAt: Date.now(),
+					invalidatedAt: Date.now(),
+				};
+				db.prepare(
+					"INSERT OR REPLACE INTO engine_record_history VALUES (?,?,?)",
+				).run(original.id, result.revision, JSON.stringify(intermediate));
+			} finally {
+				db.close();
+			}
+		}
+		expect(f.open().snapshot().records).toEqual(result.records);
+	});
 
 for (const mode of ["read", "reopen"] as const)
 	test(`N2: removing an assistant record proof rejects on ${mode}`, () => {
@@ -223,7 +298,7 @@ test("episode assistant proof withdraws user-only quote, receipt and stale promp
 	expect(reopened.snapshot().records).toEqual([]);
 	expect(reopened.recordCount()).toBe(1);
 	const db = new DatabaseSync(f.path);
-	expect(db.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(3);
+	expect(db.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(4);
 	db.close();
 });
 test("withheld explicit records cannot outrank fresh inference or consume the read limit", () => {
@@ -347,6 +422,7 @@ test("legacy engine v2 records and receipt bytes remain inspectable but cannot s
 	});
 	s.close();
 	const db = new DatabaseSync(f.path);
+	removeReasoningSchema(db);
 	db.exec(
 		"DROP TABLE engine_request_sources; DROP TABLE engine_record_history; UPDATE engine_records SET data=json_remove(data,'$.sourceProofs','$.sourceRequestId'); PRAGMA user_version=2",
 	);
@@ -386,6 +462,7 @@ test("engine migration audits final DDL before commit and leaves old schema on f
 		s = f.open();
 	s.close();
 	const db = new DatabaseSync(f.path);
+	removeReasoningSchema(db);
 	db.exec(
 		"DROP TABLE engine_request_sources; DROP TABLE engine_record_history; PRAGMA user_version=2",
 	);

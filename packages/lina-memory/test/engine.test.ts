@@ -39,6 +39,7 @@ import type {
 	SourceEntry,
 } from "../src/engine/types.ts";
 import { hash, parseObservations } from "../src/engine/validation.ts";
+import { removeReasoningSchema } from "./fixtures/engine-v3.ts";
 import { ordinarySource } from "./fixtures/native-sources.ts";
 
 const roots: string[] = [];
@@ -744,6 +745,7 @@ test("exact v1 engine migration retains records, sources and receipt fingerprint
 	const before = s.snapshot();
 	s.close();
 	const db = new DatabaseSync(f.path);
+	removeReasoningSchema(db);
 	db.exec(
 		"DROP TABLE engine_slot_fences; DROP TABLE engine_request_sources; DROP TABLE engine_record_history; UPDATE engine_records SET data=json_remove(data, '$.sourceProofs', '$.sourceRequestId'); PRAGMA user_version=1",
 	);
