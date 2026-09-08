@@ -65,3 +65,11 @@ A 통과 후 core generation owner와 fileDB tests를 executor에 위임하고, 
 기준 검사: `bun test packages/lina-runtime/test/context-*.test.ts packages/lina-core/test/context*.test.ts` exit0,80pass716asserts/19files. 직접 glob이 기존 대상 소스의 소비 테스트를 포함한다. 신규 테스트는 아직 없다. B는 실패→구현→회귀를 기록하고 C는 해당 suite, types/lint/docs/build와 독립 검토를 수행한다. 앱 상태·생산 데이터·provider 호출은 없다.
 
 검증 계층: 정책은 runtime 입력/dispatch 및 core parse/storage에서 검사한다. 임의로 내부 SQLite를 수정하는 같은 OS 사용자를 막는 보안 격리는 아니다. source validator 우회/프로그램 수정은 별도 신뢰 경계이며, 저장 감사는 손상을 검출하는 기능이다. 문서 checker는 구조만 검사하며 의미적 수용 판정은 독립 코드/계약 검토가 맡는다.
+
+## Main A 보완
+
+추가 MODIFY `context/injection.ts`: 기존 2048 token ceiling은 기능이지만 문자로 자르는 단계에 Unicode-safe packing과 실제 policy/estimator를 적용한다. `core/context/index.ts`는 새 generation 타입을 export한다. 생성 guard는 source proofs뿐 아니라 고정 policy 전체·route key·estimator ID가 현재와 같은지 모델 dispatch 직전과 응답 후에 대조한다. 불일치 시 old checkpoint를 보존하고 새 활성화를 거부한다.
+
+최근 원문도 ContextStore의 ordinary eligibility와 source proof를 통과한 항목만 쓴다. native message에 같은 안정 ID가 있으면 중복 주입하지 않는다. 메시지 ID를 확인할 수 없을 때 텍스트가 같다는 이유로 임의 중복 판정하지 않는다. 전체 envelope가 한도에 맞지 않으면 omission을 남긴다. 중요한 결정을 text 잘라내기로 보존했다고 주장하지 않는다.
+
+정책·route·추정기가 변경되면 새 대화가 없어도 기존 generation과 비교해 재구성을 시도한다. freshTailEntries가 늘면 이전 checkpoint가 이미 포함한 최근 항목을 분리해야 하므로 원문에서 재구성한다. 새 root를 만들기 전에는 기존 활성 root를 지우지 않고, 그 root가 현재 출처/주입 예산 안에 있으면 읽을 수 있다. legacy active는 읽기 호환성을 유지하되 새 metadata 기준 cache hit으로 취급하지 않는다. source 참조만 같고 요약 입력이 달라진 경우를 막으려면 실제 input digest도 generation 식별에 포함한다.
