@@ -18,4 +18,4 @@
 
 자료 유형은 text/markdown/html/pdf/image를 초기 상세 설계의 직접 대상에 두며 Office/스프레드시트도 비개발 업무의 문서 요구로 추출 경로를 설계한다. 단순히 후속으로 제외하지 않는다. 실제 parser 미지원은 stored-but-not-indexed로 표시하고 전체 기능 검증에서 누락을 남긴다. 원본 파일은 항상 원형으로 보존한다.
 
-Honcho 참고: https://honcho.dev/docs/v3/documentation/core-concepts/reasoning 및 https://github.com/plastic-labs/honcho/blob/main/src/dreamer/orchestrator.py . LCM 참고: https://papers.voltropy.com/LCM . Honcho main을 구현 기준으로 사용할 때는 구현 cycle 전 commit을 고정한다. 전문 모델 학습·운영 복제는 요구되지 않았으며 모델은 LINA 공통 route로 선택한다.
+Honcho 참고: [reasoning 설명](https://honcho.dev/docs/v3/documentation/core-concepts/reasoning) 및 [고정한 dream orchestrator](https://github.com/plastic-labs/honcho/blob/5a2f807b8b905cbb20e88267a9138f53c1e8d755/src/dreamer/orchestrator.py). 020 P에서 2026-09-08 HEAD를 조회하고 해당 원문을 읽어 연역→귀납 순서와 transaction 밖 호출 경계를 확인했다. LCM 참고: https://papers.voltropy.com/LCM . 전문 모델 학습·운영 복제는 요구되지 않았으며 모델은 LINA 공통 route로 선택한다.

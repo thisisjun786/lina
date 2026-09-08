@@ -10,14 +10,17 @@
 
 ## 개인 추론 기록
 
-기존 `Observation`은 직접 원문 기반 입력으로 유지한다. 새 `ConclusionProposal`은 다음 필드를 가진다: `subject`, `kind`, `key`, `text`, `reasoningKind: deduction|induction`, `premises: [{recordId,revision}]`, `sourceProofs`. 모델이 적은 sourceProofs를 신뢰하지 않고 owner가 premise에서 계산한다. 직접 user claim과 달리 결론은 항상 inferred다.
+020 독립 A에서 정밀화한 계약이 이 절의 초안보다 우선한다. 특히 premise contentHash, 전체 consulted proof, inference 전용 망각, support 상한, 원자적 checkpoint, 전용 consolidate 호출은 [020의 감사 반영](020_memory_reasoning.md#독립-a-검토-반영-앞선-초안보다-우선하는-계약)을 따른다.
 
-`EngineStore.applyConclusion({requestId,expectedRevision,proposal})`가 유일한 쓰기 boundary다. 전제는 동일 binding의 active/nonexpired/current source record여야 한다. 자신 참조·cycle·누락 전제·다른 agent 참조를 거부한다. 새 결론의 전제 edges는 해당 결론 revision에 묶는다. 동일 requestId/input fingerprint는 replay, 서로 다른 input은 conflict다.
+기존 `Observation`은 직접 원문 기반 입력으로 유지한다. 새 `ConclusionProposal`은 다음 필드를 가진다: `subject`, `kind`, `key`, `text`, `reasoningKind: deduction|induction`, `premises: [{recordId,revision}]`. sourceProofs는 모델 입력 필드가 아니며 owner가 premise에서 계산한다. 직접 user claim과 달리 결론은 항상 inferred다.
+
+`EngineStore.applyConclusions({requestId,expectedRevision,proposals,claim})`가 추론의 쓰기 boundary다. claim은 host가 저장한 작업 입력이며 모델이 만들지 않는다. 전제는 동일 binding의 active/nonexpired/current source record여야 한다. 자신 참조·cycle·누락 전제·다른 agent 참조를 거부한다. 새 결론의 전제 edges는 해당 결론 revision에 묶는다. 동일 requestId/input fingerprint는 replay, 서로 다른 input은 conflict다. 원자적 batch와 빈 결과 receipt, 정확한 저장 열은 [020의 확정 전 상세 계약](020_memory_reasoning.md#상세-계약과-검증-대상)을 따른다.
 
 새 테이블:
 - `engine_premises(conclusion_id, conclusion_revision, premise_id, premise_revision)` 복합 PK 및 record_history 참조.
-- `engine_reasoning_receipts(request_id PRIMARY KEY, input_fingerprint, policy_revision, output_revision, outcome)`.
-- `engine_reasoning_jobs(id PRIMARY KEY, input_fingerprint UNIQUE, policy_revision, state, claim_token, attempts, error, result_revision)`.
+- `engine_reasoning_receipts`: 요청 identity, 정규화한 입력/출력, 정책·모델 설정 revision, 결과 revision과 outcome을 저장한다.
+- `engine_reasoning_jobs`: 입력 fingerprint UNIQUE, 고정 입력 JSON, 정책·모델 설정 revision, state, claim token, attempts, next due, error, result revision을 저장한다.
+- `engine_reasoning_checkpoint`: 직접 record commit과 함께 재검토 필요 revision을 남기는 singleton이다.
 
 해당 schema validator/audit는 전제의 존재·version 정합·순환과 모든 record projection을 검사한다. 기존 v3 기록은 기존 직접 근거 그대로 유지하며 새 추론 전제를 소급 조작하지 않는다. 변경/철회된 전제로부터 역방향 edge를 순회해 descendants를 model eligibility에서 제외한다. restore 시 job의 claim과 실제 commit receipt를 대조한다. expired lease만으로 결과가 없었다고 단정하지 않는다.
 

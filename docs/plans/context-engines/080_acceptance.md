@@ -36,3 +36,9 @@
 ## 감사와 재검증
 
 공통 상태 계약은 004_contracts.md, 해당 단위의 추가 계약은 아래 사전 감사 수정 절을 따른다. A에서 source/소비자 누락을 검사하고, 각 구현 P에서는 선행 커밋으로 바뀐 타입과 경로를 재검증한다. A 통과 전 구현은 시작하지 않는다.
+
+## routing D 인계
+
+공통 등급은 기존 settings PATCH API로 활성/해제한다. 현재 UI는 저장된 등급의 보존·표시와 에이전트별 모델/추론 override만 제공한다. 이것을 새 tier 편집 UI 구현으로 표시하지 않는다.
+
+전체 acceptance는070에서 다룰 LIFE 이미지 시간 초과가 해결된 전체 테스트 결과를 요구한다. routing357개 관련 검사 통과와 full-root3294pass/45기존skip/1timeout은 별개다. native qualification 등 기존45개 skip도 실제 모델 검증으로 계산하지 않는다. 유료 모델 자격 검증은 여전히 별도 승인 범위다.

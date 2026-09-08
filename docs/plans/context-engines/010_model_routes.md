@@ -1,6 +1,6 @@
 # 010 — 공통 처리 등급과 실제 모델 요청
 
-상태: B 구현·독립 검토 완료, C 통합 검사 대상. 선행: 전체 roadmap 잠금. 분류 C4(settings persistence/consumer contract).
+상태: routing D 완료. 관련 357개 테스트·타입·린트·빌드·HTTP/브라우저 QA 통과. 전체 검사에서 발견한 기존 LIFE 이미지 시간 초과는 integration/acceptance에서 해결할 열린 항목이다. 선행: 전체 roadmap 잠금. 분류 C4(settings persistence/consumer contract).
 
 ## 목적
 

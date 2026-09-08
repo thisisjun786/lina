@@ -70,7 +70,7 @@ MODIFY `packages/lina-runtime/src/checkpoint-cli.ts`는 외부 memory가 export�
 
 | 작업 | 경로 | 전 → 후 |
 | --- | --- | --- |
-| NEW | `packages/lina-runtime/src/context/policy-settings.ts` | contextPolicy/enginePolicy 버전 JSON과 CAS revision을 내장 SQLite에 저장, 기존 model settings와 구분 |
+| MODIFY | `packages/lina-runtime/src/context/policy-settings.ts` | 020에서 생성한 정책 owner를 contextPolicy/enginePolicy 및 installation 조립으로 확장, 기존 model settings와 구분 |
 | MODIFY | `packages/lina-runtime/src/fleet/companion-routes.ts` | /api/engines/policy GET/PATCH로 policy snapshot/CAS 교환; 새 revision은 다음 처리 입력에 고정 |
 | MODIFY | `packages/lina-core/src/world/work-validation.ts` | parseWorkEvidence v1 역사 읽기 보존, v2 records.origin의 codex-task/resource-activity 판별 |
 | MODIFY | `packages/lina-core/src/world/autonomy-source.ts` | 각 origin의 source digest와 permission 현재성 검증 |
@@ -81,3 +81,9 @@ MODIFY `packages/lina-runtime/src/checkpoint-cli.ts`는 외부 memory가 export�
 | MODIFY | `packages/lina-runtime/src/fleet/life-runtime.ts` | exact 선택의 provider/model 유일성 검사는 유지, tier 선택은 routes.tiers[tier].profileId로 해석 |
 
 WorkEvidenceSnapshot v2는 records의 origin별 receipt 타입을 구분하며 v1 task/turn 기반 데이터는 기존 decoder로 복원한다. 외부 owner 변경은 순차 통합으로 확인한다. tier를 선택했지만 routes/binding이 없으면 not_configured로 step 생성을 거부하며 기본 profile로 몰래 대체하지 않는다. backend의 disabled 값은 명시적 학습 비활성화로 유지한다. disabled에서도 사용자가 요청한 원문 접근·기존 자료 보존을 삭제로 해석하지 않는다.
+
+## routing D에서 넘긴 LIFE 기준점 문제
+
+2026-09-08 parent LIFE HEAD는 e8fb289(선행3dc2721)까지 커밋됐다. 복구 재사용·이미지 pause/restart 수정이 포함된다. 현재 context-engines는 여전히0b68b2f 기반이며 미커밋 LIFE acceptance 변경은 복사하지 않는다. 이 단위에서 현재 커밋/계약을 다시 비교하고 검토된 변경을 연결한 뒤 아래 실패를 해결해야 한다.
+
+`packages/lina-runtime/test/life-image-fleet-event.test.ts`의 accepted event→post image→restart→revocation 테스트: routing 전체 검사에서8866ms로5000ms 제한 실패. 독립 현재 실행8331ms, routing 이전 e39eb56 archive에서도9148ms로 동일 실패. routing delta는 해당 test/fixture/world-image 경로를 수정하지 않았다. hosted baseline CI는 확인하지 않았고 정확한 replay 비용 원인은 아직 추적 중이다. 단순 재실행·timeout 상향·skip으로 닫지 않는다. `.codexclaw/evidence/01a08149-2fcd-7b83-b427-a104f083df05/routing-timeout.md`와 full-tests 로그가 근거다.
