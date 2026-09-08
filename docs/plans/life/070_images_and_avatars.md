@@ -1,6 +1,6 @@
 # 070 — Event images and evolving profile pictures
 
-Status: B integration in progress, 2026-09-08, following completed060 `e8078fd` and audited image contracts `d83f317`. Depends on [060](060_publication.md) and the image-owner implementation. Reuse the existing image engine; do not write a second ima2 client or provider router. The concrete extension is [071](071_image_execution_contract.md); [072](072_image_authority_and_accounting.md) resolves the first independent audit's restore, scheduling, serving and reservation gaps. Both refine this same070 work phase.
+Status: completed locally at `e8fb289`, 2026-09-08; source-bound Check passed and the070 cycle closed to IDLE. Follows completed060 `e8078fd` and audited image contracts `d83f317`. Depends on [060](060_publication.md) and the image-owner implementation. Reuse the existing image engine; do not write a second ima2 client or provider router. The concrete extension is [071](071_image_execution_contract.md); [072](072_image_authority_and_accounting.md) resolves the first independent audit's restore, scheduling, serving and reservation gaps. Both refine this same070 work phase.
 
 The user should see an appropriate permitted scene picture alongside a LIFE post,
 and may configure profile-picture candidates, automatic application, pinning and

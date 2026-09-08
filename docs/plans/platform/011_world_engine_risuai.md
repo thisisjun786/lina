@@ -1,9 +1,11 @@
 # LINA world engine: RisuAI reference and adoption backlog
 
+Implementation update,2026-09-08: the bounded authored lore/rule subset, isolated social adapter, autonomous work/persona/publication paths and image/avatar integration are implemented in010–070. Use the [consumer guide](../../LIFE_ENGINE.md) and080 for current integration evidence. Native Risu imports, arbitrary scripts and compatibility with its full runtime remain unclaimed.
+
 Date: 2026-09-07. Status: world-engine direction and RisuAI reference selected by
 the user. The [minimal world implementation](012_world_engine_mvp.md) now supplies opt-in state, events and scoped context; RisuAI imports and the broader mechanisms below remain backlog.
 The [deeper source research and LIFE contract](013_life_engine_research.md) supersede the earlier assumption that raw world events should automatically enter ordinary Lina conversation. Shared personality/relationship development and event/secret disclosure are separate paths.
-The [complete LIFE plan](../life/000_plan.md) specifies the implementation order, including the [supported authoring/rule subset](../life/020_world_authoring.md) and [social-engine adapter](../life/030_social_engine.md). These are planned additions, not existing import compatibility.
+The [complete LIFE plan](../life/000_plan.md) specifies the implementation order, including the [supported authoring/rule subset](../life/020_world_authoring.md) and [social-engine adapter](../life/030_social_engine.md). These implemented additions do not establish native Risu import compatibility.
 Related: [daily-life/SNS ideas](010_agent_daily_life_ideas.md),
 [ima2 image engine](009_ima2_image_engine.md),
 [refactor preparation](008_refactor_preparation.md).

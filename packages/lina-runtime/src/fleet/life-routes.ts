@@ -70,6 +70,16 @@ export async function lifeRoutes(
 		request.headers.get("host") !== url.host
 	)
 		return reply({ error: "Forbidden" }, 403);
+	if (url.pathname === "/api/life/health") {
+		if (request.method !== "GET")
+			return reply({ error: "Method not allowed" }, 405);
+		if (url.search) return reply({ error: "Invalid LIFE query" }, 400);
+		try {
+			return reply(fleet.lifeHealth);
+		} catch {
+			return reply({ error: "Forbidden" }, 403);
+		}
+	}
 	const parts = url.pathname.slice("/api/life/".length).split("/");
 	if (
 		parts.some(

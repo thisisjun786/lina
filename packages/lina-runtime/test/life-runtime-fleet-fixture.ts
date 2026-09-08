@@ -184,6 +184,8 @@ export async function fleetLifeFixture(
 		},
 		async restart() {
 			await app.stop();
+			// Model a cold process, including finalization of closed SQLite handles.
+			Bun.gc(true);
 			app = await startCodexFleet(options);
 		},
 		async close() {

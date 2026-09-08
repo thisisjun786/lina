@@ -1,6 +1,8 @@
 # Minimal world engine
 
-Date: 2026-09-07. Status: minimal ledger plus local LIFE state/context implementation. Installed LIFE integration is gated on the later source-aware memory/persona builder; no automatic simulation is enabled.
+Implementation update,2026-09-08: this document describes the original ledger slice.050 now connects source-aware work/persona/memory,060 publication and070 image/avatar owners. See the [current engine contract](../../LIFE_ENGINE.md); operational activation, renderer and real-provider qualification remain separate.
+
+Date: 2026-09-07. Status: minimal ledger plus local LIFE state/context implementation. The later source-aware memory/persona builder is now implemented; no production simulation is enabled by this historical slice.
 
 Product-direction update: the [LIFE social-simulation contract](013_life_engine_research.md) calls for shared learned personality/relationships and separate event/secret disclosure. [010](../life/010_state_and_views.md) now adds that storage/projection/transport boundary. The legacy `context()` described below remains available to trusted callers and explicit LIFE sessions for unprepared worlds; it is not the ordinary-conversation view.
 The [full implementation roadmap](../life/000_plan.md) retains this storage foundation and specifies its [migration and context-boundary changes](../life/010_state_and_views.md). SNS, images and periodic avatars are included in that plan, with activation policies still undecided.

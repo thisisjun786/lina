@@ -55,6 +55,9 @@ export class AgentFleet {
 	get lifeStorage() {
 		return this.lifeInstallation.storage;
 	}
+	get lifeHealth() {
+		return this.lifeInstallation.health;
+	}
 	assertPublicationSourceCurrent(worldId: string) {
 		const snapshot = this.lifeStorage.workEvidence(worldId);
 		if (this.options.assertLifeWorkCurrent)
