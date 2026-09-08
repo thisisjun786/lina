@@ -4,7 +4,7 @@ LIFE keeps an authored world, individual knowledge, social relations and accepte
 experiences beside ordinary LINA work. Its backend is connected to the existing
 Codex task, persona, memory, image and internal publication owners. The LIFE
 renderer and real-provider narrative/image quality are separate qualification
-lanes. The 010–080 local engine acceptance passed 3,363 tests and independent
+lanes. The 010–080 local engine acceptance passed 3,368 tests and independent
 review. This guide describes the implemented contracts; it does not enable an
 installation or select a world, schedule, audience, model or spending allowance.
 

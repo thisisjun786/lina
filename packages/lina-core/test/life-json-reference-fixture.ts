@@ -1,5 +1,6 @@
+// Frozen pre-081 reference: 602e52a life-json.ts; import path only relocated.
 import { createHash } from "node:crypto";
-import { id, integer, MAX_WORLD_BYTES } from "./validation.ts";
+import { id, integer, MAX_WORLD_BYTES } from "../src/world/validation.ts";
 
 export const MAX_LIFE_ITEMS = 4096;
 const MAX_JSON_DEPTH = 32;
@@ -73,107 +74,66 @@ export function digest(value: unknown): string {
 	return value;
 }
 /** Strict JSON data only; rejects executable accessors, cycles, holes and lossy numbers. */
-function encodeLifeJson(value: unknown, emit: boolean): string {
+export function canonicalLifeJson(value: unknown): string {
 	const ancestors = new Set<object>();
-	const chunks: string[] | undefined = emit ? [] : undefined;
-	let bytes = 0;
-	function ascii(encoded: string): void {
-		chunks?.push(encoded);
-		bytes += encoded.length;
-	}
-	function string(value: string, leaf: boolean): void {
-		const encoded = JSON.stringify(value);
-		const size = Buffer.byteLength(encoded);
-		if (leaf && size > MAX_WORLD_BYTES)
-			throw Error("LIFE storage capacity exceeded");
-		chunks?.push(encoded);
-		bytes += size;
-	}
-	function encode(item: unknown, depth: number): void {
+	function encode(item: unknown, depth: number): string {
 		if (depth > MAX_JSON_DEPTH) throw Error("LIFE JSON depth exceeded");
-		if (item === null) {
-			ascii("null");
-			return;
-		}
-		if (typeof item === "number") {
-			ascii(String(finite(item)));
-			return;
-		}
-		if (typeof item === "boolean") {
-			ascii(item ? "true" : "false");
-			return;
-		}
-		if (typeof item === "string") {
-			string(item, true);
-			return;
+		if (item === null) return "null";
+		if (typeof item === "number") return JSON.stringify(finite(item));
+		if (typeof item === "string" || typeof item === "boolean") {
+			const encoded = JSON.stringify(item);
+			if (Buffer.byteLength(encoded) > MAX_WORLD_BYTES)
+				throw Error("LIFE storage capacity exceeded");
+			return encoded;
 		}
 		if (!item || typeof item !== "object" || ancestors.has(item))
 			throw Error("Invalid LIFE JSON");
-		const list = Array.isArray(item);
 		if (
 			Object.getPrototypeOf(item) !==
-			(list ? Array.prototype : Object.prototype)
+			(Array.isArray(item) ? Array.prototype : Object.prototype)
 		)
 			throw Error("Invalid LIFE JSON object");
 		const keys = Reflect.ownKeys(item);
-		const values = new Map<string, unknown>();
-		// Scan every descriptor before children, preserving rejection precedence.
-		// Descriptor values also avoid invoking a Proxy's divergent get trap.
-		for (const key of keys) {
-			if (typeof key !== "string") throw Error("Invalid LIFE JSON property");
-			const descriptor = Object.getOwnPropertyDescriptor(item, key);
-			if (
-				!descriptor ||
-				(!(list && key === "length") && !descriptor.enumerable) ||
-				!Object.hasOwn(descriptor, "value")
+		if (
+			keys.some(
+				(key) =>
+					typeof key !== "string" ||
+					(!(Array.isArray(item) && key === "length") &&
+						!Object.getOwnPropertyDescriptor(item, key)?.enumerable) ||
+					!Object.hasOwn(
+						Object.getOwnPropertyDescriptor(item, key) ?? {},
+						"value",
+					),
 			)
-				throw Error("Invalid LIFE JSON property");
-			values.set(key, descriptor.value);
-		}
+		)
+			throw Error("Invalid LIFE JSON property");
 		ancestors.add(item);
-		const start = bytes;
-		if (list) {
-			const length = values.get("length") as number;
-			if (length > MAX_LIFE_ITEMS || keys.length !== length + 1)
+		let result: string;
+		if (Array.isArray(item)) {
+			if (item.length > MAX_LIFE_ITEMS || keys.length !== item.length + 1)
 				throw Error("Invalid LIFE JSON list");
-			ascii("[");
-			for (let index = 0; index < length; index++) {
-				if (index) ascii(",");
-				// A hole plus an extra own key still rejects undefined here.
-				encode(values.get(String(index)), depth + 1);
-			}
-			ascii("]");
+			result = `[${Array.from(item, (child) => encode(child, depth + 1)).join(",")}]`;
 		} else {
 			if (keys.length > MAX_LIFE_ITEMS)
 				throw Error("Invalid LIFE JSON capacity");
-			ascii("{");
-			// All keys are enumerable strings after the scan; keep UTF-16 sorting.
-			const names = (keys as string[]).sort();
-			for (let index = 0; index < names.length; index++) {
-				if (index) ascii(",");
-				const key = names[index];
-				if (key === undefined) throw Error("Invalid LIFE JSON property");
-				string(key, false);
-				ascii(":");
-				encode(values.get(key), depth + 1);
-			}
-			ascii("}");
+			result = `{${Object.keys(item)
+				.sort()
+				.map(
+					(key) =>
+						`${JSON.stringify(key)}:${encode(Reflect.get(item, key), depth + 1)}`,
+				)
+				.join(",")}}`;
 		}
 		ancestors.delete(item);
-		// Each subtree retains its original completion-time byte check. Counting
-		// encoded leaves once avoids rescanning all ancestors or changing errors.
-		if (bytes - start > MAX_WORLD_BYTES)
+		if (Buffer.byteLength(result) > MAX_WORLD_BYTES)
 			throw Error("LIFE storage capacity exceeded");
+		return result;
 	}
-	encode(value, 0);
-	return chunks?.join("") ?? "";
-}
-export function canonicalLifeJson(value: unknown): string {
-	return encodeLifeJson(value, true);
+	return encode(value, 0);
 }
 export function lifeDigest(value: unknown): string {
 	return createHash("sha256").update(canonicalLifeJson(value)).digest("hex");
 }
 export function jsonBoundary(value: unknown): void {
-	encodeLifeJson(value, false);
+	canonicalLifeJson(value);
 }
