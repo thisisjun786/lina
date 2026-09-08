@@ -30,7 +30,7 @@ import {
 } from "./reasoning-receipts.ts";
 import { readEngineReceipt, validateRecordReceipt } from "./receipts.ts";
 import { deriveRecord, mergeSources, sameValue } from "./records.ts";
-import { initializeEngine } from "./schema.ts";
+import { initializeEngine, verifyCurrentEngine } from "./schema.ts";
 import {
 	type ApplyInput,
 	ENGINE_READ_MAX,
@@ -59,8 +59,22 @@ export class EngineStore {
 	private readonly now: () => number;
 	private readonly lookup: EngineOptions["lookup"];
 	private readonly sequence: EngineOptions["sourceSequence"];
+	private readonly readOnly: boolean;
 	private closed = false;
-	constructor(path: string, binding: BotBinding, options: EngineOptions) {
+
+	static openReadonly(
+		path: string,
+		binding: BotBinding,
+		options: EngineOptions,
+	): EngineStore {
+		return new EngineStore(path, binding, { ...options, readOnly: true });
+	}
+
+	constructor(
+		path: string,
+		binding: BotBinding,
+		options: EngineOptions & { readOnly?: boolean },
+	) {
 		const identity = validateBinding(binding);
 		if (typeof options.lookup !== "function")
 			throw new Error("invalid engine lookup");
@@ -69,15 +83,24 @@ export class EngineStore {
 		this.lookup = options.lookup;
 		this.sequence = options.sourceSequence;
 		this.agentId = engineIdSchema.parse(identity.botId);
-		const opened = openCheckedDatabase(path);
+		this.readOnly = options.readOnly === true;
+		const opened = openCheckedDatabase(path, { readOnly: this.readOnly });
 		this.db = opened.db;
 		try {
-			this.db.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE");
-			withReasoningReadScope(this.db, () =>
-				initializeEngine(this.db, identity, opened.fresh),
+			this.db.exec(
+				this.readOnly
+					? "PRAGMA foreign_keys = ON; BEGIN"
+					: "PRAGMA foreign_keys = ON; BEGIN IMMEDIATE",
 			);
+			withReasoningReadScope(this.db, () => {
+				if (this.readOnly) {
+					if (opened.fresh) throw new Error("unknown engine schema");
+					verifyCurrentEngine(this.db, identity);
+				} else initializeEngine(this.db, identity, opened.fresh);
+			});
 			this.db.exec("COMMIT");
-			this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
+			if (!this.readOnly)
+				this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
 		} catch (error) {
 			if (this.db.isTransaction) this.db.exec("ROLLBACK");
 			this.db.close();
@@ -925,6 +948,7 @@ export class EngineStore {
 		if (this.closed) throw new Error("engine store is closed");
 	}
 	private transaction<T>(action: () => T, write = true): T {
+		if (write && this.readOnly) throw new Error("readonly engine mutation");
 		if (this.db.isTransaction) {
 			if (write) throw Error("reentrant engine mutation");
 			return action();

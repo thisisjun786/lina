@@ -64,21 +64,35 @@ function filePath(path: string, required = false, singleLink = true): string {
 	return absolute;
 }
 
+export type OpenCheckedDatabaseOptions = {
+	readOnly?: boolean;
+};
+
 // Both the store and leases use the same filesystem boundary before SQLite opens.
-export function openCheckedDatabase(path: string): {
+export function openCheckedDatabase(
+	path: string,
+	options: OpenCheckedDatabaseOptions = {},
+): {
 	db: DatabaseSync;
 	fresh: boolean;
 } {
-	directory(dirname(resolve(path)), true);
-	const absolute = filePath(path);
+	const readOnly = options.readOnly === true;
+	directory(dirname(resolve(path)), !readOnly);
+	const absolute = filePath(path, readOnly);
 	for (const suffix of ["-journal", "-wal", "-shm"])
 		filePath(`${absolute}${suffix}`);
 	const stat = lstatSync(absolute, { throwIfNoEntry: false });
 	if (!stat) {
+		if (readOnly) throw new Error(`unsafe regular file: ${absolute}`);
 		const fd = openSync(absolute, NEW_FILE_FLAGS, 0o600);
 		closeSync(fd);
 	}
-	return { db: new DatabaseSync(absolute), fresh: !stat || stat.size === 0 };
+	return {
+		db: readOnly
+			? new DatabaseSync(absolute, { readOnly: true })
+			: new DatabaseSync(absolute),
+		fresh: !stat || stat.size === 0,
+	};
 }
 
 export function validateBinding(value: unknown): BotBinding {
@@ -98,6 +112,13 @@ export function validateBinding(value: unknown): BotBinding {
 	if (workspace !== binding.workspace || sessionFile !== binding.sessionFile)
 		throw new Error("binding paths must be canonical absolute paths");
 	return { ...binding };
+}
+
+/** Read a published binding.json without creating a session lease or files. */
+export function readSessionBinding(stateRoot: string): BotBinding {
+	const root = directory(stateRoot);
+	const manifest = filePath(join(root, "binding.json"), true, false);
+	return validateBinding(JSON.parse(readFileSync(manifest, "utf8")) as unknown);
 }
 
 interface LeaseOwner {

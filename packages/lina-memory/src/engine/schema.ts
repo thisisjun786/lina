@@ -139,3 +139,17 @@ export function initializeEngine(
 	if (db.prepare("PRAGMA foreign_key_check").get())
 		throw new Error("invalid engine foreign key");
 }
+
+/** Current mind schema only. Does not migrate, recover jobs, or rewrite WAL. */
+export function verifyCurrentEngine(
+	db: DatabaseSync,
+	binding: BotBinding,
+): void {
+	const version = db.prepare("PRAGMA user_version").get()?.["user_version"];
+	if (version !== 4) {
+		if (version === 1 || version === 2 || version === 3)
+			throw new Error("engine migration required");
+		throw new Error("unknown engine schema");
+	}
+	initializeEngine(db, binding, false);
+}

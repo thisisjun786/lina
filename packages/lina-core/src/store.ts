@@ -143,25 +143,67 @@ function validateJournalRows(db: DatabaseSync, sessionId: string): void {
 		throw Error("Invalid journal source request owner");
 }
 
+function verifyCurrentJournal(db: DatabaseSync, binding: BotBinding): void {
+	const version = db.prepare("PRAGMA user_version").get()?.["user_version"];
+	if (version !== SCHEMA_VERSION) {
+		if (version === 1) throw new Error("journal migration required");
+		throw new Error("unknown store schema");
+	}
+	verifySchema(db);
+	const schema = db
+		.prepare("SELECT value FROM meta WHERE key = 'schema_version'")
+		.get()?.["value"];
+	if (schema !== String(SCHEMA_VERSION))
+		throw new Error("unknown store schema");
+	const saved = db
+		.prepare("SELECT value FROM meta WHERE key = 'binding'")
+		.get()?.["value"];
+	if (
+		typeof saved !== "string" ||
+		!isDeepStrictEqual(JSON.parse(saved), binding)
+	)
+		throw new Error("foreign store binding");
+	validateJournalRows(db, binding.sessionId);
+	new SourcePolicyStore(db, binding.sessionId).validate();
+}
+
 export class DurableStore {
 	private readonly db: DatabaseSync;
 	private readonly entries: Entries;
 	private readonly journal: Requests;
 	private readonly sources: SourcePolicyStore;
+	private readonly readOnly: boolean;
 	private closed = false;
 
-	constructor(path: string, binding: BotBinding) {
+	static openReadonly(path: string, binding: BotBinding): DurableStore {
+		return new DurableStore(path, binding, { readOnly: true });
+	}
+
+	constructor(
+		path: string,
+		binding: BotBinding,
+		options: { readOnly?: boolean } = {},
+	) {
 		const identity = validateBinding(binding);
-		const opened = openCheckedDatabase(path);
+		this.readOnly = options.readOnly === true;
+		const opened = openCheckedDatabase(path, { readOnly: this.readOnly });
 		this.db = opened.db;
 		let transaction = false;
 		try {
-			this.db.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE");
+			this.db.exec(
+				this.readOnly
+					? "PRAGMA foreign_keys = ON; BEGIN"
+					: "PRAGMA foreign_keys = ON; BEGIN IMMEDIATE",
+			);
 			transaction = true;
-			initialize(this.db, identity, opened.fresh);
+			if (this.readOnly) {
+				if (opened.fresh) throw new Error("unknown store schema");
+				verifyCurrentJournal(this.db, identity);
+			} else initialize(this.db, identity, opened.fresh);
 			this.db.exec("COMMIT");
 			transaction = false;
-			this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
+			if (!this.readOnly)
+				this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
 			this.entries = new Entries(this.db, binding.sessionId);
 			this.journal = new Requests(this.db, binding.sessionId);
 			this.sources = new SourcePolicyStore(this.db, binding.sessionId);
@@ -383,6 +425,7 @@ export class DurableStore {
 	}
 
 	private mutate<T>(action: () => T, changes: (result: T) => number): T {
+		if (this.readOnly) throw new Error("readonly store mutation");
 		this.db.exec("BEGIN IMMEDIATE");
 		try {
 			const result = action();
