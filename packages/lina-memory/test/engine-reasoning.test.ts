@@ -575,3 +575,28 @@ test("fresh corroboration preserves the conclusion and its historical premise ac
 			.records.some((r) => r.key === "parks"),
 	).toBe(true);
 });
+
+test("an explicit source-backed fact cannot be overwritten by a conclusion", () => {
+	const f = persistentFixture();
+	const started = f.store.beginReasoning(f.seed, [f.a.id, f.b.id]);
+	if (!started) throw Error("claim");
+	const result = f.store.applyConclusions({
+		requestId: started.claim.id,
+		expectedRevision: started.input.expectedRevision,
+		proposals: [
+			{
+				...f.proposal,
+				key: f.a.key,
+				premises: [{ recordId: f.b.id, revision: f.b.revision }],
+			},
+		],
+		claim: started.claim,
+	});
+	expect(result.records.find((r) => r.id === f.a.id)).toMatchObject({
+		text: f.a.text,
+		evidence: "explicit",
+	});
+	expect(result.records).toHaveLength(2);
+	f.store.close();
+	expect(f.open().state().records).toEqual(result.records);
+});

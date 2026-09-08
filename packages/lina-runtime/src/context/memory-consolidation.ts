@@ -286,15 +286,66 @@ export class MemoryConsolidation {
 							0,
 							policy.memory.maxSearchRounds - round,
 						);
-						const payload = JSON.stringify({
+						const body = {
 							stage,
 							remainingSearches,
 							records: input.records.map(projection),
 							contract:
 								"Return only queries or proposals. Proposals cite provided recordId/revision. Do not change authored identity. If nothing is justified return proposals: [].",
-						});
+						};
+						const originals: {
+							entryId: string;
+							text: string;
+							clipped: boolean;
+						}[] = [];
+						const sourceIds = [
+							...new Set(
+								input.records.flatMap((record) =>
+									record.sources.map((source) => source.entryId),
+								),
+							),
+						];
+						for (const entryId of sourceIds) {
+							const entry = this.journal.sourceEntry(entryId);
+							if (
+								!entry ||
+								!input.promptProofs.some((proof) => proof.entryId === entryId)
+							)
+								throw Error("source_withheld");
+							const quote =
+								input.records
+									.flatMap((record) => record.sources)
+									.find((source) => source.entryId === entryId)?.quote ?? "";
+							const start = Math.max(0, entry.text.indexOf(quote) - 200);
+							let length = Math.min(2400, entry.text.length - start);
+							let added = false;
+							while (length > 0) {
+								const candidate = {
+									entryId,
+									text: entry.text.slice(start, start + length),
+									clipped: start > 0 || length < entry.text.length,
+								};
+								if (
+									JSON.stringify({
+										...body,
+										originals: [...originals, candidate],
+									}).length <= policy.memory.inputChars
+								) {
+									originals.push(candidate);
+									added = true;
+									break;
+								}
+								length = Math.floor(length / 2);
+							}
+							if (!added) {
+								this.coverageIncomplete = true;
+								break;
+							}
+						}
+						const payload = JSON.stringify({ ...body, originals });
 						if (payload.length > policy.memory.inputChars)
 							throw Error("input_budget_insufficient");
+						input = this.mind.freezeReasoningPayload(started.claim, payload);
 						const reply = await this.call((boundedSignal) =>
 							config.consolidate(
 								payload,

@@ -149,3 +149,56 @@ for (const change of ["close", "policy"] as const)
 			await f.close();
 		}
 	});
+
+test("consolidation can inspect bounded original evidence rather than only observation excerpts", async () => {
+	const f = createRuntimeFixture();
+	trustNativeFixture(f.store, f.runtime.binding);
+	const memory = new CompanionMemory({
+		path: join(f.root, "mind.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		schedule: () => () => {},
+	});
+	const seen: string[] = [];
+	memory.configure(
+		async () =>
+			JSON.stringify([
+				{
+					subject: "user",
+					kind: "interest",
+					key: "walking",
+					text: "Likes walking",
+					evidence: "explicit",
+					sources: [{ entryId: "u", quote: "walking" }],
+				},
+			]),
+		undefined,
+		{
+			modelSettingsRevision: () => 0,
+			consolidate: async (text) => {
+				seen.push(text);
+				return '{"proposals":[]}';
+			},
+		},
+	);
+	try {
+		f.store.createRequest("r", "walking");
+		f.store.appendEntry({
+			entryId: "u",
+			role: "user",
+			text: "I like walking only when the weather is cool.",
+			timestamp: new Date().toISOString(),
+			raw: {},
+		});
+		f.store.setRequest("r", "accepted", { entryId: "u" });
+		f.store.setRequest("r", "settled");
+		await memory.refresh();
+		expect(seen).toHaveLength(2);
+		expect(
+			seen.every((text) => text.includes("only when the weather is cool")),
+		).toBe(true);
+	} finally {
+		await memory.close();
+		await f.close();
+	}
+});

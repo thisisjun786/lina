@@ -20,6 +20,7 @@
 | MODIFY | `packages/lina-memory/src/engine/prompt.ts` | flat slot 추출을 유지하면서 명시적 사실과 잠정 가설·전제 연결을 구분한 재검토 프롬프트 |
 | NEW | `packages/lina-memory/test/engine-reasoning.test.ts` | 근거 변경/순환/중복/교차 에이전트 부정 사례 |
 | NEW | `packages/lina-runtime/test/memory-consolidation.test.ts` | 실제 companion 작업→저장→다음 query와 재시작 연결 |
+| NEW | `packages/lina-runtime/src/context/memory-consolidation.ts` | Companion run 루프 안에서 페이지·연역/귀납·검색·claim/결과 상태 조정; 별도 timer/DB 소유 없음 |
 | NEW | `packages/lina-runtime/src/context/policy-settings.ts` | 070에서 앞당긴 내장 엔진 정책 JSON/CAS 저장 owner |
 | NEW | `packages/lina-runtime/test/engine-policy-settings.test.ts` | 기본값·CAS·재열기·손상 거부와 주입 owner 수명 검증 |
 | MODIFY | `packages/lina-runtime/src/session-app.ts` | 실제 추론 서비스·정책 owner·설정 revision을 companion에 공급 |
@@ -148,3 +149,5 @@ v4 migration/checkpoint 및 receipt audit를 연결하는 작업은 계속 진�
 재시작 중 결과 unknown인 모델 호출도 소비한 attempt로 센다. 마지막 attempt에서 중단되면 interrupted_outcome_unknown/failed를 유지하며 자동으로 호출 한도를 늘리지 않는다. 기존 observation queue의 allowance 증가를 그대로 복제하지 않기로 했다. 완료 receipt가 있으면 재호출 없이 복구한다. 이 차이는 무한 crash 재시도의 호출 증가를 막기 위한 결정이며 새 정책 revision 또는 후속 명시적 retry가 필요하다. closed status는 기존 queue도 DB를 읽어 실패하므로 지원된 API라는 검토 전제를 반박했다. close에서는 cached text/proofs를 지운다.
 
 새 `engine_reasoning_inputs(request_id,attempt,fingerprint,data)`는 claim 당시 실제 입력을 내구 저장한다. 검색 확장도 해당 attempt 입력과 provenance를 함께 갱신한다. receipt는 이 row와 완전히 같은 입력인지 audit한다. beginReasoning/applyConclusions는 현재 저장·재열기·정정·추론 망각·대화형 망각·uncited revocation 테스트를 통과했으나 runtime 자동 처리 연결과 end-to-end 검증은 아직 진행 중이다.
+
+02b5e94에서 Companion lifecycle과 session-app의 실제 consolidate 공급을 연결했다. 합성 Codex RPC 세션이 전용 서비스를 호출하며, 단위 흐름은 관찰→연역→귀납→저장→재열기 후 재호출 없음까지 확인했다. 입력이 달라지지 않은 반복 처리와 새 대화의 재확인은 구분한다. 원본 정정은 손자 결론까지 제외하며 같은 내용의 추가 근거는 기존 결론을 유지한다. 종료/정책 변경 중 늦은 응답은 저장하지 않는다. 반복 query 확장, 페이지 경계, 최종 독립 review 및 C 검증은 아직 남았다.

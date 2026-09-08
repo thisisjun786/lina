@@ -395,6 +395,34 @@ export class EngineStore {
 			return next;
 		});
 	}
+	freezeReasoningPayload(
+		claim: ConsolidationClaim,
+		payload: string,
+	): ReasoningInput {
+		this.assertOpen();
+		return this.transaction(() => {
+			new ConsolidationQueue(this.db, this.now).assertClaim(claim);
+			const row = this.db
+				.prepare(
+					"SELECT data FROM engine_reasoning_inputs WHERE request_id=? AND attempt=?",
+				)
+				.get(claim.id, claim.attempt);
+			if (!row) throw Error("missing reasoning frozen input");
+			const old = parseReasoningInput(JSON.parse(String(row["data"])));
+			this.checkRevision(old.expectedRevision);
+			requireCurrentProofs(old.promptProofs, this.lookup);
+			const input = parseReasoningInput({
+				...old,
+				payloads: [...old.payloads, payload],
+			});
+			this.db
+				.prepare(
+					"UPDATE engine_reasoning_inputs SET data=?,fingerprint=? WHERE request_id=? AND attempt=?",
+				)
+				.run(JSON.stringify(input), hash(input), claim.id, claim.attempt);
+			return input;
+		});
+	}
 	applyConclusions(
 		input: {
 			requestId: string;

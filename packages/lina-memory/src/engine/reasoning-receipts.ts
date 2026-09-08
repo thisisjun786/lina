@@ -32,6 +32,7 @@ const inputSchema = z.strictObject({
 	attempt: z.number().int().min(1).max(3),
 	records: z.array(z.unknown()).max(ENGINE_READ_MAX),
 	promptProofs: z.unknown(),
+	payloads: z.array(z.string().min(1).max(32000)).max(9).default([]),
 	searches: z
 		.array(
 			z.strictObject({
