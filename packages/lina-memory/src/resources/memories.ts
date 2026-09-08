@@ -551,12 +551,50 @@ export class ResourceMemories {
 			)
 				throw Error("corrupt memory intent source");
 		}
+		const historicalIntents = new Map<string, z.infer<typeof intentSchema>>();
+		for (const row of this.db
+			.prepare("SELECT id AS resource_id FROM resources")
+			.all()) {
+			const id = String(row["resource_id"]);
+			let expected: z.infer<typeof intentSchema> | undefined;
+			for (const op of this.db
+				.prepare(
+					"SELECT input,result FROM resource_operations WHERE resource_id=? ORDER BY revision",
+				)
+				.all(id)) {
+				const input = JSON.parse(String(op["input"])),
+					r = JSON.parse(String(op["result"])).resource;
+				if (input.deriveMemory === undefined && !expected) continue;
+				expected = intentSchema.parse({
+					enabled:
+						!r.deleted && (input.deriveMemory ?? expected?.enabled ?? false),
+					activityKind: input.activityKind ?? expected?.activityKind ?? "other",
+					proposerId:
+						input.deriveMemory === undefined && expected
+							? expected.proposerId
+							: input.principalId,
+					revision: r.revision,
+				});
+				historicalIntents.set(canonical([id, r.revision]), expected);
+			}
+			if (canonical(expected) !== canonical(this.intent(id)))
+				throw Error("corrupt memory intent receipt");
+		}
 		const groups = new Map<string, number>();
 		const memories = this.db
 			.prepare("SELECT * FROM resource_memories")
 			.all()
 			.map((r) => this.memory(r));
 		for (const j of all) {
+			const recordedIntent = historicalIntents.get(
+				canonical([j.resourceId, j.intentRevision]),
+			);
+			if (
+				!recordedIntent?.enabled ||
+				recordedIntent.proposerId !== j.proposerId ||
+				recordedIntent.activityKind !== j.activityKind
+			)
+				throw Error("corrupt memory job intent");
 			const v = j.ref.versionId ? version(this.db, j.ref.versionId) : undefined;
 			if (
 				!v ||
@@ -685,6 +723,18 @@ export class ResourceMemories {
 				(v.visibility === "private" && m.visibility === "shared")
 			)
 				throw Error("corrupt memory evidence");
+			const receipt = this.db
+				.prepare(
+					"SELECT result FROM resource_operations WHERE resource_id=? AND revision=?",
+				)
+				.get(m.resourceId, j.ref.resourceRevision);
+			if (
+				!receipt ||
+				JSON.parse(String(receipt["result"])).resource.visibility !==
+					m.visibility
+			)
+				throw Error("corrupt memory disclosure");
+
 			if (
 				m.fingerprint !==
 				hash({
