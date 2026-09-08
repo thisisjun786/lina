@@ -182,7 +182,8 @@ export function parseLifeCommit(value: unknown): LifeCommit {
 		!!value &&
 		typeof value === "object" &&
 		"version" in value &&
-		value["version"] === 2;
+		(value["version"] === 2 || value["version"] === 3);
+	const autonomous = current && value["version"] === 3;
 	fields(value, [
 		"version",
 		"world",
@@ -196,6 +197,7 @@ export function parseLifeCommit(value: unknown): LifeCommit {
 		"consumedInputIds",
 		"effects",
 		...(current ? ["socialResolutionId", "knowledgeGrants"] : []),
+		...(autonomous ? ["stepId"] : []),
 	]);
 	const world = parseProposal(value["world"]);
 	world.actorIds.sort();
@@ -223,16 +225,25 @@ export function parseLifeCommit(value: unknown): LifeCommit {
 			throw Error("Legacy LIFE commit cannot contain an ensemble checkpoint");
 		return legacy;
 	}
-	return {
-		...legacy,
-		version: 2,
-		socialResolutionId: identifier(value["socialResolutionId"]),
-		knowledgeGrants: keyed(
-			array(value["knowledgeGrants"], parseKnowledgeGrant),
-			(x) => x.id,
-			false,
-		),
-	};
+	const knowledgeGrants = keyed(
+		array(value["knowledgeGrants"], parseKnowledgeGrant),
+		(x) => x.id,
+		false,
+	);
+	return autonomous
+		? {
+				...legacy,
+				version: 3,
+				stepId: identifier(value["stepId"]),
+				socialResolutionId: nullableId(value["socialResolutionId"]),
+				knowledgeGrants,
+			}
+		: {
+				...legacy,
+				version: 2,
+				socialResolutionId: identifier(value["socialResolutionId"]),
+				knowledgeGrants,
+			};
 }
 export function parseLifeInput(value: unknown): LifeInput {
 	jsonBoundary(value);

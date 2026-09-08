@@ -8,7 +8,7 @@ import type {
 } from "./social-types.ts";
 
 /** Trusted application preparation. Model arguments occupy only intent/targetResponse. */
-export interface SocialPrepareRequest {
+export interface SocialPrepareRequestV1 {
 	version: 1;
 	worldId: string;
 	requestId: string;
@@ -18,14 +18,21 @@ export interface SocialPrepareRequest {
 	simulationTime: number;
 	limits: SocialLimits;
 }
-export type SocialExtensionInput = Omit<
-	SocialResolveInput,
-	"intent" | "bootstrap"
-> & {
-	kind: "extension";
-	intent: SocialExtensionIntent;
-	bootstrap: null;
+export type SocialPrepareRequestV2 = Omit<SocialPrepareRequestV1, "version"> & {
+	version: 2;
+	stepId: string;
 };
+export type SocialPrepareRequest =
+	| SocialPrepareRequestV1
+	| SocialPrepareRequestV2;
+type ExtensionInput<T> = T extends SocialResolveInput
+	? Omit<T, "intent" | "bootstrap"> & {
+			kind: "extension";
+			intent: SocialExtensionIntent;
+			bootstrap: null;
+		}
+	: never;
+export type SocialExtensionInput = ExtensionInput<SocialResolveInput>;
 export interface SocialPreparedResolution {
 	version: 1;
 	worldId: string;

@@ -108,7 +108,7 @@ export function assertKnowledgeGrantTransition(
 	world: WorldSnapshot,
 	definition: LifeDefinition,
 ): void {
-	if (commit.version !== 2) return;
+	if (commit.version === 1) return;
 	for (const grant of commit.knowledgeGrants) {
 		if (!knowsClaimAt(grant.claim, grant.fromAgentId, world, previous))
 			throw Error("LIFE grant sender lacks prior knowledge");

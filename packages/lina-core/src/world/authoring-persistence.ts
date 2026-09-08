@@ -29,6 +29,10 @@ import {
 	parseWorldPack,
 	parseWorldPreviewOptions,
 } from "./authoring-validation.ts";
+import type {
+	AutonomyMigrationPreview,
+	AutonomyState,
+} from "./autonomy-types.ts";
 import { projectContext } from "./context.ts";
 import { migrateLifeDefinitionResult } from "./life-definition.ts";
 import { canonicalLifeJson, lifeDigest } from "./life-json.ts";
@@ -434,6 +438,8 @@ export class AuthoringPersistence {
 			previousPack = current ? this.currentPack(draft.worldId) : null;
 		let selected: WorldSnapshot | null = null;
 		let socialMigration: SocialMigrationPreview | null = null;
+		let autonomyMigration: AutonomyMigrationPreview | null = null;
+		let autonomyState: AutonomyState | null = null;
 		if (pack) {
 			if (!current) {
 				if (
@@ -467,11 +473,14 @@ export class AuthoringPersistence {
 					"preview-definition",
 				);
 				selected = transition(current, proposal);
-				socialMigration = this.world.life.previewDefinitionResult(
+				const migration = this.world.life.previewDefinitionResult(
 					proposal,
 					pack.life,
 					pack,
-				).socialMigration;
+				);
+				socialMigration = migration.socialMigration;
+				autonomyMigration = migration.autonomyMigration;
+				autonomyState = migration.autonomyState;
 			}
 			for (const role of pack.roles.filter(
 				(role) => role.status === "retired",
@@ -572,9 +581,14 @@ export class AuthoringPersistence {
 						evaluationId: draft.id,
 						seed: options.seed,
 						text: JSON.stringify(perception),
-						variables: Object.fromEntries(
-							pack.variables.map((variable) => [variable.id, variable.initial]),
-						),
+						variables:
+							autonomyState?.variables ??
+							Object.fromEntries(
+								pack.variables.map((variable) => [
+									variable.id,
+									variable.initial,
+								]),
+							),
 						limits: options.limits,
 					})
 				: null;
@@ -592,9 +606,11 @@ export class AuthoringPersistence {
 				!!pack && !draft.unresolved.some((question) => question.blocking),
 		};
 		const versioned =
-			pack?.schemaVersion === 2
-				? { ...body, version: 2 as const, socialMigration }
-				: body;
+			pack?.schemaVersion === 3
+				? { ...body, version: 3 as const, socialMigration, autonomyMigration }
+				: pack?.schemaVersion === 2
+					? { ...body, version: 2 as const, socialMigration }
+					: body;
 		return parseWorldDraftPreview({
 			...versioned,
 			digest: lifeDigest(versioned),
@@ -673,9 +689,11 @@ export class AuthoringPersistence {
 			replayed: false,
 		};
 		const receipt: WorldActivationReceipt =
-			preview.version === 2
-				? { ...receiptBody, version: 2, preview }
-				: { ...receiptBody, version: 1, preview };
+			preview.version === 3
+				? { ...receiptBody, version: 3, preview }
+				: preview.version === 2
+					? { ...receiptBody, version: 2, preview }
+					: { ...receiptBody, version: 1, preview };
 		this.db
 			.prepare(
 				"INSERT INTO world_activations (world_id, idempotency_key, input_digest, draft_id, draft_revision, confirmation_json, receipt_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -726,7 +744,7 @@ export class AuthoringPersistence {
 		if (registered?.effective_revision !== receipt.worldRevision)
 			throw Error("Corrupt activation effective boundary");
 		if (
-			![1, 2].includes(receipt.version) ||
+			![1, 2, 3].includes(receipt.version) ||
 			receipt.replayed !== false ||
 			receipt.worldId !== row.world_id ||
 			receipt.draftId !== row.draft_id ||
@@ -775,7 +793,8 @@ export class AuthoringPersistence {
 			)
 		)
 			throw Error("Corrupt activated world state");
-		if (preview.version === 2) {
+		if (preview.version !== 1) {
+			let autonomyMigration: AutonomyMigrationPreview | null = null;
 			let migration: SocialMigrationPreview | null = null;
 			if (receipt.eventId !== null) {
 				const previousWorld = this.world.snapshotAt(
@@ -797,11 +816,21 @@ export class AuthoringPersistence {
 					oldPack.life,
 					pack.life,
 					{ old: oldPack, next: pack },
+					this.world.life.autonomyStateAt(
+						pack.worldId,
+						receipt.lifeRevision - 1,
+					),
 				);
 				migration = rebuilt.socialMigration;
+				autonomyMigration = rebuilt.autonomyMigration;
 				if (!isDeepStrictEqual(rebuilt.state, historicalLife))
 					throw Error("Corrupt activation social state");
 			}
+			if (
+				preview.version === 3 &&
+				!isDeepStrictEqual(preview.autonomyMigration, autonomyMigration)
+			)
+				throw Error("Corrupt activation autonomy migration preview");
 			if (!isDeepStrictEqual(preview.socialMigration, migration))
 				throw Error("Corrupt activation social migration preview");
 		}
@@ -843,6 +872,18 @@ export class AuthoringPersistence {
 		return row
 			? this.readConfig(worldId, row)
 			: { ...structuredClone(EMPTY_CONFIG), worldId, revision: 0 };
+	}
+	lifeConfigAt(worldId: string, configRevision: number): LifeConfig {
+		integer(configRevision, "runtime configuration revision", 1);
+		const row = this.db
+			.prepare(
+				"SELECT revision, config_json, digest FROM life_runtime_config WHERE world_id = ? AND revision = ?",
+			)
+			.get(worldId, configRevision) as
+			| { revision: number; config_json: string; digest: string }
+			| undefined;
+		if (!row) throw Error("Missing historical LIFE runtime configuration");
+		return this.readConfig(worldId, row);
 	}
 	private readConfig(
 		worldId: string,

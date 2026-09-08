@@ -15,6 +15,10 @@ import type {
 	WorldPackV1,
 } from "./authoring-types.ts";
 import {
+	assertAutonomyPack,
+	parseAutonomyDefinition,
+} from "./autonomy-validation.ts";
+import {
 	array,
 	enumeration,
 	finite,
@@ -102,7 +106,8 @@ export function parseWorldPack(value: unknown): WorldPack {
 		!!value &&
 		typeof value === "object" &&
 		"schemaVersion" in value &&
-		value["schemaVersion"] === 2;
+		(value["schemaVersion"] === 2 || value["schemaVersion"] === 3);
+	const autonomous = current && value["schemaVersion"] === 3;
 	fields(value, [
 		"schemaVersion",
 		"worldId",
@@ -120,6 +125,7 @@ export function parseWorldPack(value: unknown): WorldPack {
 		"unresolved",
 		"importReport",
 		...(current ? ["social"] : []),
+		...(autonomous ? ["autonomy"] : []),
 	]);
 	if (!current && value["schemaVersion"] !== 1)
 		throw Error("Unsupported authoring schema version");
@@ -213,14 +219,22 @@ export function parseWorldPack(value: unknown): WorldPack {
 			};
 		}),
 	};
-	const pack: WorldPack = current
+	const pack: WorldPack = autonomous
 		? {
 				...legacy,
-				schemaVersion: 2,
+				schemaVersion: 3,
 				social: parseSocialDefinition(value["social"]),
+				autonomy: parseAutonomyDefinition(value["autonomy"]),
 			}
-		: legacy;
-	if (pack.schemaVersion === 2) assertSocialPackSemantics(pack);
+		: current
+			? {
+					...legacy,
+					schemaVersion: 2,
+					social: parseSocialDefinition(value["social"]),
+				}
+			: legacy;
+	if (pack.schemaVersion !== 1) assertSocialPackSemantics(pack);
+	if (pack.schemaVersion === 3) assertAutonomyPack(pack);
 	validateWorldSemantics(pack);
 	return pack;
 }

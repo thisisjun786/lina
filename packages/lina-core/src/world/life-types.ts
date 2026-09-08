@@ -208,7 +208,15 @@ export type LifeCommitV2 = Omit<LifeCommitV1, "version"> & {
 	socialResolutionId: string;
 	knowledgeGrants: KnowledgeGrant[];
 };
-export type LifeCommit = LifeCommitV1 | LifeCommitV2;
+export type LifeCommitV3 = Omit<
+	LifeCommitV2,
+	"version" | "socialResolutionId"
+> & {
+	version: 3;
+	stepId: string;
+	socialResolutionId: string | null;
+};
+export type LifeCommit = LifeCommitV1 | LifeCommitV2 | LifeCommitV3;
 export interface LifeInput {
 	version: 1;
 	worldId: string;

@@ -106,6 +106,10 @@ LIFE 상태는 세계 DB에 저장한다. 일반 대화는 선택한 세계의 �
 
 현재 소스는 이 경계를 실제 Codex 직렬화 경로와 합성 서버로 검증했다. `startPersistentApp`의 `world` 설정은 [출처별 기억·기록·페르소나 조정](plans/life/050_work_and_persona.md)이 갖춰질 때까지 초기화 전에 거부한다. [첫 단위 계약](plans/life/012_context_migration.md)은 라이브 모델 검증이나 설치본 활성화를 뜻하지 않는다.
 
+[자율 일상](plans/life/040_autonomous_life.md)은 별도 실행 경로를 사용한다. 확인한 v3 세계와 명시적 시간·모델·예산 설정이 있어야 실행하며, 게시·이미지 설정이 없어도 텍스트 시뮬레이션은 가능하다. Fleet가 상태 조회, 수동 한 단계 진행, 저장된 단계 조회와 자동 스케줄러를 소유한다. `GET /api/life/worlds/:id/status`, `POST /api/life/worlds/:id/step`, `GET /api/life/worlds/:id/steps/:stepId`는 기존 세계 관리 접근 검사를 거친다. 수동 요청 본문은 `idempotencyKey`와 `expectedConfigRevision`만 받는다.
+
+각 모델 요청은 독립된 네이티브 홈·작업 폴더·스레드를 사용한다. 일반 대화나 업무 도구와 기억 수집기를 붙이지 않는다. 요청 전에 예약과 전달 상태를 저장하고, 결과가 불명확하면 같은 추론을 재전송하지 않는다. 종료 직전 확인된 사용량은 복구 뒤에도 남으며, 사용량을 확인할 수 없는 요청은 예약을 유지한다. 호출당 전달 횟수 제한과 관측한 토큰 사용량을 검증했지만, 제공자의 토큰 초과 사용을 강제로 막거나 금액 상한을 보장하지는 않는다. 실제 모델 품질과 LIFE 전체 동작은 별도 통합 검증 대상이다.
+
 ## 관계 기억과 업무 기억
 
 현재 페르소나 계층의 `native` 기억과 선택적 Honcho HTTP 연결을 유지한다. `LINA_MEMORY_BACKEND=honcho`로 외부 Honcho를 사용할 수 있다. 기존 Honcho 설정·관찰·성찰·사용자 교정 규칙을 재사용하며 모델 요청은 OpenCodex 역할 설정을 따른다. 외부 Honcho 서버 자체가 쓰는 모델 구성은 그 서비스 운영 범위다.

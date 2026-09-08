@@ -234,7 +234,7 @@ export type SocialLimits = {
 	maxHistoryEntries: number;
 	maxTraceEntries: number;
 };
-export type SocialResolveInput = {
+export type SocialResolveInputV1 = {
 	version: 1;
 	requestId: string;
 	world: WorldSnapshot;
@@ -249,6 +249,18 @@ export type SocialResolveInput = {
 	policies: SocialPolicyReference[];
 	limits: SocialLimits;
 };
+export interface SocialAutonomyInput {
+	stepId: string;
+	worldRevision: number;
+	lifeRevision: number;
+	stateDigest: string;
+	variables: Record<string, Scalar>;
+}
+export type SocialResolveInputV2 = Omit<SocialResolveInputV1, "version"> & {
+	version: 2;
+	autonomy: SocialAutonomyInput;
+};
+export type SocialResolveInput = SocialResolveInputV1 | SocialResolveInputV2;
 export type SocialEffect =
 	| {
 			kind: "predicate";

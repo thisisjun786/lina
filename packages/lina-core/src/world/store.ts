@@ -4,6 +4,8 @@ import { openCheckedDatabase } from "../session-binding.ts";
 import { AuthoringPersistence } from "./authoring-persistence.ts";
 import { AuthoringRequests } from "./authoring-requests.ts";
 import type { WorldAuthoringPort } from "./authoring-types.ts";
+import { AutonomyPersistence } from "./autonomy-persistence.ts";
+import type { WorldAutonomyPort } from "./autonomy-store-types.ts";
 import { projectContext, validateContextLimits } from "./context.ts";
 import { LifePersistence } from "./life-persistence.ts";
 import type {
@@ -97,13 +99,105 @@ function stateJson(snapshot: WorldSnapshot): string {
 }
 
 /** Trusted application API. Bind agent views in the runtime; never expose this store as an agent tool. */
-export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
+export class WorldStore
+	implements WorldAuthoringPort, WorldSocialPort, WorldAutonomyPort
+{
 	private readonly db: DatabaseSync;
+	private readonly autonomy: AutonomyPersistence;
 	private readonly life: LifePersistence;
 	private readonly social: SocialPersistence;
 	private readonly author: AuthoringPersistence;
 	private readonly suggestions: AuthoringRequests;
 	private closed = false;
+	readonly acquireLifeLease: WorldAutonomyPort["acquireLifeLease"] = (
+		worldId,
+		expectedRevision,
+		owner,
+		_nowMs,
+		leaseMs,
+	) =>
+		this.transaction(() =>
+			this.autonomy.acquireLease(worldId, expectedRevision, owner, leaseMs),
+		);
+	readonly lifeStatus: WorldAutonomyPort["lifeStatus"] = (worldId) =>
+		this.transaction(() => this.autonomy.status(worldId), false);
+	readonly invalidateLifeIdentity: WorldAutonomyPort["invalidateLifeIdentity"] =
+		(worldId, current) =>
+			this.transaction(() =>
+				this.autonomy.invalidateIdentity(worldId, current),
+			);
+	readonly prepareLifeStep: WorldAutonomyPort["prepareLifeStep"] = (
+		request,
+		entropy,
+	) => this.transaction(() => this.autonomy.prepare(request, entropy));
+	readonly lifeStep: WorldAutonomyPort["lifeStep"] = (worldId, stepId) =>
+		this.transaction(() => this.autonomy.get(worldId, stepId), false);
+	readonly renewLifeLease: WorldAutonomyPort["renewLifeLease"] = (
+		lease,
+		_nowMs,
+		leaseMs,
+	) => this.transaction(() => this.autonomy.schedules.renew(lease, leaseMs));
+	readonly releaseLifeLease: WorldAutonomyPort["releaseLifeLease"] = (lease) =>
+		this.transaction(() => this.autonomy.schedules.release(lease));
+	readonly prepareLifeModel: WorldAutonomyPort["prepareLifeModel"] = (
+		lease,
+		stepId,
+		request,
+	) =>
+		this.transaction(() => this.autonomy.prepareModel(lease, stepId, request));
+	readonly dispatchLifeModel: WorldAutonomyPort["dispatchLifeModel"] = (
+		lease,
+		stepId,
+		requestId,
+	) =>
+		this.transaction(() =>
+			this.autonomy.dispatchModel(lease, stepId, requestId),
+		);
+	readonly finishLifeModel: WorldAutonomyPort["finishLifeModel"] = (
+		worldId,
+		stepId,
+		requestId,
+		result,
+	) =>
+		this.transaction(() =>
+			this.autonomy.finishModel(worldId, stepId, requestId, result),
+		);
+	readonly recordLifeIntention: WorldAutonomyPort["recordLifeIntention"] = (
+		lease,
+		stepId,
+	) => this.transaction(() => this.autonomy.intention(lease, stepId));
+	readonly recordLifeTarget: WorldAutonomyPort["recordLifeTarget"] = (
+		lease,
+		stepId,
+	) => this.transaction(() => this.autonomy.target(lease, stepId));
+	readonly prepareLifeObservations: WorldAutonomyPort["prepareLifeObservations"] =
+		(lease, stepId, requestId) =>
+			this.transaction(() =>
+				this.autonomy.observations(lease, stepId, requestId),
+			);
+	readonly finishLifeStep: WorldAutonomyPort["finishLifeStep"] = (
+		lease,
+		stepId,
+	) => this.transaction(() => this.autonomy.finish(lease, stepId));
+	readonly acceptLifeStep: WorldAutonomyPort["acceptLifeStep"] = (
+		lease,
+		stepId,
+		current,
+	) => this.transaction(() => this.autonomy.accept(lease, stepId, current));
+	readonly failLifeStep: WorldAutonomyPort["failLifeStep"] = (
+		lease,
+		stepId,
+		reason,
+	) => this.transaction(() => this.autonomy.fail(lease, stepId, reason));
+	readonly advanceLifeSchedule: WorldAutonomyPort["advanceLifeSchedule"] = (
+		lease,
+		_nowMs,
+		nextDue,
+		skipped,
+	) =>
+		this.transaction(() =>
+			this.autonomy.schedules.advance(lease, nextDue, skipped),
+		);
 	readonly prepareSocialResolution: WorldSocialPort["prepareSocialResolution"] =
 		(...args) => this.transaction(() => this.social.prepare(...args));
 	readonly socialResolution: WorldSocialPort["socialResolution"] = (...args) =>
@@ -144,7 +238,11 @@ export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 	readonly lifeConfig: WorldAuthoringPort["lifeConfig"] = (...args) =>
 		this.transaction(() => this.author.lifeConfig(...args), false);
 	readonly setLifeConfig: WorldAuthoringPort["setLifeConfig"] = (...args) =>
-		this.transaction(() => this.author.setLifeConfig(...args), true);
+		this.transaction(() => {
+			const config = this.author.setLifeConfig(...args);
+			this.autonomy.configure(config.worldId, config.revision);
+			return config;
+		}, true);
 	readonly grantWorldAuthor: WorldAuthoringPort["grantWorldAuthor"] = (
 		...args
 	) => this.transaction(() => this.author.grantWorldAuthor(...args), true);
@@ -181,6 +279,8 @@ export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 				? new DatabaseSync(path)
 				: openCheckedDatabase(path).db;
 		this.social = new SocialPersistence(this.db, {
+			autonomy: (request, source, historical) =>
+				this.autonomy.socialAuthority(request, source, historical),
 			source: (worldId) => ({
 				world: this.snapshot(worldId),
 				life: this.life.snapshot(worldId),
@@ -198,9 +298,15 @@ export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 			pack: (worldId, version) => this.author.worldPack(worldId, version),
 		});
 		this.life = new LifePersistence(this.db, {
+			autonomyState: (worldId) => this.autonomy.state(worldId),
+			autonomyStateAt: (worldId, revision) =>
+				this.autonomy.stateAt(worldId, revision),
+			saveAutonomyState: (state) => this.autonomy.changeDefinition(state),
 			pack: (worldId, version) => this.author.worldPack(worldId, version),
-			assertSocialCommit: (commit, identity, source, historical) =>
-				this.social.assertCommit(commit, identity, source, historical),
+			assertSocialCommit: (commit, identity, source, historical) => {
+				this.autonomy.assertCommit(commit, identity, source, historical);
+				this.social.assertCommit(commit, identity, source, historical);
+			},
 			markSocialAccepted: (commit) => this.social.markAccepted(commit),
 			assertActors: (proposal) => this.author.assertActors(proposal),
 			snapshot: (worldId) => this.snapshot(worldId),
@@ -225,6 +331,36 @@ export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 			create: (definition) => this.createWorld(definition),
 			life: this.life,
 		});
+		this.autonomy = new AutonomyPersistence(
+			this.db,
+			{
+				source: (worldId) => ({
+					world: this.snapshot(worldId),
+					life: this.life.snapshot(worldId),
+				}),
+				sourceAt: (worldId, revision) => {
+					const life = this.life.snapshotAt(worldId, revision);
+					return {
+						life,
+						world: this.rebuild(
+							this.snapshot(worldId).definition,
+							life.worldRevision,
+						),
+					};
+				},
+				worldAt: (worldId, revision) =>
+					this.rebuild(this.snapshot(worldId).definition, revision),
+				pack: (worldId, version) => this.author.worldPack(worldId, version),
+				config: (worldId) => this.author.lifeConfig(worldId),
+				configAt: (worldId, revision) =>
+					this.author.lifeConfigAt(worldId, revision),
+				inputs: (worldId) => this.life.inputs(worldId),
+				accept: (commit, identity) => this.life.accept(commit, identity),
+				social: (worldId, requestId, source) =>
+					this.social.getAt(worldId, requestId, source),
+			},
+			this.now,
+		);
 		this.suggestions = new AuthoringRequests(this.db, this.author);
 		let transactionStarted = false;
 		try {
@@ -234,8 +370,9 @@ export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 			initializeWorldSchema(
 				this.db,
 				() => this.auditWorld(),
-				() => this.audit(false, false),
-				() => this.audit(true, false),
+				() => this.audit(false, false, false),
+				() => this.audit(true, false, false),
+				() => this.audit(true, true, false),
 			);
 			this.audit();
 			this.suggestions.recover();
@@ -395,6 +532,8 @@ export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 	acceptLife(input: LifeCommit, policy: IdentityPolicySnapshot): LifeReceipt {
 		const commit = parseLifeCommit(input),
 			identity = parseIdentityPolicy(policy);
+		if (commit.version === 3)
+			throw Error("Autonomous step acceptance required");
 		return this.transaction(() => this.life.accept(commit, identity));
 	}
 	admitLifeInput(input: LifeInput): AdmissionReceipt {
@@ -444,7 +583,11 @@ export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 		}, false);
 	}
 	/** Re-open audits atomic state against accepted events, without replaying any external effect. */
-	private audit(includeAuthor = true, includeSocial = true): void {
+	private audit(
+		includeAuthor = true,
+		includeSocial = true,
+		includeAutonomy = true,
+	): void {
 		this.auditWorld();
 		const definitions = this.db
 			.prepare(
@@ -489,6 +632,7 @@ export class WorldStore implements WorldAuthoringPort, WorldSocialPort {
 		}
 		this.life.audit();
 		if (includeSocial) this.social.audit();
+		if (includeAutonomy) this.autonomy.audit();
 		if (includeAuthor) {
 			this.author.audit();
 			this.suggestions.audit();

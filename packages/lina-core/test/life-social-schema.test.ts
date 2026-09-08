@@ -29,6 +29,13 @@ function v3() {
 		store.close();
 	}
 	const raw = new DatabaseSync(path);
+	for (const table of [
+		"life_model_receipts",
+		"life_steps",
+		"life_autonomy_state",
+		"life_schedules",
+	])
+		raw.exec(`DROP TABLE IF EXISTS ${table}`);
 	raw.exec(
 		"DROP TABLE IF EXISTS world_social_resolutions; DROP TABLE IF EXISTS world_social_bootstraps; PRAGMA user_version = 3",
 	);
@@ -37,7 +44,7 @@ function v3() {
 	return { path, snapshot };
 }
 
-test("an actual v3 file migrates to v4 without rewriting historical LIFE bytes", () => {
+test("an actual v3 file migrates through v4 to v5 without rewriting historical LIFE bytes", () => {
 	const { path, snapshot } = v3();
 	const store = new WorldStore(path);
 	try {
@@ -48,7 +55,7 @@ test("an actual v3 file migrates to v4 without rewriting historical LIFE bytes",
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 4,
+			user_version: 5,
 		});
 		expect(raw.prepare("SELECT * FROM life_states").all()).toEqual(snapshot);
 		expect(

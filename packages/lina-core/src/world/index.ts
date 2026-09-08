@@ -40,9 +40,11 @@ export type {
 	WorldDraftPreview,
 	WorldDraftPreviewV1,
 	WorldDraftPreviewV2,
+	WorldDraftPreviewV3,
 	WorldPack,
 	WorldPackV1,
 	WorldPackV2,
+	WorldPackV3,
 	WorldPreviewOptions,
 	WorldRole,
 	WorldSuggestion,
@@ -62,6 +64,30 @@ export {
 	parseWorldPreviewOptions,
 	parseWorldSuggestionRequest,
 } from "./authoring-validation.ts";
+export type {
+	LifePrepareRequest,
+	LifeStepFailure,
+	WorldAutonomyPort,
+} from "./autonomy-store-types.ts";
+export type {
+	AutonomyDefinition,
+	AutonomyMigrationPreview,
+	AutonomyOutcome,
+	AutonomySource,
+	AutonomyState,
+	EventDecision,
+	LifeLease,
+	LifeModelLimits,
+	LifeModelReconciliation,
+	LifeModelRecord,
+	LifeModelRequest,
+	LifeModelResult,
+	LifeModelUsage,
+	LifeRunStatus,
+	LifeSchedule,
+	LifeStep,
+	PreparedLifeModelRequest,
+} from "./autonomy-types.ts";
 export type {
 	WorldExperienceReference,
 	WorldImageBrief,
@@ -86,6 +112,7 @@ export type {
 	LifeCommit,
 	LifeCommitV1,
 	LifeCommitV2,
+	LifeCommitV3,
 	LifeDefinition,
 	LifeInput,
 	LifePerception,
@@ -121,12 +148,15 @@ export { compileSocialPack } from "./social-compile.ts";
 export type {
 	SocialPreparedResolution,
 	SocialPrepareRequest,
+	SocialPrepareRequestV1,
+	SocialPrepareRequestV2,
 	WorldSocialPort,
 } from "./social-store-types.ts";
 export type {
 	CompiledSocialPack,
 	EnsembleCheckpoint,
 	SocialActorView,
+	SocialAutonomyInput,
 	SocialDefinition,
 	SocialIntent,
 	SocialIntentInspection,
@@ -135,6 +165,8 @@ export type {
 	SocialPrimitive,
 	SocialResolution,
 	SocialResolveInput,
+	SocialResolveInputV1,
+	SocialResolveInputV2,
 	TargetResponse,
 } from "./social-types.ts";
 export {

@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { createWorldAuthorEngine } from "../../../lina-codex/src/author-capabilities.ts";
+import type { createCodexLifeModel } from "../../../lina-codex/src/life-model.ts";
 import { type CodexRpc, createCodexRpc } from "../../../lina-codex/src/rpc.ts";
 import { createCodexEngine } from "../../../lina-codex/src/session.ts";
-import { TaskManager } from "../../../lina-codex/src/tasks.ts";
 import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.ts";
 import { acquireInstallationLock } from "../../../lina-core/src/installation/lock.ts";
 import { parseHonchoEnv } from "../../../lina-memory/src/honcho/index.ts";
@@ -17,12 +17,15 @@ import { parseApprovalMode } from "../approval-policy.ts";
 import { codexAssistantPrompt } from "../codex-prompt.ts";
 import { parseMemoryBackend } from "../context/backend.ts";
 import { createWorldAuthorSession } from "../life/author-session.ts";
+import type { LifeClock } from "../life/scheduler.ts";
 import { resolveProfile } from "../models/selection.ts";
 import { type AppOptions, startPersistentApp } from "../session-app.ts";
 import { createCodexTaskTools } from "../tools/codex-tasks.ts";
 import { workTools } from "../tools/work-memory.ts";
 import { provisionCodexHome } from "./codex-home.ts";
 import { hubRoutes } from "./hub-routes.ts";
+import { createFleetLifeRuntime } from "./life-runtime.ts";
+import { FleetLifeTasks } from "./life-runtime-tasks.ts";
 import { AgentFleet, validAgentId } from "./manager.ts";
 import { startFleetServer } from "./server.ts";
 import { createSharedCodexRpc } from "./shared-codex-rpc.ts";
@@ -43,6 +46,8 @@ export type CodexFleetOptions = {
 	defaultTaskMode?: "owned" | "shared";
 	/** Trusted composition seam; never populated from HTTP or model arguments. */
 	createWorldAuthorEngine?: typeof createWorldAuthorEngine;
+	createLifeModel?: typeof createCodexLifeModel;
+	lifeClock?: LifeClock;
 	createApp?: (
 		options: Omit<AppOptions, "engine">,
 	) => ReturnType<typeof startPersistentApp>;
@@ -62,10 +67,16 @@ export async function startCodexFleet(options: CodexFleetOptions) {
 		return {
 			...app,
 			stop() {
-				shutdown ??= app.stop().then(() => {
-					locked = false;
-					lock.close();
-				});
+				shutdown ??= app
+					.stop()
+					.then(() => {
+						locked = false;
+						lock.close();
+					})
+					.catch((error) => {
+						shutdown = undefined;
+						throw error;
+					});
 				return shutdown;
 			},
 		};
@@ -81,6 +92,7 @@ async function startUnlocked(
 	ownsInstallation: () => boolean,
 ) {
 	const env = options.env ?? process.env;
+	const lifeClock = options.lifeClock;
 	const home = options.homeDir ?? homedir();
 	const workspace = resolve(options.workspace);
 	const resourceRoot = resolve(options.resourceRoot ?? workspace);
@@ -137,40 +149,44 @@ async function startUnlocked(
 			return tasks.list().some((task) => task.threadId === params.threadId);
 		},
 	);
-	const tasks = new TaskManager({
-		path: join(stateRoot, "tasks.sqlite"),
-		rpc: transport,
-		dynamicTools: workbench.map((tool) => ({
-			type: "function",
-			name: tool.name,
-			description: tool.description,
-			inputSchema: tool.parameters,
-		})),
-		async executeTool(name, callId, args, signal) {
-			const tool = workbench.find((tool) => tool.name === name);
-			if (!tool || !args || typeof args !== "object" || Array.isArray(args))
-				throw Error("Invalid work memory tool input");
-			const result = await tool.execute(
-				callId,
-				args as Record<string, unknown>,
-				signal,
-			);
-			return {
-				contentItems: result.content.map((item) => ({
-					type: "inputText" as const,
-					text: item.text,
-				})),
-				success:
-					result.details["service"] !== "unavailable" &&
-					result.details["service"] !== "disabled",
-			};
+	const tasks = new FleetLifeTasks(
+		{
+			path: join(stateRoot, "tasks.sqlite"),
+			rpc: transport,
+			dynamicTools: workbench.map((tool) => ({
+				type: "function",
+				name: tool.name,
+				description: tool.description,
+				inputSchema: tool.parameters,
+			})),
+			async executeTool(name, callId, args, signal) {
+				const tool = workbench.find((tool) => tool.name === name);
+				if (!tool || !args || typeof args !== "object" || Array.isArray(args))
+					throw Error("Invalid work memory tool input");
+				const result = await tool.execute(
+					callId,
+					args as Record<string, unknown>,
+					signal,
+				);
+				return {
+					contentItems: result.content.map((item) => ({
+						type: "inputText" as const,
+						text: item.text,
+					})),
+					success:
+						result.details["service"] !== "unavailable" &&
+						result.details["service"] !== "disabled",
+				};
+			},
 		},
-	});
+		() => fleet.lifeForeground,
+	);
 	let fleet: AgentFleet;
 	const getSettings = () => fleet.modelSettings.snapshot();
 	const modelControl = hub.createModelControl(getSettings);
 	const subscriptions: (() => void)[] = [];
 	let stopped = false;
+	let fullyStopped = false;
 	const validOwner = (id: string) => validAgentId(id) && !!fleet.agents.get(id);
 	try {
 		fleet = new AgentFleet({
@@ -188,6 +204,28 @@ async function startUnlocked(
 			approvalMode,
 			modelControl,
 			ownsInstallation,
+			...(lifeClock ? { lifeNow: () => lifeClock.now() } : {}),
+			createLifeRuntime: (context) =>
+				createFleetLifeRuntime({
+					...context,
+					stateRoot,
+					connection() {
+						if (!ownsInstallation())
+							throw Error("Installation ownership required");
+						const connection = hub.isolatedHomeConnection();
+						if (!connection || !hub.status().connected)
+							throw Error("OpenCodex Hub is unavailable");
+						return connection;
+					},
+					providerEnv: () => hub.childEnvironment(),
+					...(options.createLifeModel
+						? { createModel: options.createLifeModel }
+						: {}),
+					...(options.lifeClock ? { clock: options.lifeClock } : {}),
+					...(env["LINA_CODEX_COMMAND"]
+						? { command: env["LINA_CODEX_COMMAND"] }
+						: {}),
+				}),
 			...(honcho ? { honcho } : {}),
 			async createWorldAuthor(authorOptions) {
 				const currentSelection = () => {
@@ -300,13 +338,24 @@ async function startUnlocked(
 		await transport.close();
 		throw error;
 	}
+	const updateForegroundTasks = () =>
+		fleet.lifeForeground.set(
+			tasks,
+			tasks
+				.list()
+				.some(
+					(task) => !["idle", "interrupted", "failed"].includes(task.status),
+				),
+		);
+	updateForegroundTasks();
+	subscriptions.push(tasks.subscribe(updateForegroundTasks));
 	void tasks.restore().catch(() => undefined);
 	tasks.setNotifier(async (marker, text) => {
 		const task = tasks.list().find((item) => item.id === marker.jobId);
 		const app = task ? fleet.opened(task.ownerAgentId) : undefined;
 		return app ? app.runtime.native.appendNotice(marker, text) : null;
 	});
-	let server: Awaited<ReturnType<typeof startFleetServer>>;
+	let server: Awaited<ReturnType<typeof startFleetServer>> | undefined;
 	try {
 		server = await startFleetServer(fleet, port, resourceRoot, botId, {
 			lazy: true,
@@ -314,9 +363,11 @@ async function startUnlocked(
 				(await hubRoutes(request, hub, json)) ??
 				taskRoutes(request, tasks, validOwner, json),
 		});
+		fleet.resumeLife();
 	} catch (error) {
 		await tasks.close();
 		await transport.close();
+		await server?.stop();
 		await fleet.close();
 		throw error;
 	}
@@ -326,12 +377,14 @@ async function startUnlocked(
 		hub,
 		tasks,
 		async stop() {
-			if (stopped) return;
+			if (fullyStopped) return;
 			stopped = true;
+			fleet.lifeForeground.set("shutdown", true);
 			for (const off of subscriptions.splice(0)) off();
 			await tasks.close();
 			await transport.close();
-			await server.stop();
+			await server?.stop();
+			fullyStopped = true;
 		},
 	};
 }

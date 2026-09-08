@@ -40,6 +40,11 @@ import { fields, integer } from "./validation.ts";
 
 type Source = { world: WorldSnapshot; life: LifeState };
 type Access = {
+	autonomy(
+		request: SocialPrepareRequest,
+		source: Source,
+		historical: boolean,
+	): import("./social-types.ts").SocialAutonomyInput | null;
 	source(worldId: string): Source;
 	sourceAt(worldId: string, lifeRevision: number): Source;
 	pack(worldId: string, version: number): WorldPack;
@@ -133,10 +138,11 @@ export class SocialPersistence {
 		request: SocialPrepareRequest,
 		source: Source,
 		seed: SocialBootstrap | null,
+		historical = false,
 	): SocialResolveInput | SocialExtensionInput {
 		const { world, life } = source;
 		const pack = this.access.pack(request.worldId, world.definition.version);
-		if (pack.schemaVersion !== 2)
+		if (pack.schemaVersion === 1)
 			throw Error("Social engine is not configured for this world pack");
 		if (
 			world.definition.id !== request.worldId ||
@@ -178,8 +184,11 @@ export class SocialPersistence {
 						policyDigest: lifeDigest(policy),
 					});
 			}
+		const autonomy = this.access.autonomy(request, source, historical);
 		const common = {
-			version: 1 as const,
+			...(autonomy
+				? { version: 2 as const, autonomy }
+				: { version: 1 as const }),
 			requestId: request.requestId,
 			world,
 			life,
@@ -261,6 +270,15 @@ export class SocialPersistence {
 		if (!row) throw Error("Unknown social resolution");
 		return this.decode(row);
 	}
+	getAt(
+		worldId: string,
+		requestId: string,
+		source: Source,
+	): SocialPreparedResolution {
+		const row = this.row(worldId, requestId);
+		if (!row) throw Error("Unknown social resolution");
+		return this.decode(row, source);
+	}
 	private decode(
 		row: ResolutionRow,
 		source?: Source,
@@ -277,7 +295,12 @@ export class SocialPersistence {
 		const savedLife = parseLifeState(value.input.life);
 		const previous =
 			source ?? this.access.sourceAt(request.worldId, savedLife.revision);
-		const input = this.input(request, previous, this.seed(request.worldId));
+		const input = this.input(
+			request,
+			previous,
+			this.seed(request.worldId),
+			true,
+		);
 		if (
 			row.world_id !== request.worldId ||
 			row.request_id !== request.requestId ||
@@ -383,7 +406,7 @@ export class SocialPersistence {
 		source: Source,
 		historical: boolean,
 	): void {
-		if (commit.version === 1) return;
+		if (commit.version !== 2) return;
 		const row = this.row(commit.world.worldId, commit.socialResolutionId);
 		if (!row) throw Error("LIFE social receipt is missing");
 		const prepared = this.decode(row, source);
@@ -405,7 +428,7 @@ export class SocialPersistence {
 			throw Error("LIFE social receipt does not authorize this commit");
 	}
 	markAccepted(commit: LifeCommit): void {
-		if (commit.version !== 2) return;
+		if (commit.version === 1 || commit.socialResolutionId === null) return;
 		const changed = this.db
 			.prepare(
 				"UPDATE world_social_resolutions SET accepted_life_revision = ? WHERE world_id = ? AND request_id = ? AND accepted_life_revision IS NULL AND result_json IS NOT NULL",
@@ -445,7 +468,7 @@ export class SocialPersistence {
 				const commit = parseLifeCommit(value.commit);
 				if (
 					value.version !== 1 ||
-					commit.version !== 2 ||
+					commit.version === 1 ||
 					commit.socialResolutionId !== row.request_id
 				)
 					throw Error("Orphan accepted social result");

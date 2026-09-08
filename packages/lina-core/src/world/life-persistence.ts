@@ -1,6 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import type { WorldPack } from "./authoring-types.ts";
+import {
+	type AutonomyDefinitionAccess,
+	parseAutonomyMigrationPreview,
+} from "./autonomy-definition.ts";
+import type { AutonomyMigrationPreview } from "./autonomy-types.ts";
 import { migrateLifeDefinitionResult } from "./life-definition.ts";
 import { canonicalLifeJson, lifeDigest, revision } from "./life-json.ts";
 import { parseEffect } from "./life-record-validation.ts";
@@ -50,7 +55,7 @@ type StateRow = {
 	baseline_json: string;
 	state_json: string;
 };
-type CommitRow = {
+export type CommitRow = {
 	world_id: string;
 	life_revision: number;
 	world_revision: number;
@@ -82,7 +87,7 @@ const INPUT_COLUMNS =
 	"world_id, input_id, source_revision, payload_digest, input_json, consumed_life_revision";
 const EFFECT_COLUMNS =
 	"world_id, intent_id, life_revision, payload_digest, intent_json, consumer_receipt_json";
-type WorldAccess = {
+type WorldAccess = AutonomyDefinitionAccess & {
 	pack(worldId: string, version: number): WorldPack;
 	assertSocialCommit(
 		commit: LifeCommit,
@@ -117,17 +122,27 @@ type DefinitionEnvelopeV3 = Omit<DefinitionEnvelopeV2, "version"> & {
 	toPackVersion: number;
 	socialMigration: SocialMigrationPreview | null;
 };
-type DefinitionEnvelope = DefinitionEnvelopeV2 | DefinitionEnvelopeV3;
+type DefinitionEnvelopeV4 = Omit<DefinitionEnvelopeV3, "version"> & {
+	version: 4;
+	autonomyMigration: AutonomyMigrationPreview | null;
+};
+export type DefinitionEnvelope =
+	| DefinitionEnvelopeV2
+	| DefinitionEnvelopeV3
+	| DefinitionEnvelopeV4;
 
-function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
+export function decodeLifeEnvelope(
+	row: CommitRow,
+): Envelope | DefinitionEnvelope {
 	const value: unknown = JSON.parse(row.envelope_json);
 	if (
 		value &&
 		typeof value === "object" &&
 		"version" in value &&
-		(value["version"] === 2 || value["version"] === 3)
+		(value["version"] === 2 || value["version"] === 3 || value["version"] === 4)
 	) {
-		const social = value["version"] === 3;
+		const social = value["version"] === 3 || value["version"] === 4;
+		const autonomous = value["version"] === 4;
 		fields(value, [
 			"version",
 			"kind",
@@ -135,6 +150,7 @@ function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
 			"expectedLifeRevision",
 			"previousDefinitionRevision",
 			"definition",
+			...(autonomous ? (["autonomyMigration"] as const) : []),
 			...(social
 				? (["fromPackVersion", "toPackVersion", "socialMigration"] as const)
 				: []),
@@ -156,7 +172,7 @@ function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
 			previousDefinitionRevision: value["previousDefinitionRevision"],
 			definition: parseLifeDefinition(value["definition"]),
 		};
-		const envelope: DefinitionEnvelope = social
+		const socialEnvelope: DefinitionEnvelopeV2 | DefinitionEnvelopeV3 = social
 			? {
 					...legacy,
 					version: 3,
@@ -168,6 +184,17 @@ function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
 							: parseSocialMigrationPreview(value["socialMigration"]),
 				}
 			: legacy;
+		const envelope: DefinitionEnvelope =
+			autonomous && socialEnvelope.version === 3
+				? {
+						...socialEnvelope,
+						version: 4,
+						autonomyMigration:
+							value["autonomyMigration"] === null
+								? null
+								: parseAutonomyMigrationPreview(value["autonomyMigration"]),
+					}
+				: socialEnvelope;
 		integer(row.life_revision, "LIFE commit revision", 1);
 		integer(row.world_revision, "LIFE world revision", 1);
 		if (
@@ -202,7 +229,7 @@ function decodeEnvelope(row: CommitRow): Envelope | DefinitionEnvelope {
 	return envelope;
 }
 function receipt(row: CommitRow, replayed: boolean): LifeReceipt {
-	const envelope = decodeEnvelope(row);
+	const envelope = decodeLifeEnvelope(row);
 	if (envelope.version !== 1) throw Error("WORLD_CONFIRMATION_REQUIRED");
 	return {
 		worldId: row.world_id,
@@ -428,7 +455,7 @@ export class LifePersistence {
 			| CommitRow
 			| undefined;
 		if (previous) {
-			decodeEnvelope(previous);
+			decodeLifeEnvelope(previous);
 			if (previous.input_digest !== inputDigest)
 				throw Error("LIFE idempotency key conflicts with accepted payload");
 			return receipt(previous, true);
@@ -495,6 +522,9 @@ export class LifePersistence {
 	): LifeState {
 		return this.previewDefinitionResult(proposal, definition, nextPack).state;
 	}
+	autonomyStateAt(worldId: string, lifeRevision: number) {
+		return this.world.autonomyStateAt(worldId, lifeRevision);
+	}
 	previewDefinitionResult(
 		proposal: WorldDefinitionProposal,
 		definition: LifeDefinition,
@@ -507,6 +537,15 @@ export class LifePersistence {
 					next: nextPack,
 				}
 			: undefined;
+		const autonomy = this.world.autonomyState(proposal.worldId);
+		if (
+			autonomy !== null &&
+			!isDeepStrictEqual(
+				autonomy,
+				this.world.autonomyStateAt(proposal.worldId, autonomy.lifeRevision),
+			)
+		)
+			throw Error("Corrupt autonomy migration source history");
 		return migrateLifeDefinitionResult(
 			this.snapshot(proposal.worldId),
 			world,
@@ -514,6 +553,7 @@ export class LifePersistence {
 			this.definition(proposal.worldId),
 			definition,
 			packs,
+			autonomy,
 		);
 	}
 	changeDefinition(
@@ -532,8 +572,8 @@ export class LifePersistence {
 			previousDefinitionRevision: old.revision,
 			definition,
 		};
-		const envelope: DefinitionEnvelope =
-			nextPack?.schemaVersion === 2
+		const socialEnvelope: DefinitionEnvelopeV2 | DefinitionEnvelopeV3 =
+			nextPack && nextPack.schemaVersion !== 1
 				? {
 						...legacy,
 						version: 3,
@@ -543,6 +583,14 @@ export class LifePersistence {
 						socialMigration: migration.socialMigration,
 					}
 				: legacy;
+		const envelope: DefinitionEnvelope =
+			nextPack?.schemaVersion === 3 && socialEnvelope.version === 3
+				? {
+						...socialEnvelope,
+						version: 4,
+						autonomyMigration: migration.autonomyMigration,
+					}
+				: socialEnvelope;
 		this.db
 			.prepare(
 				"INSERT INTO life_config (world_id, revision, definition_json, digest) VALUES (?, ?, ?, ?)",
@@ -595,6 +643,8 @@ export class LifePersistence {
 				)
 				.run(binding.revision, canonicalLifeJson(binding), binding.agentId);
 		}
+		if (migration.autonomyState)
+			this.world.saveAutonomyState(migration.autonomyState);
 		return next;
 	}
 	private assertInputs(
@@ -750,7 +800,7 @@ export class LifePersistence {
 				: query.iterate(row.world_id, revision);
 		for (const raw of rows) {
 			const entry = raw as CommitRow;
-			const envelope = decodeEnvelope(entry);
+			const envelope = decodeLifeEnvelope(entry);
 			const oldWorld = this.world.snapshotAt(row.world_id, state.worldRevision);
 			const nextWorld = this.world.snapshotAt(
 				row.world_id,
@@ -771,7 +821,7 @@ export class LifePersistence {
 				)
 					throw Error("Corrupt paired LIFE configuration event");
 				const packs =
-					envelope.version === 3
+					envelope.version !== 2
 						? {
 								old: this.world.pack(row.world_id, envelope.fromPackVersion),
 								next: this.world.pack(row.world_id, envelope.toPackVersion),
@@ -784,9 +834,10 @@ export class LifePersistence {
 					definition,
 					envelope.definition,
 					packs,
+					this.world.autonomyStateAt(row.world_id, state.revision),
 				);
 				if (
-					envelope.version === 3 &&
+					envelope.version !== 2 &&
 					(envelope.fromPackVersion !== oldWorld.definition.version ||
 						envelope.toPackVersion !== nextWorld.definition.version ||
 						!isDeepStrictEqual(
@@ -795,6 +846,15 @@ export class LifePersistence {
 						))
 				)
 					throw Error("Corrupt LIFE social migration receipt");
+				if (
+					envelope.version === 4
+						? !isDeepStrictEqual(
+								envelope.autonomyMigration,
+								migration.autonomyMigration,
+							)
+						: migration.autonomyMigration !== null
+				)
+					throw Error("Corrupt LIFE autonomy migration receipt");
 				state = migration.state;
 				definition = envelope.definition;
 				configs.add(definition.revision);

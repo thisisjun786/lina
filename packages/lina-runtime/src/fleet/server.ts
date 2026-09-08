@@ -88,6 +88,17 @@ export async function startFleetServer(
 			const url = new URL(request.url);
 			if (
 				request.method === "POST" &&
+				url.hostname === "127.0.0.1" &&
+				request.headers.get("host") === url.host &&
+				/^\/api\/life\/worlds\/[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,255}\/step$/.test(
+					url.pathname,
+				)
+			) {
+				// A step has multiple bounded native calls; the runner owns their deadlines and aborts.
+				server.timeout(request, 0);
+			}
+			if (
+				request.method === "POST" &&
 				/^\/api\/(?:onboarding\/(?:interview|preview)|agents\/(?:birth|[a-z][a-z0-9-]{0,47}\/intro\/(?:turn|choose))|life\/(?:drafts\/[a-zA-Z0-9._-]+\/suggest|author-sessions(?:\/[a-zA-Z0-9._-]+\/open)?))$/.test(
 					url.pathname,
 				)

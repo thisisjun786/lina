@@ -1,6 +1,6 @@
 import type { WorldPack } from "../src/world/authoring-types.ts";
 import type {
-	SocialPrepareRequest,
+	SocialPrepareRequestV1,
 	WorldSocialPort,
 } from "../src/world/social-store-types.ts";
 import type { WorldStore } from "../src/world/store.ts";
@@ -47,8 +47,8 @@ export function activateSocialPack(
 }
 
 export function socialRequest(
-	patch: Partial<SocialPrepareRequest> = {},
-): SocialPrepareRequest {
+	patch: Partial<SocialPrepareRequestV1> = {},
+): SocialPrepareRequestV1 {
 	return {
 		version: 1,
 		worldId: "test-world",

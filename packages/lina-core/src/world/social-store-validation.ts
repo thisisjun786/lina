@@ -5,7 +5,10 @@ import {
 	revision,
 } from "./life-json.ts";
 import { parseIdentityPolicy } from "./life-validation.ts";
-import type { SocialPrepareRequest } from "./social-store-types.ts";
+import type {
+	SocialPrepareRequest,
+	SocialPrepareRequestV1,
+} from "./social-store-types.ts";
 import type { SocialLimits, TargetResponse } from "./social-types.ts";
 import { fields, integer, MAX_WORLD_BYTES } from "./validation.ts";
 
@@ -48,6 +51,11 @@ export function parseSocialPrepareRequest(
 	value: unknown,
 ): SocialPrepareRequest {
 	jsonBoundary(value);
+	const autonomous =
+		!!value &&
+		typeof value === "object" &&
+		"version" in value &&
+		value.version === 2;
 	fields(value, [
 		"version",
 		"worldId",
@@ -57,10 +65,11 @@ export function parseSocialPrepareRequest(
 		"identity",
 		"simulationTime",
 		"limits",
+		...(autonomous ? (["stepId"] as const) : []),
 	]);
-	if (value.version !== 1)
+	if (value.version !== 1 && !autonomous)
 		throw Error("Unsupported social preparation version");
-	return {
+	const legacy: SocialPrepareRequestV1 = {
 		version: 1,
 		worldId: identifier(value.worldId),
 		requestId: identifier(value.requestId),
@@ -70,4 +79,7 @@ export function parseSocialPrepareRequest(
 		simulationTime: revision(value.simulationTime),
 		limits: parseSocialStoreLimits(value.limits),
 	};
+	return autonomous
+		? { ...legacy, version: 2, stepId: identifier(value.stepId) }
+		: legacy;
 }

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { IdentityPolicySnapshot } from "../../../../lina-core/src/world/life-types.ts";
 import type {
-	SocialPrepareRequest,
+	SocialPrepareRequestV1,
 	WorldSocialPort,
 } from "../../../../lina-core/src/world/social-store-types.ts";
 import type { SocialEnginePort } from "./port.ts";
@@ -16,7 +16,7 @@ export function createSocialService(options: {
 	const entropy = options.entropy ?? (() => randomBytes(4).readUInt32BE());
 	return {
 		async resolve(
-			request: Omit<SocialPrepareRequest, "identity">,
+			request: Omit<SocialPrepareRequestV1, "identity">,
 			signal: AbortSignal,
 		) {
 			signal.throwIfAborted();

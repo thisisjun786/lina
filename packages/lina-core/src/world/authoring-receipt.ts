@@ -4,6 +4,7 @@ import type {
 	WorldDraftPreview,
 } from "./authoring-types.ts";
 import { parseWorldPreviewOptions } from "./authoring-validation.ts";
+import { parseAutonomyMigrationPreview } from "./autonomy-definition.ts";
 import {
 	array,
 	digest,
@@ -150,7 +151,8 @@ export function parseWorldDraftPreview(value: unknown): WorldDraftPreview {
 		!!value &&
 		typeof value === "object" &&
 		"version" in value &&
-		value["version"] === 2;
+		(value["version"] === 2 || value["version"] === 3);
+	const autonomous = current && value["version"] === 3;
 	fields(value, [
 		"version",
 		"draftId",
@@ -164,6 +166,7 @@ export function parseWorldDraftPreview(value: unknown): WorldDraftPreview {
 		"canActivate",
 		"digest",
 		...(current ? ["socialMigration"] : []),
+		...(autonomous ? ["autonomyMigration"] : []),
 	]);
 	if (!current && value["version"] !== 1)
 		throw Error("Unsupported world preview version");
@@ -180,6 +183,11 @@ export function parseWorldDraftPreview(value: unknown): WorldDraftPreview {
 			options.simulationTime !== migration.simulationTime
 		)
 			throw Error("Social migration preview boundary mismatch");
+	}
+	if (autonomous && value["autonomyMigration"] !== null) {
+		const migration = parseAutonomyMigrationPreview(value["autonomyMigration"]);
+		if (options.expectedWorldRevision !== migration.worldRevision - 1)
+			throw Error("Autonomy migration preview boundary mismatch");
 	}
 	const questions = array(value["unresolved"], (question) => {
 		fields(question, ["id", "question", "blocking"]);

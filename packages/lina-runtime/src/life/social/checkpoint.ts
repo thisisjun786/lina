@@ -9,6 +9,7 @@ import type {
 	SocialResolveInput,
 	SocialRng,
 } from "../../../../lina-core/src/world/social-types.ts";
+import { socialInputVariables } from "../../../../lina-core/src/world/social-variables.ts";
 import { socialPredicateCategory as predicateCategory } from "../../../../lina-core/src/world/social-views.ts";
 import type { PinnedEnsemble, RawEnsembleState } from "./pinned-types.ts";
 
@@ -116,11 +117,7 @@ export function checkpointEnsemble(
 		cast: previous
 			? [...previous.cast]
 			: input.rulePack.cast.map((c) => c.agentId),
-		variables: previous
-			? structuredClone(previous.variables)
-			: Object.fromEntries(
-					input.rulePack.variables.map((v) => [v.id, v.initial]),
-				),
+		variables: socialInputVariables(input),
 		predicateIntroductions: previous
 			? structuredClone(previous.predicateIntroductions)
 			: input.rulePack.predicates.map((p) => ({

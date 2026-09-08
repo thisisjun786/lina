@@ -87,6 +87,9 @@ Effect is exactly one of:
  {kind:"attitude",from:AgentRef,to:AgentRef,axisId:string,delta:Expression};
  {kind:"goal",agent:AgentRef,id:string,description:TextPart[]}.
 
+For autonomous LIFE use schemaVersion:3 with the same v2 SocialDefinition and an additional autonomy:AutonomyDefinition. Existing v1/v2 packs remain readable, but cannot run autonomous steps. Propose a v3 upgrade explicitly; never silently change a confirmed pack.
+AutonomyDefinition={version:1,needs:{id:string,label:string,min:number,max:number,initial:number,driftPerStep:number}[],goals:{id:string,agentId:string,description:string,priority:number,familyIds:string[]}[],events:{familyId:string,capabilityIds:string[],cooldownSteps:nonnegativeInteger,noveltyPenalty:number,goalWeight:number,needWeights:{needId:string,multiplier:number}[],traitWeights:{axisId:string,multiplier:number}[],habitWeights:{habitId:string,when:boolean,weight:number}[]}[],quietWeight:number,growth:{maxNumericDelta:number,minHabitExperiences:positiveInteger}}.
+Autonomous references resolve to authored participants, needs, axes, event families and social capabilities. Weights, priority and growth deltas are finite nonnegative numbers; need initial values are within explicit bounds. Quiet weighting, drift and growth policy are authored candidate choices, never operational defaults. Runtime clock/run/models/limits/usage are separate explicit configuration; do not invent cadence, budgets, provider routes or background activation. Publication, images and avatars are independent optional configuration, not prerequisites for text simulation.
 All fields shown are required; nullable fields must use null when absent. Empty collections are valid when nothing is authored or proposed. Creative proposals remain unconfirmed; absent operational values never become defaults.
 Use the supplied worldId exactly. pack.version equals world.version; life.revision advances independently. Preserve stable IDs and existing version semantics; never rewrite history.
 World agents, LIFE participants, role membership, scene occupants, agent references and knownTo must agree. Every scene references an existing place; every symbol/role/axis/family reference resolves to its declared ID.
@@ -103,6 +106,7 @@ type Options = {
 	authoring: NonNullable<ModelControl["authoring"]>;
 	modelSettingsRevision: () => number;
 	agentExists: (id: string) => boolean;
+	changed?: (worldId: string) => void;
 };
 type RunningSuggestion = {
 	scope: WorldAuthorScope;
@@ -204,7 +208,12 @@ export class WorldAuthoring {
 	}
 	confirm(input: unknown, scope: WorldAuthorScope = MANAGEMENT) {
 		this.assertScope(scope);
-		return this.store.activateWorldDraft(parseWorldConfirmation(input), scope);
+		const receipt = this.store.activateWorldDraft(
+			parseWorldConfirmation(input),
+			scope,
+		);
+		if (!receipt.replayed) this.options.changed?.(receipt.worldId);
+		return receipt;
 	}
 	pack(
 		worldId: string,
@@ -232,6 +241,7 @@ export class WorldAuthoring {
 			parseLifeConfigInput(input),
 			scope,
 		);
+		this.options.changed?.(worldId);
 		return { config, readiness: lifeConfigReadiness(config) };
 	}
 	suggestion(id: string, scope: WorldAuthorScope = MANAGEMENT) {

@@ -33,7 +33,9 @@ import type {
 	SocialPolicyReference,
 	SocialResolution,
 	SocialResolveInput,
+	SocialResolveInputV1,
 } from "./social-types.ts";
+import { parseSocialAutonomyInput } from "./social-variables.ts";
 import { assertSocialSource, projectSocialActorView } from "./social-views.ts";
 import type { WorldSnapshot } from "./types.ts";
 import {
@@ -129,6 +131,11 @@ function policyReference(value: unknown): SocialPolicyReference {
 
 export function parseSocialResolveInput(value: unknown): SocialResolveInput {
 	jsonBoundary(value);
+	const autonomous =
+		!!value &&
+		typeof value === "object" &&
+		"version" in value &&
+		value.version === 2;
 	fields(value, [
 		"version",
 		"requestId",
@@ -143,14 +150,16 @@ export function parseSocialResolveInput(value: unknown): SocialResolveInput {
 		"bootstrap",
 		"policies",
 		"limits",
+		...(autonomous ? (["autonomy"] as const) : []),
 	]);
-	if (value.version !== 1) throw Error("Unsupported social input version");
+	if (value.version !== 1 && !autonomous)
+		throw Error("Unsupported social input version");
 	const rulePack = parseCompiledSocialPack(value.rulePack),
 		inspection = inspectSocialIntent(value.intent, rulePack);
 	if (inspection.kind !== "intent")
 		throw Error("Social extension cannot dispatch");
 	const targetResponse = parseSocialTargetResponse(value.targetResponse);
-	const result: SocialResolveInput = {
+	const legacy: SocialResolveInputV1 = {
 		version: 1,
 		requestId: identifier(value.requestId),
 		world: worldSnapshot(value.world),
@@ -168,6 +177,13 @@ export function parseSocialResolveInput(value: unknown): SocialResolveInput {
 		),
 		limits: parseSocialStoreLimits(value.limits),
 	};
+	const result: SocialResolveInput = autonomous
+		? {
+				...legacy,
+				version: 2,
+				autonomy: parseSocialAutonomyInput(value.autonomy, legacy),
+			}
+		: legacy;
 	assertSocialSource(rulePack, result.world, result.life);
 	assertSocialCapacity(rulePack, result.checkpoint, result.limits);
 	if (

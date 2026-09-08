@@ -12,6 +12,7 @@ import type {
 	SocialResolution,
 	SocialResolveInput,
 } from "./social-types.ts";
+import { socialInputVariables } from "./social-variables.ts";
 import { currentSocialValue } from "./social-views.ts";
 
 const predicateKey = (id: string, first: string, second: string | null) =>
@@ -59,9 +60,7 @@ function checkpointTransition(
 		result.trace.drawsAfter !== next.rng.drawIndex
 	)
 		throw Error("Social result random continuity mismatch");
-	const expectedVariables =
-		previous?.variables ??
-		Object.fromEntries(input.rulePack.variables.map((v) => [v.id, v.initial]));
+	const expectedVariables = socialInputVariables(input);
 	if (lifeDigest(next.variables) !== lifeDigest(expectedVariables))
 		throw Error("Unauthorized social variable write");
 	if (previous) {

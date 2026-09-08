@@ -1,4 +1,8 @@
 import type {
+	AutonomyDefinition,
+	AutonomyMigrationPreview,
+} from "./autonomy-types.ts";
+import type {
 	DisclosurePolicy,
 	LifeDefinition,
 	LifeViewLimits,
@@ -167,7 +171,12 @@ export type WorldPackV2 = Omit<WorldPackV1, "schemaVersion"> & {
 	schemaVersion: 2;
 	social: SocialDefinition;
 };
-export type WorldPack = WorldPackV1 | WorldPackV2;
+export type WorldPackV3 = Omit<WorldPackV2, "schemaVersion"> & {
+	schemaVersion: 3;
+	autonomy: AutonomyDefinition;
+};
+export type SocialWorldPack = WorldPackV2 | WorldPackV3;
+export type WorldPack = WorldPackV1 | SocialWorldPack;
 export type EvaluationLimits = LifeViewLimits & {
 	maxDepth: number;
 	maxOperations: number;
@@ -312,7 +321,14 @@ export type WorldDraftPreviewV2 = Omit<WorldDraftPreviewV1, "version"> & {
 	version: 2;
 	socialMigration: SocialMigrationPreview | null;
 };
-export type WorldDraftPreview = WorldDraftPreviewV1 | WorldDraftPreviewV2;
+export type WorldDraftPreviewV3 = Omit<WorldDraftPreviewV2, "version"> & {
+	version: 3;
+	autonomyMigration: AutonomyMigrationPreview | null;
+};
+export type WorldDraftPreview =
+	| WorldDraftPreviewV1
+	| WorldDraftPreviewV2
+	| WorldDraftPreviewV3;
 export type WorldConfirmation = {
 	draftId: string;
 	expectedRevision: number;
@@ -338,9 +354,14 @@ export type WorldActivationReceiptV2 = Omit<
 	WorldActivationReceiptV1,
 	"version" | "preview"
 > & { version: 2; preview: WorldDraftPreviewV2 };
+export type WorldActivationReceiptV3 = Omit<
+	WorldActivationReceiptV2,
+	"version" | "preview"
+> & { version: 3; preview: WorldDraftPreviewV3 };
 export type WorldActivationReceipt =
 	| WorldActivationReceiptV1
-	| WorldActivationReceiptV2;
+	| WorldActivationReceiptV2
+	| WorldActivationReceiptV3;
 export type WorldAuthorGrant = {
 	version: 1;
 	id: string;

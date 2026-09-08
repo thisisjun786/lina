@@ -1,4 +1,4 @@
-import type { WorldPackV2 } from "./authoring-types.ts";
+import type { SocialWorldPack } from "./authoring-types.ts";
 import { lifeDigest, revision } from "./life-json.ts";
 import { validateSocialCheckpoint } from "./social-checkpoint.ts";
 import { decodeSocialValue, encodeSocialValue } from "./social-codec.ts";
@@ -42,8 +42,8 @@ function compatible(old: CompiledSocialPack, next: CompiledSocialPack): void {
 
 export function migrateSocialCheckpoint(
 	checkpoint: EnsembleCheckpoint,
-	oldPack: WorldPackV2,
-	nextPack: WorldPackV2,
+	oldPack: SocialWorldPack,
+	nextPack: SocialWorldPack,
 	boundary: {
 		worldRevision: number;
 		lifeRevision: number;

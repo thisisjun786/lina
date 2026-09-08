@@ -28,6 +28,13 @@ function v2() {
 	// These empty tables are the entire v3 delta; the remaining schema/data are the historical v2 file.
 	const raw = new DatabaseSync(path);
 	for (const table of [
+		"life_model_receipts",
+		"life_steps",
+		"life_autonomy_state",
+		"life_schedules",
+	])
+		raw.exec(`DROP TABLE IF EXISTS ${table}`);
+	for (const table of [
 		"world_authoring_requests",
 		"world_author_grants",
 		"world_activations",
@@ -46,7 +53,7 @@ function v2() {
 	raw.close();
 	return { path, events, commits };
 }
-test("actual v2 file upgrades through v3 to v4 without rewriting accepted world/LIFE bytes", () => {
+test("actual v2 file upgrades through v3 and v4 to v5 without rewriting accepted world/LIFE bytes", () => {
 	const { path, events, commits } = v2();
 	const store = new WorldStore(path);
 	expect(store.lifeSnapshot("test-world").experiences).toHaveLength(2);
@@ -54,7 +61,7 @@ test("actual v2 file upgrades through v3 to v4 without rewriting accepted world/
 	const raw = new DatabaseSync(path);
 	try {
 		expect(raw.prepare("PRAGMA user_version").get()).toEqual({
-			user_version: 4,
+			user_version: 5,
 		});
 		expect(raw.prepare("SELECT event_json FROM world_events").all()).toEqual(
 			events,

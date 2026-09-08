@@ -1,5 +1,5 @@
 import { scalar } from "./authoring-node-validation.ts";
-import type { WorldPackV2 } from "./authoring-types.ts";
+import type { SocialWorldPack } from "./authoring-types.ts";
 import {
 	array,
 	digest,
@@ -47,13 +47,13 @@ function hashes(
 	const body = { ...base, schemaDigest, ruleDigest, actionDigest };
 	return { ...body, digest: lifeDigest(body) };
 }
-export function assertSocialPackSemantics(pack: WorldPackV2): void {
+export function assertSocialPackSemantics(pack: SocialWorldPack): void {
 	compileSocialPack(pack);
 }
-export function compileSocialPack(pack: WorldPackV2): CompiledSocialPack {
+export function compileSocialPack(pack: SocialWorldPack): CompiledSocialPack {
 	jsonBoundary(pack);
 	if (
-		pack.schemaVersion !== 2 ||
+		(pack.schemaVersion !== 2 && pack.schemaVersion !== 3) ||
 		pack.worldId !== pack.world.id ||
 		pack.world.version !== pack.version
 	)

@@ -331,11 +331,11 @@ export function applyLifeTransition(
 			proposal.experiences.length ||
 			proposal.growth.length ||
 			proposal.effects.length ||
-			(proposal.version === 2 && proposal.knowledgeGrants.length))
+			(proposal.version !== 1 && proposal.knowledgeGrants.length))
 	)
 		throw Error("Quiet tick cannot contain LIFE activity");
 	if (
-		(previousLife.version === 2 && proposal.version !== 2) ||
+		(previousLife.version === 2 && proposal.version === 1) ||
 		(previousLife.checkpoint.engineId === "ensemble" &&
 			proposal.checkpoint.engineId !== "ensemble")
 	)
@@ -343,7 +343,7 @@ export function applyLifeTransition(
 	assertKnowledgeGrantTransition(proposal, previousLife, previousWorld, def);
 	const previous = parseLifeState(previousLife);
 	const next: LifeState =
-		proposal.version === 2
+		proposal.version !== 1
 			? {
 					...previous,
 					version: 2,
