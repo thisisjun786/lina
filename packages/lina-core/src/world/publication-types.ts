@@ -70,7 +70,7 @@ export interface EventPublicationMaterial {
 	digest: string;
 }
 
-export interface PublicationAuthor {
+export interface PublicationAuthorV1 {
 	agentId: string;
 	name: string;
 	voice: string;
@@ -80,6 +80,14 @@ export interface PublicationAuthor {
 		"traits" | "habits" | "attitudes"
 	>;
 }
+export type PublicationAuthor =
+	| PublicationAuthorV1
+	| (PublicationAuthorV1 & {
+			version: 2;
+			sourceStamp:
+				| import("../agents/behavior-types.ts").BehaviorSourceStamp
+				| null;
+	  });
 export type PublicationJobStatus =
 	| "pending"
 	| "prepared"

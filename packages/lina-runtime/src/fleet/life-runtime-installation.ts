@@ -30,6 +30,11 @@ export class FleetLifeInstallation {
 			assertAuthoring(): void;
 			authoring: NonNullable<ModelControl["authoring"]>;
 			createRuntime?: (context: FleetLifeContext) => FleetLifeRuntime;
+			personalGrowth?: (
+				store: WorldStore,
+				worldId: string,
+				agentId: string,
+			) => ReturnType<NonNullable<FleetLifeContext["personalGrowth"]>>;
 			now?: () => number;
 		},
 	) {}
@@ -43,6 +48,7 @@ export class FleetLifeInstallation {
 		return this.store;
 	}
 	get authoring(): WorldAuthoring {
+		const personalGrowth = this.options.personalGrowth;
 		const store = this.storage;
 		if (!this.service) {
 			this.service = new WorldAuthoring({
@@ -61,6 +67,12 @@ export class FleetLifeInstallation {
 			this.store
 		) {
 			this.background = this.options.createRuntime({
+				...(personalGrowth
+					? {
+							personalGrowth: (worldId: string, agentId: string) =>
+								personalGrowth(store, worldId, agentId),
+						}
+					: {}),
 				store: this.store,
 				agents: this.options.agents,
 				modelSettings: this.options.modelSettings,
@@ -78,6 +90,7 @@ export class FleetLifeInstallation {
 		return this.background;
 	}
 	conversationSource(agentId: string): OrdinaryWorldSource | undefined {
+		const personalGrowth = this.options.personalGrowth;
 		if (
 			!this.store &&
 			existsSync(join(this.options.root, "life", "world.sqlite"))
@@ -97,7 +110,14 @@ export class FleetLifeInstallation {
 			identityPolicy: () => {
 				const selected = store.worldBinding(agentId)?.worldId;
 				if (!selected) throw Error("Ordinary world is not bound");
-				return fleetLifeIdentity(store, this.options.agents, selected).identity;
+				return fleetLifeIdentity(
+					store,
+					this.options.agents,
+					selected,
+					personalGrowth
+						? (worldId, id) => personalGrowth(store, worldId, id)
+						: undefined,
+				).identity;
 			},
 			assertSourceCurrent: (selected) => {
 				if (this.background) this.background.assertWorkCurrent(selected);

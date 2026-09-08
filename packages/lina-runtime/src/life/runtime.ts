@@ -78,7 +78,12 @@ export function createLifeRuntime(options: LifeRuntimeOptions) {
 		// The durable fence must precede abort, whose late response may still carry usage.
 		options.store.invalidateLifeIdentity(
 			worldId,
-			options.identity(worldId),
+			options.identity(
+				worldId,
+				pending
+					? options.store.lifeStep(worldId, pending).source.identity.version
+					: undefined,
+			),
 			now,
 		);
 		if (pending && options.store.lifeStep(worldId, pending).status === "stale")

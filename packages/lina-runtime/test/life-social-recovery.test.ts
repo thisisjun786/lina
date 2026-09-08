@@ -32,6 +32,8 @@ test("real process restart restores full state and identical future choices", as
 	pack.life.participants.push("nora");
 	pack.life.participants.sort();
 	const input = engineInput(pack);
+	if (input.identity.version !== 1)
+		throw Error("Expected legacy identity fixture");
 	input.identity.profiles.push({
 		agentId: "nora",
 		profileRevision: 1,

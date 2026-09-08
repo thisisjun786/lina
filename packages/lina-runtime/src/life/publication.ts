@@ -43,7 +43,11 @@ export type LifePublicationStore = Pick<
 
 export interface LifePublicationOptions {
 	store: LifePublicationStore;
-	author(worldId: string, agentId: string): PublicationAuthor;
+	author(
+		worldId: string,
+		agentId: string,
+		frozen?: PublicationAuthor | null,
+	): PublicationAuthor;
 	assertSourceCurrent?(job: PublicationJob): void;
 }
 interface Context {
@@ -91,7 +95,11 @@ function current(context: Context, job: PublicationJob) {
 	context.guard();
 	context.beforePrepare?.(job.worldId);
 	context.publication.assertSourceCurrent?.(job);
-	const author = context.publication.author(job.worldId, job.authorAgentId);
+	const author = context.publication.author(
+		job.worldId,
+		job.authorAgentId,
+		job.author,
+	);
 	const { modelSettingsRevision } = context.identity(job.worldId);
 	if (job.material)
 		context.publication.store.assertPublicationCurrent(

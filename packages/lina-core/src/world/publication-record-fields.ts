@@ -1,3 +1,4 @@
+import { parseBehaviorSourceStamp } from "./identity-policy.ts";
 import {
 	array,
 	digest,
@@ -25,23 +26,33 @@ function prose(value: unknown): string {
 }
 export function parsePublicationAuthor(value: unknown): PublicationAuthor {
 	jsonBoundary(value);
-	fields(value, ["agentId", "name", "voice", "profileRevision", "behavior"]);
-	fields(value.behavior, ["traits", "habits", "attitudes"]);
-	return {
-		agentId: identifier(value.agentId),
-		name: prose(value.name),
-		voice: prose(value.voice),
-		profileRevision: revision(value.profileRevision, 1),
+	const current = !!value && typeof value === "object" && "version" in value;
+	fields(value, [
+		"agentId",
+		"name",
+		"voice",
+		"profileRevision",
+		"behavior",
+		...(current ? ["version", "sourceStamp"] : []),
+	]);
+	if (current && value["version"] !== 2)
+		throw Error("Unsupported publication author version");
+	fields(value["behavior"], ["traits", "habits", "attitudes"]);
+	const author = {
+		agentId: identifier(value["agentId"]),
+		name: prose(value["name"]),
+		voice: prose(value["voice"]),
+		profileRevision: revision(value["profileRevision"], 1),
 		behavior: {
-			traits: array(value.behavior.traits, (v) => {
+			traits: array(value["behavior"].traits, (v) => {
 				fields(v, ["label", "value"]);
 				return { label: prose(v.label), value: finite(v.value) };
 			}),
-			habits: array(value.behavior.habits, (v) => {
+			habits: array(value["behavior"].habits, (v) => {
 				fields(v, ["label", "value"]);
 				return { label: prose(v.label), value: flag(v.value) };
 			}),
-			attitudes: array(value.behavior.attitudes, (v) => {
+			attitudes: array(value["behavior"].attitudes, (v) => {
 				fields(v, ["toAgentId", "label", "value"]);
 				return {
 					toAgentId: identifier(v.toAgentId),
@@ -51,6 +62,14 @@ export function parsePublicationAuthor(value: unknown): PublicationAuthor {
 			}),
 		},
 	};
+	if (!current) return author;
+	const sourceStamp =
+		value["sourceStamp"] === null
+			? null
+			: parseBehaviorSourceStamp(value["sourceStamp"]);
+	if (sourceStamp && sourceStamp.profileRevision !== author.profileRevision)
+		throw Error("Publication author source anchor mismatch");
+	return { version: 2, ...author, sourceStamp };
 }
 
 /** Shared fields only; version owners validate shape, source rules and the digest. */

@@ -6,6 +6,7 @@ import type { AgentInput } from "../../../lina-core/src/agents/types.ts";
 import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.ts";
 import { DialogueStore } from "../../../lina-core/src/onboarding/dialogue-store.ts";
 import { OnboardingStore } from "../../../lina-core/src/onboarding/store.ts";
+import type { WorldStore } from "../../../lina-core/src/world/store.ts";
 import type { WorkEvidenceSnapshot } from "../../../lina-core/src/world/work-types.ts";
 import { HonchoClient } from "../../../lina-memory/src/honcho/client.ts";
 import {
@@ -17,6 +18,7 @@ import {
 	HonchoRequestError,
 	type QualifiedHonchoAdapter,
 } from "../../../lina-memory/src/honcho/types.ts";
+import { defaultEnginePolicy } from "../context/policy-settings.ts";
 import { boundWorkspace } from "../installation.ts";
 import type {
 	WorldAuthorFactoryOptions,
@@ -26,6 +28,11 @@ import type { WorldAuthoring } from "../life/authoring.ts";
 import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import type { ModelControl } from "../models/port.ts";
 import type { ModelSettingsStore } from "../models/settings.ts";
+import {
+	growthSourcesCurrent,
+	type PersonalGrowthSource,
+} from "../persona/growth-source.ts";
+import { openPersonaSourceOwner } from "../persona/source-owner.ts";
 import { splitPolicy } from "../policy/response.ts";
 import type { AppOptions, startPersistentApp } from "../session-app.ts";
 import type { FleetLifeContext, FleetLifeRuntime } from "./life-runtime.ts";
@@ -40,6 +47,58 @@ import { readPresets } from "./presets.ts";
 export const validAgentId = (id: string) => /^[a-z][a-z0-9-]{0,47}$/.test(id);
 type App = Awaited<ReturnType<typeof startPersistentApp>>;
 export class AgentFleet {
+	private readonly personalSources = new Map<string, PersonalGrowthSource>();
+	private readonly personalReaders = new Map<
+		string,
+		ReturnType<typeof openPersonaSourceOwner>
+	>();
+	private personalGrowth(store: WorldStore, worldId: string, agentId: string) {
+		const empty = {
+			agentId,
+			worldId,
+			personalBehavior: null,
+			sourceStamp: null,
+		};
+		if (
+			!(this.options.enginePolicy?.() ?? defaultEnginePolicy()).memory.enabled
+		)
+			return empty;
+		if (
+			!this.agents.behavior
+				.status(agentId)
+				.some((job) => job.worldId === worldId && job.state === "committed")
+		)
+			return empty;
+		const profile = this.agents.get(agentId);
+		if (!profile || profile.evolution === "manual") return empty;
+		const definition = store.lifeDefinition(worldId);
+		const registered = this.personalSources.get(agentId);
+		const root =
+			agentId === "lina" ? this.root : join(this.root, "agents", agentId);
+		let owner = registered ? undefined : this.personalReaders.get(agentId);
+		if (!registered && !owner) {
+			owner = openPersonaSourceOwner({
+				stateRoot: root,
+				botId: agentId,
+				workspace: this.options.workspaceRoot
+					? join(this.options.workspaceRoot, agentId)
+					: this.options.workspace,
+			});
+			this.personalReaders.set(agentId, owner);
+		}
+		const source =
+			registered ??
+			(owner
+				? {
+						mind: owner.mind(),
+						lookup: (id: string) => owner.journal().sourceEntry(id),
+					}
+				: undefined);
+		if (!source) throw Error("Personal source unavailable");
+		return this.agents.behavior.current(agentId, worldId, (input) =>
+			growthSourcesCurrent(source, input, profile, definition),
+		);
+	}
 	private readonly lifeInstallation: FleetLifeInstallation;
 	private readonly worldAuthors: FleetLifeAuthors;
 	readonly lifeForeground = new FleetLifeForeground();
@@ -187,6 +246,7 @@ export class AgentFleet {
 			honchoByAgent?: Record<string, HonchoConfig>;
 			qualifiedHonchoAdapter?: QualifiedHonchoAdapter;
 			memoryBackend?: AppOptions["memoryBackend"];
+			enginePolicy?: AppOptions["enginePolicy"];
 			honchoClientOptions?: AppOptions["honchoClientOptions"];
 			contextBudget?: number;
 			approvalMode?: AppOptions["approvalMode"];
@@ -207,6 +267,7 @@ export class AgentFleet {
 		this.agents = new FleetLifeAgents(join(this.root, "agents.sqlite"), () =>
 			this.lifeInstallation?.changed(),
 		);
+		this.agents.behavior.recover();
 		this.conversations = new ConversationStore(
 			join(this.root, "conversations.sqlite"),
 		);
@@ -215,6 +276,8 @@ export class AgentFleet {
 			() => this.lifeInstallation?.changed(),
 		);
 		this.lifeInstallation = new FleetLifeInstallation({
+			personalGrowth: (store, worldId, agentId) =>
+				this.personalGrowth(store, worldId, agentId),
 			root: this.root,
 			agents: this.agents,
 			modelSettings: this.modelSettings,
@@ -290,6 +353,9 @@ export class AgentFleet {
 			),
 			config = this.memoryConfig(id);
 		const appOptions: Omit<AppOptions, "engine"> = {
+			...(this.options.enginePolicy
+				? { enginePolicy: this.options.enginePolicy }
+				: {}),
 			workspace: realpathSync(
 				checkedDirectory(
 					boundWorkspace(
@@ -312,6 +378,15 @@ export class AgentFleet {
 			port: 0,
 			botId: id,
 			persona: {
+				registerPersonalSource: (source) => {
+					this.personalReaders.get(id)?.close();
+					this.personalReaders.delete(id);
+					this.personalSources.set(id, source);
+					return () => {
+						if (this.personalSources.get(id) === source)
+							this.personalSources.delete(id);
+					};
+				},
 				agents: this.agents,
 				agentId: id,
 				conversations: this.conversations,
@@ -454,6 +529,8 @@ export class AgentFleet {
 			);
 		}
 		this.ready.clear();
+		for (const reader of this.personalReaders.values()) reader.close();
+		this.personalReaders.clear();
 		this.apps.clear();
 		this.agents.close();
 		this.conversations.close();

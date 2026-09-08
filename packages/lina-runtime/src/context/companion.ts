@@ -65,6 +65,15 @@ function finalAssistant(entry: EntryInput): boolean {
 export class CompanionMemory {
 	readonly mind: EngineStore;
 	private readonly consolidation: MemoryConsolidation;
+	private personaGrowth: ((signal: AbortSignal) => Promise<void>) | undefined;
+	private personaGrowthError: "persona_processing_failed" | null = null;
+	private personaGrowthDetail:
+		| (() => {
+				selectedRecords: number;
+				omittedRecords: number;
+				inputChars: number;
+		  })
+		| undefined;
 	private readonly queue: CompanionQueue;
 	private readonly controller = new AbortController();
 	private readonly schedule: Schedule;
@@ -131,6 +140,17 @@ export class CompanionMemory {
 		this.preferences = preferences;
 		this.consolidation.configure(consolidation);
 	}
+	configurePersonaGrowth(
+		run: (signal: AbortSignal) => Promise<void>,
+		detail?: () => {
+			selectedRecords: number;
+			omittedRecords: number;
+			inputChars: number;
+		},
+	): void {
+		this.personaGrowth = run;
+		this.personaGrowthDetail = detail;
+	}
 	status(): MemorySnapshot {
 		if (
 			(this.recallText && !this.mind.currentRecords(this.recallRecordIds)) ||
@@ -151,6 +171,10 @@ export class CompanionMemory {
 			freshness: "unknown",
 			recallText: this.recallText,
 			consolidation: this.consolidation.status(),
+			personaGrowth: {
+				error: this.personaGrowthError,
+				coverage: this.personaGrowthDetail?.(),
+			},
 		};
 	}
 	detail() {
@@ -304,6 +328,12 @@ export class CompanionMemory {
 				this.controller.signal,
 				this.options.allowCharacterGrowth ?? (() => true),
 			);
+			try {
+				await this.personaGrowth?.(this.controller.signal);
+				this.personaGrowthError = null;
+			} catch {
+				this.personaGrowthError = "persona_processing_failed";
+			}
 		} catch {
 			this.error = "Companion scan or queue failed; progress preserved";
 			this.changed();

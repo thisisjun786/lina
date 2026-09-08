@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { AGENT_LEARNING_SCHEMA } from "./agent-learning.ts";
+import { AGENT_BEHAVIOR_SCHEMA } from "./behavior-store.ts";
 import { auditLearning } from "./learning-audit.ts";
 import {
 	AGENT_AVATAR_CANDIDATE_CAPACITY_SCHEMA,
@@ -29,9 +30,10 @@ function verify(
 		AGENT_SCHEMA +
 		(withoutCandidates ? "" : CANDIDATE_SCHEMA) +
 		(version >= 1 ? AGENT_LEARNING_SCHEMA : "") +
-		(version === 2
+		(version >= 2
 			? AGENT_VISUAL_SCHEMA + AGENT_AVATAR_CANDIDATE_CAPACITY_SCHEMA
-			: "")
+			: "") +
+		(version >= 3 ? AGENT_BEHAVIOR_SCHEMA : "")
 	)
 		.split(";")
 		.filter(
@@ -47,7 +49,7 @@ function verify(
 		.all()
 		.map((r) => norm(String(r["sql"])))
 		.sort();
-	if (![0, 1, 2].includes(version) || !isDeepStrictEqual(actual, expected))
+	if (![0, 1, 2, 3].includes(version) || !isDeepStrictEqual(actual, expected))
 		throw Error("unknown agent schema");
 }
 export function initializeAgents(
@@ -56,6 +58,7 @@ export function initializeAgents(
 	validateRaw: (value: unknown) => void,
 	createVisuals: () => void,
 	auditVisuals: () => void,
+	auditBehavior: () => void,
 ): void {
 	const version = Number(
 		db.prepare("PRAGMA user_version").get()?.["user_version"],
@@ -92,7 +95,7 @@ export function initializeAgents(
 		db.exec(AGENT_LEARNING_SCHEMA);
 		db.exec("PRAGMA user_version=1");
 	}
-	verify(db, version === 2 ? 2 : 1);
+	verify(db, version >= 2 ? version : 1);
 	audit();
 	// All schema1 records, including learning/candidate provenance, precede visual DDL.
 	auditLearning(db, validateRaw);
@@ -103,8 +106,11 @@ export function initializeAgents(
 		createVisuals();
 		db.exec("PRAGMA user_version=2");
 	}
-	verify(db, 2);
+	verify(db, version >= 3 ? version : 2);
 	auditVisuals();
+	if (version < 3) db.exec(AGENT_BEHAVIOR_SCHEMA + "; PRAGMA user_version=3");
+	verify(db, 3);
+	auditBehavior();
 	if (db.prepare("PRAGMA foreign_key_check").get())
 		throw Error("invalid agent foreign key");
 }

@@ -33,7 +33,10 @@ export function lifeDefinition(worldId = "test-world"): LifeDefinition {
 		},
 	};
 }
-export function identityPolicy(): IdentityPolicySnapshot {
+export function identityPolicy(): Extract<
+	IdentityPolicySnapshot,
+	{ version: 1 }
+> {
 	return {
 		version: 1,
 		profiles: ["lina", "mira", "sol"].map((agentId) => ({

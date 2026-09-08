@@ -25,7 +25,11 @@ import {
 export async function fleetLifeFixture(
 	overrides: Pick<
 		CodexFleetOptions,
-		"createTaskRpc" | "createLifeModel" | "createApp" | "createImageClient"
+		| "createTaskRpc"
+		| "createLifeModel"
+		| "createApp"
+		| "createImageClient"
+		| "enginePolicy"
 	> = {},
 	respond?: (request: Request) => Response | Promise<Response>,
 ) {

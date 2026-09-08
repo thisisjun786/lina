@@ -394,3 +394,110 @@ export function projectPublication(
 	if (scene && allowed("world_scene", scene.id)) collect.scene(view, scene);
 	return view;
 }
+
+/** Compose keyed values before the existing policy projection resolves labels. */
+export function projectCurrentPersona(
+	life: LifeState,
+	definition: LifeDefinition,
+	binding: WorldBinding,
+	identity: IdentityPolicySnapshot,
+	limits: LifeViewLimits,
+) {
+	const worldView = projectSharedPersona(
+		life,
+		definition,
+		binding,
+		identity,
+		limits,
+	);
+	if (!worldView) return null;
+	const policies = parseIdentityPolicy(identity);
+	const policy = policies.profiles.find((p) => p.agentId === binding.agentId);
+	if (!policy) throw Error("Missing current persona identity");
+	const personalPolicy =
+		policies.version === 2
+			? policies.profiles.find((p) => p.agentId === binding.agentId)
+			: undefined;
+	const personal = personalPolicy?.personalBehavior ?? null;
+	const stamp = personalPolicy?.sourceStamp ?? null;
+	if (!personal || !stamp || policy.evolution === "manual")
+		return {
+			version: 1 as const,
+			worldView,
+			personalBehavior: null,
+			sourceStamp: null,
+			composedBehavior: {
+				traits: worldView.traits,
+				habits: worldView.habits,
+				attitudes: worldView.attitudes,
+			},
+			truncated: worldView.truncated,
+		};
+	if (
+		stamp.definitionRevision !== definition.revision ||
+		stamp.projectionRevision !== definition.projection.revision
+	)
+		throw Error("Personal behavior definition revision mismatch");
+	const composed = {
+		...life,
+		traits: life.traits.map((row) => ({ ...row })),
+		habits: life.habits.map((row) => ({ ...row })),
+	};
+	for (const row of personal.traits) {
+		const axis = definition.traits.find((a) => a.id === row.axisId);
+		if (
+			!axis ||
+			row.value < axis.min ||
+			row.value > axis.max ||
+			!definition.projection.sharedTraitIds.includes(row.axisId)
+		)
+			throw Error("Personal trait outside permitted definition");
+		if (policy.lockedTraitIds.includes(row.axisId)) continue;
+		const current = composed.traits.find(
+			(r) => r.agentId === binding.agentId && r.axisId === row.axisId,
+		);
+		if (!current) throw Error("Missing personal trait base");
+		const worldValue =
+			current.profileRevision === policy.profileRevision
+				? current.value
+				: axis.initial;
+		current.value = Math.min(
+			axis.max,
+			Math.max(axis.min, worldValue + row.value - axis.initial),
+		);
+		current.profileRevision = policy.profileRevision;
+	}
+	for (const row of personal.habits) {
+		const axis = definition.habits.find((a) => a.id === row.habitId);
+		if (!axis || !definition.projection.sharedHabitIds.includes(row.habitId))
+			throw Error("Personal habit outside permitted definition");
+		if (policy.lockedHabitIds.includes(row.habitId)) continue;
+		const current = composed.habits.find(
+			(r) => r.agentId === binding.agentId && r.habitId === row.habitId,
+		);
+		if (!current) throw Error("Missing personal habit base");
+		if (current.profileRevision !== policy.profileRevision)
+			current.value = row.value;
+		current.profileRevision = policy.profileRevision;
+	}
+	const view = projectSharedPersona(
+		composed,
+		definition,
+		binding,
+		policies,
+		limits,
+	);
+	if (!view) throw Error("Missing composed persona");
+	return {
+		version: 1 as const,
+		worldView,
+		personalBehavior: personal,
+		sourceStamp: stamp,
+		composedBehavior: {
+			traits: view.traits,
+			habits: view.habits,
+			attitudes: view.attitudes,
+		},
+		truncated: view.truncated,
+	};
+}

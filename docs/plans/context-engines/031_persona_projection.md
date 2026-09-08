@@ -111,3 +111,9 @@ sourceStamp는 opaque content digest와 receipt/profile/definition/projection re
 위에서 명시한 async ensurePersonalSources는 이 가벼운 읽기 owner만 확보한다. availability는 digest를 바꾸지 않고, 실패 시 동작을 보류한다. 새 `packages/lina-runtime/test/persona-source-owner.test.ts`와 `packages/lina-core/test/store-readonly.test.ts`에서 inactive agent 재시작 후 읽기 성공, 외래 binding/누락/legacy/corrupt 거부, 가능한 mutation의 실제 SQLite 거부, app/Codex/model factory 호출 0, main DB/WAL의 데이터 불변을 검증한다.
 
 위임 보완: 두 번째 executor는 world codec 대신 이 읽기 전용 opener/store/source-owner와 해당 테스트를 담당한다. 첫 executor는 behavior owner 신규 파일만 유지한다. main이 AgentStore/schema·공통 composition·world codec·runtime producer/consumers를 순차 연결한다. dependency가 없는 새 테스트/모듈만 병렬로 작성하고 동일 파일 쓰기는 하지 않는다.
+
+## B에서 고정한 타입 이름
+
+공유 경계의 PersonalBehavior는 traits(axisId,value), habits(habitId,value)다. 해석 모델 출력과 private receipt에는 각 행의 evidenceIds가 있으며 공유 projection에서는 제거한다. 배열 종류로 이미 구분하므로 중복 kind 필드는 받지 않는다. BehaviorSourceStamp는 `{digest,receiptRevision,profileRevision,definitionRevision,projectionRevision}` 5개 필드다. digest가 source refs를 묶고, 원문 현재성은 runtime의 별도 verifier가 검사한다. earlier receiptId/memoryRevision 필드 초안은 사용하지 않는다. 이 타입은 `agents/behavior-types.ts`가 소유하며 identity/publication decoder가 같은 구조를 읽는다.
+
+일반 대화 연결은 `runtime/persona/native-context.ts`, 새 회귀는 `runtime/test/persona-native-context.test.ts`에 있다. LIFE keyed composition과 버전 decoder 회귀는 `core/test/persona-world-composition.test.ts`, `core/test/persona-identity-policy.test.ts`다. 실제 actor 입력의 새 값과 원본 stamp 미노출도 검사한다. 정책 parser는 `world/identity-policy.ts`로 분리하여 공용 LIFE v1 decoder 의미를 유지한다. 아직 전체 단위 C는 수행하지 않았다.

@@ -39,6 +39,7 @@ import { taskRoutes } from "./task-routes.ts";
 import { createTaskTransport } from "./task-transport.ts";
 
 export type CodexFleetOptions = {
+	enginePolicy?: AppOptions["enginePolicy"];
 	workspace: string;
 	resourceRoot?: string;
 	workspaceRoot?: string;
@@ -223,6 +224,7 @@ async function startUnlocked(
 	const validOwner = (id: string) => validAgentId(id) && !!fleet.agents.get(id);
 	try {
 		fleet = new AgentFleet({
+			...(options.enginePolicy ? { enginePolicy: options.enginePolicy } : {}),
 			workspace,
 			resourceRoot,
 			...(options.workspaceRoot

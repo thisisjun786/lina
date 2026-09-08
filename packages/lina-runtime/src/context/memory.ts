@@ -24,6 +24,12 @@ type Options = {
 	onChange?: () => void;
 };
 export type MemorySnapshot = {
+	personaGrowth?: {
+		error: "persona_processing_failed" | null;
+		coverage?:
+			| { selectedRecords: number; omittedRecords: number; inputChars: number }
+			| undefined;
+	};
 	consolidation?: import("./memory-consolidation.ts").ConsolidationStatus;
 	service: "disabled" | "ready" | "unavailable";
 	pending: number;

@@ -11,7 +11,10 @@ import {
 	type SourceProof,
 	sourceProofsCurrent,
 } from "../../../lina-core/src/source-policy.ts";
-import type { SharedPersonaView } from "../../../lina-core/src/world/life-types.ts";
+import type {
+	CurrentPersonaSnapshot,
+	SharedPersonaView,
+} from "../../../lina-core/src/world/life-types.ts";
 import type { EngineState } from "../../../lina-memory/src/engine/types.ts";
 import type { ContextServices } from "../context/port.ts";
 import type { LinaHost } from "../host.ts";
@@ -32,9 +35,11 @@ export function installPersona(
 		conversations?: ConversationStore | undefined;
 		memoryMode?: "automatic" | "disabled";
 		nativeDynamics?: boolean;
+		allowNativeGrowth?: () => boolean;
 		nativeState?: () => EngineState;
 		sourceLookup?: SourceLookup;
 		sharedGrowth?: () => SharedPersonaView | null;
+		currentPersona?: () => CurrentPersonaSnapshot | null;
 	} = {},
 ) {
 	const lookup: SourceLookup = options.sourceLookup ?? (() => undefined);
@@ -51,10 +56,12 @@ export function installPersona(
 			lookup,
 		);
 		const shared = structuredClone(options.sharedGrowth?.() ?? null);
+		const currentPersona = structuredClone(options.currentPersona?.() ?? null);
 		const authoredContext = options.authoredContext?.();
-		const nativeContext = options.nativeDynamics
-			? nativePersonaContext(profile, options.nativeState?.(), lookup)
-			: { text: "", stamp: "" };
+		const nativeContext =
+			options.nativeDynamics && (options.allowNativeGrowth?.() ?? true)
+				? nativePersonaContext(profile, options.nativeState?.(), lookup)
+				: { text: "", stamp: "" };
 		const compiled = composePersonaPrompt(
 			base,
 			profile,
@@ -63,6 +70,7 @@ export function installPersona(
 				conversation,
 				authoredContext,
 				sharedGrowth: shared,
+				currentPersona,
 				memoryMode: options.memoryMode ?? "disabled",
 			},
 		);
@@ -94,8 +102,10 @@ export function installPersona(
 			beforeDeliver: () => {
 				if (
 					options.nativeDynamics &&
-					nativePersonaContext(profile, options.nativeState?.(), lookup)
-						.stamp !== nativeContext.stamp
+					((options.allowNativeGrowth?.() ?? true)
+						? nativePersonaContext(profile, options.nativeState?.(), lookup)
+								.stamp
+						: "") !== nativeContext.stamp
 				)
 					throw Error("Native persona source changed before dispatch");
 				if (
@@ -112,6 +122,8 @@ export function installPersona(
 					agents.get(agentId)?.revision !== profile.revision ||
 					JSON.stringify(options.sharedGrowth?.() ?? null) !==
 						JSON.stringify(shared) ||
+					JSON.stringify(options.currentPersona?.() ?? null) !==
+						JSON.stringify(currentPersona) ||
 					JSON.stringify(options.conversations?.get(agentId)) !==
 						JSON.stringify(configured) ||
 					options.authoredContext?.() !== authoredContext ||
@@ -142,7 +154,16 @@ export function installPersona(
 			if (!profile) throw Error("Unknown agent");
 
 			const shared = structuredClone(options.sharedGrowth?.() ?? null),
-				behavior = sharedPersonaBehavior(profile, shared);
+				currentPersona = structuredClone(options.currentPersona?.() ?? null),
+				behavior = sharedPersonaBehavior(
+					profile,
+					currentPersona
+						? {
+								...currentPersona.worldView,
+								...currentPersona.composedBehavior,
+							}
+						: shared,
+				);
 			const learned = agents.modelDynamics(agentId, lookup),
 				native = options.nativeState?.();
 			const records = structuredClone(
@@ -209,7 +230,9 @@ export function installPersona(
 				if (
 					agents.get(agentId)?.revision !== profile.revision ||
 					JSON.stringify(options.sharedGrowth?.() ?? null) !==
-						JSON.stringify(shared)
+						JSON.stringify(shared) ||
+					JSON.stringify(options.currentPersona?.() ?? null) !==
+						JSON.stringify(currentPersona)
 				)
 					throw Error("Persona or shared growth changed before delivery");
 				if (

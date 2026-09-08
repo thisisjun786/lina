@@ -30,7 +30,10 @@ export interface LifeRunnerOptions {
 	store: WorldAutonomyPort & WorldSocialPort;
 	model: LifeModelPort;
 	engine: SocialEnginePort;
-	identity(worldId: string): {
+	identity(
+		worldId: string,
+		version?: 1 | 2,
+	): {
 		identity: IdentityPolicySnapshot;
 		profiles: AgentProfile[];
 		modelSettingsRevision: number;
@@ -159,7 +162,14 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 		const signal = controller.signal;
 		signal.throwIfAborted();
 		options.beforePrepare?.(worldId);
-		const identity = options.identity(worldId);
+		const activeId = options.store.lifeStatus(
+			worldId,
+			options.clock.now(),
+		).activeStepId;
+		const identityVersion = activeId
+			? options.store.lifeStep(worldId, activeId).source.identity.version
+			: undefined;
+		const identity = options.identity(worldId, identityVersion);
 		options.store.invalidateLifeIdentity(
 			worldId,
 			identity,
@@ -198,7 +208,10 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 					"LIFE yielded to foreground work",
 				);
 			options.assertSourceCurrent?.(prepared);
-			const identity = options.identity(worldId);
+			const identity = options.identity(
+				worldId,
+				prepared.source.identity.version,
+			);
 			if (
 				lifeDigest(identity) !==
 				lifeDigest({
@@ -242,7 +255,7 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 			options.store.acceptLifeStep(
 				lease,
 				prepared.id,
-				options.identity(worldId),
+				options.identity(worldId, prepared.source.identity.version),
 				options.clock.now(),
 			);
 			return current();

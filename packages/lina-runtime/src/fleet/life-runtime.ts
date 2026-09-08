@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { createCodexLifeModel } from "../../../lina-codex/src/life-model.ts";
 import type { CodexLifeModelOptions } from "../../../lina-codex/src/life-model-policy.ts";
+import type { CurrentBehaviorProjection } from "../../../lina-core/src/agents/behavior-types.ts";
 import type { AgentStore } from "../../../lina-core/src/agents/store.ts";
 import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
 import type { IdentityPolicySnapshot } from "../../../lina-core/src/world/life-types.ts";
@@ -10,7 +11,10 @@ import {
 } from "../../../lina-core/src/world/publication-model.ts";
 import type { PublicationAuthor } from "../../../lina-core/src/world/publication-types.ts";
 import type { WorldStore } from "../../../lina-core/src/world/store.ts";
-import { projectSharedPersona } from "../../../lina-core/src/world/views.ts";
+import {
+	projectCurrentPersona,
+	projectSharedPersona,
+} from "../../../lina-core/src/world/views.ts";
 import type { LifeForeground } from "../life/runner.ts";
 import { createLifeRuntime, systemLifeClock } from "../life/runtime.ts";
 import type { LifeClock } from "../life/scheduler.ts";
@@ -24,6 +28,10 @@ import type { ModelSettingsStore } from "../models/settings.ts";
 import type { FleetLifeImages } from "./life-images.ts";
 
 export interface FleetLifeContext {
+	personalGrowth?: (
+		worldId: string,
+		agentId: string,
+	) => CurrentBehaviorProjection;
 	store: WorldStore;
 	agents: AgentStore;
 	modelSettings: ModelSettingsStore;
@@ -46,6 +54,8 @@ export function fleetLifeIdentity(
 	store: WorldStore,
 	agents: AgentStore,
 	worldId: string,
+	personalGrowth?: FleetLifeContext["personalGrowth"],
+	version: 1 | 2 = personalGrowth ? 2 : 1,
 ) {
 	const definition = store.lifeDefinition(worldId);
 	const profiles = definition.participants.map((id) => {
@@ -73,7 +83,19 @@ export function fleetLifeIdentity(
 					: [],
 		})),
 	};
-	return { identity, profiles };
+	if (version === 1) return { identity, profiles };
+	const current: IdentityPolicySnapshot = {
+		version: 2,
+		profiles: identity.profiles.map((profile) => {
+			const personal = personalGrowth?.(worldId, profile.agentId);
+			return {
+				...profile,
+				personalBehavior: personal?.personalBehavior ?? null,
+				sourceStamp: personal?.sourceStamp ?? null,
+			};
+		}),
+	};
+	return { identity: current, profiles };
 }
 
 /** Explicit public voice and shared growth only; biography, private dynamics and event rationale stay out. */
@@ -82,6 +104,8 @@ export function fleetPublicationAuthor(
 	agents: AgentStore,
 	worldId: string,
 	agentId: string,
+	personalGrowth?: FleetLifeContext["personalGrowth"],
+	version: 1 | 2 = personalGrowth ? 2 : 1,
 ): PublicationAuthor {
 	const profile = agents.get(agentId),
 		definition = store.lifeDefinition(worldId),
@@ -106,7 +130,7 @@ export function fleetPublicationAuthor(
 		{ maxChars: limits.maxChars, maxRecords: limits.maxRecords },
 	);
 	if (!shared) throw Error("Publication shared persona unavailable");
-	return {
+	const author = {
 		agentId,
 		name: profile.name,
 		voice: profile.voice,
@@ -117,11 +141,45 @@ export function fleetPublicationAuthor(
 			attitudes: shared.attitudes,
 		},
 	};
+	if (version === 1) return author;
+	const current = projectCurrentPersona(
+		store.lifeSnapshot(worldId),
+		definition,
+		{
+			version: 1,
+			worldId,
+			agentId,
+			revision: 1,
+			projectionPolicyRevision: definition.projection.revision,
+		},
+		fleetLifeIdentity(store, agents, worldId, personalGrowth, 2).identity,
+		{ maxChars: limits.maxChars, maxRecords: limits.maxRecords },
+	);
+	if (!current) throw Error("Publication persona unavailable");
+	return {
+		version: 2,
+		...author,
+		behavior: current.composedBehavior,
+		sourceStamp: current.sourceStamp,
+	};
 }
 
 /** One installation owns this runtime and its native transport; store ownership stays in fleet. */
 export function createFleetLifeRuntime(options: FleetLifeOptions) {
 	const { store, agents, modelSettings, foreground, images } = options;
+	const publicationAuthor = (
+		worldId: string,
+		agentId: string,
+		frozen?: PublicationAuthor | null,
+	) =>
+		fleetPublicationAuthor(
+			store,
+			agents,
+			worldId,
+			agentId,
+			options.personalGrowth,
+			frozen && !("version" in frozen) ? 1 : options.personalGrowth ? 2 : 1,
+		);
 	const clock = options.clock ?? systemLifeClock;
 	const bridge = options.workSource
 		? createWorkBridge({
@@ -181,7 +239,11 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 			}
 			store.assertPublicationOutbound(
 				request,
-				fleetPublicationAuthor(store, agents, request.worldId, request.agentId),
+				publicationAuthor(
+					request.worldId,
+					request.agentId,
+					store.publicationJob(request.worldId, request.jobId).author,
+				),
 				modelSettings.snapshot().revision,
 			);
 			assertWorkSourceCurrent(
@@ -195,11 +257,10 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 				const job = store.assertPublicationDispatch(
 					request.worldId,
 					request.jobId,
-					fleetPublicationAuthor(
-						store,
-						agents,
+					publicationAuthor(
 						request.worldId,
 						request.agentId,
+						store.publicationJob(request.worldId, request.jobId).author,
 					),
 					modelSettings.snapshot().revision,
 				);
@@ -230,7 +291,15 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 					(step.source.work &&
 						lifeDigest(store.workEvidence(request.worldId)) !==
 							lifeDigest(step.source.work)) ||
-					lifeDigest(fleetLifeIdentity(store, agents, request.worldId)) !==
+					lifeDigest(
+						fleetLifeIdentity(
+							store,
+							agents,
+							request.worldId,
+							options.personalGrowth,
+							step.source.identity.version,
+						),
+					) !==
 						lifeDigest({
 							identity: step.source.identity,
 							profiles: step.source.profiles,
@@ -290,8 +359,7 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 			assertWorkSourceCurrent(options.workSource, step.source.work),
 		publication: {
 			store,
-			author: (worldId, agentId) =>
-				fleetPublicationAuthor(store, agents, worldId, agentId),
+			author: publicationAuthor,
 			assertSourceCurrent: (job) =>
 				assertWorkSourceCurrent(
 					options.workSource,
@@ -300,8 +368,14 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		},
 		config: (worldId) => store.lifeConfig(worldId),
 		acquireLease: (...args) => store.acquireLifeLease(...args),
-		identity(worldId) {
-			const { identity, profiles } = fleetLifeIdentity(store, agents, worldId);
+		identity(worldId, version) {
+			const { identity, profiles } = fleetLifeIdentity(
+				store,
+				agents,
+				worldId,
+				options.personalGrowth,
+				version,
+			);
 			return {
 				identity,
 				profiles,

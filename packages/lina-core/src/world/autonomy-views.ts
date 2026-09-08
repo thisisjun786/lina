@@ -11,10 +11,20 @@ import { createEvaluationContext } from "./rules.ts";
 import { compileSocialPack } from "./social-compile.ts";
 import { projectSocialActorView, socialValueVisible } from "./social-views.ts";
 import type { WorldSnapshot } from "./types.ts";
-import { projectLifePerception, projectSharedPersona } from "./views.ts";
+import {
+	projectCurrentPersona,
+	projectLifePerception,
+	projectSharedPersona,
+} from "./views.ts";
 import { workSubjectAllowed } from "./work-ancestry.ts";
 import { projectWorkObservations } from "./work-selection.ts";
 import type { WorkSubject } from "./work-types.ts";
+
+function actorPersona(...input: Parameters<typeof projectSharedPersona>) {
+	if (input[3].version === 1) return projectSharedPersona(...input);
+	const current = projectCurrentPersona(...input);
+	return current ? { ...current.worldView, ...current.composedBehavior } : null;
+}
 
 function permittedAttempt(step: LifeStep, agentId: string): unknown {
 	const inspected = completedStepIntent(step),
@@ -161,7 +171,7 @@ export function buildLifeModelInput(
 			? {
 					sharedPersona: sharedPersonaBehavior(
 						profile,
-						projectSharedPersona(
+						actorPersona(
 							life,
 							pack.life,
 							{

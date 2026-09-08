@@ -60,7 +60,7 @@ test("real schema1 migration preserves every original row, candidates and captur
 	expect(store.visual("lina").referenceLimits).toBeNull();
 	const migrated = new DatabaseSync(path);
 	expect(migrated.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(
-		2,
+		3,
 	);
 	for (const [i, t] of tables.entries())
 		expect(migrated.prepare(`SELECT * FROM ${t}`).all()).toEqual(

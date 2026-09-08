@@ -1,4 +1,7 @@
-import type { SharedPersonaView } from "../world/life-types.ts";
+import type {
+	CurrentPersonaSnapshot,
+	SharedPersonaView,
+} from "../world/life-types.ts";
 import type { AgentProfile, Dynamics } from "./types.ts";
 
 export type PersonaMemoryMode = "automatic" | "disabled";
@@ -11,6 +14,7 @@ export interface PersonaConversationProfile {
 export interface PersonaPromptOptions {
 	/** Current store-projected growth, separate from factual conversation learning. */
 	sharedGrowth?: SharedPersonaView | null;
+	currentPersona?: CurrentPersonaSnapshot | null;
 	/** User-confirmed authoring detail, never inferred memory or raw interview logs. */
 	authoredContext?: string | undefined;
 	conversation?: PersonaConversationProfile;
@@ -269,8 +273,12 @@ export function composePersonaPrompt(
 	if (typeof base !== "string") throw new TypeError("base must be a string");
 	const core = corePrompt(base, profile, options);
 	const dynamic = dynamicPrompt(dynamics, options);
-	const behavior = sharedPersonaBehavior(profile, options.sharedGrowth);
-	const shared = options.sharedGrowth
+	const current = options.currentPersona;
+	const selected = current
+		? { ...current.worldView, ...current.composedBehavior }
+		: options.sharedGrowth;
+	const behavior = sharedPersonaBehavior(profile, selected);
+	const shared = selected
 		? "[Current shared persona]\n" +
 			behavior.authority +
 			"\n" +

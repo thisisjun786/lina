@@ -28,7 +28,6 @@ import {
 import type {
 	AuthorScope,
 	BindingSelection,
-	IdentityPolicySnapshot,
 	LifeCommit,
 	LifeCommitV1,
 	LifeDefinition,
@@ -153,34 +152,7 @@ export function parseLifeDefinition(value: unknown): LifeDefinition {
 	}
 	return result;
 }
-export function parseIdentityPolicy(value: unknown): IdentityPolicySnapshot {
-	jsonBoundary(value);
-	fields(value, ["version", "profiles"]);
-	return {
-		version: version(value.version),
-		profiles: keyed(
-			array(value.profiles, (entry) => {
-				fields(entry, [
-					"agentId",
-					"profileRevision",
-					"evolution",
-					"lockedTraitIds",
-					"lockedHabitIds",
-					"lockedAttitudeIds",
-				]);
-				return {
-					agentId: identifier(entry.agentId),
-					profileRevision: revision(entry.profileRevision, 1),
-					evolution: enumeration(entry.evolution, ["manual", "adaptive"]),
-					lockedTraitIds: identifiers(entry.lockedTraitIds),
-					lockedHabitIds: identifiers(entry.lockedHabitIds),
-					lockedAttitudeIds: identifiers(entry.lockedAttitudeIds),
-				};
-			}),
-			(x) => x.agentId,
-		),
-	};
-}
+export { parseIdentityPolicy } from "./identity-policy.ts";
 export function parseLifeCommit(value: unknown): LifeCommit {
 	jsonBoundary(value);
 	const current =

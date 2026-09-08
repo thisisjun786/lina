@@ -27,6 +27,7 @@ import { installContextHooks } from "./context/hooks.ts";
 import { MemoryBridge } from "./context/memory.ts";
 import { installMemoryQuery } from "./context/memory-query.ts";
 import type { EnginePolicySnapshot } from "./context/policy-settings.ts";
+import { defaultEnginePolicy } from "./context/policy-settings.ts";
 import type { ContextServices } from "./context/port.ts";
 import { createContextTools } from "./context/tools.ts";
 import { startControlServer } from "./control-server.ts";
@@ -38,7 +39,9 @@ import { ImageJobs } from "./images/jobs.ts";
 import { ImageJobStore } from "./images/store.ts";
 import { createImageTools } from "./images/tools.ts";
 import type { ModelSettings } from "./models/types.ts";
+import type { PersonalGrowthSource } from "./persona/growth-source.ts";
 import { installPersona } from "./persona/hooks.ts";
+import { NativePersonaGrowth } from "./persona/native-growth.ts";
 import { nativePreferences } from "./persona/native-preferences.ts";
 import { PersonaReflection } from "./persona/reflection.ts";
 import { installResponsePolicy } from "./policy/hooks.ts";
@@ -64,6 +67,7 @@ export type AppOptions = {
 	enginePolicy?: () => EnginePolicySnapshot;
 	world?: () => OrdinaryWorldSource | undefined;
 	persona?: {
+		registerPersonalSource?: (source: PersonalGrowthSource) => () => void;
 		agents: AgentStore;
 		agentId: string;
 		conversations?: ConversationStore;
@@ -105,6 +109,7 @@ export async function startPersistentApp(options: AppOptions) {
 	const ordinaryPolicy = worldContext.policy();
 	const lease = acquireSessionLease(options.stateRoot, botId, workspace);
 	let transcriptLease: { close(): void } | undefined;
+	let releasePersonalSource: (() => void) | undefined;
 	let native: SessionPort | undefined,
 		store: DurableStore | undefined,
 		runtime: DurableRuntime | undefined;
@@ -137,6 +142,8 @@ export async function startPersistentApp(options: AppOptions) {
 			unsubscribeExecution?.();
 			contextChannel?.close();
 			await reflectionClosing;
+			releasePersonalSource?.();
+			releasePersonalSource = undefined;
 			await memory?.close();
 			context?.close();
 			contextStore?.close();
@@ -243,6 +250,11 @@ export async function startPersistentApp(options: AppOptions) {
 					onChange: () => contextChannel?.changed(),
 				});
 		memory = memoryBridge;
+		if (memoryBridge instanceof CompanionMemory)
+			releasePersonalSource = options.persona?.registerPersonalSource?.({
+				mind: memoryBridge.mind,
+				lookup: (id) => journal.sourceEntry(id),
+			});
 		controls = new ControlStore(join(lease.root, "control.sqlite"), binding);
 		controls.recover();
 		const coordinator = new ExecutionCoordinator({
@@ -338,6 +350,39 @@ export async function startPersistentApp(options: AppOptions) {
 						services.reasonMemory,
 						options.enginePolicy,
 					);
+				if (
+					memoryBridge instanceof CompanionMemory &&
+					options.persona &&
+					services.interpretPersona
+				) {
+					const agents = options.persona.agents,
+						agentId = options.persona.agentId;
+					const growth = new NativePersonaGrowth({
+						agents,
+						agentId,
+						source: {
+							mind: memoryBridge.mind,
+							lookup: (id) => journal.sourceEntry(id),
+						},
+						definition: () => {
+							const world = options.world?.(),
+								worldId = world?.store.worldBinding(agentId)?.worldId;
+							return world && worldId
+								? world.store.lifeDefinition(worldId)
+								: null;
+						},
+						policy: options.enginePolicy ?? defaultEnginePolicy,
+						modelRevision: () =>
+							services.routeInfo?.("reflection").settingsRevision ??
+							options.modelSettings?.().revision ??
+							0,
+						interpret: services.interpretPersona,
+					});
+					memoryBridge.configurePersonaGrowth(
+						(signal) => growth.run(signal),
+						() => growth.detail(),
+					);
+				}
 				installResponsePolicy(host, responsePolicy);
 				if (options.persona) {
 					refreshPersona = installPersona(
@@ -349,6 +394,7 @@ export async function startPersistentApp(options: AppOptions) {
 						{
 							sourceLookup: (id) => journal.sourceEntry(id),
 							sharedGrowth: worldContext.growth,
+							currentPersona: worldContext.currentPersona,
 							conversations: options.persona.conversations,
 							userContext: options.persona.userContext,
 							firstOrdinaryReply: () => !journal.hasNormalAssistantReply(),
@@ -356,6 +402,9 @@ export async function startPersistentApp(options: AppOptions) {
 							memoryMode:
 								useNative || options.honcho ? "automatic" : "disabled",
 							nativeDynamics: useNative,
+							allowNativeGrowth: () =>
+								(options.enginePolicy?.() ?? defaultEnginePolicy()).memory
+									.enabled,
 							...(memoryBridge instanceof CompanionMemory
 								? { nativeState: () => memoryBridge.mind.state() }
 								: {}),

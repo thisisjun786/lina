@@ -1,3 +1,7 @@
+import type {
+	BehaviorSourceStamp,
+	PersonalBehavior,
+} from "../agents/behavior-types.ts";
 import type { EnsembleCheckpoint } from "./social-types.ts";
 import type {
 	WorldContext,
@@ -122,10 +126,13 @@ export interface IdentityProfilePolicy {
 	lockedHabitIds: string[];
 	lockedAttitudeIds: string[];
 }
-export interface IdentityPolicySnapshot {
-	version: 1;
-	profiles: IdentityProfilePolicy[];
+export interface IdentityProfilePolicyV2 extends IdentityProfilePolicy {
+	personalBehavior: PersonalBehavior | null;
+	sourceStamp: BehaviorSourceStamp | null;
 }
+export type IdentityPolicySnapshot =
+	| { version: 1; profiles: IdentityProfilePolicy[] }
+	| { version: 2; profiles: IdentityProfilePolicyV2[] };
 export interface EmptyEngineCheckpoint {
 	version: 1;
 	engineId: "empty";
@@ -311,6 +318,14 @@ export interface SharedPersonaView {
 	traits: Array<{ label: string; value: number }>;
 	habits: Array<{ label: string; value: boolean }>;
 	attitudes: Array<{ toAgentId: string; label: string; value: number }>;
+	truncated: boolean;
+}
+export interface CurrentPersonaSnapshot {
+	version: 1;
+	worldView: SharedPersonaView;
+	personalBehavior: PersonalBehavior | null;
+	sourceStamp: BehaviorSourceStamp | null;
+	composedBehavior: Pick<SharedPersonaView, "traits" | "habits" | "attitudes">;
 	truncated: boolean;
 }
 export interface LifePerception {

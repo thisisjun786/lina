@@ -12,6 +12,7 @@ import type {
 } from "../../lina-core/src/world/life-types.ts";
 import { parseLifeViewLimits } from "../../lina-core/src/world/life-validation.ts";
 import {
+	projectCurrentPersona,
 	projectLifePerception,
 	projectSharedPersona,
 } from "../../lina-core/src/world/views.ts";
@@ -108,11 +109,12 @@ export function createOrdinaryWorldContext(
 			sourcePolicyVersion: 1,
 		});
 	};
-	const growth = () => {
+	const currentPersona = () => {
 		const current = source(),
 			binding = current?.store.worldBinding(agentId);
 		if (!current?.limits || !binding?.worldId) return null;
-		return projectSharedPersona(
+		current.assertSourceCurrent(binding.worldId);
+		return projectCurrentPersona(
 			current.store.lifeSnapshot(binding.worldId),
 			current.store.lifeDefinition(binding.worldId),
 			binding,
@@ -120,6 +122,7 @@ export function createOrdinaryWorldContext(
 			current.limits,
 		);
 	};
+	const growth = () => currentPersona()?.worldView ?? null;
 	const recall = () => {
 		const before = policy(),
 			current = source();
@@ -137,6 +140,7 @@ export function createOrdinaryWorldContext(
 	return {
 		policy,
 		growth,
+		currentPersona,
 		exposure(input: SessionContextSource): readonly SessionContextMaterial[] {
 			if (input.kind === "tool") {
 				if (input.toolName !== "lina_world_read") return [];
@@ -144,7 +148,7 @@ export function createOrdinaryWorldContext(
 				recalled.delete(input.callId);
 				return material ? [material] : [];
 			}
-			const view = growth();
+			const view = currentPersona();
 			return view
 				? [{ kind: "shared-growth", sourceId: lifeDigest(view) }]
 				: [];

@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { SourceLookup } from "../source-policy.ts";
 import { AgentLearning } from "./agent-learning.ts";
 import { initializeAgents } from "./agent-schema.ts";
+import { BehaviorStore } from "./behavior-store.ts";
 import {
 	assertLearnedProvenance,
 	type LearnedProvenance,
@@ -80,6 +81,7 @@ function clone<T>(value: T): T {
 }
 
 export class AgentStore {
+	readonly behavior: BehaviorStore;
 	private readonly db: DatabaseSync;
 	private readonly now: () => number;
 	private readonly learning: AgentLearning;
@@ -107,6 +109,7 @@ export class AgentStore {
 			(id) => this.get(id),
 		);
 		try {
+			let behavior: BehaviorStore | undefined;
 			this.db.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE");
 			initializeAgents(
 				this.db,
@@ -123,7 +126,16 @@ export class AgentStore {
 						this.visualCapacity,
 						this.list(),
 					),
+				() => {
+					behavior = new BehaviorStore(
+						this.db,
+						(fn) => this.transaction(fn),
+						(id) => this.get(id),
+					);
+				},
 			);
+			if (!behavior) throw Error("Personal behavior owner unavailable");
+			this.behavior = behavior;
 			this.db.exec(
 				"COMMIT; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL",
 			);
