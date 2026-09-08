@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 import type { BotBinding } from "../../../lina-core/src/protocol.ts";
 import {
 	openCheckedDatabase,
@@ -294,6 +295,17 @@ export class EngineStore {
 			if (latest(candidate.sources) < latest(old.sources)) return;
 		}
 		const same = old && sameValue(old, candidate);
+		// A processing receipt is new work; identical evidence is not a new premise.
+		// Preserve the original receipt binding and ranking until content or provenance changes.
+		if (
+			same &&
+			isDeepStrictEqual(
+				old.sources,
+				mergeSources([...old.sources, ...candidate.sources]),
+			) &&
+			isDeepStrictEqual(old.sourceProofs, mergeProofs(proofs, old.sourceProofs))
+		)
+			return;
 		if (old && !same) {
 			// A correction must carry fresh evidence, not reinterpret any old citation.
 			if (

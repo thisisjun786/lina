@@ -57,6 +57,29 @@ function candidate(id = "u", key = "drink"): Observation {
 	};
 }
 
+test("repeating identical evidence commits processing without changing premise revision or ranking", () => {
+	const f = fixture();
+	const s = f.open();
+	const sourceProofs = captureSourceProofs(["u"], f.lookup);
+	const first = s.apply({
+		requestId: "first-observation",
+		expectedRevision: 0,
+		observations: [candidate()],
+		sourceProofs,
+	});
+	const repeated = s.apply({
+		requestId: "repeated-observation",
+		expectedRevision: first.revision,
+		observations: [candidate()],
+		sourceProofs,
+	});
+	expect(repeated.revision).toBe(first.revision + 1);
+	expect(repeated.records).toEqual(first.records);
+	expect(s.hasReceipt("repeated-observation")).toBe(true);
+	s.close();
+	expect(f.open().state().records).toEqual(first.records);
+});
+
 for (const mode of ["read", "reopen"] as const)
 	test(`N2: removing an assistant record proof rejects on ${mode}`, () => {
 		const f = fixture(),
