@@ -20,6 +20,7 @@ import { OpenCodexError } from "./errors.ts";
 import {
 	CONSOLIDATE_PROMPT,
 	OBSERVE_PROMPT,
+	PERSONA_INTERPRETATION_PROMPT,
 	RECALL_PROMPT,
 	REFLECT_PREFERENCES_PROMPT,
 	REFLECT_PROMPT,
@@ -450,6 +451,23 @@ export function createOpenCodexContextServices(
 			return roleCall(
 				"reflection",
 				CONSOLIDATE_PROMPT,
+				text,
+				signal,
+				beforeDispatch,
+				maxTokens,
+				routeRequest,
+			);
+		},
+		async interpretPersona(
+			text,
+			signal,
+			beforeDispatch,
+			routeRequest,
+			maxTokens,
+		) {
+			return roleCall(
+				"reflection",
+				PERSONA_INTERPRETATION_PROMPT,
 				text,
 				signal,
 				beforeDispatch,

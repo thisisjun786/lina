@@ -71,6 +71,14 @@ export interface ContextServices {
 		routeRequest?: ModelRouteRequest,
 		maxTokens?: number,
 	) => Promise<string>;
+	/** Strict typed personal behavior interpretation, separate from memory claims. */
+	interpretPersona?: (
+		text: string,
+		signal: AbortSignal,
+		beforeDispatch?: () => void,
+		routeRequest?: ModelRouteRequest,
+		maxTokens?: number,
+	) => Promise<string>;
 	analyzeImage?: (
 		input: ImageAnalysisRequest,
 		signal: AbortSignal,

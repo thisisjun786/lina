@@ -774,3 +774,55 @@ test("consolidate crosses real loopback HTTP for responses and chat with reflect
 		await server.stop(true);
 	}
 });
+
+test("persona interpretation uses a dedicated prompt with reflection tier and caller output cap", async () => {
+	const { createOpenCodexContextServices } = await import("../src/services.ts");
+	const requests: Record<string, unknown>[] = [];
+	const service = createOpenCodexContextServices(
+		{
+			origin: () => "http://127.0.0.1:10100",
+			token: () => null,
+			models: () => [
+				{
+					provider: "opencodex",
+					id: "gpt-5.6-sol",
+					name: "test",
+					contextWindow: 128000,
+					maxOutputTokens: 8192,
+					reasoning: true,
+					reasoningEfforts: ["low", "medium", "high"],
+					authenticated: true,
+					endpoint: "responses",
+				},
+			],
+			fetchImpl: async (_url, init) => {
+				requests.push(JSON.parse(String(init?.body)));
+				return sse('{"traits":[],"habits":[]}');
+			},
+		},
+		() => consolidationSettings(),
+	);
+	expect(typeof service.interpretPersona).toBe("function");
+	const interpret = service.interpretPersona;
+	if (!interpret) throw Error("missing persona interpretation");
+	await interpret(
+		"DATA",
+		new AbortController().signal,
+		undefined,
+		undefined,
+		128,
+	);
+	expect(requests[0]?.["reasoning"]).toEqual({ effort: "high" });
+	expect(requests[0]?.["max_output_tokens"]).toBe(128);
+	expect(String(requests[0]?.["instructions"])).toContain("axisId");
+	expect(String(requests[0]?.["instructions"])).toContain("habitId");
+	expect(String(requests[0]?.["instructions"])).not.toContain(
+		"communicationPreferences",
+	);
+	await expect(
+		interpret("DATA", new AbortController().signal, () => {
+			throw Error("source revoked");
+		}),
+	).rejects.toThrow("source revoked");
+	expect(requests).toHaveLength(1);
+});
