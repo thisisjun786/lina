@@ -1,14 +1,40 @@
 # 070 — Event images and evolving profile pictures
 
-Status: proposed integration. Depends on [060](060_publication.md) and the image-owner implementation. Reuse the existing image engine; do not write a second ima2 client or provider router.
+Status: A repair at completed060 `e8078fd`, 2026-09-08. Depends on [060](060_publication.md) and the image-owner implementation. Reuse the existing image engine; do not write a second ima2 client or provider router. The concrete extension is [071](071_image_execution_contract.md); [072](072_image_authority_and_accounting.md) resolves the first independent audit's restore, scheduling, serving and reservation gaps. Both refine this same070 work phase.
+
+The user should see an appropriate permitted scene picture alongside a LIFE post,
+and may configure profile-picture candidates, automatic application, pinning and
+restoration. An image arriving late must keep its original scene and identity;
+changing a picture must preserve the agent's personality and learned state.
+
+## Unit contract
+
+| Field | Scope |
+| --- | --- |
+| Loop / trigger | Satisfy-spec, next dependency-ordered cycle in the user-authorized unattended roadmap. C4 for provider disclosure, persistence/migration and avatar application. |
+| Previous D | “Execute070 image/avatar-owner integration using the existing053976d image engine, frozen permitted material, distinct generation/artifact/post/avatar receipts and explicit visual identity/history/pin/CAS contracts. Then080 integrated acceptance and consumer handoff.” This P follows that direction. |
+| Goal | Frozen permitted event images and scheduled/event-triggered avatar candidates, durable recovery and audience-safe delivery through the existing image owner. |
+| Non-goals | New provider/image engine, UI redesign, multi-reference provider extension, live generation/model-quality certification, invented background/audience/cadence/budget defaults, installed-user-data changes or additional push/merge/deploy. Reuse the image owner's existing conversation renderer without redesign. |
+| Verification | Original fake-provider image/attachment/conversation tests plus new actual DB/manifest/file/Fleet reopen, real HTTP against a loopback synthetic ima2 service, exact final POST guard, image budgets, avatar-state preservation and source gates.071 names activation scenarios and actual paths. |
+| Stop / outcomes | Complete070 only after each row below and071 has proof plus independent reviews; continue080. Missing configuration is explicit not-configured. Unsupported multiple identity references are surfaced, never silently truncated. No claim of human-reviewed real likeness. |
+| Records / bounds | This document,071 and `images-*` artifacts in the bound session evidence/ledger. Task-owned temporary DBs, ports, files and fake providers only. No user token/time budget was given; no paid provider calls are authorized. |
+| Delegation | After A fixes the shared contracts, bounded workers may own AgentStore visual migration/CAS, generalized image jobs/manifest migration, and the final client POST hook in disjoint files. Main owns WorldStore image intent/budget/material and runtime/Fleet composition. HTTP/asset and consumer tests may be delegated after concrete ports exist. Main inspects diffs/proof and reclaims a slice after two distinct failed implementations. |
+| Direction changes | Main resolves routine implementation choices against actual owners. Material dependency/permission changes require a plan amendment; external spend/publication still requires separate user authorization. |
 
 ## Observed integration baseline
 
-The image-owner source at `053976d6fed2dce32be603b145a6c97e4e52de6f` supplies `images/client.ts`, `store.ts`, `jobs.ts`, tools and session integration. Its `ImageJobStore` is a strict v1 JSON manifest under a session binding. `(requestId, callId)` deduplicates a job; its separate UUID identifies upstream generation and attachment. `deliveredEntryId` records a conversation completion, not an SNS post.
+The image-owner source at `053976d6fed2dce32be603b145a6c97e4e52de6f` supplies `images/client.ts`, `store.ts`, `jobs.ts`, tools and session integration. Both it and the clean060 world branch were inspected in this P; the image modules are not yet present on the world branch. Its `ImageJobStore` is a strict v1 JSON manifest under a session binding. `(requestId, callId)` deduplicates a job; its separate UUID identifies upstream generation and attachment. `deliveredEntryId` records a conversation completion, not an SNS post.
 
 States are `prepared`, `submitting`, `queued`, `running`, `post_processing`, `uncertain`, `cancelling`, `completed`, `failed`, `cancelled`. Recovery reads the same upstream ID; uncertain work is not resubmitted. The inspected client contract pins ima2 3.14.0 and accepts at most one reference image. The adapter enforces PNG/JPEG and existing attachment limits. Recheck the integrated revision and capabilities before implementing this phase; do not silently assume multi-reference support.
 
 `WorldImageBrief` v1 currently has event/non-null scene/appearance references but no runtime consumer. `snapshotAt()` returns a trusted full snapshot, not publication-safe data. `AgentProfile.avatarId` uses a hash-addressed avatar store, while generated attachment IDs are UUIDs. Their identifiers must never be interchanged.
+
+Source inventory is `images-p-owner-inventory.md` in the bound evidence directory.
+It found no image-spend ledger, pre-send source hook or LIFE owner in the image
+slice. The current avatar route calls `AgentStore.update`, which clears persona
+candidates and applies a learned-state edit.071 replaces that call with an
+avatar-only transaction. Existing world image/avatar config fields remain the
+owners of mode/count/interval limits; additional settings must not duplicate them.
 
 ## Changes and field path
 
@@ -57,9 +83,9 @@ Generalize the existing job state machine through ports. Conversation jobs keep 
 
 Avatar material is built from the agent's approved visual identity and selected avatar policy, without inventing a source world event. Both source variants require a validated material record; an avatar slot cannot use the non-null scene constraint of `WorldImageBrief` v1. Restrict `LifeImageIntent.owner` to the LIFE branch when parsing this contract; the general `ImageOwner` union is for the reusable image job service.
 
-Avatar scheduling creates a stable `(agent, policy revision, slot)` intent. Optional event-triggered and periodic slots use the chosen world/real-clock policy, not wall time guessed from events. Avatar pin prevents automatic replacement; generation may be skipped or retained as a candidate according to explicit settings. Keep history and allow restore without regenerating. Add `applyAvatarOnce(intentId, expectedVisualRevision, assetRef)` with avatar history/pin/application receipt in the same AgentStore transaction. User appearance/avatar edits advance visual revision; stale results remain history candidates. Do not use generic `AgentStore.update()` unchanged: it also clears persona candidates and couples unrelated edits. Avatar-only updates must not alter personality/evolution/reflection state.
+Avatar scheduling creates a stable `(agent, world, effective cadence, slot)` intent; event-triggered identity uses the actual event instead. Full policy/config revisions remain provenance, not generation-key inputs, as072 defines. Optional event-triggered and periodic slots use the chosen world/real-clock policy, not wall time guessed from events. Avatar pin prevents automatic replacement; generation may be skipped or retained as a candidate according to explicit settings. Keep history and allow restore without regenerating. Add an operation-keyed `applyAvatarOnce` with avatar history/pin/application receipt in the same AgentStore transaction, using072's separate automatic and manual/restore guards. User appearance/avatar edits advance visual revision; stale results remain history candidates. Do not use generic `AgentStore.update()` unchanged: it also clears persona candidates and couples unrelated edits. Avatar-only updates must not alter personality/evolution/reflection state.
 
-Add `agent_visuals`, `agent_avatar_history` and `agent_avatar_receipts` as recognized AgentStore-owned tables with agent/intent uniqueness. Its current column and foreign-table checks must explicitly recognize the migrated shape. Migration preserves profiles, learned dynamics, pending persona candidates and old avatar references; unknown/partial schemas reject. Store visual revision/pin policy/reference provenance alongside history, then decode them in `visual.ts` before avatar scheduling, API preview or application. A file import can precede the transaction, but it is not an applied avatar until the transactional receipt exists; unreferenced imports can be reclaimed without losing completed receipts.
+Add recognized AgentStore-owned visual/history/application and capacity tables as specified in071/072. Candidates are unique by agent/intent/attempt; application operations are unique by agent/requestKey and exact payload, so repeated historical restoration remains possible. Its current column and foreign-table checks must explicitly recognize the migrated shape. Migration preserves profiles, learned dynamics, pending persona candidates and old avatar references; unknown/partial schemas reject. Store visual revision/pin policy/reference provenance alongside history, then decode them in `visual.ts` before avatar scheduling, API preview or application. A file import can precede the transaction, but it is not an applied avatar until the transactional receipt exists; unreferenced imports can be reclaimed without losing completed receipts.
 
 ## Acceptance scenarios
 
