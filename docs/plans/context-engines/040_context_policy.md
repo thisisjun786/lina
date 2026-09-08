@@ -1,6 +1,6 @@
 # 040 — 원문 보존과 단계별 컨텍스트
 
-상태: P 설계 초안. 감사 전이며 구현 완료가 아니다. 단위 `context`, 선행 `routing + memory`.
+상태: P 재검토. 실제 실행 계획은 [041](041_context_execution.md)을 함께 따른다. 구현 전이다. 단위 `context`, 선행 `routing + memory`.
 
 ## 변경 지도
 
