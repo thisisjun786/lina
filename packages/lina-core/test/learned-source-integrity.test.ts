@@ -9,8 +9,9 @@ import {
 } from "../src/agents/visual-schema.ts";
 import { learnedFixture } from "./learned-source-fixture.ts";
 
-/** Remove only the known schema2 owner when constructing an actual Agent0 test fixture. */
+/** Remove the known schema2/3 owners when constructing an actual Agent0 test fixture. */
 function stripVisualFixture(db: DatabaseSync): void {
+	db.exec("DROP TABLE agent_behavior_receipts; DROP TABLE agent_behavior_jobs");
 	const tables = [
 		...(AGENT_VISUAL_SCHEMA + AGENT_AVATAR_CANDIDATE_CAPACITY_SCHEMA).matchAll(
 			/CREATE TABLE (agent_[a-z_]+) /g,
@@ -328,7 +329,7 @@ test("legacy exact Agent0 and Conversation1 migrate without rewriting original l
 		expect(cc.prepare("SELECT * FROM conversation_preferences").get()).toEqual(
 			cr,
 		);
-		expect(ac.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(2);
+		expect(ac.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(3);
 		expect(cc.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(2);
 		ac.close();
 		cc.close();

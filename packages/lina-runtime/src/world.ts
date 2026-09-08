@@ -113,7 +113,6 @@ export function createOrdinaryWorldContext(
 		const current = source(),
 			binding = current?.store.worldBinding(agentId);
 		if (!current?.limits || !binding?.worldId) return null;
-		current.assertSourceCurrent(binding.worldId);
 		return projectCurrentPersona(
 			current.store.lifeSnapshot(binding.worldId),
 			current.store.lifeDefinition(binding.worldId),
