@@ -1,6 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import { openCheckedDatabase } from "../../../lina-core/src/session-binding.ts";
 import {
+	DEFAULT_RESOURCE_POLICY,
+	parseResourcePolicy,
+	type ResourcePolicy,
+} from "../resources/policy.ts";
+import {
 	type ContextBudgetPolicy,
 	DEFAULT_CONTEXT_POLICY,
 	parseContextBudgetPolicy,
@@ -41,10 +46,17 @@ export type EnginePolicyInput =
 			version: 2;
 			memory: MemoryPolicyInput["memory"];
 			context: ContextBudgetPolicy;
+	  }
+	| {
+			version: 3;
+			memory: MemoryPolicyInput["memory"];
+			context: ContextBudgetPolicy;
+			resources: ResourcePolicy;
 	  };
 
 export type EnginePolicySnapshot = {
-	version: 2;
+	version: 3;
+	resources: ResourcePolicy;
 	memory: MemoryPolicyInput["memory"];
 	context: ContextBudgetPolicy;
 } & {
@@ -117,17 +129,28 @@ function parseEnginePolicyInput(
 	const input = object(value, "engine policy");
 	exactFields(
 		input,
-		input["version"] === 2 ? [...INPUT_KEYS, "context"] : INPUT_KEYS,
+		input["version"] === 3
+			? [...INPUT_KEYS, "context", "resources"]
+			: input["version"] === 2
+				? [...INPUT_KEYS, "context"]
+				: INPUT_KEYS,
 		"engine policy",
 	);
-	if (input["version"] !== 1 && input["version"] !== 2)
+	if (
+		input["version"] !== 1 &&
+		input["version"] !== 2 &&
+		input["version"] !== 3
+	)
 		throw new Error("unknown engine policy version");
 	const memory = object(input["memory"], "engine policy memory");
 	exactFields(memory, MEMORY_KEYS, "engine policy memory");
 	if (typeof memory["enabled"] !== "boolean")
 		throw new Error("invalid engine policy enabled");
 	return {
-		version: 2,
+		version: 3,
+		resources: parseResourcePolicy(
+			input["version"] === 3 ? input["resources"] : DEFAULT_RESOURCE_POLICY,
+		),
 		context: parseContextBudgetPolicy(
 			input["version"] === 1 ? DEFAULT_CONTEXT_POLICY : input["context"],
 		),
@@ -154,7 +177,8 @@ function parseEnginePolicyInput(
 
 function freezeSnapshot(value: EnginePolicySnapshot): EnginePolicySnapshot {
 	return Object.freeze({
-		version: 2,
+		version: 3,
+		resources: Object.freeze({ ...value.resources }),
 		context: Object.freeze({ ...value.context }),
 		revision: value.revision,
 		memory: Object.freeze({ ...value.memory }),
@@ -235,6 +259,7 @@ export class EnginePolicySettingsStore {
 			if (current.revision !== expectedRevision)
 				throw new Error("stale engine policy revision");
 			if (input.version === 1) candidate.context = current.context;
+			if (input.version !== 3) candidate.resources = current.resources;
 			const revision = validPolicyRevision(current.revision + 1);
 			const result = this.db
 				.prepare(

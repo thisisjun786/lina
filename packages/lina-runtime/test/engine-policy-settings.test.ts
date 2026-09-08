@@ -19,9 +19,10 @@ import {
 
 function input(
 	memory: Partial<EnginePolicyInput["memory"]> = {},
-): Extract<EnginePolicyInput, { version: 2 }> {
+): Extract<EnginePolicyInput, { version: 3 }> {
 	return {
-		version: 2,
+		version: 3,
+		resources: { ...defaultEnginePolicy().resources },
 		context: { ...DEFAULT_CONTEXT_POLICY },
 		memory: {
 			enabled: true,
@@ -74,7 +75,8 @@ describe("engine policy settings", () => {
 		expect(existsSync(path)).toBe(false);
 		const first = defaultEnginePolicy();
 		expect(first).toEqual({
-			version: 2,
+			version: 3,
+			resources: { ...defaultEnginePolicy().resources },
 			context: { ...DEFAULT_CONTEXT_POLICY },
 			revision: 0,
 			memory: DEFAULT_MEMORY,
@@ -165,7 +167,7 @@ describe("engine policy settings", () => {
 			"unknown memory field",
 			() => ({ ...input(), memory: { ...input().memory, extra: 1 } }),
 		],
-		["unknown version", () => ({ ...input(), version: 3 })],
+		["unknown version", () => ({ ...input(), version: 4 })],
 		["missing memory", () => ({ version: 1 })],
 		["array input", () => []],
 		["null input", () => null],
@@ -262,7 +264,7 @@ describe("engine policy settings", () => {
 			"unknown settings field",
 			() => JSON.stringify({ ...input(), revision: 100 }),
 		],
-		["unknown version", () => JSON.stringify({ ...input(), version: 3 })],
+		["unknown version", () => JSON.stringify({ ...input(), version: 4 })],
 		[
 			"unknown memory field",
 			() =>

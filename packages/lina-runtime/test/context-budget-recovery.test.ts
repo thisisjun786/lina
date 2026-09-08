@@ -53,7 +53,8 @@ test("legacy policy payload gains context defaults without rewriting memory or i
 	const store = new EnginePolicySettingsStore(path);
 	try {
 		expect(store.snapshot()).toEqual({
-			version: 2,
+			version: 3,
+			resources: defaultEnginePolicy().resources,
 			revision: 7,
 			memory: legacy.memory,
 			context: defaultEnginePolicy().context,
