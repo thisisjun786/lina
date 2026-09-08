@@ -33,14 +33,18 @@
 
 각 NEW 테스트의 직접 경로를 `bun test`에 전달하여 실패→구현→통과를 남긴다. 이 문서 작성 시 새 테스트는 없으므로 실행 결과를 주장하지 않는다. 수정된 기존 기능의 affected tests, `bun run typecheck`, `bun run lint`를 수행하고 마지막 acceptance에서 `bun run ci:validate`, `bun run ci:build`와 전체 테스트를 수행한다. 현존 스크립트는 package.json에서 확인했으며 target coverage와 실제 exit code는 실행 시 기록한다.
 
-## 감사 전 남은 검토
+## 감사와 재검증
 
-새 타입의 정확한 스키마와 모든 호출자, 세부 파일 분리 및 migration 체인은 이 변경 지도와 실제 소스를 다시 대조해 확정한다. 각 상세 설계가 미완료인 동안 roadmap을 잠그거나 production B를 시작하지 않는다.
+공통 상태 계약은 004_contracts.md, 해당 단위의 추가 계약은 아래 사전 감사 수정 절을 따른다. A에서 source/소비자 누락을 검사하고, 각 구현 P에서는 선행 커밋으로 바뀐 타입과 경로를 재검증한다. A 통과 전 구현은 시작하지 않는다.
 
 ## 사전 감사 수정: 실제 인격 소비와 LIFE 상태
 
-추가 MODIFY packages/lina-core/src/world/views.ts와 life-types.ts: SharedPersonaView에 source growth revision을 명시하고 현재 세계 snapshot에서 생산한다. 추가 MODIFY runtime/fleet/life-runtime.ts의 fleetLifeIdentity: 일반 persona projection과 같은 허용된 growth snapshot을 actor 입력에 포함한다. IdentityPolicySnapshot은 기존 v1 decode를 보존하고 v2에 성장 출처 revision을 추가한다. 관련 core world identity codec/validation 소비자는 타입/필드 검색으로 같은 단위에서 모두 갱신한다.
+추가 MODIFY packages/lina-core/src/world/views.ts와 life-types.ts: SharedPersonaView의 기존 lifeRevision/bindingRevision/projectionPolicyRevision을 성장 출처 리비전으로 사용한다. 동일 의미의 growthRevision 필드를 새로 만들지 않는다. views.ts는 이 기존 리비전을 공통 투영에 전달한다. 추가 MODIFY runtime/fleet/life-runtime.ts의 fleetLifeIdentity: 일반 persona projection과 같은 허용된 growth snapshot을 actor 입력에 포함한다. IdentityPolicySnapshot은 기존 v1 decode를 보존하고 v2 profile 항목에 선택적 growthSource={worldId,lifeRevision,bindingRevision,projectionPolicyRevision}와 personalMemoryRevision을 추가한다. 현재 자료가 없으면 null을 명시한다. 실제 성장 값은 actor persona 입력에서 제공하며 policy snapshot에는 현재성 확인에 필요한 참조만 넣는다. 관련 core world identity codec/validation 소비자는 타입/필드 검색으로 같은 단위에서 모두 갱신한다.
 
 in-flight step은 고정된 identity/profile/growth digest를 사용한다. 새 성장 revision이 도착하면 아직 outbound되지 않은 step은 stale로 재계획하고, 이미 수용된 사건을 새 인격으로 재실행하지 않는다. legacy 저장 사건은 당시 버전 decoder로 복원한다. 동일 경험을 native memory와 world 두 곳에 쓰지 않고 origin별 authoritative growth를 공통 projection으로 읽는다.
 
 원본 LIFE의 agents/store.ts·world/store.ts와 persistence dirty 변경은 이 포크에 복사하지 않는다. 해당 owner 변경의 커밋을 확인한 뒤 서로 다른 checkout의 diff를 비교해 통합하며, 기다리는 동안 다른 단위를 진행한다. 공통 파일 변경은 이 포크에서만 수행하고 최종 candidate가 양쪽 계약을 지키는지 검증한다.
+
+## IdentityPolicySnapshot 소비 경로
+
+추가 MODIFY packages/lina-core/src/world/life-validation.ts의 parseIdentityPolicy, life-transition.ts, life-persistence.ts, social-persistence.ts, autonomy-persistence.ts 및 runtime/life/runner.ts, social/service.ts의 typed identity 소비를 대조한다. 기존 v1 기록은 historical read에 그대로 허용하고 새로운 v2는 신규 실행 입력에만 사용한다. growth revision을 요구하는 경로와 legacy replay를 분리한다. SharedPersonaView의 public export와 publication-types.ts도 타입 호환성을 검사한다.

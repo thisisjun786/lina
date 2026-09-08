@@ -36,9 +36,9 @@
 
 각 NEW 테스트의 직접 경로를 `bun test`에 전달하여 실패→구현→통과를 남긴다. 이 문서 작성 시 새 테스트는 없으므로 실행 결과를 주장하지 않는다. 수정된 기존 기능의 affected tests, `bun run typecheck`, `bun run lint`를 수행하고 마지막 acceptance에서 `bun run ci:validate`, `bun run ci:build`와 전체 테스트를 수행한다. 현존 스크립트는 package.json에서 확인했으며 target coverage와 실제 exit code는 실행 시 기록한다.
 
-## 감사 전 남은 검토
+## 감사와 재검증
 
-새 타입의 정확한 스키마와 모든 호출자, 세부 파일 분리 및 migration 체인은 이 변경 지도와 실제 소스를 다시 대조해 확정한다. 각 상세 설계가 미완료인 동안 roadmap을 잠그거나 production B를 시작하지 않는다.
+공통 상태 계약은 004_contracts.md, 해당 단위의 추가 계약은 아래 사전 감사 수정 절을 따른다. A에서 source/소비자 누락을 검사하고, 각 구현 P에서는 선행 커밋으로 바뀐 타입과 경로를 재검증한다. A 통과 전 구현은 시작하지 않는다.
 
 ## 저장과 체크포인트 연결
 
@@ -61,3 +61,7 @@ MODIFY `packages/lina-runtime/src/checkpoint-cli.ts`는 외부 memory가 export�
 - MODIFY manager.ts와 session-app.ts는 Honcho 옵션/초기화 호출을 제거한다. backend.ts의 legacy honcho 값은 migration-required 진단으로 처리하고 자동 native 재해석하지 않는다.
 - deploy/honcho와 live QA 스크립트의 원격 전용 호출은 retired 문서로 명시하고 새 런타임 필수 경로에서 제외한다. 역사적 LIFE 050 검증 기록은 재작성하지 않고 새 계약 문서 링크를 추가한다.
 - MODIFY docs/CODEX_RUNTIME.md, ARCHITECTURE.md, PERSONA_CONTEXT.md, README.md는 source retirement와 실제 기존 데이터의 미이전 상태를 구분한다.
+
+## 리포지터리 계약 문서 동기화
+
+추가 MODIFY POLICY.md의 Dependencies and compatibility 중 OpenViking/Honcho optional external adapters 설명을 자체 엔진과 legacy 전환 계약으로 갱신한다. 이는 실행 서비스/데이터 삭제 권한 변경이 아니다. 기존 Codex/OpenCodex 실행 역할과 CI의 local fake 정책은 유지한다. 추가 MODIFY docs/PLANNING.md에는 이 단위의 목표/상태와 LIFE 연동 경계를 연결한다. docs/VALIDATION.md는 080에서 실제 증거로 갱신한다.
