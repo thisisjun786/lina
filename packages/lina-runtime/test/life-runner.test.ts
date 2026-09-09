@@ -463,48 +463,68 @@ test("release errors propagate unless the store confirms the lease is no longer 
 	}
 });
 
-test("runner freezes new steps while preserving legacy idempotent replay", async () => {
-	const f = setup();
-	const legacy = await f.runner.run("test-world", "legacy", 1, signal());
-	await f.runner.close();
-	let resolutions = 0;
-	let effort: "low" | "high" = "low";
-	const runner = createLifeRunner({
-		...f.options,
-		resolveModels(worldId: string) {
-			resolutions++;
-			const config = f.store.lifeConfig(worldId);
-			const resolve = (lane: "director" | "actor") => {
-				const route = config.models?.[lane];
-				if (!route) return null;
-				const fields = {
-					profileId: lane,
-					...route,
-					reasoning: effort,
-					maxOutputTokens: null,
-					settingsRevision: 1,
+for (const quiet of [true, false]) {
+	test(`runner freezes ${quiet ? "quiet" : "event"} steps while preserving legacy idempotent replay`, async () => {
+		const f = setup(quiet, (pack) => {
+			for (const event of pack.autonomy.events) event.cooldownSteps = 0;
+		});
+		const legacy = await f.runner.run("test-world", "legacy", 1, signal());
+		await f.runner.close();
+		let resolutions = 0;
+		let effort: "low" | "high" = "low";
+		const runner = createLifeRunner({
+			...f.options,
+			resolveModels(worldId: string) {
+				resolutions++;
+				const config = f.store.lifeConfig(worldId);
+				const resolve = (lane: "director" | "actor") => {
+					const route = config.models?.[lane];
+					if (!route) return null;
+					const fields = {
+						profileId: lane,
+						...route,
+						reasoning: effort,
+						maxOutputTokens: null,
+						settingsRevision: 1,
+					};
+					return { ...fields, routeFingerprint: lifeDigest(fields) };
 				};
-				return { ...fields, routeFingerprint: lifeDigest(fields) };
-			};
-			return { director: resolve("director"), actor: resolve("actor") };
-		},
+				return { director: resolve("director"), actor: resolve("actor") };
+			},
+		});
+		try {
+			expect(await runner.run("test-world", "legacy", 1, signal())).toEqual(
+				legacy,
+			);
+			expect(resolutions).toBe(0);
+			const next = await runner.run("test-world", "frozen", 1, signal());
+			expect(next.version).toBe(4);
+			expect(next.status).toBe("accepted");
+			expect(next.source.resolvedModels?.actor?.reasoning).toBe("low");
+			if (!quiet) {
+				expect(next.models.length).toBeGreaterThan(0);
+				for (const record of next.models) {
+					expect(record.prepared.request.version).toBe(3);
+					expect(record.status).toBe("completed");
+				}
+			}
+			const reopened = new WorldStore(f.path, () => f.clock.now());
+			try {
+				expect(reopened.lifeStepByKey("test-world", "frozen")).toEqual(next);
+				expect(reopened.lifeStepByKey("test-world", "legacy")).toEqual(legacy);
+			} finally {
+				reopened.close();
+			}
+			expect(await runner.run("test-world", "frozen", 1, signal())).toEqual(
+				next,
+			);
+			expect(resolutions).toBe(2);
+			effort = "high";
+			await expect(
+				runner.run("test-world", "frozen", 1, signal()),
+			).rejects.toThrow(/idempotency conflict/);
+		} finally {
+			await runner.close();
+		}
 	});
-	try {
-		expect(await runner.run("test-world", "legacy", 1, signal())).toEqual(
-			legacy,
-		);
-		expect(resolutions).toBe(0);
-		const next = await runner.run("test-world", "frozen", 1, signal());
-		expect(next.version).toBe(4);
-		expect(next.status).toBe("accepted");
-		expect(next.source.resolvedModels?.actor?.reasoning).toBe("low");
-		expect(await runner.run("test-world", "frozen", 1, signal())).toEqual(next);
-		expect(resolutions).toBe(2);
-		effort = "high";
-		await expect(
-			runner.run("test-world", "frozen", 1, signal()),
-		).rejects.toThrow(/idempotency conflict/);
-	} finally {
-		await runner.close();
-	}
-});
+}
