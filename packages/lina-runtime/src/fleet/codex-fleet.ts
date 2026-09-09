@@ -130,12 +130,8 @@ async function startUnlocked(
 	const hub = new OpenCodexHub({ env, homeDir: home });
 	await hub.refresh().catch(() => undefined);
 	const legacyTools = workTools();
-	const resourceTools: TaskDynamicTool[] = legacyTools.map((t) => ({
-		type: "function",
-		name: t.name,
-		description: t.description,
-		inputSchema: t.parameters,
-	}));
+	// Retain explicit rejection for historical calls without offering retired tools to new tasks.
+	const resourceTools: TaskDynamicTool[] = [];
 	let resources: FleetResources | undefined;
 	let resourceRejected = false;
 	let resourceFailure: "invalid_storage" | "storage_unavailable" | null = null;

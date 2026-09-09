@@ -6,6 +6,23 @@
 
 ## 계획 당시 코드와 선행 순서
 
+## 2026-09-09 초기 목표 재점검의 보완 범위
+
+독립 검토 Auditor3가 확인한 누락은 HTML 자료 추출, 공통 대화 행동의 검증 담당 부재, 진행 중인 게시 모델 선택이다. 최초 요구 범위 안의 통합 보완으로 이 단위가 소유한다. 단위 완료 조건을 줄이지 않는다.
+
+| 경로 | 보완과 인수 조건 |
+| --- | --- |
+| `packages/lina-memory/src/resources/extraction.ts` 및 인접 HTML 추출기·테스트 | HTML을 실행하거나 외부 URL에 접속하지 않고 본문 텍스트를 추출한다. 원본 bytes와 안정 참조를 보존하며 script/style/template과 숨긴 요소를 근거에서 제외한다. 기존 worker의 extract→요약·공유 기억→활동 근거 조회를 재사용한다. HTML을 raw text로 분류해 스크립트 내용을 검증된 근거로 인정하지 않는다. 한도·잘못된 인코딩·중단·현재 출처 검사를 유지한다. |
+| `data/app-system-prompt.md`, `packages/lina-runtime/src/policy/response.ts`, `packages/lina-runtime/src/persona/first-conversation.ts` | 적용 지침을 소스에서 감사한다. 공통 지침은 근거·적절한 이견·현재 요청에 맞는 응답, persona는 고정된 목소리, 엔진은 실제 기억·조회·동작·공개 범위를 소유한다. 문장에 규칙이 있다는 사실을 실제 모델 품질로 계산하지 않는다. |
+| `packages/lina-runtime/src/session-app.ts`, `packages/lina-runtime/src/fleet/intro-routes.ts`와 인접 테스트 | 공통 지침과 첫 답변 안내의 실제 RPC 전달, 완료 응답 뒤 안내 제외, 실패·미완료 소개의 재개, 확인되지 않은 사용자 정보의 분리를 검사한다. `lina_select_response`가 대화 모델·페르소나·권한을 바꾸지 않고 요청 목적별 안내만 선택하는지 검사한다. |
+| `docs/plans/context-engines/080_acceptance.md` | 위 대화 행동의 기능 인수 결과와 지정 모델의 실제 품질 시나리오를 이어받는다. UI 계약 목록에 소개 상태·사용자 입력·진행·오류·재시도·확정의 실제 endpoint/필드를 포함한다. |
+
+검증은 기존 intro-api/intro-codex/persona-first-conversation/onboarding-prefill/response-policy 및 새 실제 RPC 대화 정책 검사를 사용한다. HTML은 resources-extraction과 worker/activity 원문 근거 검사를 실행한다. 전체 source gate는 보완 후 다시 수행한다. 실제 모델의 자연스러움은 미승인 외부 호출 없이 입증할 수 없으므로 인수의 별도 미충족 항목으로 유지한다.
+
+기존 5000ms 이미지 timeout은 5182522 전체 재검사에서 발생하지 않았다. `integration-reaudit-tests.log`의 두 실패는 게시 모델 선택과 자동 학습 모드를 생략한 persona 테스트 fixture이며, 이미지 제한을 늘리거나 skip하지 않았다.
+
+## 원래 계획의 기준선
+
 계획 시작 당시 codex-fleet.ts는 OpenVikingClient/workTools를 만들고 task executeTool의 네 인자만 사용했다. session-app.ts는 CompanionMemory 또는 Honcho MemoryBridge를 선택했으며 직접 시작의 기본은 disabled였다. manager.ts에는 Honcho namespace qualification/초기화·삭제 흐름이 남았다. 이 경로들은 B에서 교체됐다. 기존 resourceRoot는 정적 asset 경로이므로 자료 DB 경로로 재사용하지 않는다.
 
 구현 순서는 PR #3의 필요한 안정화 변경 확인 → own memory port와 외부 어댑터 제거 → 공유 자료/정책 owner 설치 → LIFE tier/비개발 활동 경계 → checkpoint/전체 통합 검증이다. 각 순서는 같은 integration 단위 안에서 검증되는 의존 관계이며 별도 제품 기능을 축소하는 구분이 아니다.

@@ -60,6 +60,12 @@ test("installed fleet delivers task work before LIFE, survives reopen, and drain
 			requestId: "work-task",
 		});
 		if (!task.threadId) throw Error("Missing task thread");
+		const nativeSetup = JSON.stringify(rpc.calls("thread/start"));
+		expect(nativeSetup).toContain('"lina_resource_read"');
+		expect(nativeSetup).not.toContain('"lina_work_read"');
+		expect(nativeSetup).not.toContain('"lina_work_write"');
+		expect(nativeSetup).not.toContain('"lina_work_search"');
+		expect(nativeSetup).not.toContain('"lina_work_list"');
 		const ended = Promise.withResolvers<void>();
 		const off = f.app.tasks.subscribeWork(() => ended.resolve());
 		rpc.completeTurn(task.threadId);

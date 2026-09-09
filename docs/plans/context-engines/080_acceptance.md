@@ -28,6 +28,8 @@
 - source gates 전체 통과.
 - world HEAD/dirty 재대조.
 - paid qualification 여부 명시.
+- 공통 대화 행동: 071 소유의 지침/RPC/첫 대화 상태 검사 결과를 받아, 지정 모델의 인사·구체적 요청·이견·기억 정정·검색/실행 전환 시나리오로 검증한다. 출처 없는 과거 대화를 꾸미지 않고, 역할 전환에도 작성된 목소리와 지정 모델을 유지해야 한다. 단기 모델 검증과 사용자의 장기 체감 평가는 구분한다.
+- UI 계약 목록에 `GET /api/onboarding/entry`의 firstUser/resume, `GET /api/agents/:agentId/intro`의 room/turns/userRevision/shareUser/sessionId, POST turn/finish/choose의 revision·요청 ID·오류·재시도 의미를 포함한다. 기능을 새로 설계하지 않고 현재 소스와 실제 HTTP 결과를 대조한다.
 
 ## 검증 명령과 증거
 
