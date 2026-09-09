@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { RunMode } from "./harness-types.ts";
-import type { BatchManifest } from "./scenario-export.ts";
+import { loadManifest } from "./manifest.ts";
 import { aggregateScores, type HostEvidence } from "./score.ts";
 import { decodeTrace } from "./trace.ts";
 import type { TrialScore } from "./truth.ts";
@@ -45,31 +45,7 @@ export async function compareBatch(
 	env: Record<string, string | undefined> = process.env,
 	hosts: HostEvidence[] = [],
 ): Promise<ComparisonReport> {
-	const manifest = JSON.parse(
-		readFileSync(manifestPath, "utf8"),
-	) as BatchManifest;
-	if (
-		manifest.version !== 1 ||
-		!Array.isArray(manifest.episodes) ||
-		!manifest.episodes.length ||
-		typeof manifest.seed !== "string"
-	)
-		throw Error("invalid batch manifest");
-	const ids = new Set<string>();
-	for (const episode of manifest.episodes) {
-		if (ids.has(episode.episodeId)) throw Error("duplicate episode");
-		ids.add(episode.episodeId);
-		for (const [path, expected] of [
-			[episode.publicPath, episode.publicHash],
-			[episode.truthPath, episode.truthHash],
-		]) {
-			if (typeof path !== "string" || typeof expected !== "string")
-				throw Error("invalid manifest file");
-			const text = readFileSync(path, "utf8").trim();
-			if (createHash("sha256").update(text).digest("hex") !== expected)
-				throw Error("batch artifact hash mismatch");
-		}
-	}
+	const manifest = loadManifest(manifestPath);
 	const root = resolve(output);
 	mkdirSync(root, { recursive: true });
 	const sourceRoot = new URL(".", import.meta.url).pathname;
