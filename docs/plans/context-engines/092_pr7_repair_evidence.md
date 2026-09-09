@@ -117,3 +117,26 @@ leaves out-of-budget jobs pending. Red/green HTTP transcripts are under
 `/home/jun/tmp/lina-pr7-overview-fix-01a08577`. These are synthetic model-service
 contract checks, not external provider or dialogue-quality evidence. Previously
 stored incomplete ready overviews are not retroactively rebuilt by this change.
+
+## Critical sweep: empty reasoning and explicit pending recovery
+
+A failed reasoning attempt followed by HTTP retraction of the last eligible
+record left the old trigger active and repeatedly scheduled zero-delay refreshes
+without provider calls or progress. Empty candidate sets now recompute the
+trigger, clear stale status, and supersede old jobs before returning. The same
+six-refresh regression now schedules no wakes; consumed attempts remain intact.
+
+A separate process-crash probe acknowledged two resource writes with HTTP201,
+held the first summary, and killed the isolated process before the second ran.
+After reopening, the second resource remained pending and its explicit retry
+was rejected. Retry now accepts current pending jobs without consuming attempts;
+prepared/ready/stale and exhausted jobs keep their rejection rules. Explicit
+HTTP retry after the same crash reaches ready while the first uncertain job
+remains unknown. Boot does not automatically call providers or rebuild queues.
+
+These changes retain the existing retry endpoint and source/authority checks.
+The previous negative assertion for pending was replaced by prepared-claim
+protection plus a positive reopen/requeue contract test. Stale input and foreign
+private job negatives remain. Diagnostics and process evidence are under
+`/home/jun/tmp/lina-pr7-re0-critical-01a08577`. This is one active-goal sweep;
+it does not declare the overall critical review complete.

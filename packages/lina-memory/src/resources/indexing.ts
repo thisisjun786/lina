@@ -395,7 +395,7 @@ export class ResourceIndex {
 	retry(scope: ResourceScope, id: string): void {
 		this.tx(() => {
 			const job = this.get(scope, id);
-			if (!["failed", "unknown", "unavailable"].includes(job.state))
+			if (!["pending", "failed", "unknown", "unavailable"].includes(job.state))
 				throw Error("resource job cannot retry");
 			if (!this.valid(scope, job)) throw Error("stale resource input");
 			if (attempts(this.db, job) >= job.generation.maxAttempts)

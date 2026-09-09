@@ -92,7 +92,7 @@ test("eligible unavailable job retry notifies onStored once with owning resource
 	}
 });
 
-test("rejected pending stale foreign-private and exhausted retries do not notify onStored", async () => {
+test("rejected prepared stale foreign-private and exhausted retries do not notify onStored", async () => {
 	const root = mkdtempSync(join(tmpdir(), "lina-resource-retry-reject-"));
 	const store = new ResourceStore(root, limits, () => generation);
 	const callbacks = { onStored(_resource: Resource) {} };
@@ -100,9 +100,11 @@ test("rejected pending stale foreign-private and exhausted retries do not notify
 	try {
 		const pending = createDoc(store, "retry-pending");
 		const pendingJob = extractJob(store, pending.id);
+		const active = store.indexing.prepare(owner, pendingJob.id);
 		expect(
 			(await retry(store, pendingJob.id, callbacks.onStored))?.status,
 		).toBe(400);
+		expect(store.indexing.get(owner, pendingJob.id).token).toBe(active.token);
 
 		const stale = createDoc(store, "retry-stale");
 		const staleJob = extractJob(store, stale.id);
@@ -142,6 +144,31 @@ test("rejected pending stale foreign-private and exhausted retries do not notify
 		expect(onStored).toHaveBeenCalledTimes(0);
 	} finally {
 		onStored.mockRestore();
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("a reopened pending job can explicitly requeue without consuming an attempt", async () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-retry-pending-reopen-"));
+	let store = new ResourceStore(root, limits, () => generation);
+	const notifications: Resource[] = [];
+	try {
+		const doc = createDoc(store, "pending-reopen");
+		const job = extractJob(store, doc.id);
+		store.close();
+		store = new ResourceStore(root, limits, () => generation);
+		for (let i = 0; i < 2; i++) {
+			const response = await retry(store, job.id, (r) => notifications.push(r));
+			expect(response?.status).toBe(200);
+			expect(store.indexing.get(owner, job.id)).toMatchObject({
+				state: "pending",
+				attempt: 0,
+				token: null,
+			});
+		}
+		expect(notifications.map((r) => r.id)).toEqual([doc.id, doc.id]);
+	} finally {
 		store.close();
 		rmSync(root, { recursive: true, force: true });
 	}
