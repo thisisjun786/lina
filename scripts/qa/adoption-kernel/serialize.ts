@@ -1,0 +1,69 @@
+// biome-ignore-all lint/complexity/useLiteralKeys: strict indexed records.
+import type {
+	ModeInput,
+	SerializedInput,
+	ToolResultEvent,
+} from "./harness-types.ts";
+export const SYSTEM = `Return one JSON action, no markdown. All actions require purposeRevision. Actions: answer {text}; tool {tool,args}; adopt {adoptionKind:understanding|plan|intention,text,refs:[{id,revision}],condition}; defer {reason,condition}; noop {reason}. Optional judgment:{method:string|null,expectation:{kind:none}|{kind:stated,text}}. Answer text must itself be JSON: {outcome:answer|clarify|uncertain|failure|defer,value:string|null,missing:string[],claims:[{sourceId,role:performer|observer|recipient,domain:real|fiction}],verificationIds:string[]}. Use only supplied sources and actual tool results. Never claim unknown effects succeeded. Conditions restrict reusable learning. Omissions mean information was not supplied. Tool argument schemas are in tools. No extra action fields.`;
+export function receiptText(event: ToolResultEvent): string {
+	const text = JSON.stringify(event);
+	if (text.length > 4096) throw Error("receipt text exceeds environment bound");
+	return text;
+}
+export function serializeInput(input: ModeInput): SerializedInput {
+	const raw: ModeInput["raw"] = [];
+	const derived: ModeInput["derived"] = [];
+	const omitted = { rawIds: [] as string[], derivedIds: [] as string[] };
+	let rawSize = 2;
+	let stopped = false;
+	for (const item of [...input.raw].sort((a, b) => a.seq - b.seq)) {
+		const size = JSON.stringify(item).length + 1;
+		if (stopped || rawSize + size > 16000) {
+			stopped = true;
+			omitted.rawIds.push(item.ref.id);
+		} else {
+			raw.push(item);
+			rawSize += size;
+		}
+	}
+	let derivedSize = 2;
+	for (const item of input.derived) {
+		const size = JSON.stringify(item).length + 1;
+		if (derivedSize + size > 4000) omitted["derivedIds"].push(item.id);
+		else {
+			derived.push(item);
+			derivedSize += size;
+		}
+	}
+	const content = JSON.stringify({
+		purpose: input.purpose,
+		raw,
+		derived,
+		tools: input.tools,
+		budget: { attempt: input.attempt, maxAttempts: 6, maxOutputTokens: 4096 },
+		omitted,
+	});
+	if (SYSTEM.length + content.length > 24000)
+		throw Error("protocol input exceeds total bound");
+	return {
+		messages: [
+			{ role: "system", content: SYSTEM },
+			{ role: "user", content },
+		],
+		omitted,
+		rawIds: raw.map((item) => item.ref.id),
+		adoptionIds: derived.map((item) => item.id),
+	};
+}
+export function stripHostMetadata(input: SerializedInput): string {
+	const body = JSON.parse(input.messages[1]?.content ?? "") as Record<
+		string,
+		unknown
+	>;
+	delete body["derived"];
+	const raw = body["raw"] as Record<string, unknown>[];
+	body["raw"] = raw.map(({ seq: _seq, ref: _ref, ...item }) => item);
+	const omitted = body["omitted"] as Record<string, unknown>;
+	delete omitted["derivedIds"];
+	return JSON.stringify({ system: input.messages[0]?.content, body });
+}
