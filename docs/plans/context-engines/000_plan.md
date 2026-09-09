@@ -1,6 +1,6 @@
 # LINA 자체 엔진 완성 로드맵
 
-2026-09-09 · 상태: roadmap·routing·memory·persona·context·resources·shared-memory D 완료. integration은 B 진행 중이며 acceptance는 미착수다. 각 단위의 완료 기록은 전체 제품 검증을 대신하지 않는다.
+2026-09-09 · 상태: roadmap·routing·memory·persona·context·resources·shared-memory·integration D 완료. acceptance는 진행 중이다. integration은 d0221de에서 전체 3,666 pass·46 skip·0 fail과 타입·lint·CI·build 검사로 확인했다. 실제 모델 품질은 아직 검증하지 않았으며 각 단위의 완료 기록은 전체 제품 검증을 대신하지 않는다.
 
 LINA가 개인 기억·페르소나·대화 연속성·공유 비코드 자료 공간을 직접 소유하도록 기존 엔진을 완성한다. 업무는 개발·비개발·단순 검색을 포함하며 Codex 작업 생성과 동의어가 아니다. 전체 기능을 실제 경로에서 검증하고 UI 계약을 확정한 후 사용자가 장기 대화로 체감 품질을 평가한다. [요구사항](001_requirements.md)이 범위 기준이다.
 

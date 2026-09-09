@@ -13,6 +13,11 @@ Codex 작업을 관리하지만, 업무 자료를 공유하기 위해 작업을 
 UI·Electron·이미지·월드·상태 이력 계획은
 [제품 기획과 다음 작업](docs/PLANNING.md)에 모았습니다. 현재 구현과 후속 계획을 함께 표시합니다.
 
+자체 기억·페르소나·컨텍스트·공유 자료 엔진의 기능 검사는
+`bun scripts/qa/context-engines.ts`로 재실행할 수 있습니다. 합성 데이터로 실행·저장·복구 경로를 검사하며,
+실제 모델의 대화 품질을 평가하는 명령은 아닙니다. 설정과 API 경계는
+[엔진 계약 목록](docs/plans/context-engines/081_contract_inventory.md)에 정리했습니다.
+
 ## 시작하기
 
 ```sh

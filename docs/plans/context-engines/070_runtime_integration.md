@@ -1,6 +1,6 @@
 # 070 — 실행 연결과 외부 어댑터 퇴역
 
-2026-09-09 현재 실행은 [071](071_installation_integration.md)이 기준이다. 아래 P 초안과 PR 상태·테스트 수치는 9월 8일의 계획 기준점이다. 자체 어댑터 퇴역, 활동 도구/API, Step v4와 게시 request v3의 모델 선택은 구현됐고 최종 통합 검증이 남아 있다. 이전 이미지 timeout은 `integration-reaudit-tests.log`의 전체 재검사에서 재발하지 않았다.
+2026-09-09 통합 D 결과는 [071](071_installation_integration.md)이 기준이다. 아래 P 초안과 PR 상태·테스트 수치는 9월 8일의 계획 기준점이다. 자체 어댑터 퇴역, 활동 도구/API, Step v4와 게시 request v3의 모델 선택, HTML 추출을 통합했고 d0221de 전체 검사에서 3,666 pass·46 skip·0 fail을 확인했다. 실제 모델 자격 검증과 최종 인수는 [080](080_acceptance.md)에 남아 있다.
 
 ## PR #3 연결 검토 기준점 (2026-09-08)
 

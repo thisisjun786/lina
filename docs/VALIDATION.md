@@ -22,6 +22,10 @@ Record the exact source revision or file digest set, command, exit code and mate
 
 ## Acceptance boundaries
 
+The native context-engine integration was checked locally at `d0221de` on 2026-09-09: 3,666 passing tests, 46 skipped, zero failed; root/browser types, lint, CI configuration validation and build exited 0. Lint retained 26 warnings. This is not hosted CI or actual-model qualification. The session's `integration-test-receipt.json` and `integration-check.log` bind that result to the clean source revision.
+
+Run `bun scripts/qa/context-engines.ts --list` to inspect the focused native-engine scenario set, or omit `--list` to execute it. The command uses isolated synthetic tests, retains logs and `result.json` under its printed temporary artifact path, and removes its runtime data after completion. It strips credentials and live opt-in flags: environment-gated cases are not enabled. `running` left after a host kill is uncertain; `interrupted` and `unavailable` are not passing runs. Inspect the test log for counts and skips. The [UI contract inventory](plans/context-engines/081_contract_inventory.md) maps all ten original requirement areas; [acceptance](plans/context-engines/080_acceptance.md) keeps actual-model and long-conversation evidence separate.
+
 | Capability | Required proof |
 | --- | --- |
 | Conversational setup | New/existing users, failed-text and same-ID recovery, confirmed-only sharing, one-time guidance, restart and actual developer input; [contract](plans/onboarding.md) |
