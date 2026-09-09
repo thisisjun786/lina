@@ -189,3 +189,11 @@ test("kernel experience rows require affirmative uptake evidence, not null", () 
 	}));
 	expect(aggregateScores(withUptake, hosts).qualified).toBe(true);
 });
+
+test("unfinished or exhausted traces cannot pass from an earlier correct answer", () => {
+	for (const status of ["incomplete", "limit"] as const) {
+		const result = scoreTrial(truth, { ...trace, status });
+		expect(result.quality).toBe(false);
+		expect(result.incomplete).toBe(true);
+	}
+});

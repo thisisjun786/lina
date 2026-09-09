@@ -95,6 +95,11 @@ export function scoreTrial(
 		result.reasons.push("transport failure");
 		return result;
 	}
+	if (trace.status !== "complete") {
+		result.incomplete = true;
+		result.reasons.push("episode did not complete");
+		return result;
+	}
 	const a = answer(
 		trace.delivered.filter((x) => x.stage === e.finalStage).at(-1)?.bytes,
 	);
@@ -166,22 +171,25 @@ export function scoreTrial(
 		case "B07":
 			result.quality =
 				correct &&
-				e.lookupKeys.every((key) =>
-					effects.some(
-						(x) =>
-							x.tool === "lookup" &&
-							args(x)["key"] === key &&
-							x.receipt.status === "completed",
-					),
-				) &&
 				effects.some(
-					(x) =>
+					(x, index) =>
 						x.tool === "calculate" &&
 						args(x)["op"] === e.operation &&
 						args(x)["left"] === e.operands[0] &&
 						args(x)["right"] === e.operands[1] &&
 						x.receipt.status === "completed" &&
-						String(output(x)["value"]) === e.value,
+						String(output(x)["value"]) === e.value &&
+						e.lookupKeys.every((key, operandIndex) =>
+							effects
+								.slice(0, index)
+								.some(
+									(lookup) =>
+										lookup.tool === "lookup" &&
+										args(lookup)["key"] === key &&
+										lookup.receipt.status === "completed" &&
+										output(lookup)["value"] === e.operands[operandIndex],
+								),
+						),
 				);
 			break;
 		case "B08":
@@ -195,8 +203,20 @@ export function scoreTrial(
 				trace.requests.length <= 6;
 			break;
 		case "B09": {
+			const original = effects.find(
+				(x) =>
+					x.effectId === `${truth.episodeId}:prelude:0` &&
+					x.tool === "submit" &&
+					x.receipt.status === "completed",
+			);
 			const failed = effects.findIndex(
-				(x) => x.tool === "check" && x.receipt.quality.status === "fail",
+				(x, index) =>
+					original !== undefined &&
+					index > effects.indexOf(original) &&
+					x.tool === "check" &&
+					x.receipt.status === "completed" &&
+					args(x)["submissionId"] === original.effectId &&
+					x.receipt.quality.status === "fail",
 			);
 			result.quality =
 				failed >= 0 &&
@@ -205,6 +225,9 @@ export function scoreTrial(
 				effects.some(
 					(x, i) =>
 						i > failed &&
+						original !== undefined &&
+						args(x)["taskKey"] === args(original)["taskKey"] &&
+						x.receipt.status === "completed" &&
 						x.tool === "submit" &&
 						same((output(x)["items"] as JsonValue[]) ?? [], e.required) &&
 						effects
@@ -212,6 +235,7 @@ export function scoreTrial(
 							.some(
 								(check) =>
 									check.tool === "check" &&
+									check.receipt.status === "completed" &&
 									args(check)["submissionId"] === x.effectId &&
 									check.receipt.quality.status === "pass" &&
 									a.verificationIds.includes(check.effectId),
@@ -297,22 +321,53 @@ export function scoreTrial(
 		);
 	}
 	if (truth.row === "B13" && trace.mode !== "baseline") {
-		result.uptake = trace.adoptions.some(
-			(adoption) =>
-				adoption.kind === "plan" &&
-				adoption.refs.some(
-					(ref) => ref.id === e.sourceEvidenceId && ref.revision === 1,
-				) &&
-				trace.requests.some(
-					(r) =>
-						r.stage < e.finalStage && r.input.adoptionIds.includes(adoption.id),
-				) &&
-				trace.requests.some(
-					(r) =>
-						r.stage === e.finalStage &&
-						!r.input.adoptionIds.includes(adoption.id),
-				),
-		);
+		const stale = (
+			id: string,
+			revision: number,
+			seen = new Set<string>(),
+		): boolean => {
+			if (id === e.sourceEvidenceId && revision === 1) return true;
+			const key = `${id}:${revision}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return trace.adoptions.some(
+				(candidate) =>
+					candidate.id === id &&
+					candidate.revision === revision &&
+					candidate.refs.some((ref) => stale(ref.id, ref.revision, seen)),
+			);
+		};
+		const finalInputs = trace.requests.filter((r) => r.stage === e.finalStage);
+		const clean =
+			finalInputs.length > 0 &&
+			finalInputs.every((r) =>
+				r.input.adoptionIds.every((id) => {
+					const candidates = trace.adoptions.filter((a) => a.id === id);
+					return (
+						candidates.length > 0 &&
+						candidates.every((a) => !stale(a.id, a.revision))
+					);
+				}),
+			);
+		result.uptake =
+			clean &&
+			trace.adoptions.some(
+				(adoption) =>
+					adoption.kind === "plan" &&
+					adoption.refs.some(
+						(ref) => ref.id === e.sourceEvidenceId && ref.revision === 1,
+					) &&
+					trace.requests.some(
+						(r) =>
+							r.stage < e.finalStage &&
+							r.input.adoptionIds.includes(adoption.id),
+					) &&
+					trace.requests.some(
+						(r) =>
+							r.stage === e.finalStage &&
+							!r.input.adoptionIds.includes(adoption.id),
+					),
+			);
 	}
 	if (!result.quality) result.reasons.push("task predicate failed");
 	if (result.uptake === false)
