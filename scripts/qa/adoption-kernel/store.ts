@@ -1,5 +1,6 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: SQLite rows are untrusted indexed records.
 import { DatabaseSync } from "node:sqlite";
+import { decodeEffect } from "./effect-records.ts";
 import { decodeDecision, decodeFrame, decodeRecord } from "./records.ts";
 import type {
 	Adoption,
@@ -13,7 +14,6 @@ import type {
 import { parseJudgment, parseReceipt } from "./validation.ts";
 
 const VERSION = 1;
-const parse = <T>(text: string): T => JSON.parse(text) as T;
 const key = (ref: Ref) => `${ref.id}:${ref.revision}`;
 
 export class KernelStore {
@@ -166,8 +166,16 @@ export class KernelStore {
 			changed = false;
 			for (const item of candidates) {
 				if (eligible.has(key(item))) continue;
+				const source = this.decisionFrame(item.sourceDecisionId);
+				if (source.purpose.subject !== item.subject)
+					throw Error("adoption source subject mismatch");
+				const dependencies = [
+					...item.refs,
+					...source.evidence,
+					...source.adoptions,
+				];
 				if (
-					item.refs.every((ref) =>
+					dependencies.every((ref) =>
 						allEvidence.some((source) => source.id === ref.id)
 							? currentEvidence.has(key(ref))
 							: eligible.has(key(ref)),
@@ -212,13 +220,9 @@ export class KernelStore {
 			)
 			.all()
 			.flatMap((row) => {
-				const effect = parse<{ receipt: ToolReceipt; sourceFrame?: Frame }>(
-					String(row["data"]),
-				);
-				const receipt = parseReceipt(effect.receipt);
-				if (receipt.effectId !== row["id"])
-					throw Error("invalid stored receipt identity");
-				const frame = decodeFrame(effect.sourceFrame);
+				const effect = this.effect(row["id"], row["data"]);
+				if (!effect.receipt) throw Error("missing stored receipt");
+				const frame = effect.sourceFrame;
 				if (!frame || frame.purpose.subject !== purpose.subject) return [];
 				if (
 					purpose.audience === "public" &&
@@ -257,15 +261,11 @@ export class KernelStore {
 			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
 			.get(id);
 		if (!row) throw Error("unknown decision");
-		const data = parse<{
-			status: string;
-			judgmentRecorded?: boolean;
-			frame: Frame;
-		}>(String(row["data"]));
+		const data = decodeDecision(row["data"]);
 		if (
-			data.status !== "prepared" ||
-			data.judgmentRecorded ||
-			!this.current(data.frame)
+			data["status"] !== "prepared" ||
+			data["judgmentRecorded"] ||
+			!this.current(decodeFrame(data["frame"]))
 		)
 			throw Error("judgment is already fixed or stale");
 		this.db
@@ -308,10 +308,11 @@ export class KernelStore {
 				.prepare("SELECT data FROM kernel_decisions WHERE id=?")
 				.get(decisionId);
 			if (!row) throw Error("unknown decision");
-			const original = parse<{ frame: Frame; status: string }>(
-				String(row["data"]),
-			);
-			if (original.status !== "prepared" || !this.current(original.frame))
+			const original = decodeDecision(row["data"]);
+			if (
+				original["status"] !== "prepared" ||
+				!this.current(decodeFrame(original["frame"]))
+			)
 				throw Error("stale adoption decision");
 			this.put("adoption", adoption.id, adoption.revision, adoption);
 			this.db
@@ -352,6 +353,19 @@ export class KernelStore {
 		return decodeFrame(data["frame"]);
 	}
 
+	private effect(
+		id: unknown,
+		data: unknown,
+	): import("./effect-records.ts").EffectRecord {
+		const effect = decodeEffect(id, data);
+		if (
+			JSON.stringify(effect.sourceFrame) !==
+			JSON.stringify(this.decisionFrame(effect.fence))
+		)
+			throw Error("effect source snapshot mismatch");
+		return effect;
+	}
+
 	dispatch(
 		effectId: string,
 		tool: string,
@@ -381,39 +395,58 @@ export class KernelStore {
 			.prepare("SELECT data FROM kernel_effects WHERE id=?")
 			.get(receipt.effectId);
 		if (!row) throw Error("unknown effect");
+		const original = this.effect(receipt.effectId, row["data"]);
+		if (original.receipt && original.receipt.status !== "unknown") {
+			if (JSON.stringify(original.receipt) !== JSON.stringify(receipt))
+				throw Error("conflicting terminal receipt");
+			return;
+		}
 		this.db.prepare("UPDATE kernel_effects SET data=? WHERE id=?").run(
 			JSON.stringify({
-				...parse<Record<string, unknown>>(String(row["data"])),
+				...original,
 				receipt,
 				status: receipt.status,
 			}),
 			receipt.effectId,
 		);
 	}
+	cancelUnadmitted(effectId: string): void {
+		const row = this.db
+			.prepare("SELECT data FROM kernel_effects WHERE id=?")
+			.get(effectId);
+		if (!row) throw Error("unknown effect");
+		const effect = this.effect(effectId, row["data"]);
+		if (effect.status !== "dispatched" || effect.receipt)
+			throw Error("effect cannot be cancelled");
+		this.db
+			.prepare("UPDATE kernel_effects SET data=? WHERE id=?")
+			.run(JSON.stringify({ ...effect, status: "cancelled" }), effectId);
+	}
 	pendingEffect(effectId: string): { tool: string; decisionId: string } | null {
 		const row = this.db
 			.prepare("SELECT data FROM kernel_effects WHERE id=?")
 			.get(effectId);
 		if (!row) return null;
-		const value: unknown = JSON.parse(String(row["data"]));
-		if (!value || typeof value !== "object" || Array.isArray(value))
-			throw Error("invalid effect record");
-		const data = value as Record<string, unknown>;
-		if (
-			data["effectId"] !== effectId ||
-			typeof data["tool"] !== "string" ||
-			typeof data["fence"] !== "string"
-		)
-			throw Error("invalid effect identity");
-		return { tool: data["tool"], decisionId: data["fence"] };
+		const data = this.effect(effectId, row["data"]);
+		return { tool: data.tool, decisionId: data.fence };
 	}
 
 	pending(): string[] {
 		return this.db
 			.prepare(
-				"SELECT e.id FROM kernel_effects e LEFT JOIN kernel_decisions d ON d.id=json_extract(e.data,'$.fence') WHERE json_extract(e.data,'$.status') IN ('dispatched','unknown') OR json_extract(d.data,'$.status') IN ('prepared','unknown')",
+				"SELECT e.id,e.data,d.data AS decision FROM kernel_effects e LEFT JOIN kernel_decisions d ON d.id=json_extract(e.data,'$.fence')",
 			)
 			.all()
+			.filter((row) => {
+				const effect = this.effect(row["id"], row["data"]);
+				const decision = decodeDecision(row["decision"]);
+				return (
+					effect.status === "dispatched" ||
+					effect.status === "unknown" ||
+					decision["status"] === "prepared" ||
+					decision["status"] === "unknown"
+				);
+			})
 			.map((row) => String(row["id"]));
 	}
 	signal(condition: string): void {
@@ -473,11 +506,6 @@ export class KernelStore {
 			.prepare("SELECT data FROM kernel_effects WHERE id=?")
 			.get(effectId);
 		if (!row) return null;
-		const data = parse<{ receipt?: unknown }>(String(row["data"]));
-		if (data.receipt === undefined) return null;
-		const receipt = parseReceipt(data.receipt);
-		if (receipt.effectId !== effectId)
-			throw Error("invalid stored receipt identity");
-		return receipt;
+		return this.effect(effectId, row["data"]).receipt ?? null;
 	}
 }

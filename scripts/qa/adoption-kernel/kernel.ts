@@ -32,8 +32,7 @@ export class AdoptionKernel {
 		if (claim.replay) return claim.replay;
 		try {
 			const result = await this.execute(purposeId, claim.decisionId);
-			this.runs.finish(result);
-			return result;
+			return this.runs.finish(result);
 		} catch (error) {
 			this.runs.finish({
 				status: "unknown",
@@ -95,8 +94,10 @@ export class AdoptionKernel {
 						decisionId,
 					),
 				)
-			)
+			) {
+				this.options.store.cancelUnadmitted(effectId);
 				return { status: "rejected", decisionId, detail: "stale final fence" };
+			}
 			const receipt = await this.options.delivery.reconcile(effectId);
 			if (!receipt || receipt.status === "unknown")
 				return { status: "unknown", decisionId };
@@ -162,14 +163,21 @@ export class AdoptionKernel {
 		)
 			return { status: "unknown", decisionId };
 		this.options.beforeAdmit?.();
-		if (!this.options.store.current(frame))
+		if (
+			this.options.tools.get(proposal.tool) !== tool ||
+			!this.options.store.current(frame)
+		) {
+			this.options.store.cancelUnadmitted(effectId);
 			return { status: "rejected", decisionId, detail: "stale final fence" };
+		}
 		if (
 			!this.options.store.admitCurrent(frame, () =>
 				tool.admit(effectId, proposal.args, decisionId),
 			)
-		)
+		) {
+			this.options.store.cancelUnadmitted(effectId);
 			return { status: "rejected", decisionId, detail: "stale final fence" };
+		}
 		const receipt = await tool.result(effectId);
 		if (!receipt || receipt.status === "unknown")
 			return { status: "unknown", decisionId };
@@ -214,6 +222,11 @@ export class AdoptionKernel {
 				status: effectId.endsWith(":answer") ? "answered" : "dispatched",
 				decisionId: effect.decisionId,
 			});
+		}
+		const reported = new Set(traces.map((trace) => trace.decisionId));
+		for (const decisionId of this.runs.unresolved()) {
+			if (!reported.has(decisionId))
+				traces.push({ status: "unknown", decisionId });
 		}
 		return traces;
 	}

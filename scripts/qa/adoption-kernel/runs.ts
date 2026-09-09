@@ -95,9 +95,33 @@ export class RunReservations {
 			throw error;
 		}
 	}
-	finish(trace: KernelTrace): void {
+	unresolved(): string[] {
+		return this.db
+			.prepare(
+				"SELECT decision_id,status,trace FROM kernel_runs WHERE status IN ('running','unknown')",
+			)
+			.all()
+			.map((row) => {
+				const id = String(row["decision_id"]);
+				restoredTrace(row["trace"], id, row["status"]);
+				return id;
+			});
+	}
+	finish(trace: KernelTrace): KernelTrace {
 		this.db.exec("BEGIN IMMEDIATE");
 		try {
+			const prior = this.db
+				.prepare("SELECT status,trace FROM kernel_runs WHERE decision_id=?")
+				.get(trace.decisionId);
+			if (prior?.["status"] === "done") {
+				const terminal = restoredTrace(
+					prior["trace"],
+					trace.decisionId,
+					prior["status"],
+				);
+				this.db.exec("COMMIT");
+				return terminal;
+			}
 			const row = this.db
 				.prepare("SELECT data FROM kernel_decisions WHERE id=?")
 				.get(trace.decisionId);
@@ -119,6 +143,7 @@ export class RunReservations {
 					trace.decisionId,
 				);
 			this.db.exec("COMMIT");
+			return trace;
 		} catch (error) {
 			this.db.exec("ROLLBACK");
 			throw error;

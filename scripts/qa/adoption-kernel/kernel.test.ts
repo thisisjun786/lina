@@ -1120,3 +1120,260 @@ test("saved owner result completes an interrupted request during resume", async 
 		store.close();
 	}
 });
+
+test("corrupt effect status cannot disappear from recovery", async () => {
+	const { store, kernel } = fixture({
+		kind: "answer",
+		purposeRevision: 1,
+		text: "done",
+	});
+	try {
+		const result = await kernel.step("p");
+		store.db
+			.prepare(
+				"UPDATE kernel_effects SET data=json_set(data,'$.status','corrupt') WHERE id=?",
+			)
+			.run(`${result.decisionId}:answer`);
+		await expect(kernel.resume()).rejects.toThrow();
+	} finally {
+		store.close();
+	}
+});
+
+test("completed owner receipt cannot be replaced by contradictory replay", async () => {
+	const { store, kernel } = fixture({
+		kind: "answer",
+		purposeRevision: 1,
+		text: "done",
+	});
+	try {
+		const result = await kernel.step("p");
+		const id = `${result.decisionId}:answer`;
+		const saved = store.consume(id);
+		if (!saved) throw Error("missing receipt");
+		expect(() =>
+			store.recordResult({ ...saved, output: "contradiction" }),
+		).toThrow();
+		expect(store.consume(id)).toEqual(saved);
+		expect(() => store.recordResult(saved)).not.toThrow();
+	} finally {
+		store.close();
+	}
+});
+
+test("omitting proposal refs cannot hide a supplied dependency correction", async () => {
+	const { store, kernel } = fixture({
+		kind: "adopt",
+		purposeRevision: 1,
+		adoptionKind: "understanding",
+		text: "derived from facts",
+		refs: [],
+		condition: "always",
+	});
+	try {
+		expect((await kernel.step("p")).status).toBe("adopted");
+		expect(store.frame("p").adoptions).toHaveLength(1);
+		store.correct("owner", { ...evidence, revision: 2, text: "corrected" });
+		expect(store.frame("p").adoptions).toEqual([]);
+	} finally {
+		store.close();
+	}
+});
+
+test("effect snapshot must match the original decision before scope projection", async () => {
+	const { store, kernel } = fixture({
+		kind: "answer",
+		purposeRevision: 1,
+		text: "private",
+	});
+	try {
+		const trace = await kernel.step("p");
+		store.db
+			.prepare(
+				"UPDATE kernel_effects SET data=json_set(data,'$.sourceFrame.purpose.audience','public') WHERE id=?",
+			)
+			.run(`${trace.decisionId}:answer`);
+		expect(() => store.frame("p")).toThrow();
+	} finally {
+		store.close();
+	}
+});
+
+test("late unknown result cannot overwrite concurrent completed reconciliation", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	let release!: () => void;
+	const gate = new Promise<void>((r) => {
+		release = r;
+	});
+	let entered!: () => void;
+	const started = new Promise<void>((r) => {
+		entered = r;
+	});
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools: new Map([
+			[
+				"tool",
+				{
+					admit: () => {},
+					result: async () => {
+						entered();
+						await gate;
+						return null;
+					},
+					reconcile: async (effectId: string) => ({
+						effectId,
+						status: "completed" as const,
+						output: "done",
+						quality: {
+							status: "unverified" as const,
+							verifier: null,
+							detail: "result",
+						},
+					}),
+				},
+			],
+		]),
+		model: {
+			propose: async () => ({
+				kind: "tool",
+				purposeRevision: 1,
+				tool: "tool",
+				args: {},
+			}),
+		},
+	});
+	try {
+		const pending = kernel.step("p", "overlap-request");
+		await started;
+		expect((await kernel.resume())[0]?.status).toBe("dispatched");
+		release();
+		expect((await pending).status).toBe("dispatched");
+		expect((await kernel.step("p", "overlap-request")).status).toBe(
+			"dispatched",
+		);
+		expect(await kernel.resume()).toEqual([]);
+	} finally {
+		release();
+		store.close();
+		delivery.close();
+	}
+});
+
+test("stale tool rejected before admission leaves no unknown effect", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	let admissions = 0;
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools: new Map([
+			[
+				"tool",
+				{
+					admit: () => {
+						admissions++;
+					},
+					result: async () => null,
+					reconcile: async () => null,
+				},
+			],
+		]),
+		model: {
+			propose: async () => ({
+				kind: "tool",
+				purposeRevision: 1,
+				tool: "tool",
+				args: {},
+			}),
+		},
+		beforeAdmit: () => store.setPurpose({ ...purpose, revision: 2 }),
+	});
+	try {
+		expect((await kernel.step("p")).status).toBe("rejected");
+		expect(admissions).toBe(0);
+		expect(store.pending()).toEqual([]);
+		expect(await kernel.resume()).toEqual([]);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("revoked tool permission is rechecked at final admission", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	let admissions = 0;
+	const tools = new Map<string, ToolPort>([
+		[
+			"tool",
+			{
+				admit: () => {
+					admissions++;
+				},
+				result: async () => null,
+				reconcile: async () => null,
+			},
+		],
+	]);
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools,
+		model: {
+			propose: async () => ({
+				kind: "tool",
+				purposeRevision: 1,
+				tool: "tool",
+				args: {},
+			}),
+		},
+		beforeAdmit: () => {
+			tools.delete("tool");
+		},
+	});
+	try {
+		expect((await kernel.step("p")).status).toBe("rejected");
+		expect(admissions).toBe(0);
+		expect(store.pending()).toEqual([]);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("resume reports interrupted judgment without silently dropping or retrying it", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	const { RunReservations } = await import("./runs.ts");
+	const claim = new RunReservations(store.db).claim("p", "interrupted");
+	store.prepare("p", claim.decisionId);
+	let calls = 0;
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools: new Map(),
+		model: {
+			propose: async () => {
+				calls++;
+				return { kind: "noop", purposeRevision: 1, reason: "no" };
+			},
+		},
+	});
+	try {
+		expect(await kernel.resume()).toEqual([
+			{ status: "unknown", decisionId: claim.decisionId },
+		]);
+		expect((await kernel.step("p", "new-request")).status).toBe("unknown");
+		expect(calls).toBe(0);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
