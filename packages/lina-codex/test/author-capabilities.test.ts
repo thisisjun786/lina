@@ -43,7 +43,7 @@ const metadata = {
 	visibility: "list",
 	supported_in_api: true,
 };
-function fixture() {
+function fixture(toolMode?: string) {
 	const root = mkdtempSync(join(tmpdir(), "lina-author-factory-"));
 	cleanup.push(() => rmSync(root, { recursive: true, force: true }));
 	let realCalls = 0;
@@ -67,7 +67,9 @@ function fixture() {
 	let connection: IsolatedHomeConnection = {
 		origin: `http://127.0.0.1:${provider.port}`,
 		baseUrl: `http://127.0.0.1:${provider.port}/v1`,
-		catalogJson: JSON.stringify({ models: [metadata] }),
+		catalogJson: JSON.stringify({
+			models: [{ ...metadata, ...(toolMode ? { tool_mode: toolMode } : {}) }],
+		}),
 		catalogSource: "hub",
 		requiresAdmissionToken: false,
 		tokenEnv: "OPENCODEX_API_AUTH_TOKEN",
@@ -437,3 +439,22 @@ for (const bad of ["skills", "mcp", "profile", "provider"] as const)
 		},
 		60000,
 	);
+
+nativeTest(
+	"author host owns tool mode even when provider catalog requires code mode",
+	async () => {
+		const f = fixture("code_mode_only");
+		await createWorldAuthorEngine(f.input);
+		const saved = JSON.parse(
+			readFileSync(
+				join(f.input.nativeRoot, "codex-home", "models.json"),
+				"utf8",
+			),
+		);
+		expect(saved.models).toEqual([metadata]);
+		expect(
+			JSON.parse(f.input.connection.catalogJson ?? "{}").models[0].tool_mode,
+		).toBe("code_mode_only");
+		expect(f.calls()).toBe(0);
+	},
+);

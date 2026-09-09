@@ -144,7 +144,9 @@ export async function createWorldAuthorEngine(
 		connection: input.connection,
 		selected: input.selected,
 	});
-	const metadata = authorSelection(selection);
+	const metadata = { ...authorSelection(selection) };
+	// The qualified author host owns its tool surface, independently of the provider.
+	delete metadata["tool_mode"];
 	if (
 		authorSelectionDigest(input.currentSelection()) !==
 		authorSelectionDigest(selection)

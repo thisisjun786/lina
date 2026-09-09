@@ -178,3 +178,9 @@ LIFE 실패 원인을 합성 localhost 직결 진단으로 좁혔다. 실제 nat
 `LINA_LIFE_NATIVE_TEST=1`로 life-model-native/isolation/restart/lifecycle을 실행해20 pass·0 fail·125 assertions,20.82초를 확인했다. 실제 restricted Codex+합성 localhost provider 검사이며 configured provider 호출과 구분한다. 기본 실행에서 이 경로를 skip한19 pass·15 skip 결과를 이 결과로 보완했다. 로그는 life-native-enabled.log이다.
 
 독립 reviewer01a08506 PASS: 원본 catalog 불변, source digest/fingerprint 무효화 유지, on-disk metadata 검사 일치, gateway/native action 차단 유지 확인. Reviewer의 전체 codex 범위227 pass·40 skip과 main의 opt-in20 pass·실제 LIFE 호출/저장 성공을 구분한다. 남은 적용 지점: AUTHOR 작성 경로도 원본 tool_mode를 그대로 쓰므로 동일 GLM에서 가용성 문제가 예상된다. 허용 목록 확대 없이 같은 host 소유권 원칙을 적용할 후속 항목으로 기록한다. 현재 LIFE 수정의 미해결 blocker는 없으나 전체 인수는 열려 있다.
+
+## 2026-09-09 AUTHOR 카탈로그 보완
+
+독립 LIFE 검토가 지적한 AUTHOR 경로를 실제 native 회귀로 재현했다. 제공자 metadata에 code_mode_only를 넣으면 작성 격리 자격 검사가 실패한다. AUTHOR 전용 metadata 사본에서 tool_mode만 제거했고, 원본 connection catalog·능력 필드·현재 selection 검사·금지 도구 검사는 유지했다. 저장된 models.json이 원래 metadata 전체와 동일한지(제외한 tool_mode만 차이) 확인한다.
+
+회귀는 native 자격 검사 실패→수정 후 통과를 확인했다. 처음 수정 후에는 테스트의 파일 경로가 home으로 잘못돼 ENOENT가 있었고, 실제 경로 codex-home으로 고쳤다. `LINA_AUTHOR_NATIVE_TEST=1` author-capabilities/fingerprint/managed-policy 결과14 pass·0 fail·69 assertions, 타입 종료0. 모두 합성 provider이며 실제 사용자 설정이나 세계 초안을 변경하지 않았다.
