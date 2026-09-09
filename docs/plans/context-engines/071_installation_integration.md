@@ -238,3 +238,20 @@ integration-recovery-green.log에 3개 파일 12개 테스트 통과, types.log�
 자료 catalog의 안정 참조와 원문 blob을 다른 에이전트 범위에서 다시 읽었다.
 integration-resource-checkpoint.log: 1개 테스트·3개 단언 통과. 실제 전체 Fleet
 종료 지연이나 활동 원장·이미지 owner까지 포함한 최종 수용 검증은 아직 남았다.
+
+자료 저장소도 LIFE와 같은 복사본 선검사 경계를 적용했다. 설치 잠금 확인 후
+catalog/WAL/journal과 blob을 임시 경로에 복사하고, 그곳에서 schema·migration·
+복구를 검증한 뒤 원본을 연다. 복사 전후 원본 파일 목록·inode·크기·시각을
+확인하고, SQLite shared-memory index는 원본에서 읽기 검증만 하고 복사본에서
+재생성한다. 심볼릭 링크·하드링크를 따라가지 않고 임시 경로만 정리한다.
+
+강제 종료된 임시 writer가 남긴 손상 WAL에서 시작 검사가 원본 DB/보조 파일을
+변경하는 실패를 먼저 재현했다. 수정 후 원본 바이트가 모두 보존됐으며, 정상
+WAL의 기록은 같은 검사 뒤 원문까지 복구됐다. integration-resource-preservation-
+red/green/types.log: 9개 통합 테스트·40개 단언 및 루트·브라우저 타입 검사 통과.
+
+복사본 선검사는 독립 리뷰 PASS를 받았다(리뷰어가 통합 테스트 9개를 직접 실행).
+현 구현은 시작 시 blob 복사·probe 검증·원본 검증의 I/O 비용이 있고, catalog와
+WAL 복사는 파일 전체를 메모리에 올린다. 임시 복사본은 0700/0600이며 정상
+종료·예외에서 삭제된다. 프로세스 강제 종료 후 남은 임시 경로는 다른 설치의
+실행 중 probe와 구별되지 않으므로 이름 패턴만으로 자동 삭제하지 않는다.

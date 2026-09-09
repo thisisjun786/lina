@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conservativeEstimator } from "../src/context/budget.ts";
@@ -412,6 +412,94 @@ test("offline checkpoint preserves the owned resource catalog, references and co
 	} finally {
 		await owner.close();
 		lock.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("rejected crash WAL catalog preserves original database and sidecar bytes", async () => {
+	const { ResourceStore } = await import(
+		"../../lina-memory/src/resources/store.ts"
+	);
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-crash-audit-"));
+	try {
+		const store = new ResourceStore(root, limits);
+		store.create(scope("a"), {
+			operationId: "d",
+			kind: "document",
+			title: "Notes",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("preserve me"),
+		});
+		store.close();
+		const child = Bun.spawnSync([
+			process.execPath,
+			"-e",
+			'import {DatabaseSync} from "node:sqlite"; const db=new DatabaseSync(process.argv[1]); db.exec("PRAGMA wal_autocheckpoint=0; PRAGMA foreign_keys=OFF; DELETE FROM resource_versions"); process.kill(process.pid,"SIGKILL");',
+			join(root, "catalog.sqlite"),
+		]);
+		expect(child.exitCode).not.toBe(0);
+		const snapshot = () =>
+			Object.fromEntries(
+				readdirSync(root)
+					.filter((n) => n.startsWith("catalog.sqlite"))
+					.sort()
+					.map((n) => [n, readFileSync(join(root, n)).toString("base64")]),
+			);
+		const before = snapshot();
+		expect(before["catalog.sqlite-wal"]).toBeDefined();
+		expect(
+			() =>
+				new FleetResources({
+					root,
+					limits,
+					services,
+					policy: defaultEnginePolicy,
+					validAgent: () => true,
+					assertInstallation: () => {},
+				}),
+		).toThrow();
+		expect(snapshot()).toEqual(before);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("valid crash WAL resource data remains readable after the copy audit", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const { resolve } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-valid-wal-"));
+	let owner: InstanceType<typeof FleetResources> | undefined;
+	try {
+		const child = Bun.spawnSync([
+			process.execPath,
+			"-e",
+			'const {ResourceStore}=await import(process.argv[1]); const store=new ResourceStore(process.argv[2],{maxFileBytes:4096,maxCatalogBytes:8192,maxExtractionBytes:4096}); store.create({principalId:"agent:a",agentId:"a",allowedVisibilities:["private","shared"]},{operationId:"wal",kind:"document",title:"Saved in WAL",visibility:"shared",mediaType:"text/plain",bytes:new TextEncoder().encode("committed before crash")}); process.kill(process.pid,"SIGKILL");',
+			resolve(import.meta.dir, "../../lina-memory/src/resources/store.ts"),
+			root,
+		]);
+		expect(child.exitCode).not.toBe(0);
+		expect(readdirSync(root)).toContain("catalog.sqlite-wal");
+		owner = new FleetResources({
+			root,
+			limits,
+			services,
+			policy: defaultEnginePolicy,
+			validAgent: () => true,
+			assertInstallation: () => {},
+		});
+		const docs = owner.engine.store.list(scope("b")).items;
+		expect(docs).toHaveLength(1);
+		const doc = docs[0];
+		if (!doc) throw Error("missing recovered document");
+		expect(
+			new TextDecoder().decode(
+				owner.engine.store.read(scope("b"), doc.id).bytes,
+			),
+		).toBe("committed before crash");
+	} finally {
+		await owner?.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });

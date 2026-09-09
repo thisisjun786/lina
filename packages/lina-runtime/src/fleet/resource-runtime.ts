@@ -1,9 +1,25 @@
+import {
+	existsSync,
+	lstatSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CodexHost } from "../../../lina-codex/src/host.ts";
 import type {
 	TaskManagerOptions,
 	TaskToolContext,
 } from "../../../lina-codex/src/task-rpc.ts";
+import {
+	checkedDirectory,
+	checkedRegular,
+	readRegular,
+	writeExclusive,
+} from "../../../lina-core/src/attachments/filesystem.ts";
 import type { ResourceContentLimits } from "../../../lina-memory/src/resources/content.ts";
+import { ResourceStore } from "../../../lina-memory/src/resources/store.ts";
 import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts";
 import type { EnginePolicySnapshot } from "../context/policy-settings.ts";
 import type { ContextServices } from "../context/port.ts";
@@ -18,6 +34,78 @@ interface Options {
 	validAgent: (id: string) => boolean;
 	assertInstallation: () => void;
 }
+/** Validate recovery and migrations on copies; SQLite must not recover rejected originals. */
+function validateStoredResources(
+	root: string,
+	limits: ResourceContentLimits,
+): void {
+	const catalog = join(root, "catalog.sqlite");
+	if (!existsSync(catalog)) return;
+	checkedDirectory(root, false);
+	const files = () => {
+		const names = [
+			"catalog.sqlite",
+			"catalog.sqlite-wal",
+			"catalog.sqlite-journal",
+			"catalog.sqlite-shm",
+		];
+		const blobs = join(root, "blobs");
+		if (existsSync(blobs)) {
+			checkedDirectory(blobs, false);
+			const entries = readdirSync(blobs);
+			if (entries.length > 4096)
+				throw Error("resource blob count limit exceeded");
+			names.push(...entries.map((name) => join("blobs", name)));
+		}
+		return names.sort();
+	};
+	const stamp = () =>
+		JSON.stringify(
+			files().map((name) => {
+				const path = join(root, name);
+				checkedRegular(path, false);
+				const stat = lstatSync(path, { throwIfNoEntry: false });
+				return stat
+					? [name, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]
+					: [name, null];
+			}),
+		);
+	const before = stamp();
+	const temporary = mkdtempSync(join(tmpdir(), "lina-resource-validation-"));
+	try {
+		checkedDirectory(join(temporary, "blobs"), true);
+		let blobBytes = 0;
+		for (const name of files()) {
+			const path = join(root, name);
+			// The WAL index is ephemeral; SQLite rebuilds it only in the private copy.
+			if (!existsSync(path) || name === "catalog.sqlite-shm") continue;
+			const blob = name.startsWith("blobs/");
+			const bytes = readRegular(
+				path,
+				blob ? 64 * 1024 * 1024 : Number.MAX_SAFE_INTEGER,
+			);
+			if (blob) {
+				blobBytes += bytes.length;
+				if (blobBytes > 64 * 1024 * 1024)
+					throw Error("resource catalog limit exceeded");
+			}
+			writeExclusive(join(temporary, name), bytes);
+		}
+		if (stamp() !== before)
+			throw Error("resource storage changed during validation");
+		const probe = new ResourceStore(temporary, limits);
+		try {
+			probe.recoverOwnedState();
+		} finally {
+			probe.close();
+		}
+		if (stamp() !== before)
+			throw Error("resource storage changed during validation");
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
+}
+
 /** One installation catalog, immutable consumer scopes, and serialized durable jobs. */
 export class FleetResources {
 	readonly engine: ResourceEngine;
@@ -34,6 +122,8 @@ export class FleetResources {
 	private clients = new Map<string, ReturnType<ResourceEngine["consumer"]>>();
 	private stopping: Promise<void> | undefined;
 	constructor(private options: Options) {
+		options.assertInstallation();
+		validateStoredResources(options.root, options.limits);
 		options.assertInstallation();
 		this.engine = new ResourceEngine({
 			root: options.root,
