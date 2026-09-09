@@ -33,6 +33,23 @@ test("host evidence requires every row, exact artifact bytes and row-specific ex
 			};
 		});
 		expect(validateHostEvidence(receipts, sourceHash)).toHaveLength(15);
+		const aggregate =
+			receipts.map((r) => `(pass) ${r.testName}`).join("\n") +
+			"\n 15 pass\n 0 fail\n";
+		const shared = join(root, "aggregate.log");
+		writeFileSync(shared, aggregate);
+		const sharedHash = createHash("sha256").update(aggregate).digest("hex");
+		expect(() =>
+			validateHostEvidence(
+				receipts.map((r) => ({
+					...r,
+					artifact: shared,
+					artifactHash: sharedHash,
+				})),
+				sourceHash,
+			),
+		).toThrow();
+
 		expect(() => validateHostEvidence(receipts.slice(1), sourceHash)).toThrow();
 		expect(() =>
 			validateHostEvidence([...receipts, receipts[0]], sourceHash),

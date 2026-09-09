@@ -129,12 +129,25 @@ export async function qualify(indexPath: string) {
 				...rescored,
 			});
 		}
+		const history = registry.entries().map((entry) => {
+			const reportPath = join(entry.output, "report.json");
+			let recordedReport: unknown = null;
+			let evidenceStatus = "missing-or-unreadable";
+			try {
+				recordedReport = JSON.parse(readFileSync(reportPath, "utf8"));
+				evidenceStatus = "historical-record-not-requalified";
+			} catch {
+				/* Missing reports remain visible as incomplete evidence. */
+			}
+			return { ...entry, reportPath, evidenceStatus, recordedReport };
+		});
 		return {
 			version: 1,
 			qualified: batches.every((b) => b.scores.qualified),
 			...digests,
 			frozenAt: index["frozenAt"],
-			attempts: registry.entries().length,
+			attempts: history.length,
+			history,
 			batches,
 		};
 	} finally {

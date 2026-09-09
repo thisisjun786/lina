@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import type { HostEvidence } from "./score.ts";
 import { HOST_IDS } from "./truth.ts";
@@ -16,6 +16,7 @@ export function validateHostEvidence(
 		throw Error("incomplete host evidence");
 	const ids = new Set<string>();
 	const names = new Set<string>();
+	const artifacts = new Set<string>();
 	const result: HostEvidence[] = [];
 	for (const entry of value) {
 		if (!entry || typeof entry !== "object" || Array.isArray(entry))
@@ -59,11 +60,20 @@ export function validateHostEvidence(
 			command[command.indexOf("--test-name-pattern") + 1] !== testName
 		)
 			throw Error("invalid host execution receipt");
+		const canonical = realpathSync(artifact);
+		if (artifacts.has(canonical))
+			throw Error("host criteria share an artifact");
+		artifacts.add(canonical);
 		const bytes = readFileSync(artifact);
 		if (createHash("sha256").update(bytes).digest("hex") !== artifactHash)
 			throw Error("host artifact hash mismatch");
 		const lines = bytes.toString("utf8").split(/\r?\n/);
 		const passLine = `(pass) ${testName}`;
+		if (
+			lines.filter((line) => line.startsWith("(pass)")).length !== 1 ||
+			!lines.some((line) => /^\s*1 pass\s*$/.test(line))
+		)
+			throw Error("host artifact is not row-specific");
 		if (
 			!lines.some(
 				(line) => line === passLine || line.startsWith(`${passLine} [`),

@@ -195,6 +195,30 @@ test("synthetic full qualification traverses 30 rows and three fresh saved batch
 	const digests = candidateDigests();
 	const frozen = readFreeze(freezePath);
 	try {
+		const priorOutput = join(root, "prior-development");
+		mkdirSync(priorOutput);
+		const priorReport = {
+			trials: [{ quality: false, reasons: ["prior development failure"] }],
+			runs: [{ requests: 2, promptTokens: 7, completionTokens: 9 }],
+		};
+		writeFileSync(
+			join(priorOutput, "report.json"),
+			JSON.stringify(priorReport),
+		);
+		const priorRegistry = new RunRegistry(registryPath);
+		try {
+			priorRegistry.begin({
+				output: priorOutput,
+				seed: "prior-development",
+				purpose: "development",
+				manifestPath: join(root, "old-manifest.json"),
+				manifestHash: "a".repeat(64),
+				sourceHash: digests.sourceHash,
+			});
+			priorRegistry.finish(priorOutput, "failed");
+		} finally {
+			priorRegistry.close();
+		}
 		const hosts = HOST_IDS.map((id) => {
 			const testName = `synthetic ${id} witness`;
 			const artifact = join(root, `${id}.log`);
@@ -281,6 +305,9 @@ test("synthetic full qualification traverses 30 rows and three fresh saved batch
 		writeFileSync(indexPath, JSON.stringify(index));
 		const report = await qualify(indexPath);
 		expect(report.qualified).toBe(true);
+		expect(report.history).toHaveLength(4);
+		expect(report.history[0]?.recordedReport).toEqual(priorReport);
+		expect(report.history[0]?.state).toBe("failed");
 		expect(report.batches).toHaveLength(3);
 		expect(
 			report.batches.every(
