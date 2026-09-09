@@ -132,6 +132,7 @@ async function startUnlocked(
 	const resourceTools: TaskDynamicTool[] = [];
 	let resources: FleetResources | undefined;
 	let resourceRejected = false;
+	let resourceFailure: "invalid_storage" | "storage_unavailable" | null = null;
 	let enginePolicyStore: EnginePolicySettingsStore | undefined;
 	const getEnginePolicy = () =>
 		options.enginePolicy?.() ??
@@ -381,8 +382,13 @@ async function startUnlocked(
 						throw Error("Installation ownership required");
 				},
 			});
-		} catch {
+		} catch (error) {
 			resourceRejected = true;
+			resourceFailure =
+				error instanceof Error &&
+				/corrupt|schema|reference/i.test(error.message)
+					? "invalid_storage"
+					: "storage_unavailable";
 		}
 		if (resources) resourceTools.push(...resources.dynamicTools());
 	} catch (error) {
@@ -427,7 +433,7 @@ async function startUnlocked(
 						{
 							resources: resourceRejected
 								? { state: "rejected", code: "RESOURCE_STORAGE_UNAVAILABLE" }
-								: { state: "open" },
+								: (resourceOwner?.status() ?? { state: "unavailable" }),
 						},
 						{ headers: { "Cache-Control": "no-store" } },
 					);

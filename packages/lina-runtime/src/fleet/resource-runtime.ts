@@ -22,6 +22,13 @@ interface Options {
 export class FleetResources {
 	readonly engine: ResourceEngine;
 	private closed = false;
+	private lastFailure: "RESOURCE_PROCESSING_FAILED" | null = null;
+	status() {
+		return {
+			state: this.closed ? "closed" : "open",
+			processingError: this.lastFailure,
+		};
+	}
 	private tail: Promise<void> = Promise.resolve();
 	private tasks = new Set<Promise<unknown>>();
 	private clients = new Map<string, ReturnType<ResourceEngine["consumer"]>>();
@@ -83,7 +90,7 @@ export class FleetResources {
 		const scope = this.scope(id);
 		const run = this.tail.then(async () => {
 			if (this.closed) return;
-			await this.engine.runPending(
+			const results = await this.engine.runPending(
 				resourceId,
 				new AbortController().signal,
 				() => {
@@ -92,8 +99,18 @@ export class FleetResources {
 					return scope;
 				},
 			);
+			this.lastFailure = results.some(
+				(r) =>
+					r.state === "failed" ||
+					r.state === "unknown" ||
+					r.state === "exhausted",
+			)
+				? "RESOURCE_PROCESSING_FAILED"
+				: null;
 		});
-		this.tail = run.catch(() => undefined);
+		this.tail = run.catch(() => {
+			this.lastFailure = "RESOURCE_PROCESSING_FAILED";
+		});
 	}
 	readonly executeTool: NonNullable<TaskManagerOptions["executeTool"]> = (
 		name,
