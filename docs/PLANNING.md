@@ -2,10 +2,15 @@
 
 상태: 공개 전 로컬 소스 후보의 제품 요구와 후속 설계다. 계획은 기능 완료나 공개·배포 증거가 아니다. 현재 구현은 [README](../README.md), [Codex 실행 구조](CODEX_RUNTIME.md), [설치 계약](plans/installation.md), [온보딩 계약](plans/onboarding.md)을 기준으로 확인하고 [검증 범위](VALIDATION.md)에 따라 증거를 남긴다.
 
+## 최우선 개발 과제
+
+**핵심 채택 엔진을 개발 1순위로 둔다.** 대화·기억·컨텍스트·페르소나·작업·라이프의 채택과 효과를 같은 계약으로 연결한다. [우선순위와 완료 기준](plans/agent-experience/000_plan.md#개발-우선순위)을 먼저 읽고, [연구·설계 결론](plans/agent-experience/003_research_conclusions.md)을 이어받는다. 아래 목록의 순서나 기존 계획의 존재가 이 결정을 바꾸지 않는다.
+
 ## 제품 기획
 
 | 기획 | 문서 | 현재 상태 |
 | --- | --- | --- |
+| **1순위: 전체 엔진의 채택·효과를 관통하는 핵심** | [핵심 채택 엔진](plans/agent-experience/000_plan.md) | 방향 채택, 독립 예시 검증 및 결함 확인; LINA 통합 전 |
 | Codex 디자인 언어, Electron과 웹 공통 화면 | [UI 개편](plans/codex-ui/001_ui_plan.md), [Electron](plans/codex-ui/004_electron_stack.md), [디자인 기준](../packages/lina-web/DESIGN.md) | 방향 확정, UI 전면 개편과 Electron 패키징은 후속 구현 |
 | 메신저형 에이전트 목록과 모바일 탐색 | [에이전트 목록](plans/codex-ui/006_agent_list_mobile.md), [작업 목록 배치](plans/codex-ui/007_sidebar_comparison.md) | 기본 한 목록 열, 넓은 창의 선택적 작업 열, 모바일 전체 화면 전환 |
 | 연속 메시지와 중간 사용자 입력 | [대화 전달](plans/codex-ui/002_conversation_delivery.md) | 공개된 발화와 미공개 후보를 나누는 엔진·저장 계약 설계 |

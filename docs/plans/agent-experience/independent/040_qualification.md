@@ -1,0 +1,9 @@
+# Qualification and improvement
+
+Depends on recovery D. NEW `README.md` in experiment: run/config instructions, architecture, minimum storage/tool role, limits, exact evidence location conventions. NEW numbered results document in this directory. MODIFY kernel/model prompt only from observed mechanism failures with red/green tests; never scorer weakening. New repair work phases are appended as needed.
+
+Start development seeds; run all 30 rows and paired live modes. Preserve raw requests and output traces outside repository, sanitized summary and hashes in results doc. Diagnose failures by supplied evidence, proposal, guard, effect receipt, next-frame consumption. Two repeated failed repairs require root cause analysis; three require changed plan/mechanism. Do not solve generator IDs or add hidden old engines. Freeze code and generate fresh seeds after tuning; run three batches of 4 variants per behavioral row per mode, plus deterministic H rows at same candidate. Every batch must meet 001 unchanged thresholds; failure breaks streak, retain all runs. Same request/output allowances across modes and record actual cost/latency.
+
+Independent final reviewer checks bypasses, leakage, refusals gaming score, missing rows and code isolation; review raw sampled outputs not only aggregate. Report measured baseline delta even if zero/negative. Explain feature families still failing and context/storage limits; do not infer general consciousness or universal maximum. Existing parent design remains future integration scope.
+
+C commands are local tests/config/lint, runner comparison and qualification validator over saved immutable reports; evidence binds rubric/generator/source/model and seeds. D only after criteria met; if unavailable external service persists obey host goal policy, retain unmet proof and do not claim done. No arbitrary cap from user; respect per-request cancellation and bounded concurrency.

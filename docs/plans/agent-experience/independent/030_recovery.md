@@ -1,0 +1,7 @@
+# Recovery and evaluator falsification
+
+Depends on harness D. NEW `process-fixture.ts` child worker with explicit IPC milestones prepared/dispatched/result-saved/consumed; test parent kills only owned child at the named milestone. NEW `recovery.test.ts`: H11-H15 using separate processes and real SQLite, completed receipts persist across termination, unknown dispatch does not call effect twice, result-saved resumes consumption, deferred owner/condition survives reopen, duplicate concurrent step is at-most-once. Use signals and process exit, never sleeps.
+
+MODIFY `kernel.ts`/`store.ts` only for reproduced recovery contract failures, preserving interfaces and adding regression first. MODIFY `harness.test.ts` to run all negative controls from 001 and ensure refusal/always-act/stale input cannot pass. Synthetic effect owner records receipts in its own temporary SQLite table independent of kernel; independent check queries it after child death. Record effect count separately from model retry count. Unknown effects reconcile by original ID only.
+
+C: focused full experiment suite, strict typecheck, lint and critical mutation tests (remove dependency invalidation and dispatch guard in temporary copied sources; tests must fail, original untouched). Independence scan rejects imports outside experiment except Bun/Node built-ins. D source hash and unresolved model-behavior hypotheses feed qualification; no live threshold claims from fakes.
