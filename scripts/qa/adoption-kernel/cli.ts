@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import type { EpisodeTrace, RunMode } from "./harness-types.ts";
+import type { RunMode } from "./harness-types.ts";
 
 function options(argv: string[]): Map<string, string> {
 	const result = new Map<string, string>();
@@ -31,11 +31,22 @@ export async function main(argv: string[]): Promise<void> {
 	const command = argv[0];
 	if (command === "--help" || command === "help") {
 		process.stdout.write(
-			"Independent adoption experiment\nexport --seed VALUE --output DIRECTORY\nrun --case PUBLIC_JSON --mode baseline|kernel|ablation --output DIRECTORY\nscore --truth PRIVATE_JSON --trace TRACE_JSON --output SCORE_JSON\nrun requires OLLAMA_BASE_URL (ending /v1), OLLAMA_MODEL, OLLAMA_API_KEY. Six calls, 4096 output tokens per call.\n",
+			"Independent adoption experiment\nexport --seed VALUE --output DIRECTORY\nrun --case PUBLIC_JSON --mode baseline|kernel|ablation --output DIRECTORY\nscore --truth PRIVATE_JSON --trace TRACE_JSON --output SCORE_JSON\ncompare --manifest BATCH_MANIFEST --output DIRECTORY\nrun requires OLLAMA_BASE_URL (ending /v1), OLLAMA_MODEL, OLLAMA_API_KEY. Six calls, 4096 output tokens per call.\n",
 		);
 		return;
 	}
 	const args = options(argv.slice(1));
+	if (command === "compare") {
+		const { compareBatch } = await import("./compare.ts");
+		const report = await compareBatch(
+			required(args, "--manifest"),
+			required(args, "--output"),
+		);
+		process.stdout.write(
+			`${report.trials.length} trials; qualification ${report.qualification.qualified ? "pass" : "incomplete or failed"}\n`,
+		);
+		return;
+	}
 	if (command === "export") {
 		const { exportBatch } = await import("./scenario-export.ts");
 		const manifest = exportBatch(
@@ -78,12 +89,13 @@ export async function main(argv: string[]): Promise<void> {
 	if (command === "score") {
 		const { decodeTruth } = await import("./truth.ts");
 		const { scoreTrial } = await import("./score.ts");
+		const { decodeTrace } = await import("./trace.ts");
 		const truth = decodeTruth(
 			JSON.parse(readFileSync(required(args, "--truth"), "utf8")),
 		);
-		const trace = JSON.parse(
-			readFileSync(required(args, "--trace"), "utf8"),
-		) as EpisodeTrace;
+		const trace = decodeTrace(
+			JSON.parse(readFileSync(required(args, "--trace"), "utf8")),
+		);
 		const score = scoreTrial(truth, trace);
 		writeFileSync(
 			required(args, "--output"),
