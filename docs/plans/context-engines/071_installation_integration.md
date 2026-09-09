@@ -1,6 +1,6 @@
 # 071 — 자체 엔진 설치 연결과 외부 어댑터 퇴역
 
-상태: B 진행 중. 2026-09-09 재점검 기준 커밋은 5182522다. 자체 기억의 기본 활성화, 외부 어댑터 퇴역, 설치당 공유 자료 owner, 비개발 활동의 도구/API와 LIFE 연결, 새 LIFE step의 등급별 모델 선택까지 구현했다. 게시 모델 선택의 저장·실행 연결과 전체 통합 검증은 남아 있다. 아래 계획 당시의 관찰과 누적 검증 기록은 각각 해당 시점의 증거다.
+상태: B 진행 중. 2026-09-09 재점검에서 자체 기억의 기본 활성화, 외부 어댑터 퇴역, 설치당 공유 자료 owner, 비개발 활동의 도구/API와 LIFE 연결, 새 LIFE step의 등급별 모델 선택을 확인했다. 7c3cdbd에서 게시 모델 선택의 저장·실행 연결도 구현했다. HTML 보완과 독립 검토·전체 통합 검증은 진행 중이다. 아래 계획 당시의 관찰과 누적 검증 기록은 각각 해당 시점의 증거다.
 
 유형 satisfy-spec. 계기는 전체 자체 엔진 완성 요청과 070 실행이다. 목표는 외부 Honcho/OpenViking 없이 신규 설치가 동작하고 기존 설정에는 전환 필요 상태가 명시되는 것이다. 범위 밖은 사용자 설치·원격 데이터 변경, 라이브 provider 호출, UI, 푸시·PR 머지·배포다. 검증은 임시 stateRoot/가짜 RPC·fetch의 실제 Fleet HTTP/도구·종료·재시작·checkpoint 경로와 전체 관련 게이트다. 성공하면 080으로 진행하며, 라이브 자격 검증은 별도 허가가 필요하다. 기록은 070/071 및 session evidence/integration-*다. 새 시간·토큰 예산은 정하지 않는다. 저장 형식·복구·출처 문제가 남으면 B/C에서 수정하며 사용자 제품 결정이 필요한 세계·주기·금액은 미정 상태를 유지한다. 실행자 둘이 같은 패킷에 실패하면 주 에이전트가 회수한다.
 
@@ -18,6 +18,10 @@
 검증은 기존 intro-api/intro-codex/persona-first-conversation/onboarding-prefill/response-policy 및 새 실제 RPC 대화 정책 검사를 사용한다. HTML은 resources-extraction과 worker/activity 원문 근거 검사를 실행한다. 전체 source gate는 보완 후 다시 수행한다. 실제 모델의 자연스러움은 미승인 외부 호출 없이 입증할 수 없으므로 인수의 별도 미충족 항목으로 유지한다.
 
 기존 5000ms 이미지 timeout은 5182522 전체 재검사에서 발생하지 않았다. `integration-reaudit-tests.log`의 두 실패는 게시 모델 선택과 자동 학습 모드를 생략한 persona 테스트 fixture이며, 이미지 제한을 늘리거나 skip하지 않았다.
+
+HTML 분류는 자료 엔진 내부에서만 추가한다. 채팅 첨부 파일의 MIME 허용 범위는 그대로다. 파생 텍스트는 정적 HTML 파싱 결과이며 CSS 계산이나 브라우저 렌더링 결과가 아니다. script/style/template, 주석, HTML 속성과 인라인 스타일로 표시된 숨김 요소를 제외한다. 원문은 보존하고 검증된 활동 인용은 현재 버전의 파생 텍스트에서만 허용한다. 검토에서 발견한 `<script/>`, 중첩 template, template 밖 조상 종료의 근거 유입을 수정했다. rawtext와 template 스코프를 구분하며 일반 숨김 요소는 조상 종료를 허용한다. 관련 3개 파일은 39개 테스트·200개 단언을 통과했다(`integration-html-barrier.log`).
+
+전체 재검사에서 LIFE 이미지·종합 시나리오의 가짜 모델이 구형 게시 요청 v2만 허용한 불일치를 발견했다. 새 실행은 v3의 고정 selection을 사용하므로 해당 두 테스트도 v3·publication lane·actor profile을 확인한다. 기존 게시·이미지·공개 철회·재시작 기대값은 유지한다. 수정 뒤 두 파일은 3개 테스트·63개 단언을 통과했다(`integration-image-fixture-verified.log`).
 
 ## 원래 계획의 기준선
 

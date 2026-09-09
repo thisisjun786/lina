@@ -7,6 +7,7 @@ import { lifeDigest } from "../../lina-core/src/world/life-json.ts";
 import { parseResourceActivitySource } from "../../lina-core/src/world/work-activity-validation.ts";
 import { ResourceActivities } from "../src/resources/activities.ts";
 import { hash } from "../src/resources/codec.ts";
+import { extractResource } from "../src/resources/extraction.ts";
 import { ResourceStore } from "../src/resources/store.ts";
 
 const a = {
@@ -554,6 +555,104 @@ test("acknowledged activity emits one restriction when its source changes", () =
 		expect(deliveries).toHaveLength(1);
 		expect(deliveries[0]?.source.operation).toBe("restrict");
 		expect(activities.pending(a, "world-1")).toEqual(deliveries);
+	} finally {
+		activities.close();
+		resources.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("verified_result quotes derived HTML extract and stays current until source change", async () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-activity-html-"));
+	const { resources, activities } = open(root);
+	const original = text(
+		'<html><head><style/>.secret { color: red }</style><script/>secret("B")</script></head><body><p>Hello &amp; welcome</p></body></html>',
+	);
+	try {
+		const doc = resources.create(a, {
+			operationId: "html",
+			kind: "document",
+			title: "HTML 조사",
+			visibility: "shared",
+			mediaType: "text/html",
+			bytes: original,
+		});
+		const extracted = await extractResource(
+			resources,
+			() => a,
+			doc.id,
+			new AbortController().signal,
+		);
+		expect(extracted.status).toBe("ready");
+		if (extracted.status !== "ready") throw Error("html extract unavailable");
+		expect(extracted.text).toContain("Hello & welcome");
+		expect(extracted.text).not.toContain('secret("B")');
+		expect(extracted.text).not.toContain("color: red");
+		const job = resources.indexing
+			.list(a, doc.id)
+			.find((item) => item.kind === "extract");
+		if (!job) throw Error("missing extract job");
+		resources.indexing.complete(
+			a,
+			resources.indexing.prepare(a, job.id),
+			extracted.text,
+			extracted.complete,
+		);
+		expect(() =>
+			activities.create(
+				a,
+				recorded("act-html", doc.id, {
+					outcome: "verified_result",
+					hostConfirmed: true,
+					quotes: ['secret("B")'],
+					fields: { ...fields, outcome: "verified_result" },
+				}),
+			),
+		).toThrow(/quote/);
+		expect(() =>
+			activities.create(
+				a,
+				recorded("act-html-style", doc.id, {
+					outcome: "verified_result",
+					hostConfirmed: true,
+					quotes: ["color: red"],
+					fields: { ...fields, outcome: "verified_result" },
+				}),
+			),
+		).toThrow(/quote/);
+		const created = activities.create(
+			a,
+			recorded("act-html", doc.id, {
+				outcome: "verified_result",
+				hostConfirmed: true,
+				quotes: ["Hello & welcome"],
+				fields: { ...fields, outcome: "verified_result" },
+			}),
+		);
+		expect(created.receipt.outcome).toBe("verified_result");
+		const pending = activities.pending(a, "world-1")[0]?.source;
+		if (!pending) throw Error("missing delivery");
+		expect(activities.current(a, "world-1", pending)).toBe(true);
+		expect(resources.read(a, doc.id).bytes).toEqual(original);
+		resources.update(a, {
+			operationId: "rewrite-html",
+			id: doc.id,
+			expectedRevision: doc.revision,
+			bytes: text("<p>Changed source</p>"),
+		});
+		expect(activities.current(a, "world-1", pending)).toBe(false);
+		expect(() =>
+			activities.create(
+				a,
+				recorded("act-html-stale", doc.id, {
+					operationId: "create-html-stale",
+					outcome: "verified_result",
+					hostConfirmed: true,
+					quotes: ["Hello & welcome"],
+					fields: { ...fields, outcome: "verified_result" },
+				}),
+			),
+		).toThrow(/quote/);
 	} finally {
 		activities.close();
 		resources.close();

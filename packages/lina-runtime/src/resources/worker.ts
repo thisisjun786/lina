@@ -7,6 +7,7 @@ import {
 	extractResource,
 	isResourceText,
 } from "../../../lina-memory/src/resources/extraction.ts";
+import { isResourceHtml } from "../../../lina-memory/src/resources/html.ts";
 import type {
 	IndexKind,
 	ResourceClaim,
@@ -188,6 +189,7 @@ export class ResourceWorker {
 					return defer("input_limit");
 				if (
 					!isResourceText(mime) &&
+					!isResourceHtml(mime) &&
 					!isDocumentMime(mime) &&
 					!isImageMime(mime)
 				)

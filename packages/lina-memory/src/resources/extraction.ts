@@ -8,6 +8,7 @@ import {
 	isImageMime,
 } from "../../../lina-core/src/attachments/types.ts";
 import { counter } from "./codec.ts";
+import { extractHtml, isResourceHtml } from "./html.ts";
 import type { ResourceStore } from "./store.ts";
 import type { ResourceScope, ResourceVersionRef } from "./types.ts";
 export type ResourceVision = (
@@ -42,6 +43,7 @@ export function isResourceText(mime: string): boolean {
 		"application/ld+json",
 	].includes(mime);
 }
+export { isResourceHtml };
 export function textPrefix(text: string, maxChars: number): string {
 	let end = Math.min(text.length, maxChars);
 	if (
@@ -94,6 +96,19 @@ export async function extractResource(
 		const prefix = textPrefix(text, DOCUMENT_MAX_CHARS);
 		complete = prefix.length === text.length;
 		text = prefix;
+	} else if (isResourceHtml(source.version.mediaType)) {
+		try {
+			const extracted = await extractHtml(source.bytes, signal);
+			text = extracted.text;
+			complete = !extracted.truncated;
+		} catch (error) {
+			guard();
+			if (error instanceof TypeError)
+				return { status: "unavailable", reason: "undecodable_text", refs };
+			if (error instanceof AttachmentError && error.code === "unsupported-type")
+				return { status: "unavailable", reason: "invalid_document", refs };
+			throw error;
+		}
 	} else if (isDocumentMime(source.version.mediaType)) {
 		try {
 			const extracted = await extractDocument(

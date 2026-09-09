@@ -331,3 +331,50 @@ test("oversized vision output is rejected and classified as invalid output", asy
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("worker persists HTML extract for derived evidence without storing markup", async () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-worker-html-")),
+		policy = defaultEnginePolicy(),
+		svc = services();
+	const store = new ResourceStore(root, limits, (kind) =>
+		resourceGeneration(svc, policy, kind),
+	);
+	const original = new TextEncoder().encode(
+		"<html><head><script>secret()</script></head><body><p>Hello &amp; welcome</p></body></html>",
+	);
+	try {
+		const doc = store.create(scope, {
+			operationId: "html",
+			kind: "document",
+			title: "HTML 자료",
+			visibility: "shared",
+			mediaType: "text/html",
+			bytes: original,
+		});
+		const worker = new ResourceWorker({
+			store,
+			scope: () => scope,
+			services: () => svc,
+			policy: () => policy,
+		});
+		const extract = store.indexing
+			.list(scope, doc.id)
+			.find((j) => j.kind === "extract");
+		if (!extract) throw Error("missing extract job");
+		expect(
+			(await worker.run(extract.id, new AbortController().signal)).state,
+		).toBe("ready");
+		const derived = store.indexing.read(scope, doc.id, "extract");
+		if (!derived) throw Error("missing html extract");
+		expect(derived.text).toContain("Hello & welcome");
+		expect(derived.text).not.toContain("secret()");
+		expect(derived.text).not.toContain("<script");
+		expect(store.read(scope, doc.id).bytes).toEqual(original);
+		const memory = store.memories.source(scope, doc.id);
+		expect(memory.text).toBe(derived.text);
+		expect(memory.snapshot.extractionId).toBe(extract.id);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

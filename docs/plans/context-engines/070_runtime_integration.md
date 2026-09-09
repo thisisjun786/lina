@@ -1,5 +1,7 @@
 # 070 — 실행 연결과 외부 어댑터 퇴역
 
+2026-09-09 현재 실행은 [071](071_installation_integration.md)이 기준이다. 아래 P 초안과 PR 상태·테스트 수치는 9월 8일의 계획 기준점이다. 자체 어댑터 퇴역, 활동 도구/API, Step v4와 게시 request v3의 모델 선택은 구현됐고 최종 통합 검증이 남아 있다. 이전 이미지 timeout은 `integration-reaudit-tests.log`의 전체 재검사에서 재발하지 않았다.
+
 ## PR #3 연결 검토 기준점 (2026-09-08)
 
 [LIFE PR #3](https://github.com/thisisjun786/lina/pull/3)의 검토 기준은 `cefaffcbb4d767848ace6bc0151b9271bf336bf2`, 이 포크는 `7aa42297f0ccb6a3e684ee015db01eae7748c876`이다. 공통 조상 `0b68b2f40b8f4368a78111ad1228626886a43797` 이후 변경 경로는 각각 63개와 58개이며 교집합은 없다. 이는 파일 충돌 비교이며 결합 실행 검증이 아니다. PR은 OPEN/Draft이고 [CI 34262430773](https://github.com/thisisjun786/lina/actions/runs/34262430773)은 tests/types/lint/build/dev-gate가 통과했다. 이 포크에 PR 코드를 합치거나 결합 테스트를 실행하지 않았다.
