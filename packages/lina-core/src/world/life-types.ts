@@ -242,7 +242,11 @@ export type LifeInputV3 = Omit<LifeInputV1, "version" | "source"> & {
 	version: 3;
 	source: import("./publication-input.ts").PublicationInputSource;
 };
-export type LifeInput = LifeInputV1 | LifeInputV2 | LifeInputV3;
+export type LifeInputV4 = Omit<LifeInputV1, "version" | "source"> & {
+	version: 4;
+	source: import("./work-types.ts").ResourceActivitySource;
+};
+export type LifeInput = LifeInputV1 | LifeInputV2 | LifeInputV3 | LifeInputV4;
 export interface AdmissionReceipt {
 	worldId: string;
 	inputId: string;

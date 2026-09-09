@@ -50,6 +50,7 @@ import {
 	parseProposal,
 	text,
 } from "./validation.ts";
+import { parseResourceActivitySource } from "./work-activity-validation.ts";
 import { parseWorkInputSource } from "./work-validation.ts";
 
 export { canonicalLifeJson, lifeDigest } from "./life-json.ts";
@@ -233,6 +234,27 @@ export function parseLifeInput(value: unknown): LifeInput {
 		"source",
 		"consumedLifeRevision",
 	]);
+	if (value.version === 4) {
+		const source = parseResourceActivitySource(value.source);
+		if (
+			value.id !== source.deliveryId ||
+			value.sourceRevision !== source.receipt.activityRevision ||
+			digest(value.payloadDigest) !== lifeDigest(source)
+		)
+			throw Error("LIFE resource activity identity or digest mismatch");
+		return {
+			version: 4,
+			worldId: identifier(value.worldId),
+			id: identifier(value.id),
+			sourceRevision: revision(value.sourceRevision, 1),
+			payloadDigest: digest(value.payloadDigest),
+			source,
+			consumedLifeRevision:
+				value.consumedLifeRevision === null
+					? null
+					: revision(value.consumedLifeRevision, 1),
+		};
+	}
 	if (value.version === 3) {
 		const source = parsePublicationInputSource(value.source),
 			worldId = identifier(value.worldId),

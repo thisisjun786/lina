@@ -3,7 +3,12 @@ import { isDeepStrictEqual } from "node:util";
 import type { LifeConfig } from "./authoring-types.ts";
 import type { LifeStep } from "./autonomy-types.ts";
 import { canonicalLifeJson, lifeDigest, revision } from "./life-json.ts";
-import type { AdmissionReceipt, LifeInput, LifeInputV2 } from "./life-types.ts";
+import type {
+	AdmissionReceipt,
+	LifeInput,
+	LifeInputV2,
+	LifeInputV4,
+} from "./life-types.ts";
 import { parseLifeInput } from "./life-validation.ts";
 import {
 	parseWorkAncestry,
@@ -14,18 +19,20 @@ import { workExperiences } from "./work-experience.ts";
 import { workReceiptIdentity } from "./work-selection.ts";
 import type {
 	WorkAncestryRecord,
-	WorkEvidenceSnapshotV1,
+	WorkEvidenceSnapshot,
 	WorkSubject,
 } from "./work-types.ts";
+import { parseWorkEvidenceV2 } from "./work-validation.ts";
 
 type Access = {
 	assertWorld(worldId: string): void;
 	config(worldId: string): LifeConfig;
 	configAt(worldId: string, revision: number): LifeConfig;
 	inputs(worldId: string): LifeInput[];
-	admit(input: LifeInputV2): AdmissionReceipt;
+	admit(input: LifeInputV2 | LifeInputV4): AdmissionReceipt;
 };
 type WorkHistoryEvent =
+	| { kind: "upgrade"; version: 2 }
 	| { kind: "input"; inputId: string }
 	| { kind: "configuration"; configRevision: number; workConfigDigest: string };
 type Row = {
@@ -38,7 +45,7 @@ type Row = {
 function workDigest(config: LifeConfig): string {
 	return lifeDigest(config.version === 2 ? config.work : null);
 }
-function empty(worldId: string): WorkEvidenceSnapshotV1 {
+function empty(worldId: string): WorkEvidenceSnapshot {
 	return {
 		version: 1,
 		worldId,
@@ -58,7 +65,7 @@ export class WorkPersistence {
 		private readonly db: DatabaseSync,
 		private readonly access: Access,
 	) {}
-	snapshot(worldId: string, at?: number): WorkEvidenceSnapshotV1 {
+	snapshot(worldId: string, at?: number): WorkEvidenceSnapshot {
 		if (at !== undefined) revision(at);
 		this.access.assertWorld(worldId);
 		const rows = this.db
@@ -84,8 +91,17 @@ export class WorkPersistence {
 				if (Object.keys(event).length !== 2 || event.inputId !== row.input_id)
 					invalid();
 				const input = inputs.get(event.inputId);
-				if (!input || input.version !== 2) invalid();
+				if (!input || (input.version !== 2 && input.version !== 4)) invalid();
 				state = this.applyInput(state, input);
+			} else if (event.kind === "upgrade") {
+				if (
+					Object.keys(event).length !== 2 ||
+					event.version !== 2 ||
+					row.input_id !== null ||
+					state.version !== 1
+				)
+					invalid();
+				state = this.upgrade(state);
 			} else if (event.kind === "configuration") {
 				if (Object.keys(event).length !== 3 || row.input_id !== null) invalid();
 				const config = this.access.configAt(
@@ -281,10 +297,14 @@ export class WorkPersistence {
 			null,
 		);
 	}
-	admit(value: LifeInputV2): AdmissionReceipt {
+	admit(value: LifeInputV2 | LifeInputV4): AdmissionReceipt {
 		const input = parseLifeInput(value);
-		if (input.version !== 2 || input.consumedLifeRevision !== null) invalid();
-		const previous = this.snapshot(input.worldId);
+		if (
+			(input.version !== 2 && input.version !== 4) ||
+			input.consumedLifeRevision !== null
+		)
+			invalid();
+		let previous = this.snapshot(input.worldId);
 		const old = this.db
 			.prepare(
 				"SELECT 1 FROM life_work_history WHERE world_id=? AND input_id=?",
@@ -302,6 +322,11 @@ export class WorkPersistence {
 				)
 			)
 				throw Error("Work influence is not configured for this category");
+		}
+		if (input.version === 4 && previous.version === 1) {
+			const upgraded = this.upgrade(previous);
+			this.save(previous, upgraded, { kind: "upgrade", version: 2 }, null);
+			previous = upgraded;
 		}
 		const next = this.applyInput(previous, input);
 		const receipt = this.access.admit(input);
@@ -322,64 +347,113 @@ export class WorkPersistence {
 				.map((row) => row["input_id"]),
 		);
 		for (const input of this.access.inputs(worldId))
-			if (input.version === 2 && !ids.has(input.id)) invalid();
+			if ((input.version === 2 || input.version === 4) && !ids.has(input.id))
+				invalid();
 	}
 	private applyInput(
-		state: WorkEvidenceSnapshotV1,
-		input: LifeInputV2,
-	): WorkEvidenceSnapshotV1 {
-		const source = input.source,
-			prior = state.records.find(
-				(record) =>
-					record.source.receipt.receiptId === source.receipt.receiptId,
-			);
+		state: WorkEvidenceSnapshot,
+		input: LifeInputV2 | LifeInputV4,
+	): WorkEvidenceSnapshot {
+		const source = input.source;
+		const identity = (
+			r:
+				| import("./work-types.ts").WorkInputSource
+				| import("./work-types.ts").ResourceActivitySource,
+		) =>
+			r.kind === "work"
+				? `task:${r.receipt.receiptId}`
+				: `resource:${r.receipt.activityId}`;
+		const rev = (r: typeof source) =>
+			r.kind === "work"
+				? r.receipt.receiptRevision
+				: r.receipt.activityRevision;
+		const prior = state.records.find(
+			(r) => identity(r.source) === identity(source),
+		);
 		if (prior) {
-			const a = prior.source.receipt,
-				b = source.receipt;
-			if (
-				b.receiptRevision < a.receiptRevision ||
-				source.policyRevision < prior.source.policyRevision
-			)
-				invalid();
-			if (b.receiptRevision === a.receiptRevision && !isDeepStrictEqual(a, b))
-				invalid();
-			for (const key of [
-				"taskId",
-				"turnId",
-				"taskRevision",
-				"ownerAgentId",
-				"attributionStatus",
-				"participantAgentIds",
-			] as const)
-				if (!isDeepStrictEqual(a[key], b[key])) invalid();
-			if (
-				b.receiptRevision === a.receiptRevision &&
-				source.policyRevision === prior.source.policyRevision
-			)
-				invalid();
+			const a = prior.source,
+				b = source;
+			if (rev(b) < rev(a) || b.policyRevision < a.policyRevision) invalid();
+			if (rev(a) === rev(b)) {
+				if (a.kind === "resource_activity" && b.kind === "resource_activity") {
+					const { grantRevision: ag, ...ar } = a.receipt;
+					const { grantRevision: bg, ...br } = b.receipt;
+					if (!isDeepStrictEqual(ar, br) || bg < ag) invalid();
+				} else if (!isDeepStrictEqual(a.receipt, b.receipt)) invalid();
+			}
+			if (rev(a) === rev(b) && a.policyRevision === b.policyRevision) invalid();
+			if (a.kind === "work" && b.kind === "work") {
+				for (const key of [
+					"taskId",
+					"turnId",
+					"taskRevision",
+					"ownerAgentId",
+					"attributionStatus",
+					"participantAgentIds",
+				] as const)
+					if (!isDeepStrictEqual(a.receipt[key], b.receipt[key])) invalid();
+			} else if (
+				a.kind === "resource_activity" &&
+				b.kind === "resource_activity"
+			) {
+				if (
+					a.receipt.resourceId !== b.receipt.resourceId ||
+					a.receipt.actorAgentId !== b.receipt.actorAgentId
+				)
+					invalid();
+			} else invalid();
 		}
 		const permissionChanged =
 			!prior ||
 			prior.source.policyRevision !== source.policyRevision ||
-			prior.source.receipt.receiptRevision !== source.receipt.receiptRevision ||
+			rev(prior.source) !== rev(source) ||
 			prior.source.operation !== source.operation;
-		return {
+		const next = {
 			...state,
 			revision: revision(state.revision + 1),
 			permissionRevision: revision(
 				state.permissionRevision + Number(permissionChanged),
 			),
-			records: [
-				...state.records.filter((record) => record !== prior),
-				{ inputId: input.id, source },
-			].sort((a, b) =>
-				a.source.receipt.receiptId.localeCompare(b.source.receipt.receiptId),
-			),
 		};
+		if (state.version === 1) {
+			if (source.kind !== "work") invalid();
+			return {
+				...next,
+				version: 1,
+				records: [
+					...state.records.filter((r) => r !== prior),
+					{ inputId: input.id, source },
+				].sort((a, b) =>
+					a.source.receipt.receiptId.localeCompare(b.source.receipt.receiptId),
+				),
+			};
+		}
+		return parseWorkEvidenceV2({
+			...next,
+			version: 2,
+			records: [
+				...state.records.filter((r) => r !== prior),
+				{
+					origin: source.kind === "work" ? "codex-task" : "resource-activity",
+					inputId: input.id,
+					source,
+				},
+			],
+		});
 	}
+	private upgrade(state: WorkEvidenceSnapshot): WorkEvidenceSnapshot {
+		if (state.version !== 1) invalid();
+		return parseWorkEvidenceV2({
+			...state,
+			version: 2,
+			revision: revision(state.revision + 1),
+			records: state.records.map((r) => ({ origin: "codex-task", ...r })),
+		});
+	}
+
 	private save(
-		previous: WorkEvidenceSnapshotV1,
-		next: WorkEvidenceSnapshotV1,
+		previous: WorkEvidenceSnapshot,
+		next: WorkEvidenceSnapshot,
 		event: WorkHistoryEvent,
 		inputId: string | null,
 	): void {

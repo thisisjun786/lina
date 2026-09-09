@@ -305,3 +305,15 @@ work-activity-validation.ts에서 구조 검증한다. 이 검사는 실제 blob
 만든다. 역순 입력 회귀를 먼저 실패시킨 뒤 정렬을 적용했다. 자료 활동의 선택·
 공유 필드 투영과 작업 ID와의 경험 충돌 방지도 테스트했다. 관련 14개 테스트가
 통과했다. actual world history의 upgrade transaction은 아직 다음 작업이다.
+
+LifeInput v4 구조 검증과 trusted admitWorkInput의 자료 경로를 연결했다. 최초
+자료 입력 전에 upgrade/version2 이력 한 행을 남기고 기존 task records를 감싼다.
+upgrade와 입력 admission은 WorldStore의 같은 transaction에서 commit한다.
+입력 충돌로 실패하면 전환 이력·projection도 롤백된다. reopen은 각 history 행의
+previous/next digest로 v1→v2 과정을 다시 구성한다. 같은 입력 재송신은 기존
+receipt를 반환하고 원래 task 입력 재송신도 유지된다. 자료 grant revision만
+증가한 제한 입력은 활동 내용을 바꾸지 않는 범위에서 허용한다.
+
+관련 6개 파일 31개 테스트·146개 단언이 통과했고, grant 제한 추가 뒤 store
+5개 테스트·28개 단언 및 루트·브라우저 타입 검사도 통과했다. Step v4 연결 전에는
+legacy step이 v4 입력을 거부하므로 아직 전체 LIFE 실행 완료 상태는 아니다.

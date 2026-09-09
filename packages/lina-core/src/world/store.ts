@@ -52,6 +52,7 @@ import type {
 	LifeDefinition,
 	LifeInput,
 	LifeInputV2,
+	LifeInputV4,
 	LifePreview,
 	LifeReceipt,
 	LifeState,
@@ -1036,7 +1037,7 @@ export class WorldStore
 		return this.transaction(() => this.life.admit(parsed));
 	}
 	/** Trusted source bridge only; never registered as a model tool or step-body field. */
-	admitWorkInput(input: LifeInputV2): AdmissionReceipt {
+	admitWorkInput(input: LifeInputV2 | LifeInputV4): AdmissionReceipt {
 		return this.transaction(() => {
 			const receipt = this.work.admit(input);
 			if (!receipt.replayed) {

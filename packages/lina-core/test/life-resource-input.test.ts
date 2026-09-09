@@ -224,3 +224,26 @@ test("work v2 ancestry binds origin so resource and task references cannot alias
 		workRefsCurrent(snapshot, [{ ...ref, version: 2, origin: "codex-task" }]),
 	).toBe(false);
 });
+
+test("LIFE v4 binds resource delivery identity, revision and digest without accepting it as a task", async () => {
+	const { parseLifeInput } = await import("../src/world/life-validation.ts");
+	const activity = parseResourceActivitySource(source());
+	const input = {
+		version: 4,
+		worldId: "world",
+		id: activity.deliveryId,
+		sourceRevision: 1,
+		payloadDigest: lifeDigest(activity),
+		source: activity,
+		consumedLifeRevision: null,
+	};
+	expect(parseLifeInput(input)).toMatchObject(input);
+	for (const patch of [
+		{ version: 2 },
+		{ version: 1 },
+		{ id: "other" },
+		{ sourceRevision: 2 },
+		{ payloadDigest: lifeDigest("wrong") },
+	])
+		expect(() => parseLifeInput({ ...input, ...patch })).toThrow();
+});
