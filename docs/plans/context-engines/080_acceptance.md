@@ -148,3 +148,9 @@ summary 역할 요청에 소비자의 문자 상한을 명시하고, 보관 원�
 동일 프로세스의 native 압축 알림 뒤에는 압축 전 원문을 resident ID 목록에서 제외하도록 보완했다. 압축 이후 새 turn은 계속 중복 제외한다. compact→turn→turn 회귀는 수정 전 실패, 수정 후 통과했으며 관련47개 검사와 타입 검사를 통과했다. 전체 재시작 native 원문 residency를 증명하는 변경은 아니다.
 
 독립 조사01a084ea는 native compaction의 내부 turn에 managed source mapping이 없어 reopen 시 provenance 검사가 새 epoch를 만들 가능성을 가장 좁은 원인으로 제시했다. raw thread/read의 해당 turn ID·shape는 수집하지 못했으므로 직접 확인한 원인으로 단정하지 않는다. 미등록 turn을 임의 허용하지 않으며 출처 fail-closed 계약은 유지한다. 요약 거부의 실제 공개 응답은 이후 main이 별도 수집해 장문 출력과 보관 응답 표식 실행을 확인했다.
+
+## 2026-09-09 페르소나 실제 해석과 통합 인수 재검사
+
+지정 Ollama 해석 모델로 NativePersonaGrowth가 비어 있지 않은 성향 값을 저장했다. AgentStore를 다시 열어도 추가 모델 호출0, 작성 정체성 동일을 확인했고, 근거 episode 철회 뒤 personalBehavior=null을 확인했다. `ollama-routing/persona.json`의 결과를 별도 assertion으로 재검사했다. 합성 proven episode·임시 DB·테스트 전용 memory 출력32768 범위이며, 일반 대화에서 성장한 성격의 표현 품질을 대신하지 않는다.
+
+깨끗한9a94e7f에서 `bun scripts/qa/context-engines.ts`를 실행해22파일176 pass·0 fail·1126 assertions, 종료0을 확인했다. `/tmp/lina-context-qualification-1kVMGc/result.json`이 source commit·dirty=false·실행 목록을 기록한다. 이 runner의 실제 모델 검증은 not_run이며 위 Ollama 개별 검증과 구분한다. 전체 suite 재검사·일반 대화/LIFE 실제 통합·기본 예산 안정성·최종 요구 대조는 남아 있다.
