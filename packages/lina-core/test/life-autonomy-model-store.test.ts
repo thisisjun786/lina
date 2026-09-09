@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { DatabaseSync } from "node:sqlite";
 import { completedLifeModelText } from "../src/world/autonomy-model-text.ts";
 import type {
 	LifeStep,
@@ -422,6 +423,8 @@ test("frozen step owns exact request selection and restores its reservation", ()
 		expect(saved.prepared).toEqual(prepared);
 		f.store.dispatchLifeModel(step.lease, step.id, frozen.id, f.clock());
 		f.store.assertLifeModelOutbound(frozen);
+		expect(() => f.store.assertLifeModelOutbound(base.request)).toThrow();
+		expect(() => f.store.assertLifeModelOutbound(drift)).toThrow();
 		f.store.finishLifeModel(
 			step.worldId,
 			step.id,
@@ -458,6 +461,21 @@ test("frozen step owns exact request selection and restores its reservation", ()
 		} finally {
 			reopened.close();
 		}
+		// A self-consistent receipt hash cannot authorize a different frozen profile.
+		const db = new DatabaseSync(f.path);
+		try {
+			const record = structuredClone(finished.models[0]);
+			if (!record) throw Error("Missing receipt");
+			record.prepared.request = drift;
+			record.prepared.inputDigest = lifeDigest(drift);
+			if (record.result) record.result.inputDigest = lifeDigest(drift);
+			db.prepare(
+				"UPDATE life_model_receipts SET record_json=?,digest=? WHERE request_id=?",
+			).run(JSON.stringify(record), lifeDigest(record), frozen.id);
+		} finally {
+			db.close();
+		}
+		expect(() => new WorldStore(f.path, f.clock)).toThrow(/selection mismatch/);
 	} finally {
 		f.close();
 	}

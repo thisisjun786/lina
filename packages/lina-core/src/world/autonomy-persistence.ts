@@ -767,6 +767,16 @@ export class AutonomyPersistence {
 			throw Error("Invalid step model request owner");
 		const saved = this.steps.get(request.worldId, request.stepId);
 		const step = this.guard(saved.lease, saved.id);
+		if (request.version !== (step.version === 4 ? 3 : 1))
+			throw Error("Outbound LIFE request version differs from step");
+		if (request.version === 3)
+			same(
+				request.selection,
+				step.source.resolvedModels?.[
+					request.lane === "director" ? "director" : "actor"
+				],
+				"Outbound LIFE selection differs from step",
+			);
 		this.models.assertOutbound(request, step.source.config);
 	}
 	finishModel(
