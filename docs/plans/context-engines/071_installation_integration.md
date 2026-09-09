@@ -14,7 +14,7 @@ codex-fleet.ts는 아직 OpenVikingClient/workTools를 만들고 task executeToo
 
 2026-09-08 GitHub 원본과 gh 조회로 [PR #3](https://github.com/thisisjun786/lina/pull/3)의 OPEN/Draft, head cefaffcbb4d767848ace6bc0151b9271bf336bf2, base dev, mergeCommit null을 다시 확인했다. 이 브랜치와 공통 조상은 0b68b2f40b8f4368a78111ad1228626886a43797이다. PR 본문의 전체·hosted 테스트는 상류 증거이며 결합 증거가 아니다. 다른 worktree의 dirty 파일은 읽어 옮기지 않는다. 원격 PR을 머지하지 않고 필요한 커밋의 소스 diff를 검토해 이 브랜치 변경과 결합한다.
 
-특히 life-json canonical 호환·replay 재사용·손상 LIFE owner 격리 변경과 원래 제한에서 통과한 이미지 timeout 수정을 확인한다. agents/store.ts와 world/store.ts, manager.ts는 이 브랜치도 수정했으므로 파일 전체 교체하지 않는다. .gitattributes의 upstream verbatim 경로와 출처 고지를 보존한다. 결합 후 기존 원래 timeout으로 테스트하고 timeout 상향/skip으로 통과시키지 않는다.
+특히 life-json canonical 호환·replay 재사용·손상 LIFE owner 격리 변경과 원래 제한에서 통과한 이미지 timeout 수정을 확인한다. 현재 양쪽 변경 교집합은 agents/store.ts, fleet/life-runtime-installation.ts, fleet/manager.ts, test/life-runtime-fleet-fixture.ts 네 파일이다. 이 파일은 전체 교체하지 않는다. .gitattributes의 upstream verbatim 경로와 출처 고지를 보존한다. 결합 후 기존 원래 timeout으로 테스트하고 timeout 상향/skip으로 통과시키지 않는다.
 
 ## 변경 지도
 
@@ -82,3 +82,60 @@ P에서 확인한 실제 기준선은 060의 561테스트 및 타입/린트/CI/�
 C에서 POLICY.md, README.md, docs/ARCHITECTURE.md, PERSONA_CONTEXT.md, CODEX_RUNTIME.md, PLANNING.md 및 000/004/070/071을 최종 소스 계약으로 맞춘다. 외부 adapter의 역사 문서·원격 데이터 미이전 경계는 명시한다. enforcement의 최종층은 host 권한 검사와 저장 감사이며 임의 로컬 코드/DB 수정은 우회 가능하다. 이를 적대적 로컬 관리자 방어라고 부르지 않는다.
 
 위임: 주 에이전트는 PR source 결합·자료 owner/정책/Fleet·LIFE source/routing과 통합을 맡는다. A 후 executor는 독립 가능한 memory port/session-app/context/channel/persona/reflection 및 외부 adapter-only 소비자 퇴역을 맡되 manager/codex-fleet/world 파일은 수정하지 않는다. 초기 upstream 안정화 결합을 먼저 끝내 충돌 경계를 고정한다. 모든 범위와 검증은 시작 전 명시하고 독립 reviewer가 계획과 최종 구현을 검토한다.
+
+
+## 상류 안정화의 정확한 포팅 지도
+
+7979843 기준 이 브랜치 변경171개, PR 변경63개, 교집합4개다. 아래 경로는 공통 조상→cefaffc의 고정 diff를 검토해 적용한다. 교집합4개는 060까지의 자체 변경을 보존해 수동 결합하며 나머지도 변경 후 해당 기능 검증을 수행한다. 이미지 UI mockup·web QA 파일은 포팅하지 않는다. 이 작업은 GitHub PR 머지가 아니다.
+
+| 작업 | 경로 | 책임 |
+| --- | --- | --- |
+| NEW | `.gitattributes` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/agents/store.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/agents/visual-capacity.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/authoring-persistence.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/autonomy-persistence.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/autonomy-step-records.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/image-discovery.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/image-persistence.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/life-json.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/life-persistence.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/social-persistence.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/src/world/store.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/test/agent-visual-capacity.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-core/test/fixtures/life-json-real-states.json` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-core/test/life-image-event-discovery.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-core/test/life-image-policy-store.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-core/test/life-json-compatibility.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-core/test/life-json-reference-fixture.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-core/test/life-replay-reuse.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/fleet/agent-visual-routes.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/fleet/life-image-routes.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/fleet/life-images.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/fleet/life-routes.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/fleet/life-runtime-installation.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/fleet/manager.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/images/life-destinations.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/images/life-discovery.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/images/life-scheduler.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/src/images/life.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/test/agent-visual-routes-http.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-acceptance-fixture.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-checkpoint-child.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-checkpoint.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-e2e.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-image-destination-capacity.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/test/life-image-fleet-automatic.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/test/life-image-fleet-composition.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/test/life-image-fleet-event.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-image-manual-event.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-image-pause-recovery.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/test/life-image-runtime.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-image-scheduler-archive.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/test/life-image-scheduler.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/test/life-runtime-fleet-fixture.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| NEW | `packages/lina-runtime/test/life-storage-isolation.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/test/session-app.test.ts` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+| MODIFY | `packages/lina-runtime/vendor/ensemble/README.md` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
+
+외부 어댑터 표기가 남은 테스트/fixture는 현재26개다. production SDK npm 의존성은 package.json에서 발견되지 않았으므로 불필요한 새 패키지 변경은 하지 않는다. 제거 대상은 자체 HTTP adapter와 그 production 소비 경로다. 071의 자체 memory port는 class 상속을 유지할 필요가 없으며 status/refresh/recall/shutdown 등 실제 SessionApp/ContextChannel/PersonaReflection 소비 계약을 타입으로 보존한다.
