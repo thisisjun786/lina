@@ -8,6 +8,7 @@ import { createCodexEngine } from "../../../lina-codex/src/session.ts";
 import type { TaskDynamicTool } from "../../../lina-codex/src/task-rpc.ts";
 import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.ts";
 import { acquireInstallationLock } from "../../../lina-core/src/installation/lock.ts";
+import { WorldStore } from "../../../lina-core/src/world/store.ts";
 import { OpenCodexHub } from "../../../lina-opencodex/src/index.ts";
 import { parseApprovalMode } from "../approval-policy.ts";
 import { codexAssistantPrompt } from "../codex-prompt.ts";
@@ -240,13 +241,30 @@ async function startUnlocked(
 			modelControl,
 			ownsInstallation,
 			assertLifeWorkCurrent: (snapshot) =>
-				assertWorkSourceCurrent(tasks, snapshot),
+				assertWorkSourceCurrent(tasks, snapshot, {
+					current: (worldId, source) =>
+						resources?.activities.current(
+							resources.scope(null),
+							worldId,
+							source,
+						) ?? false,
+				}),
 			...(lifeClock ? { lifeNow: () => lifeClock.now() } : {}),
 			createLifeRuntime: (context) =>
 				createFleetLifeRuntime({
 					...context,
 					images: images(),
 					workSource: tasks,
+					activitySource: {
+						poll: (worldId) =>
+							resources?.activityBridge(context.store).poll(worldId),
+						current: (worldId, source) =>
+							resources?.activities.current(
+								resources.scope(null),
+								worldId,
+								source,
+							) ?? false,
+					},
 					stateRoot,
 					connection() {
 						if (!ownsInstallation())
@@ -383,6 +401,13 @@ async function startUnlocked(
 				services: () => hub.createContextServices(getSettings),
 				policy: getEnginePolicy,
 				validAgent: validOwner,
+				isWorldParticipant: (worldId, agentId) => {
+					const store = fleet.life.store;
+					return (
+						store instanceof WorldStore &&
+						store.lifeDefinition(worldId).participants.includes(agentId)
+					);
+				},
 				assertInstallation: () => {
 					if (!ownsInstallation())
 						throw Error("Installation ownership required");

@@ -18,6 +18,8 @@ import {
 	readRegular,
 	writeExclusive,
 } from "../../../lina-core/src/attachments/filesystem.ts";
+import type { WorldStore } from "../../../lina-core/src/world/store.ts";
+import type { ResourceActivitySource } from "../../../lina-core/src/world/work-types.ts";
 import { ResourceActivities } from "../../../lina-memory/src/resources/activities.ts";
 import type { ResourceContentLimits } from "../../../lina-memory/src/resources/content.ts";
 import { ResourceStore } from "../../../lina-memory/src/resources/store.ts";
@@ -25,6 +27,7 @@ import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts"
 import type { EnginePolicySnapshot } from "../context/policy-settings.ts";
 import type { ContextServices } from "../context/port.ts";
 import type { LinaHost } from "../host.ts";
+import { createResourceActivityBridge } from "../life/resource-bridge.ts";
 import { ResourceEngine } from "../resources/services.ts";
 
 interface Options {
@@ -127,6 +130,24 @@ export class FleetResources {
 	get activities(): ResourceActivities {
 		this.open();
 		return this.activityLedger;
+	}
+	activityBridge(world: Pick<WorldStore, "admitWorkInput">) {
+		this.open();
+		const bridge = createResourceActivityBridge({
+			source: this.activityLedger,
+			scope: this.scope(null),
+			world,
+		});
+		return {
+			poll: (worldId: string) => {
+				this.open();
+				return bridge.poll(worldId);
+			},
+			current: (worldId: string, source: ResourceActivitySource) => {
+				this.open();
+				return this.activityLedger.current(this.scope(null), worldId, source);
+			},
+		};
 	}
 	private closed = false;
 	private lastFailure: "RESOURCE_PROCESSING_FAILED" | null = null;

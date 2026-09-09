@@ -15,6 +15,7 @@ import {
 	projectCurrentPersona,
 	projectSharedPersona,
 } from "../../../lina-core/src/world/views.ts";
+import type { WorkEvidenceSnapshot } from "../../../lina-core/src/world/work-types.ts";
 import {
 	freezeLifeModelSelection,
 	resolveLifeModelProfile,
@@ -27,6 +28,7 @@ import {
 	createWorkBridge,
 	type WorkBridgeSource,
 } from "../life/work-bridge.ts";
+import type { ResourceActivityAuthority } from "../life/work-source.ts";
 import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import type { ModelSettingsStore } from "../models/settings.ts";
 import type { FleetLifeImages } from "./life-images.ts";
@@ -43,6 +45,9 @@ export interface FleetLifeContext {
 }
 export interface FleetLifeOptions extends FleetLifeContext {
 	workSource?: WorkBridgeSource;
+	activitySource?: ResourceActivityAuthority & {
+		poll(worldId: string): unknown;
+	};
 	stateRoot: string;
 	connection(): ReturnType<CodexLifeModelOptions["selection"]>["connection"];
 	providerEnv: NonNullable<CodexLifeModelOptions["providerEnv"]>;
@@ -171,6 +176,12 @@ export function fleetPublicationAuthor(
 /** One installation owns this runtime and its native transport; store ownership stays in fleet. */
 export function createFleetLifeRuntime(options: FleetLifeOptions) {
 	const { store, agents, modelSettings, foreground, images } = options;
+	const assertWork = (snapshot: WorkEvidenceSnapshot | undefined) =>
+		assertWorkSourceCurrent(
+			options.workSource,
+			snapshot,
+			options.activitySource,
+		);
 	const publicationAuthor = (
 		worldId: string,
 		agentId: string,
@@ -237,18 +248,12 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 				throw Error("Frozen publication owner is not connected");
 			if (request.version === 3) {
 				store.assertLifeModelOutbound(request);
-				assertWorkSourceCurrent(
-					options.workSource,
-					store.lifeStep(request.worldId, request.stepId).source.work,
-				);
+				assertWork(store.lifeStep(request.worldId, request.stepId).source.work);
 				return;
 			}
 			if (request.version === 1) {
 				store.assertLifeModelOutbound(request);
-				assertWorkSourceCurrent(
-					options.workSource,
-					store.lifeStep(request.worldId, request.stepId).source.work,
-				);
+				assertWork(store.lifeStep(request.worldId, request.stepId).source.work);
 				return;
 			}
 			store.assertPublicationOutbound(
@@ -260,10 +265,7 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 				),
 				modelSettings.snapshot().revision,
 			);
-			assertWorkSourceCurrent(
-				options.workSource,
-				store.workEvidence(request.worldId),
-			);
+			assertWork(store.workEvidence(request.worldId));
 		},
 		selection(request) {
 			if (request.version === 3 && request.lane === "publication")
@@ -289,10 +291,7 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 					}) !== lifeDigest(buildPublicationModelInput(job))
 				)
 					throw Error("Publication model differs from owned source");
-				assertWorkSourceCurrent(
-					options.workSource,
-					store.workEvidence(request.worldId),
-				);
+				assertWork(store.workEvidence(request.worldId));
 			} else {
 				const step = store.lifeStep(request.worldId, request.stepId);
 				if (
@@ -324,7 +323,7 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 					throw Error(
 						"LIFE destination or source snapshot changed before model dispatch",
 					);
-				assertWorkSourceCurrent(options.workSource, step.source.work);
+				assertWork(step.source.work);
 				store.assertPublicationEvidenceCurrent(request.worldId, request.stepId);
 			}
 			const settings = modelSettings.snapshot();
@@ -371,19 +370,15 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 						images.visit(worldId, signal),
 				}
 			: {}),
-		beforePrepare: () => {
+		beforePrepare: (worldId) => {
 			bridge?.poll();
+			options.activitySource?.poll(worldId);
 		},
-		assertSourceCurrent: (step) =>
-			assertWorkSourceCurrent(options.workSource, step.source.work),
+		assertSourceCurrent: (step) => assertWork(step.source.work),
 		publication: {
 			store,
 			author: publicationAuthor,
-			assertSourceCurrent: (job) =>
-				assertWorkSourceCurrent(
-					options.workSource,
-					store.workEvidence(job.worldId),
-				),
+			assertSourceCurrent: (job) => assertWork(store.workEvidence(job.worldId)),
 		},
 		config: (worldId) => store.lifeConfig(worldId),
 		acquireLease: (...args) => store.acquireLifeLease(...args),
@@ -418,7 +413,7 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 	return {
 		...runtime,
 		assertWorkCurrent: (worldId: string) =>
-			assertWorkSourceCurrent(options.workSource, store.workEvidence(worldId)),
+			assertWork(store.workEvidence(worldId)),
 		start() {
 			bridge?.start();
 			runtime.start();

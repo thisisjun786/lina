@@ -579,3 +579,91 @@ test("installation owns activity ledger lifecycle", async () => {
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("installation activity bridge pins shared scope and checks ownership on each use", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const { autonomyStoreFixture } = await import(
+		"../../lina-core/test/life-autonomy-store-fixture.ts"
+	);
+	const world = autonomyStoreFixture();
+	const root = mkdtempSync(join(tmpdir(), "lina-installation-bridge-"));
+	let owned = true;
+	const owner = new FleetResources({
+		root,
+		limits,
+		services,
+		policy: defaultEnginePolicy,
+		validAgent: () => true,
+		assertInstallation: () => {
+			if (!owned) throw Error("lost installation");
+		},
+		isWorldParticipant: (id, agent) =>
+			world.store.lifeDefinition(id).participants.includes(agent),
+	});
+	try {
+		const { worldId, revision, ...config } = world.store.lifeConfig(
+			world.request.worldId,
+		);
+		world.store.setLifeConfig(worldId, revision, {
+			...config,
+			version: 2,
+			work: {
+				rules: [
+					{
+						id: "research",
+						familyId: "meet",
+						categoryId: "research",
+						outcomes: [],
+						attribution: "owner",
+						weight: 1,
+						requiredMatch: false,
+					},
+				],
+			},
+		});
+		const actor = owner.scope("lina");
+		const doc = owner.engine.store.create(actor, {
+			operationId: "doc",
+			kind: "document",
+			title: "Research",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("Research text"),
+		});
+		owner.activities.create(actor, {
+			operationId: "create",
+			activityId: "activity",
+			worldId,
+			actorAgentId: "lina",
+			participantAgentIds: ["lina"],
+			activityKind: "research",
+			outcome: "recorded",
+			resourceId: doc.id,
+			versionId: null,
+			memoryId: null,
+			quotes: [],
+			hostConfirmed: false,
+			fields: {
+				categoryId: "research",
+				outcome: "recorded",
+				participantAgentIds: ["lina"],
+				summary: "Research result",
+			},
+			policyRevision: 1,
+		});
+		const bridge = owner.activityBridge(world.store);
+		expect(bridge.poll(worldId)).toEqual({ delivered: 1, replayed: 0 });
+		const source = world.store.workEvidence(worldId).records[0]?.source;
+		if (!source || source.kind !== "resource_activity")
+			throw Error("missing source");
+		expect(bridge.current(worldId, source)).toBe(true);
+		owned = false;
+		expect(() => bridge.poll(worldId)).toThrow(/lost installation/);
+		expect(() => bridge.current(worldId, source)).toThrow(/lost installation/);
+	} finally {
+		owned = true;
+		await owner.close();
+		world.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
