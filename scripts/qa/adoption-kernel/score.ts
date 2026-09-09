@@ -209,6 +209,13 @@ export function scoreTrial(
 					x.tool === "submit" &&
 					x.receipt.status === "completed",
 			);
+			const originalItems = original ? output(original)["items"] : null;
+			const missing = Array.isArray(originalItems)
+				? e.required.filter((item) => !originalItems.includes(item))
+				: [];
+			const extra = Array.isArray(originalItems)
+				? originalItems.filter((item) => !e.required.includes(String(item)))
+				: [];
 			const failed = effects.findIndex(
 				(x, index) =>
 					original !== undefined &&
@@ -216,7 +223,15 @@ export function scoreTrial(
 					x.tool === "check" &&
 					x.receipt.status === "completed" &&
 					args(x)["submissionId"] === original.effectId &&
-					x.receipt.quality.status === "fail",
+					x.receipt.quality.status === "fail" &&
+					missing.length === 1 &&
+					extra.length === 0 &&
+					output(x)["submissionId"] === original.effectId &&
+					output(x)["pass"] === false &&
+					Array.isArray(output(x)["missing"]) &&
+					same(output(x)["missing"] as unknown[], missing) &&
+					Array.isArray(output(x)["extra"]) &&
+					same(output(x)["extra"] as unknown[], extra),
 			);
 			result.quality =
 				failed >= 0 &&
@@ -252,7 +267,7 @@ export function scoreTrial(
 			break;
 		case "B11":
 			result.quality =
-				a?.outcome === "answer" &&
+				correct &&
 				knownVerification &&
 				later.some(
 					(x) =>

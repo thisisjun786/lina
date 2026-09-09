@@ -140,6 +140,7 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		}
 	}
 	const decisions = new Set<string>();
+	const answered = new Map<string, number>();
 	for (const value of list(r["steps"])) {
 		const s = object(value, ["stage", "kernel", "requestIndex"]);
 		integer(s["stage"], 5);
@@ -150,12 +151,14 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		choice(k["status"], statuses);
 		text(k["decisionId"]);
 		decisions.add(k["decisionId"]);
+		if (k["status"] === "answered")
+			answered.set(k["decisionId"], s["stage"] as number);
 		if (k["detail"] !== undefined) text(k["detail"]);
 	}
 	const effects = new Set<string>();
 	const deliveryReceipts = new Map<
 		string,
-		{ bytes: unknown; audience: unknown }
+		{ bytes: unknown; audience: unknown; stage: number }
 	>();
 	for (const value of list(r["effects"])) {
 		const e = object(value, ["effectId", "tool", "args", "receipt"]);
@@ -169,6 +172,13 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		if (e["tool"] === "@delivery" && receipt.status === "completed") {
 			const payload = object(receipt.output, ["bytes", "audience", "fence"]);
 			const submitted = object(e["args"], ["bytes", "audience"]);
+			text(payload["fence"]);
+			const stage = answered.get(payload["fence"]);
+			if (
+				`${payload["fence"]}:answer` !== receipt.effectId ||
+				stage === undefined
+			)
+				throw Error("delivery has no answered decision");
 			if (
 				payload["bytes"] !== submitted["bytes"] ||
 				payload["audience"] !== submitted["audience"]
@@ -177,6 +187,7 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 			deliveryReceipts.set(receipt.effectId, {
 				bytes: payload["bytes"],
 				audience: payload["audience"],
+				stage,
 			});
 		}
 	}
@@ -210,7 +221,8 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		if (
 			!receipt ||
 			receipt.bytes !== d["bytes"] ||
-			receipt.audience !== d["audience"]
+			receipt.audience !== d["audience"] ||
+			receipt.stage !== d["stage"]
 		)
 			throw Error("delivery disagrees with completed owner receipt");
 	}

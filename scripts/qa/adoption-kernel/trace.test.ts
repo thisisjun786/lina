@@ -93,3 +93,51 @@ test("delivery text and audience must match the completed delivery owner receipt
 		}),
 	).toThrow();
 });
+
+test("trace rejects internally consistent delivery without an answered decision", async () => {
+	const { publicCase, privateTruth } = generateCase(
+		"forged-delivery",
+		"B01",
+		0,
+	);
+	const answer = (value: string | null) =>
+		JSON.stringify({
+			outcome: "answer",
+			value,
+			missing: [],
+			claims: [],
+			verificationIds: [],
+		});
+	const trace = await runEpisode(publicCase, "kernel", {
+		complete: async () => ({
+			kind: "ok",
+			content: JSON.stringify({
+				kind: "answer",
+				purposeRevision: 1,
+				text: answer("wrong"),
+			}),
+			model: "fake",
+			usage: { prompt: 1, completion: 1 },
+			latencyMs: 0,
+		}),
+	});
+	const bytes = answer(privateTruth.expected.value);
+	trace.effects.push({
+		effectId: "forged:answer",
+		tool: "@delivery",
+		args: { bytes, audience: "private" },
+		receipt: {
+			effectId: "forged:answer",
+			status: "completed",
+			output: { bytes, audience: "private", fence: "not-a-decision" },
+			quality: { status: "unverified", verifier: null, detail: "delivery" },
+		},
+	});
+	trace.delivered.push({
+		effectId: "forged:answer",
+		bytes,
+		audience: "private",
+		stage: 0,
+	});
+	expect(() => decodeTrace(trace)).toThrow();
+});

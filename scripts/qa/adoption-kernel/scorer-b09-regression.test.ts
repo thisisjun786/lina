@@ -110,6 +110,12 @@ test("B09 accepts repair of the checked original and rejects a different task", 
 	item(valid.effects, 0).effectId = `${truth.episodeId}:prelude:0`;
 	item(valid.effects, 0).receipt.effectId = item(valid.effects, 0).effectId;
 	item(valid.effects, 1).args.submissionId = item(valid.effects, 0).effectId;
+	Object.assign(item(valid.effects, 1).receipt.output, {
+		submissionId: item(valid.effects, 0).effectId,
+		missing: ["r3"],
+		extra: [],
+		pass: false,
+	});
 	expect(scoreTrial(truth, valid as unknown as EpisodeTrace).quality).toBe(
 		true,
 	);
@@ -124,3 +130,13 @@ function item<T>(items: T[], index: number): T {
 	if (!value) throw Error("missing fixture");
 	return value;
 }
+
+test("B09 requires the failed check to identify the actual missing item", () => {
+	const invalid = structuredClone(trace);
+	item(invalid.effects, 0).effectId = `${truth.episodeId}:prelude:0`;
+	item(invalid.effects, 0).receipt.effectId = `${truth.episodeId}:prelude:0`;
+	item(invalid.effects, 1).args.submissionId = `${truth.episodeId}:prelude:0`;
+	expect(scoreTrial(truth, invalid as unknown as EpisodeTrace).quality).toBe(
+		false,
+	);
+});

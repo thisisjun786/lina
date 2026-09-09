@@ -389,3 +389,42 @@ test("receipt and delivery histories match across modes after normalizing host I
 	expect(outputs[2]).toBe(outputs[0]);
 	expect(outputs[0]).toContain("value seven");
 });
+
+test("receipt with missing adoption ancestry stops before a model call", async () => {
+	let calls = 0;
+	const session = createSession("kernel", publicCase, {
+		complete: async () => {
+			calls++;
+			return {
+				kind: "ok",
+				content: JSON.stringify({
+					kind: "tool",
+					purposeRevision: 1,
+					tool: "lookup",
+					args: { key: "a" },
+				}),
+				model: "fixture",
+				usage: { prompt: 1, completion: 1 },
+				latencyMs: 0,
+			};
+		},
+	});
+	try {
+		session.applyStage(0);
+		expect((await session.step()).status).toBe("dispatched");
+		// Inject a restored-adapter inconsistency while leaving the raw receipt eligible.
+		// This intentionally accesses the private map to exercise the frozen D4 guard.
+		const internal = session as unknown as {
+			bridges: Map<string, { adoptions: { id: string; revision: number }[] }>;
+		};
+		const bridge = [...internal.bridges.values()][0];
+		if (!bridge) throw Error("missing receipt bridge");
+		bridge.adoptions.push({ id: "missing-adoption", revision: 1 });
+		expect((await session.step()).status).toBe("unknown");
+		expect(calls).toBe(1);
+		expect(session.trace.requests).toHaveLength(1);
+		expect(session.trace.status).toBe("incomplete");
+	} finally {
+		session.close();
+	}
+});
