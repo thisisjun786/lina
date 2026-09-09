@@ -256,3 +256,36 @@ test("recorded resource activity is not treated as a verified work success", () 
 		f.close();
 	}
 });
+
+test("ancestry parser preserves origin-qualified references with equal input ids", async () => {
+	const { parseWorkAncestry } = await import("../src/world/work-ancestry.ts");
+	const base = {
+		version: 2,
+		inputId: "same",
+		sourceDigest: lifeDigest("source"),
+		workConfigDigest: lifeDigest("config"),
+		operation: "upsert",
+	};
+	const rows = [
+		{
+			subject: { kind: "life_claim", id: "claim" },
+			lifeRevision: 1,
+			refs: [
+				{ ...base, origin: "codex-task" },
+				{ ...base, origin: "resource-activity" },
+			],
+		},
+	];
+	expect(parseWorkAncestry(rows)[0]?.refs).toHaveLength(2);
+	expect(() =>
+		parseWorkAncestry([
+			{
+				...rows[0],
+				refs: [
+					{ ...base, origin: "codex-task" },
+					{ ...base, origin: "codex-task" },
+				],
+			},
+		]),
+	).toThrow(/Duplicate/);
+});

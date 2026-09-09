@@ -72,7 +72,7 @@ export function parseWorkAncestry(value: unknown): WorkAncestryRecord[] {
 						workConfigDigest: digest(r["workConfigDigest"]),
 					};
 				}),
-				(r) => r.inputId,
+				ancestryRefKey,
 			);
 			if (!refs.length) throw Error("Empty work ancestry");
 			return { subject, lifeRevision: revision(raw.lifeRevision, 1), refs };
