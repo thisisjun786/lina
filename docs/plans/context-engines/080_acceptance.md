@@ -170,3 +170,9 @@ LIFE 실패 원인을 합성 localhost 직결 진단으로 좁혔다. 실제 nat
 정확한 원인은 제공자 GLM Flash metadata의 `tool_mode: code_mode_only`였다. LIFE 전용 metadata 사본에서 이 UI/tool 정책만 제거한 합성 localhost 검사는 exec/wait 없이 기존 skills namespace만 광고했다. 원래 connection catalog와 context_window 등 모델 능력은 보존한다. `life-model-policy.ts`에 같은 처리를 적용했으며 금지 catalog 검사·네 가지 synthetic qualification·네이티브 요청 거부는 유지한다. 변경 파일 digest가 capability fingerprint에 포함돼 과거 자격 기록을 재사용하지 않는다.
 
 회귀는 원본 catalog 보존·LIFE catalog의 tool_mode 제외·context_window 보존을 검사한다. 수정 전1 fail→관련14 pass. 실제 `life-native-live.ts`가 전체 격리 자격 검사 후 GLM Flash 게시 JSON을 받고 네이티브 journal 다시 열기/reconcile/complete 재생의 동일 결과를 확인해 종료0이었다. 허용 claim ID와 imaginative segment를 반환했다. 이 결과는 frozen permitted material→native model→native receipt 재생 범위이며 Fleet 게시 저장·피드 접근 인수를 대신하지 않는다. 작업 root는 성공 종료 시 삭제했다. 독립 검토 진행 중이다.
+
+## 2026-09-09 LIFE 실제 게시 저장과 opt-in 네이티브 회귀
+
+`life-publication-live.json`: frozen public material→실제 격리 GLM Flash→WorldStore model receipt→publication job published→viewer grant 피드1건→DB 재열기 뒤 동일 피드→native journal 재생까지 종료0으로 확인했다. 피드의 post ID가 published job과 같고, claim 문장이 허용된 사건의 canonical text인지 별도 assertion으로 확인했다. 공개된 사실과 imaginative segment는 분리된다. 임시 world/native root는 성공 후 삭제했다. 이는 실제 core 저장·조회 경로이며 Fleet HTTP scheduling/재시작까지 검증했다고 확대하지 않는다.
+
+`LINA_LIFE_NATIVE_TEST=1`로 life-model-native/isolation/restart/lifecycle을 실행해20 pass·0 fail·125 assertions,20.82초를 확인했다. 실제 restricted Codex+합성 localhost provider 검사이며 configured provider 호출과 구분한다. 기본 실행에서 이 경로를 skip한19 pass·15 skip 결과를 이 결과로 보완했다. 로그는 life-native-enabled.log이다.
