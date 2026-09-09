@@ -1,11 +1,65 @@
 import type { LifeStep } from "./autonomy-types.ts";
-import type { LifeCommitV3 } from "./life-types.ts";
+import type { LifeCommitV3, LifeInput } from "./life-types.ts";
 import {
 	ownWork,
 	workExperienceId,
 	workReceiptIdentity,
 } from "./work-selection.ts";
 import type { WorkEvidenceRecord } from "./work-types.ts";
+
+function resourceRecord(record: WorkEvidenceRecord) {
+	return record.source.kind === "resource_activity";
+}
+function recordFromInput(input: LifeInput): WorkEvidenceRecord | null {
+	if (input.version === 2) return { inputId: input.id, source: input.source };
+	if (input.version === 4)
+		return {
+			origin: "resource-activity",
+			inputId: input.id,
+			source: input.source,
+		};
+	return null;
+}
+
+function inputMatchesRecord(input: LifeInput, record: WorkEvidenceRecord) {
+	if (input.id !== record.inputId) return false;
+	return resourceRecord(record) ? input.version === 4 : input.version === 2;
+}
+
+function priorReceiptInput(input: LifeInput, record: WorkEvidenceRecord) {
+	const identity = workReceiptIdentity(record);
+	if (resourceRecord(record)) {
+		return (
+			input.version === 4 &&
+			input.source.kind === "resource_activity" &&
+			input.source.receipt.activityId === identity.id &&
+			input.source.receipt.activityRevision < identity.revision
+		);
+	}
+	return (
+		input.version === 2 &&
+		input.source.kind === "work" &&
+		input.source.receipt.receiptId === identity.id &&
+		input.source.receipt.receiptRevision < identity.revision
+	);
+}
+
+function experienceText(record: WorkEvidenceRecord) {
+	const fields = record.source.fields;
+	if (fields?.summary) return fields.summary;
+	if (record.source.kind === "resource_activity") {
+		return record.source.operation === "restrict"
+			? "Previously shared resource activity evidence was retracted."
+			: `Shared resource activity category: ${fields?.categoryId}. Outcome: ${fields?.outcome ?? "not shared"}.`;
+	}
+	return record.source.operation === "restrict"
+		? "Previously shared work evidence was retracted."
+		: `Shared work category: ${fields?.categoryId}. Outcome: ${fields?.outcome ?? "not shared"}.`;
+}
+
+function workStep(step: LifeStep) {
+	return step.version === 2 || step.version === 3 || step.version === 4;
+}
 
 /** Exactly one experience per receipt revision and owner; permission changes only change eligibility. */
 export function workExperiences(step: LifeStep): Array<{
@@ -14,8 +68,7 @@ export function workExperiences(step: LifeStep): Array<{
 	experienceId: string;
 	text: string;
 }> {
-	if ((step.version !== 2 && step.version !== 3) || !step.source.work)
-		return [];
+	if (!workStep(step) || !step.source.work) return [];
 	const result: Array<{
 		record: WorkEvidenceRecord;
 		agentId: string;
@@ -30,27 +83,19 @@ export function workExperiences(step: LifeStep): Array<{
 				record.source.receipt.correction?.kind !== "retract"
 			)
 				continue;
-			const prior = step.source.inputs.filter(
-				(input) =>
-					input.version === 2 &&
-					input.source.receipt.receiptId === workReceiptIdentity(record).id &&
-					input.source.receipt.receiptRevision <
-						workReceiptIdentity(record).revision,
+			const prior = step.source.inputs.filter((input) =>
+				priorReceiptInput(input, record),
 			);
 			if (
-				prior.some(
-					(input) =>
-						input.version === 2 &&
+				prior.some((input) => {
+					const previous = recordFromInput(input);
+					return (
+						previous !== null &&
 						step.source.life.experiences.some(
-							(e) =>
-								e.id ===
-								workExperienceId(
-									step.worldId,
-									{ inputId: input.id, source: input.source },
-									agentId,
-								),
-						),
-				)
+							(e) => e.id === workExperienceId(step.worldId, previous, agentId),
+						)
+					);
+				})
 			)
 				records.push(record);
 		}
@@ -58,8 +103,7 @@ export function workExperiences(step: LifeStep): Array<{
 			if (
 				!step.source.inputs.some(
 					(input) =>
-						input.version === 2 &&
-						input.id === record.inputId &&
+						inputMatchesRecord(input, record) &&
 						input.consumedLifeRevision === null,
 				)
 			)
@@ -67,16 +111,11 @@ export function workExperiences(step: LifeStep): Array<{
 			const experienceId = workExperienceId(step.worldId, record, agentId);
 			if (step.source.life.experiences.some((e) => e.id === experienceId))
 				continue;
-			const fields = record.source.fields;
 			result.push({
 				record,
 				agentId,
 				experienceId,
-				text:
-					fields?.summary ??
-					(record.source.operation === "restrict"
-						? "Previously shared work evidence was retracted."
-						: `Shared work category: ${fields?.categoryId}. Outcome: ${fields?.outcome ?? "not shared"}.`),
+				text: experienceText(record),
 			});
 		}
 	}
@@ -86,7 +125,7 @@ export function applyWorkExperiences(
 	step: LifeStep,
 	commit: LifeCommitV3,
 ): void {
-	if (step.version !== 2 && step.version !== 3) return;
+	if (!workStep(step)) return;
 	const eventId = `${step.worldId}:${step.source.world.revision + 1}`;
 	const observations = workExperiences(step);
 	if (observations.length && commit.world.kind === "tick") {
@@ -109,6 +148,7 @@ export function applyWorkExperiences(
 		};
 	}
 	for (const { record, agentId, experienceId, text } of observations) {
+		if (commit.experiences.some((e) => e.id === experienceId)) continue;
 		const claimId = `${experienceId}-claim`;
 		commit.claims.push({
 			id: claimId,
@@ -129,7 +169,7 @@ export function applyWorkExperiences(
 		if (
 			!commit.consumedInputIds.includes(record.inputId) &&
 			step.source.inputs.some(
-				(i) => i.id === record.inputId && i.consumedLifeRevision === null,
+				(i) => inputMatchesRecord(i, record) && i.consumedLifeRevision === null,
 			)
 		)
 			commit.consumedInputIds.push(record.inputId);
@@ -137,7 +177,7 @@ export function applyWorkExperiences(
 	// Obsolete/restricted deliveries are acknowledged as control history, never reapplied as experience.
 	for (const input of step.source.inputs)
 		if (
-			input.version === 2 &&
+			(input.version === 2 || (step.version === 4 && input.version === 4)) &&
 			input.consumedLifeRevision === null &&
 			!commit.consumedInputIds.includes(input.id)
 		)

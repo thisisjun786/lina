@@ -137,26 +137,41 @@ export function workSubjectAllowed(
 	return !row || workRefsCurrent(current, row.refs);
 }
 /** Conservatively retain the union of work causes available to this step, never expose these refs to models. */
+function ancestryRefKey(ref: WorkSourceRef): string {
+	return "version" in ref ? `${ref.origin}:${ref.inputId}` : ref.inputId;
+}
 export function stepWorkAncestry(step: LifeStep): WorkAncestryRecord[] {
 	const current = step.source.work,
 		commit = step.outcome?.commit;
-	if ((step.version !== 2 && step.version !== 3) || !current || !commit)
+	if (
+		(step.version !== 2 && step.version !== 3 && step.version !== 4) ||
+		!current ||
+		!commit
+	)
 		return [];
 	const references = new Map<string, WorkSourceRef>();
 	for (const row of step.source.workAncestry ?? [])
 		if (workRefsCurrent(current, row.refs))
-			for (const ref of row.refs) references.set(ref.inputId, ref);
+			for (const ref of row.refs) references.set(ancestryRefKey(ref), ref);
 	for (const agentId of new Set(
 		step.models.map((m) => m.prepared.request.agentId),
 	))
-		for (const record of ownWork(step.source, agentId))
-			references.set(record.inputId, workRef(current, record));
+		for (const record of ownWork(step.source, agentId)) {
+			const ref = workRef(current, record);
+			references.set(ancestryRefKey(ref), ref);
+		}
 	const observations = workExperiences(step);
-	for (const { record } of observations)
-		references.set(record.inputId, workRef(current, record));
-	const refs = [...references.values()].sort((a, b) =>
-		a.inputId.localeCompare(b.inputId),
-	);
+	for (const { record } of observations) {
+		const ref = workRef(current, record);
+		references.set(ancestryRefKey(ref), ref);
+	}
+	const refs = [...references.values()].sort((a, b) => {
+		const byId = a.inputId.localeCompare(b.inputId);
+		if (byId) return byId;
+		const ao = "version" in a ? a.origin : "";
+		const bo = "version" in b ? b.origin : "";
+		return ao.localeCompare(bo);
+	});
 	if (!refs.length) return [];
 	const lifeRevision = step.source.life.revision + 1;
 	const subjects: WorkSubject[] = [
