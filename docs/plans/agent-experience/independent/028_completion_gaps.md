@@ -10,7 +10,7 @@ and qualification pending. No phase or acceptance criterion is waived here.
 | Frozen30 criteria | 001 and005; reviewed method-condition encoding clarification | Final reviewer confirms no weakened criteria |
 | Baseline/kernel/ablation transport | Common request/tool allowance; actual comparison02 | Full live matrix and cost comparison |
 | Input and effect provenance | Field joins, full isolated replay, negative tests | Final independent replay review was platform-blocked; no final PASS |
-| Qualification command | Fresh-generation registry, raw rescore, H artifact validation, synthetic complete path | Independent gate reviewer01a0880f-6ea5-7d52-aeeb-fc9e6c0cae02 running |
+| Qualification command | Fresh-generation registry, raw rescore, H artifact validation, synthetic complete path | Independent gate PASS on01e5bac; replay review still blocked |
 | Live model capability | B03/B06 pass all modes; B11 fails all common task quality | Address grounded method failure not affecting action; run all behavioral rows |
 | Restart/recovery H11-H15 | Local supporting kernel tests and planned030 | Required separate OS-process fixture/recovery tests not implemented yet |
 | Three fresh passing batches | Fresh export and synthetic validator evidence only | Zero actual qualifying batches; all H proof and live thresholds unmet |
@@ -25,4 +25,4 @@ possible cybersecurity risk. Its error and partial review history are preserved;
 main did not retry by rewording or select another model for that blocked review.
 CXC records reconciliation needed because the platform message has no structured
 OCX error code. Do not invent one or mark the review passed. The separate gate
-review was already running in its disjoint scope and may continue normally.
+review completed PASS in its disjoint scope. It does not replace replay review.
