@@ -1,5 +1,6 @@
 import { canonical } from "../../../lina-memory/src/resources/codec.ts";
 import type { ResourceContentLimits } from "../../../lina-memory/src/resources/content.ts";
+import type { ResourceJob } from "../../../lina-memory/src/resources/job-codec.ts";
 import { ResourceStore } from "../../../lina-memory/src/resources/store.ts";
 import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts";
 import type { EnginePolicySnapshot } from "../context/policy-settings.ts";
@@ -124,6 +125,48 @@ export class ResourceEngine {
 			search: this.search,
 		});
 	}
+	/** Resolve only the extraction inputs this overview can actually visit. */
+	private async prepareOverview(
+		job: ResourceJob,
+		worker: ResourceWorker,
+		scope: () => ResourceScope,
+		signal: AbortSignal,
+	): Promise<Awaited<ReturnType<ResourceWorker["run"]>>[]> {
+		if (!this.store.indexing.valid(scope(), job)) return [];
+		const refs = [...job.refs]
+			.sort((a, b) =>
+				a.resourceId === job.resourceId
+					? -1
+					: b.resourceId === job.resourceId
+						? 1
+						: 0,
+			)
+			.slice(0, this.options.policy().resources.maxVisits);
+		const results = [];
+		for (const ref of refs) {
+			signal.throwIfAborted();
+			if (!this.store.indexing.valid(scope(), job)) break;
+			if (this.store.get(scope(), ref.resourceId).kind !== "document") continue;
+			const generation = resourceGeneration(
+				this.options.services(),
+				this.options.policy(),
+				"extract",
+			);
+			const dependency = this.store.indexing
+				.list(scope(), ref.resourceId)
+				.find(
+					(candidate) =>
+						candidate.kind === "extract" &&
+						candidate.state === "pending" &&
+						canonical(candidate.generation) === canonical(generation),
+				);
+			// Terminal failures stay terminal; no retries or expanded source budget.
+			if (dependency) results.push(await worker.run(dependency.id, signal));
+		}
+		return results;
+	}
+
+	/** Results include any extraction dependencies prepared for collection jobs. */
 	async runPending(
 		resourceId: string,
 		signal: AbortSignal,
@@ -163,6 +206,10 @@ export class ResourceEngine {
 			const combined = AbortSignal.any([signal, this.abort.signal]);
 			for (const job of jobs) {
 				combined.throwIfAborted();
+				if (job.kind === "overview")
+					results.push(
+						...(await this.prepareOverview(job, worker, scope, combined)),
+					);
 				results.push(await worker.run(job.id, combined));
 			}
 			const memory = await memoryWorker.run(resourceId, combined);

@@ -94,3 +94,26 @@ is under `/home/jun/tmp/lina-pr7-re0-engine-01a08577`.
 This repair does not claim to resolve the separately measured collection-heavy
 catalog scan cost, provider quality, or process-crash delivery of in-memory queued
 work. It adds no timer, provider fallback, test skip, or timeout extension.
+
+## Collection overview dependency ordering
+
+The next overlap probe on cc6023b found a remaining dependency-ordering defect:
+while an old overview was blocked, two document writes queued document A,
+collection, then document B. The collection committed an incomplete overview
+before B's extraction; its ready job could not be rerun merely by queueing it.
+Serial writes of the same sources completed correctly. The old blocked result
+was correctly rejected by source fencing.
+
+`ResourceEngine` now resolves current pending extraction jobs for the overview's
+root-first, visit-limited source set before invoking its worker. It preserves the
+same scope and cancellation signal and never retries terminal child jobs. The
+later normal child run reuses extraction and performs its remaining work. No new
+poller, job state, schema, source-key format or automatic retry was introduced.
+
+Actual HTTP burst and serial controls now finish complete; the burst still uses
+four local scripted summary calls. Unsupported-child processing drains with an
+honest incomplete overview. A two-visit budget extracts exactly one child and
+leaves out-of-budget jobs pending. Red/green HTTP transcripts are under
+`/home/jun/tmp/lina-pr7-overview-fix-01a08577`. These are synthetic model-service
+contract checks, not external provider or dialogue-quality evidence. Previously
+stored incomplete ready overviews are not retroactively rebuilt by this change.
