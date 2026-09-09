@@ -1,4 +1,5 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: decoded output and tool JSON.
+import { isDeepStrictEqual } from "node:util";
 import type { EpisodeTrace, ToolResultEvent } from "./harness-types.ts";
 import {
 	BEHAVIOR_IDS,
@@ -412,15 +413,9 @@ export function scoreTrial(
 							const derived = body["derived"],
 								raw = body["raw"];
 							if (!Array.isArray(derived) || !Array.isArray(raw)) return false;
-							const supplied = derived.some((value) => {
-								const item = object(value);
-								return (
-									item["id"] === adoption.id &&
-									item["revision"] === adoption.revision &&
-									item["condition"] === adoption.condition &&
-									item["kind"] === "understanding"
-								);
-							});
+							const supplied = derived.some((value) =>
+								isDeepStrictEqual(value, adoption),
+							);
 							return (
 								supplied &&
 								raw.some((value) => {

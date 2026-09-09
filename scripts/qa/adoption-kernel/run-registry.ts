@@ -92,6 +92,32 @@ export class RunRegistry {
 				};
 			});
 	}
+	qualificationCandidates(sourceHash: string, frozenAt: string): RunEntry[] {
+		const freeze = Date.parse(frozenAt);
+		if (!Number.isFinite(freeze) || !/^[a-f0-9]{64}$/.test(sourceHash))
+			throw Error("invalid candidate freeze");
+		const entries = this.entries();
+		const last = entries.slice(-3);
+		if (last.length !== 3) throw Error("three attempts required");
+		for (const entry of last) {
+			const start = Date.parse(entry.startedAt);
+			const end = entry.endedAt === null ? NaN : Date.parse(entry.endedAt);
+			if (
+				entry.purpose !== "qualification" ||
+				entry.state !== "completed" ||
+				entry.sourceHash !== sourceHash ||
+				!Number.isFinite(start) ||
+				!Number.isFinite(end) ||
+				start < freeze ||
+				end < start ||
+				entries.filter((other) => other.seed === entry.seed).length !== 1
+			)
+				throw Error(
+					"last three attempts are not fresh completed qualification candidates",
+				);
+		}
+		return last;
+	}
 	close(): void {
 		this.db.close();
 	}

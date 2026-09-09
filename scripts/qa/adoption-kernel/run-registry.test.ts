@@ -40,3 +40,66 @@ test("registry preserves begun attempts across reopen and rejects changed identi
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("qualification candidates are the last three complete fresh attempts", () => {
+	const root = mkdtempSync(join(tmpdir(), "registry-candidates-"));
+	const registry = new RunRegistry(join(root, "registry.sqlite"));
+	const sourceHash = "b".repeat(64);
+	const add = (
+		seed: string,
+		purpose: "development" | "qualification",
+		state: "completed" | "failed" | "started" = "completed",
+		source = sourceHash,
+	) => {
+		const output = join(root, `run-${registry.entries().length}`);
+		registry.begin({
+			output,
+			seed,
+			purpose,
+			sourceHash: source,
+			manifestHash: "a".repeat(64),
+			manifestPath: join(root, `${seed}.json`),
+		});
+		if (state !== "started") registry.finish(output, state);
+	};
+	try {
+		expect(() =>
+			registry.qualificationCandidates(sourceHash, "2000-01-01T00:00:00.000Z"),
+		).toThrow();
+		add("development-seed", "development");
+		add("first", "qualification");
+		add("second", "qualification");
+		add("third", "qualification");
+		expect(
+			registry
+				.qualificationCandidates(sourceHash, "2000-01-01T00:00:00.000Z")
+				.map((e) => e.seed),
+		).toEqual(["first", "second", "third"]);
+		expect(() =>
+			registry.qualificationCandidates(sourceHash, "2999-01-01T00:00:00.000Z"),
+		).toThrow();
+		expect(() =>
+			registry.qualificationCandidates(
+				"c".repeat(64),
+				"2000-01-01T00:00:00.000Z",
+			),
+		).toThrow();
+		add("development-seed", "qualification");
+		expect(() =>
+			registry.qualificationCandidates(sourceHash, "2000-01-01T00:00:00.000Z"),
+		).toThrow();
+		add("new-a", "qualification");
+		add("new-b", "qualification");
+		add("new-c", "qualification", "failed");
+		expect(() =>
+			registry.qualificationCandidates(sourceHash, "2000-01-01T00:00:00.000Z"),
+		).toThrow();
+		add("new-d", "qualification", "started");
+		expect(() =>
+			registry.qualificationCandidates(sourceHash, "2000-01-01T00:00:00.000Z"),
+		).toThrow();
+	} finally {
+		registry.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

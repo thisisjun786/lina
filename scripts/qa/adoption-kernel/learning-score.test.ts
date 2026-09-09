@@ -121,6 +121,18 @@ for (const row of ["B11", "B12"]) {
 		const result = scoreTrial(generated.privateTruth, trace);
 		expect(result.quality).toBe(true);
 		expect(result.uptake).toBe(true);
+		const missingRefs = structuredClone(trace);
+		for (const request of missingRefs.requests.filter(
+			(r) => r.stage === generated.privateTruth.expected.finalStage,
+		)) {
+			const message = request.input.messages[1];
+			if (!message) throw Error("missing final input");
+			const body = JSON.parse(message.content);
+			for (const adoption of body.derived) adoption.refs = [];
+			message.content = JSON.stringify(body);
+		}
+		expect(scoreTrial(generated.privateTruth, missingRefs).uptake).toBe(false);
+
 		if (row === "B11") {
 			const reversed = structuredClone(trace);
 			const submit = reversed.effects.filter((e) => e.tool === "submit").at(-1);
