@@ -133,13 +133,12 @@ function requestFor(
 	const route = job.modelSelection ?? config.models?.actor,
 		budget = config.usage,
 		evaluation = config.limits?.evaluation;
-	if (
-		!route ||
-		"tier" in route ||
-		!budget ||
-		!evaluation ||
-		job.modelSettingsRevision === null
-	)
+	if (route && "tier" in route)
+		throw new LifeExecutionError(
+			"unavailable",
+			"Publication tier has no frozen model selection",
+		);
+	if (!route || !budget || !evaluation || job.modelSettingsRevision === null)
 		throw new LifeExecutionError(
 			"unavailable",
 			"Publication model or evaluation configuration missing",

@@ -385,6 +385,7 @@ export class PublicationJobs {
 			!["failed", "withheld"].includes(current.status)
 		)
 			throw Error("Publication retry requires current eligible outcome");
+		// A new attempt resolves its own route; historical attempts retain the old selection.
 		const { modelSelection: _selection, ...retrySource } = current;
 		const attempt = revision(current.attempt + 1, 1),
 			next = this.save({

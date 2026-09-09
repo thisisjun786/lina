@@ -206,7 +206,9 @@ test("one installation carries permitted work into relations, a pictured post an
 		if (!model) throw Error("Missing model");
 		const simulationText = model.text;
 		model.text = (request) => {
-			if (request.version !== 2) throw Error("Unexpected simulation call");
+			if (request.version !== 3) throw Error("Unexpected simulation call");
+			expect(request.lane).toBe("publication");
+			expect(request.selection.profileId).toBe("actor");
 			return JSON.stringify({
 				kind: "post",
 				segments: [

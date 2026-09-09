@@ -109,7 +109,9 @@ test("accepted event becomes one permitted post image through Fleet and fixed we
 		const model = f.models[0];
 		if (!model) throw Error("Missing model");
 		model.text = (request) => {
-			if (request.version !== 2) throw Error("Unexpected simulation call");
+			if (request.version !== 3) throw Error("Unexpected simulation call");
+			expect(request.lane).toBe("publication");
+			expect(request.selection.profileId).toBe("actor");
 			return JSON.stringify({
 				kind: "post",
 				segments: [
