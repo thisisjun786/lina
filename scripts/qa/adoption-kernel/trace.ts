@@ -150,6 +150,7 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		}
 	}
 	const decisions = new Set<string>();
+	const consumedRequests = new Set<number>();
 	const adoptedRequests = new Set<number>();
 	const adopted = new Map<string, { requestIndex: number; stage: number }>();
 	const answered = new Map<string, number>();
@@ -164,6 +165,36 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		text(k["decisionId"]);
 		if (decisions.has(k["decisionId"])) throw Error("duplicate step decision");
 		decisions.add(k["decisionId"]);
+		if (s["requestIndex"] !== null) {
+			const index = s["requestIndex"] as number;
+			if (consumedRequests.has(index))
+				throw Error("request reused across decisions");
+			consumedRequests.add(index);
+			const request = requests[index] as EpisodeTrace["requests"][number];
+			if (!request || request.stage !== s["stage"])
+				throw Error("decision request stage mismatch");
+			const expectedKinds: Record<string, string> = {
+				answered: "answer",
+				adopted: "adopt",
+				dispatched: "tool",
+				deferred: "defer",
+				noop: "noop",
+			};
+			const expectedKind = expectedKinds[String(k["status"])];
+			if (expectedKind) {
+				if (request.transport.kind !== "ok")
+					throw Error("terminal action without model response");
+				const proposal = parseProposal(request.proposal);
+				const input = JSON.parse(request.input.messages[1]?.content ?? "");
+				if (
+					proposal.kind !== expectedKind ||
+					proposal.purposeRevision !== input.purpose?.revision
+				)
+					throw Error("decision status disagrees with proposal");
+			}
+		} else if (!["unknown", "rejected"].includes(String(k["status"])))
+			throw Error("action decision without a request");
+
 		if (k["status"] === "adopted") {
 			if (
 				typeof s["requestIndex"] !== "number" ||
@@ -182,6 +213,8 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 			answered.set(k["decisionId"], s["stage"] as number);
 		if (k["detail"] !== undefined) text(k["detail"]);
 	}
+	if (consumedRequests.size !== requests.length)
+		throw Error("model request has no decision");
 	const effects = new Set<string>();
 	const deliveryReceipts = new Map<
 		string,
@@ -196,6 +229,38 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		if (receipt.effectId !== e["effectId"] || effects.has(receipt.effectId))
 			throw Error("invalid effect identity");
 		effects.add(receipt.effectId);
+		if (!receipt.effectId.startsWith(`${r["episodeId"]}:prelude:`)) {
+			const step = (r["steps"] as EpisodeTrace["steps"]).find(
+				(step) =>
+					receipt.effectId === `${step.kernel.decisionId}:answer` ||
+					receipt.effectId === `${step.kernel.decisionId}:tool`,
+			);
+			if (!step || step.requestIndex === null)
+				throw Error("effect without model decision");
+			const request = requests[
+				step.requestIndex
+			] as EpisodeTrace["requests"][number];
+			if (!request || request.transport.kind !== "ok")
+				throw Error("effect without model response");
+			const proposal = parseProposal(request.proposal);
+			if (e["tool"] === "@delivery") {
+				const input = JSON.parse(request.input.messages[1]?.content ?? "");
+				if (
+					proposal.kind !== "answer" ||
+					!isDeepStrictEqual(e["args"], {
+						bytes: proposal.text,
+						audience: input.purpose?.audience,
+					})
+				)
+					throw Error("delivery differs from proposed answer");
+			} else if (
+				proposal.kind !== "tool" ||
+				proposal.tool !== e["tool"] ||
+				!isDeepStrictEqual(proposal.args, e["args"])
+			)
+				throw Error("tool effect differs from proposal");
+		}
+
 		if (e["tool"] === "@delivery" && receipt.status === "completed") {
 			const payload = object(receipt.output, ["bytes", "audience", "fence"]);
 			const submitted = object(e["args"], ["bytes", "audience"]);

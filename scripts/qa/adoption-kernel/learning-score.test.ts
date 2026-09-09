@@ -123,6 +123,36 @@ for (const row of ["B11", "B12"]) {
 		expect(result.quality).toBe(true);
 		expect(result.uptake).toBe(true);
 		expect(decodeTrace(trace).status).toBe("complete");
+		const wrongEffect = structuredClone(trace);
+		const deliveryEffect = wrongEffect.effects.find(
+			(effect) => effect.tool === "@delivery",
+		);
+		if (!deliveryEffect) throw Error("missing delivery effect");
+		deliveryEffect.args = { bytes: "forged", audience: "private" };
+		if (
+			deliveryEffect.receipt.output &&
+			typeof deliveryEffect.receipt.output === "object" &&
+			!Array.isArray(deliveryEffect.receipt.output)
+		)
+			deliveryEffect.receipt.output["bytes"] = "forged";
+		for (const delivery of wrongEffect.delivered)
+			if (delivery.effectId === deliveryEffect.effectId)
+				delivery.bytes = "forged";
+		expect(() => decodeTrace(wrongEffect)).toThrow();
+
+		const reused = structuredClone(trace);
+		const answeredStep = reused.steps.find(
+			(step) => step.kernel.status === "answered",
+		);
+		if (!answeredStep) throw Error("missing answer");
+		answeredStep.requestIndex = 0;
+		expect(() => decodeTrace(reused)).toThrow();
+		const wrongStatus = structuredClone(trace);
+		const firstStep = wrongStatus.steps[0];
+		if (!firstStep) throw Error("missing first step");
+		firstStep.kernel.status = "noop";
+		expect(() => decodeTrace(wrongStatus)).toThrow();
+
 		const crossStatus = structuredClone(trace);
 		const sourceStep = crossStatus.steps[0];
 		if (!sourceStep) throw Error("missing step");
