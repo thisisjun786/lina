@@ -48,17 +48,17 @@ export interface WorkInputSource {
 	receipt: WorkReceiptProvenance;
 	fields: SharedWorkFields | null;
 }
-export interface WorkEvidenceRecord {
+export interface WorkEvidenceRecordV1 {
 	inputId: string;
 	source: WorkInputSource;
 }
-export interface WorkEvidenceSnapshot {
+export interface WorkEvidenceSnapshotV1 {
 	version: 1;
 	worldId: string;
 	revision: number;
 	permissionRevision: number;
 	workConfigDigest: string;
-	records: WorkEvidenceRecord[];
+	records: WorkEvidenceRecordV1[];
 }
 export interface WorkSourceRef {
 	operation: "upsert" | "restrict";
@@ -81,3 +81,65 @@ export interface WorkAncestryRecord {
 	lifeRevision: number;
 	refs: WorkSourceRef[];
 }
+
+export type ResourceActivityOutcome = "recorded" | "verified_result" | "failed";
+export interface ResourceActivityReceipt {
+	activityId: string;
+	activityRevision: number;
+	supersedesRevision: number | null;
+	resourceId: string;
+	resourceRevision: number;
+	versionId: string;
+	memoryId: string | null;
+	actorAgentId: string;
+	participantAgentIds: string[];
+	activityKind:
+		| "development"
+		| "research"
+		| "writing"
+		| "organization"
+		| "search"
+		| "other";
+	outcome: ResourceActivityOutcome;
+	evidenceDigest: string;
+	grantId: string;
+	grantRevision: number;
+	correction: { kind: "amend" | "retract"; reason: string } | null;
+}
+export interface ResourceActivitySource {
+	kind: "resource_activity";
+	version: 1;
+	deliveryId: string;
+	operation: "upsert" | "restrict";
+	sourceDigest: string;
+	policyRevision: number;
+	receipt: ResourceActivityReceipt;
+	fields: {
+		categoryId: string;
+		outcome: ResourceActivityOutcome | null;
+		participantAgentIds: string[] | null;
+		summary: string | null;
+	} | null;
+}
+
+/** New history format; legacy snapshot rows remain byte-for-byte v1 records. */
+export type WorkEvidenceRecordV2 =
+	| { origin: "codex-task"; inputId: string; source: WorkInputSource }
+	| {
+			origin: "resource-activity";
+			inputId: string;
+			source: ResourceActivitySource;
+	  };
+export type WorkEvidenceSnapshotV2 = Omit<
+	WorkEvidenceSnapshotV1,
+	"version" | "records"
+> & {
+	version: 2;
+	records: WorkEvidenceRecordV2[];
+};
+
+export type WorkEvidenceSnapshot =
+	| WorkEvidenceSnapshotV1
+	| WorkEvidenceSnapshotV2;
+
+export type WorkEvidenceRecord = WorkEvidenceRecordV1 | WorkEvidenceRecordV2;

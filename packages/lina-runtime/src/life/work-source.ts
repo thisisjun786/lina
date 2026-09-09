@@ -11,6 +11,11 @@ export function assertWorkSourceCurrent(
 ) {
 	if (!snapshot) return;
 	for (const { source: record } of snapshot.records) {
+		if (record.kind === "resource_activity")
+			throw new LifeExecutionError(
+				"stale",
+				"Resource activity source owner is not connected",
+			);
 		if (
 			!source?.workDeliveryCurrent(record.deliveryId, record.sourceDigest) ||
 			(record.operation === "upsert" &&

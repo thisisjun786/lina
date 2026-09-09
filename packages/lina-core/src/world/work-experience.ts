@@ -1,6 +1,10 @@
 import type { LifeStep } from "./autonomy-types.ts";
 import type { LifeCommitV3 } from "./life-types.ts";
-import { ownWork, workExperienceId } from "./work-selection.ts";
+import {
+	ownWork,
+	workExperienceId,
+	workReceiptIdentity,
+} from "./work-selection.ts";
 import type { WorkEvidenceRecord } from "./work-types.ts";
 
 /** Exactly one experience per receipt revision and owner; permission changes only change eligibility. */
@@ -29,9 +33,9 @@ export function workExperiences(step: LifeStep): Array<{
 			const prior = step.source.inputs.filter(
 				(input) =>
 					input.version === 2 &&
-					input.source.receipt.receiptId === record.source.receipt.receiptId &&
+					input.source.receipt.receiptId === workReceiptIdentity(record).id &&
 					input.source.receipt.receiptRevision <
-						record.source.receipt.receiptRevision,
+						workReceiptIdentity(record).revision,
 			);
 			if (
 				prior.some(

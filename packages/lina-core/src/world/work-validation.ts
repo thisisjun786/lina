@@ -12,10 +12,13 @@ import {
 	revision,
 } from "./life-json.ts";
 import { fields, text } from "./validation.ts";
+import { parseResourceActivitySource } from "./work-activity-validation.ts";
 import type {
 	SharedWorkFields,
 	WorkConfig,
+	WorkEvidenceRecordV2,
 	WorkEvidenceSnapshot,
+	WorkEvidenceSnapshotV2,
 	WorkInfluenceRule,
 	WorkInputSource,
 	WorkReceiptProvenance,
@@ -222,6 +225,13 @@ export function assertWorkConfigReferences(
 
 export function parseWorkEvidence(value: unknown): WorkEvidenceSnapshot {
 	jsonBoundary(value);
+	if (
+		value &&
+		typeof value === "object" &&
+		"version" in value &&
+		value.version === 2
+	)
+		return parseWorkEvidenceV2(value);
 	fields(value, [
 		"version",
 		"worldId",
@@ -250,6 +260,67 @@ export function parseWorkEvidence(value: unknown): WorkEvidenceSnapshot {
 		worldId: identifier(value.worldId),
 		revision: current,
 		permissionRevision: permission,
+		workConfigDigest: digest(value.workConfigDigest),
+		records,
+	};
+}
+
+export function parseWorkEvidenceV2(value: unknown): WorkEvidenceSnapshotV2 {
+	jsonBoundary(value);
+	fields(value, [
+		"version",
+		"worldId",
+		"revision",
+		"permissionRevision",
+		"workConfigDigest",
+		"records",
+	]);
+	if (
+		value.version !== 2 ||
+		!Array.isArray(value.records) ||
+		value.records.length > 4096
+	)
+		throw Error("Invalid work evidence v2");
+	const keys = new Set<string>();
+	const deliveries = new Set<string>();
+	const records = value.records.map((raw: unknown): WorkEvidenceRecordV2 => {
+		fields(raw, ["origin", "inputId", "source"]);
+		const inputId = identifier(raw.inputId);
+		const record: WorkEvidenceRecordV2 =
+			raw.origin === "codex-task"
+				? {
+						origin: "codex-task",
+						inputId,
+						source: parseWorkInputSource(raw.source),
+					}
+				: {
+						origin: enumeration(raw.origin, ["resource-activity"]),
+						inputId,
+						source: parseResourceActivitySource(raw.source),
+					};
+		const key =
+			record.origin === "codex-task"
+				? `task:${record.source.receipt.receiptId}`
+				: `resource:${record.source.receipt.activityId}`;
+		if (
+			inputId !== record.source.deliveryId ||
+			keys.has(key) ||
+			deliveries.has(inputId)
+		)
+			throw Error("Invalid work evidence identity");
+		keys.add(key);
+		deliveries.add(inputId);
+		return record;
+	});
+	const current = revision(value.revision),
+		permissionRevision = revision(value.permissionRevision);
+	if (permissionRevision > current)
+		throw Error("Invalid work evidence revision");
+	return {
+		version: 2,
+		worldId: identifier(value.worldId),
+		revision: current,
+		permissionRevision,
 		workConfigDigest: digest(value.workConfigDigest),
 		records,
 	};

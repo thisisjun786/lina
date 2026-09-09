@@ -2,13 +2,28 @@ import type { AutonomySource, EventCandidate } from "./autonomy-types.ts";
 import { finite, lifeDigest } from "./life-json.ts";
 import type { WorkEvidenceRecord, WorkInfluenceRule } from "./work-types.ts";
 
+export function workReceiptIdentity(record: WorkEvidenceRecord) {
+	return record.source.kind === "work"
+		? {
+				id: record.source.receipt.receiptId,
+				revision: record.source.receipt.receiptRevision,
+			}
+		: {
+				id: record.source.receipt.activityId,
+				revision: record.source.receipt.activityRevision,
+			};
+}
 type Source = Pick<AutonomySource, "work" | "config">;
 export function workExperienceId(
 	worldId: string,
 	record: WorkEvidenceRecord,
 	agentId: string,
 ): string {
-	return `work-${lifeDigest([worldId, record.source.receipt.receiptId, record.source.receipt.receiptRevision, agentId]).slice(0, 48)}`;
+	const receipt = workReceiptIdentity(record);
+	const identity = [worldId, receipt.id, receipt.revision, agentId];
+	if (record.source.kind === "resource_activity")
+		identity.push("resource-activity");
+	return `work-${lifeDigest(identity).slice(0, 48)}`;
 }
 export function workRules(
 	source: Source,
@@ -31,12 +46,15 @@ export function matchingWork(
 		return (
 			record.operation === "upsert" &&
 			shared !== null &&
-			receipt.attributionStatus === "known" &&
+			(record.kind === "resource_activity" ||
+				record.receipt.attributionStatus === "known") &&
 			shared.categoryId === rule.categoryId &&
 			(!rule.outcomes.length ||
 				(shared.outcome !== null && rule.outcomes.includes(shared.outcome))) &&
 			(rule.attribution === "owner"
-				? receipt.ownerAgentId === agentId
+				? (record.kind === "work"
+						? record.receipt.ownerAgentId
+						: record.receipt.actorAgentId) === agentId
 				: receipt.participantAgentIds.includes(agentId))
 		);
 	});
@@ -82,7 +100,7 @@ export function projectWorkObservations(source: Source, agentId: string) {
 			outcome: fields.outcome,
 			participantAgentIds: fields.participantAgentIds,
 			summary: fields.summary,
-			corrected: record.source.receipt.receiptRevision > 1,
+			corrected: workReceiptIdentity(record).revision > 1,
 		};
 	});
 }

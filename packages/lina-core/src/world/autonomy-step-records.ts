@@ -195,6 +195,8 @@ export class LifeStepRecords {
 		};
 		if (raw.version !== 3 && source.inputs.some((input) => input.version === 3))
 			throw Error("Legacy step cannot carry publication input");
+		if (source.work?.version === 2)
+			throw Error("Legacy step cannot carry work evidence v2");
 		assertAutonomySource(source);
 		const step = raw as unknown as LifeStep;
 		if (

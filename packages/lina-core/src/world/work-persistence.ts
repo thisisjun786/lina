@@ -11,9 +11,10 @@ import {
 	workSubjectAllowed,
 } from "./work-ancestry.ts";
 import { workExperiences } from "./work-experience.ts";
+import { workReceiptIdentity } from "./work-selection.ts";
 import type {
 	WorkAncestryRecord,
-	WorkEvidenceSnapshot,
+	WorkEvidenceSnapshotV1,
 	WorkSubject,
 } from "./work-types.ts";
 
@@ -37,7 +38,7 @@ type Row = {
 function workDigest(config: LifeConfig): string {
 	return lifeDigest(config.version === 2 ? config.work : null);
 }
-function empty(worldId: string): WorkEvidenceSnapshot {
+function empty(worldId: string): WorkEvidenceSnapshotV1 {
 	return {
 		version: 1,
 		worldId,
@@ -57,7 +58,7 @@ export class WorkPersistence {
 		private readonly db: DatabaseSync,
 		private readonly access: Access,
 	) {}
-	snapshot(worldId: string, at?: number): WorkEvidenceSnapshot {
+	snapshot(worldId: string, at?: number): WorkEvidenceSnapshotV1 {
 		if (at !== undefined) revision(at);
 		this.access.assertWorld(worldId);
 		const rows = this.db
@@ -203,8 +204,8 @@ export class WorkPersistence {
 					.prepare("INSERT INTO life_work_experiences VALUES(?,?,?,?,?,?,?)")
 					.run(
 						step.worldId,
-						record.source.receipt.receiptId,
-						record.source.receipt.receiptRevision,
+						workReceiptIdentity(record).id,
+						workReceiptIdentity(record).revision,
 						agentId,
 						experienceId,
 						record.inputId,
@@ -229,8 +230,8 @@ export class WorkPersistence {
 				)
 				.map(({ record, agentId, experienceId }) => ({
 					world_id: step.worldId,
-					receipt_id: record.source.receipt.receiptId,
-					receipt_revision: record.source.receipt.receiptRevision,
+					receipt_id: workReceiptIdentity(record).id,
+					receipt_revision: workReceiptIdentity(record).revision,
 					agent_id: agentId,
 					experience_id: experienceId,
 					input_id: record.inputId,
@@ -324,9 +325,9 @@ export class WorkPersistence {
 			if (input.version === 2 && !ids.has(input.id)) invalid();
 	}
 	private applyInput(
-		state: WorkEvidenceSnapshot,
+		state: WorkEvidenceSnapshotV1,
 		input: LifeInputV2,
-	): WorkEvidenceSnapshot {
+	): WorkEvidenceSnapshotV1 {
 		const source = input.source,
 			prior = state.records.find(
 				(record) =>
@@ -377,8 +378,8 @@ export class WorkPersistence {
 		};
 	}
 	private save(
-		previous: WorkEvidenceSnapshot,
-		next: WorkEvidenceSnapshot,
+		previous: WorkEvidenceSnapshotV1,
+		next: WorkEvidenceSnapshotV1,
 		event: WorkHistoryEvent,
 		inputId: string | null,
 	): void {

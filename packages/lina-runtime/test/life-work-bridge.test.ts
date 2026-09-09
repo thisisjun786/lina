@@ -72,7 +72,9 @@ test("source reopen drains actual native receipt into world before ack, without 
 			participantAgentIds: null,
 			summary: null,
 		});
-		expect(evidence.records[0]?.source.receipt.ownerAgentId).toBe("lina");
+		const taskSource = evidence.records[0]?.source;
+		if (taskSource?.kind !== "work") throw Error("Missing task source");
+		expect(taskSource.receipt.ownerAgentId).toBe("lina");
 		expect(f.tasks.pendingWorkDeliveries()).toEqual([]);
 		const serialized = JSON.stringify(f.world.store.lifeInputs(f.worldId));
 		expect(serialized).not.toContain("Private task");

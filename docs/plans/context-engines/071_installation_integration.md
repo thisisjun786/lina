@@ -289,3 +289,12 @@ WorkOutcome 네 값은 유지했다. recorded 규칙 허용과 task receipt 거�
 고정 선택을 가진 요청을 prepare한 뒤 별도 부모 프로세스에서 복원·동시 complete·
 결과 재복원을 수행했고, 로컬 provider 전송은 한 번이었다. native v3 시험
 1개·17개 단언이 통과했다. Fleet Step v4와의 연결 완료 증거로 대체하지 않는다.
+
+ResourceActivityReceipt/Source는 기존 work-types.ts에 공통 타입으로 정의하고,
+work-activity-validation.ts에서 구조 검증한다. 이 검사는 실제 blob·grant 검증을
+대체하지 않는다. WorkEvidenceSnapshot은 v1 또는 origin wrapper를 가진 v2로
+읽으며, v1에 wrapper를 섞거나 origin과 source 종류가 다르면 거부한다. 자료
+활동의 actor와 revision으로 선택·경험 식별을 계산하되 가짜 task 필드는 만들지
+않는다. 기존 WorkPersistence는 아직 v1 이력을 쓰며, legacy step은 v2 source를
+거부한다. 다음 연결은 원자적 upgrade history와 첫 자료 입력 admission이다.
+관련 6개 파일 24개 테스트·120개 단언, 루트·브라우저 타입 검사 통과.
