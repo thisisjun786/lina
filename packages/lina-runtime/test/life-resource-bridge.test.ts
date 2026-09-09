@@ -6,7 +6,10 @@ import { WorldStore } from "../../lina-core/src/world/store.ts";
 import { autonomyStoreFixture } from "../../lina-core/test/life-autonomy-store-fixture.ts";
 import { ResourceActivities } from "../../lina-memory/src/resources/activities.ts";
 import { ResourceStore } from "../../lina-memory/src/resources/store.ts";
-import { createResourceActivityBridge } from "../src/life/resource-bridge.ts";
+import {
+	createResourceActivityBridge,
+	ResourceActivityDeliveryError,
+} from "../src/life/resource-bridge.ts";
 
 test("resource delivery replays world admission after acknowledgement failure and propagates revocation", () => {
 	const f = autonomyStoreFixture();
@@ -86,7 +89,9 @@ test("resource delivery replays world admission after acknowledgement failure an
 			scope,
 			world,
 		});
-		expect(() => broken.poll(worldId)).toThrow("ack interrupted");
+		expect(failureOf(() => broken.poll(worldId))).toBeInstanceOf(
+			ResourceActivityDeliveryError,
+		);
 		const snapshot = world.workEvidence(worldId);
 		expect(snapshot.records).toHaveLength(1);
 		world.close();
@@ -132,11 +137,15 @@ test("resource delivery replays world admission after acknowledgement failure an
 			policyRevision: 1,
 		});
 		world.setLifeConfig(worldId, rev, { ...current, version: 2, work: null });
-		expect(() => bridge.poll(worldId)).toThrow(/not configured/);
+		expect(failureOf(() => bridge.poll(worldId))).toBeInstanceOf(
+			ResourceActivityDeliveryError,
+		);
 		expect(world.workEvidence(worldId).records[0]?.source.operation).toBe(
 			"restrict",
 		);
-		expect(() => bridge.poll(worldId)).toThrow(/not configured/);
+		expect(failureOf(() => bridge.poll(worldId))).toBeInstanceOf(
+			ResourceActivityDeliveryError,
+		);
 		expect(activities.pending(scope, worldId)).toHaveLength(1);
 	} finally {
 		world.close();
@@ -146,3 +155,12 @@ test("resource delivery replays world admission after acknowledgement failure an
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+function failureOf(run: () => unknown): unknown {
+	try {
+		run();
+	} catch (error) {
+		return error;
+	}
+	throw Error("Expected a delivery failure");
+}

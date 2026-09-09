@@ -4,6 +4,13 @@ import type { WorldStore } from "../../../lina-core/src/world/store.ts";
 import type { ResourceActivities } from "../../../lina-memory/src/resources/activities.ts";
 import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts";
 
+/** Per-delivery failures; installation/ledger enumeration failures remain distinct. */
+export class ResourceActivityDeliveryError extends AggregateError {
+	constructor(errors: unknown[]) {
+		super(errors, "Resource activity delivery failed");
+	}
+}
+
 /** Synchronous admission precedes acknowledgement; interrupted delivery replays the same input. */
 export function createResourceActivityBridge(options: {
 	source: Pick<ResourceActivities, "pending" | "current" | "ack">;
@@ -49,13 +56,7 @@ export function createResourceActivityBridge(options: {
 					failures.push(error);
 				}
 			}
-			if (failures.length) {
-				if (failures.length === 1) throw failures[0];
-				throw new AggregateError(
-					failures,
-					"Resource activity deliveries failed",
-				);
-			}
+			if (failures.length) throw new ResourceActivityDeliveryError(failures);
 			return result;
 		},
 	};

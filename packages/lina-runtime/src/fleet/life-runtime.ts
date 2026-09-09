@@ -20,6 +20,7 @@ import {
 	freezeLifeModelSelection,
 	resolveLifeModelProfile,
 } from "../life/model-selection.ts";
+import { ResourceActivityDeliveryError } from "../life/resource-bridge.ts";
 import type { LifeForeground } from "../life/runner.ts";
 import { createLifeRuntime, systemLifeClock } from "../life/runtime.ts";
 import type { LifeClock } from "../life/scheduler.ts";
@@ -355,6 +356,7 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		},
 	});
 	const failures = new Map<string, "scheduler_unavailable">();
+	const activityFailures = new Set<string>();
 	const runtime = createLifeRuntime({
 		store,
 		model,
@@ -372,7 +374,13 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 			: {}),
 		beforePrepare: (worldId) => {
 			bridge?.poll();
-			options.activitySource?.poll(worldId);
+			try {
+				options.activitySource?.poll(worldId);
+				activityFailures.delete(worldId);
+			} catch (error) {
+				if (!(error instanceof ResourceActivityDeliveryError)) throw error;
+				activityFailures.add(worldId);
+			}
 		},
 		assertSourceCurrent: (step) => assertWork(step.source.work),
 		publication: {
@@ -426,6 +434,9 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		},
 		status: (worldId: string) => ({
 			...runtime.status(worldId),
+			activityDeliveryError: activityFailures.has(worldId)
+				? "activity_delivery_failed"
+				: null,
 			schedulerError:
 				failures.get(worldId) ?? failures.get("scheduler") ?? null,
 		}),
