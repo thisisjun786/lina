@@ -111,6 +111,8 @@ export interface EventPublicationJob {
 	material: EventPublicationMaterial | null;
 	author: PublicationAuthor | null;
 	modelSettingsRevision: number | null;
+	/** Absent on historical jobs; frozen atomically with new material. */
+	modelSelection?: import("./model-selection.ts").LifeModelSelection;
 	decision: PublicationDecision | null;
 	postId: string | null;
 	error: string | null;

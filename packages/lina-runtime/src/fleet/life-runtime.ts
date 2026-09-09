@@ -245,9 +245,7 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		providerEnv: options.providerEnv,
 		...(options.command ? { command: options.command } : {}),
 		beforeOutbound(request) {
-			if (request.version === 3 && request.lane === "publication")
-				throw Error("Frozen publication owner is not connected");
-			if (request.version === 3) {
+			if (request.version === 3 && request.lane !== "publication") {
 				store.assertLifeModelOutbound(request);
 				assertWork(store.lifeStep(request.worldId, request.stepId).source.work);
 				return;
@@ -269,10 +267,8 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 			assertWork(store.workEvidence(request.worldId));
 		},
 		selection(request) {
-			if (request.version === 3 && request.lane === "publication")
-				throw Error("Frozen publication owner is not connected");
 			const config = store.lifeConfig(request.worldId);
-			if (request.version === 2) {
+			if (request.lane === "publication") {
 				const job = store.assertPublicationDispatch(
 					request.worldId,
 					request.jobId,
@@ -284,6 +280,10 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 					modelSettings.snapshot().revision,
 				);
 				if (
+					(request.version === 3
+						? !job.modelSelection ||
+							lifeDigest(request.selection) !== lifeDigest(job.modelSelection)
+						: job.modelSelection !== undefined) ||
 					request.id !== publicationModelId(job.attemptId) ||
 					request.agentId !== job.authorAgentId ||
 					lifeDigest({
@@ -332,8 +332,12 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 			const route = config.models?.[lane];
 			if (!route) throw Error("LIFE exact model/settings selection changed");
 			if (request.version === 3) {
-				const step = store.lifeStep(request.worldId, request.stepId);
-				const saved = step.source.resolvedModels?.[lane];
+				const saved =
+					request.lane === "publication"
+						? store.publicationJob(request.worldId, request.jobId)
+								.modelSelection
+						: store.lifeStep(request.worldId, request.stepId).source
+								.resolvedModels?.[lane];
 				const current = freezeLifeModelSelection(settings, route);
 				if (
 					settings.revision !== request.modelSettingsRevision ||
@@ -387,6 +391,11 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		publication: {
 			store,
 			author: publicationAuthor,
+			resolveModel(worldId) {
+				const route = store.lifeConfig(worldId).models?.actor;
+				if (!route) throw Error("Publication model not configured");
+				return freezeLifeModelSelection(modelSettings.snapshot(), route);
+			},
 			assertSourceCurrent: (job) => assertWork(store.workEvidence(job.worldId)),
 		},
 		config: (worldId) => store.lifeConfig(worldId),

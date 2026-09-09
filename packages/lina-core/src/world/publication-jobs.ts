@@ -7,6 +7,10 @@ import {
 	revision,
 } from "./life-json.ts";
 import {
+	type LifeModelSelection,
+	parseLifeModelSelection,
+} from "./model-selection.ts";
+import {
 	parsePublicationAuthor,
 	parsePublicationJob,
 	parsePublicationMaterial,
@@ -98,6 +102,8 @@ function continuity(
 	if (
 		prior.material &&
 		(lifeDigest(prior.material) !== lifeDigest(next.material) ||
+			lifeDigest(prior.modelSelection ?? null) !==
+				lifeDigest(next.modelSelection ?? null) ||
 			lifeDigest(prior.author) !== lifeDigest(next.author) ||
 			prior.modelSettingsRevision !== next.modelSettingsRevision)
 	)
@@ -237,12 +243,16 @@ export class PublicationJobs {
 		material: PublicationMaterial,
 		author: PublicationAuthor,
 		modelSettingsRevision: number,
+		modelSelection?: LifeModelSelection,
 	): PublicationJob {
 		const current = this.get(worldId, jobId),
 			source = {
 				material: parsePublicationMaterial(material),
 				author: parsePublicationAuthor(author),
 				modelSettingsRevision: revision(modelSettingsRevision),
+				...(modelSelection === undefined
+					? {}
+					: { modelSelection: parseLifeModelSelection(modelSelection) }),
 			};
 		if (current.version !== source.material.version)
 			throw Error("Publication job material version mismatch");
@@ -253,6 +263,9 @@ export class PublicationJobs {
 					material: current.material,
 					author: current.author,
 					modelSettingsRevision: current.modelSettingsRevision,
+					...(current.modelSelection === undefined
+						? {}
+						: { modelSelection: current.modelSelection }),
 				})
 			)
 				throw Error("Publication preparation conflict");
@@ -372,9 +385,10 @@ export class PublicationJobs {
 			!["failed", "withheld"].includes(current.status)
 		)
 			throw Error("Publication retry requires current eligible outcome");
+		const { modelSelection: _selection, ...retrySource } = current;
 		const attempt = revision(current.attempt + 1, 1),
 			next = this.save({
-				...current,
+				...retrySource,
 				revision: revision(current.revision + 1, 1),
 				attempt,
 				attemptId: publicationAttemptId(jobId, attempt),

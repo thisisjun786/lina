@@ -1,10 +1,13 @@
 import type { LifeConfig } from "../../../lina-core/src/world/authoring-types.ts";
 import type {
+	FrozenPublicationModelRequest,
 	LifeLease,
 	LifeModelReconciliation,
 	LifeModelRecord,
 	PublicationModelRequest,
 } from "../../../lina-core/src/world/autonomy-types.ts";
+import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
+import type { LifeModelSelection } from "../../../lina-core/src/world/model-selection.ts";
 import {
 	buildPublicationModelInput,
 	publicationModelId,
@@ -49,6 +52,7 @@ export interface LifePublicationOptions {
 		frozen?: PublicationAuthor | null,
 	): PublicationAuthor;
 	assertSourceCurrent?(job: PublicationJob): void;
+	resolveModel?(worldId: string): LifeModelSelection;
 }
 interface Context {
 	publication: LifePublicationOptions;
@@ -101,6 +105,15 @@ function current(context: Context, job: PublicationJob) {
 		job.author,
 	);
 	const { modelSettingsRevision } = context.identity(job.worldId);
+	if (
+		job.modelSelection &&
+		lifeDigest(context.publication.resolveModel?.(job.worldId) ?? null) !==
+			lifeDigest(job.modelSelection)
+	)
+		throw new LifeExecutionError(
+			"unavailable",
+			"Publication frozen model selection changed",
+		);
 	if (job.material)
 		context.publication.store.assertPublicationCurrent(
 			job.worldId,
@@ -116,8 +129,8 @@ function requestFor(
 	context: Context,
 	job: PublicationJob,
 	config: LifeConfig,
-): PublicationModelRequest {
-	const route = config.models?.actor,
+): PublicationModelRequest | FrozenPublicationModelRequest {
+	const route = job.modelSelection ?? config.models?.actor,
 		budget = config.usage,
 		evaluation = config.limits?.evaluation;
 	if (
@@ -155,24 +168,30 @@ function requestFor(
 			"budget",
 			"Publication input exceeds configured evaluation bound",
 		);
-	return {
-		version: 2,
+	const common = {
 		id: publicationModelId(job.attemptId),
 		worldId: job.worldId,
 		jobId: job.id,
-		lane: "publication",
+		lane: "publication" as const,
 		agentId: job.authorAgentId,
-		...route,
+		provider: route.provider,
+		model: route.model,
 		modelSettingsRevision: job.modelSettingsRevision,
 		...prompt,
 		limits: {
 			maxInputTokens: inputTokens,
-			maxOutputTokens: outputTokens,
+			maxOutputTokens: Math.min(
+				outputTokens,
+				job.modelSelection?.maxOutputTokens ?? outputTokens,
+			),
 			maxInputBytes: bytes,
 			maxOutputBytes: bytes,
 			timeoutMs: MODEL_TIMEOUT_MS,
 		},
 	};
+	return job.modelSelection
+		? { ...common, version: 3, selection: job.modelSelection }
+		: { ...common, version: 2 };
 }
 
 /** Await cancellation acknowledgement, retaining the runner's active slot throughout. */
@@ -211,7 +230,8 @@ async function reconcile(
 	record: LifeModelRecord,
 ): Promise<boolean> {
 	const { request } = record.prepared;
-	if (request.version !== 2) throw Error("Publication receipt owner mismatch");
+	if (request.lane !== "publication")
+		throw Error("Publication receipt owner mismatch");
 	let result: LifeModelReconciliation;
 	try {
 		result = await context.model.reconcile(record.prepared);
@@ -320,6 +340,7 @@ export async function runLifePublication(
 					job.id,
 					authority.author,
 					authority.modelSettingsRevision,
+					context.publication.resolveModel?.(worldId),
 				);
 			if (job.status === "prepared") await invoke(context, job);
 			job = store.publicationJob(worldId, job.id);

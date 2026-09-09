@@ -29,7 +29,7 @@ for (const deny of [false, true])
 						return createCodexLifeModel({
 							...options,
 							beforeOutbound(request) {
-								if (request.version === 2) {
+								if (request.lane === "publication") {
 									publicationChecks++;
 									if (deny) {
 										const settings = store?.publicationSettings(

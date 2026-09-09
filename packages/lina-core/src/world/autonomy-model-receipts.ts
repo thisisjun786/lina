@@ -54,7 +54,7 @@ export class LifeModelReceipts {
 	private requestOwnerId(request: LifeModelRequest): string {
 		if (this.owner === "step" && request.lane !== "publication")
 			return request.stepId;
-		if (this.owner === "publication" && request.version === 2)
+		if (this.owner === "publication" && request.lane === "publication")
 			return request.jobId;
 		throw Error("LIFE model request ownership mismatch");
 	}

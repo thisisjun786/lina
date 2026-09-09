@@ -8,6 +8,7 @@ import {
 	nullableId,
 	revision,
 } from "./life-json.ts";
+import { parseLifeModelSelection } from "./model-selection.ts";
 import {
 	parsePublicationAuthor,
 	parsePublicationEventSource,
@@ -129,6 +130,10 @@ export function publicationAttemptId(jobId: string, attempt: number): string {
 }
 export function parsePublicationJob(value: unknown): PublicationJob {
 	jsonBoundary(value);
+	const selected =
+		value !== null &&
+		typeof value === "object" &&
+		Object.hasOwn(value, "modelSelection");
 	const reply = !!(
 		value &&
 		typeof value === "object" &&
@@ -149,6 +154,7 @@ export function parsePublicationJob(value: unknown): PublicationJob {
 		"material",
 		"author",
 		"modelSettingsRevision",
+		...(selected ? (["modelSelection"] as const) : []),
 		"decision",
 		"postId",
 		"error",
@@ -228,6 +234,16 @@ export function parsePublicationJob(value: unknown): PublicationJob {
 			postId: common.postId,
 			error: common.error,
 		};
+	}
+	if (selected) {
+		const selection = parseLifeModelSelection(value.modelSelection);
+		if (
+			!material ||
+			!author ||
+			selection.settingsRevision !== result.modelSettingsRevision
+		)
+			throw Error("Incomplete publication model selection");
+		result.modelSelection = selection;
 	}
 	const expectedId =
 		result.version === 2

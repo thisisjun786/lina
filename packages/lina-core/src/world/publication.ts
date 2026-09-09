@@ -9,6 +9,7 @@ import type {
 } from "./autonomy-types.ts";
 import { identifier, jsonBoundary, lifeDigest, revision } from "./life-json.ts";
 import type { LifeViewLimits, SideEffectIntent } from "./life-types.ts";
+import type { LifeModelSelection } from "./model-selection.ts";
 import type { PublicationJobs } from "./publication-jobs.ts";
 import {
 	buildPublicationModelInput,
@@ -34,6 +35,49 @@ import type {
 } from "./publication-types.ts";
 import { parsePublicationDecision } from "./publication-validation.ts";
 import { fields } from "./validation.ts";
+
+function assertFrozenSelection(
+	selection: LifeModelSelection | undefined,
+	config: LifeConfig,
+): void {
+	if (!selection) return;
+	const route = config.models?.actor;
+	if (
+		!route ||
+		(!("tier" in route) &&
+			(selection.provider !== route.provider ||
+				selection.model !== route.model))
+	)
+		throw Error("Publication frozen model differs from authored route");
+}
+
+function assertPublicationRoute(
+	job: PublicationJob,
+	request: LifeModelRequest,
+	config: LifeConfig,
+): void {
+	const route = config.models?.actor;
+	if (!route || request.lane !== "publication")
+		throw Error("Publication model ownership required");
+	if (job.modelSelection) {
+		if (
+			request.version !== 3 ||
+			lifeDigest(request.selection) !== lifeDigest(job.modelSelection)
+		)
+			throw Error("Publication frozen model selection mismatch");
+	} else if (request.version !== 2 || "tier" in route) {
+		throw Error("Publication frozen model selection required");
+	}
+	const selected = job.modelSelection ?? route;
+	if (
+		"tier" in selected ||
+		request.provider !== selected.provider ||
+		request.model !== selected.model ||
+		(!("tier" in route) &&
+			(route.provider !== request.provider || route.model !== request.model))
+	)
+		throw Error("Publication model route mismatch");
+}
 
 interface Access {
 	auditSource?(job: PublicationJob): void;
@@ -301,11 +345,13 @@ export class PublicationExecution {
 		jobId: string,
 		author: PublicationAuthor,
 		modelSettingsRevision: number,
+		modelSelection?: LifeModelSelection,
 	): PublicationJob {
 		const job = this.owned(lease, runId, jobId),
 			run = this.runs.get(lease.worldId, runId),
 			blocked = this.blocked(lease.worldId, run.input.mode);
 		if (blocked) throw Error(`Publication ${blocked}`);
+		assertFrozenSelection(modelSelection, this.access.config(lease.worldId));
 		if (
 			this.access.config(lease.worldId).revision !==
 				run.input.expectedConfigRevision ||
@@ -321,6 +367,7 @@ export class PublicationExecution {
 			material,
 			author,
 			modelSettingsRevision,
+			modelSelection,
 		);
 		return this.access.canPublish(frozen)
 			? frozen
@@ -377,7 +424,7 @@ export class PublicationExecution {
 		author: PublicationAuthor,
 		modelSettingsRevision: number,
 	) {
-		if (request.version !== 2)
+		if (request.lane !== "publication")
 			throw Error("Publication model ownership required");
 		const job = this.assertDispatch(
 			request.worldId,
@@ -386,6 +433,7 @@ export class PublicationExecution {
 			modelSettingsRevision,
 		);
 		const record = this.models.get(request.worldId, request.jobId, request.id);
+		assertPublicationRoute(job, request, this.access.config(request.worldId));
 		if (
 			record.status !== "dispatched" ||
 			lifeDigest(record.prepared.request) !== lifeDigest(request)
@@ -396,21 +444,18 @@ export class PublicationExecution {
 	}
 	prepare(lease: LifeLease, runId: string, value: PreparedLifeModelRequest) {
 		const r = value.request;
-		if (r.version !== 2) throw Error("Publication model ownership required");
+		if (r.lane !== "publication")
+			throw Error("Publication model ownership required");
 		const job = this.owned(lease, runId, r.jobId),
 			config = this.access.config(lease.worldId),
-			route = config.models?.actor,
 			run = this.runs.get(lease.worldId, runId);
-		if (route && "tier" in route)
-			throw Error("Tier publication requires frozen model owner");
+		assertPublicationRoute(job, r, config);
 		if (
 			job.status !== "prepared" ||
 			r.worldId !== job.worldId ||
 			r.id !== publicationModelId(job.attemptId) ||
 			r.agentId !== job.authorAgentId ||
 			r.modelSettingsRevision !== job.modelSettingsRevision ||
-			r.provider !== route?.provider ||
-			r.model !== route.model ||
 			this.blocked(job.worldId, run.input.mode)
 		)
 			throw Error("Publication model route or state mismatch");
@@ -603,6 +648,10 @@ export class PublicationExecution {
 			this.access.auditSource?.(job);
 			for (const saved of this.jobs.history(worldId, job.id)) {
 				if (!saved.material) continue;
+				assertFrozenSelection(
+					saved.modelSelection,
+					this.access.configAt(worldId, saved.material.configRevision),
+				);
 				const material = this.access.historical(saved.material);
 				if (!material || lifeDigest(material) !== lifeDigest(saved.material))
 					throw Error("Publication material differs from historical authority");
@@ -624,14 +673,13 @@ export class PublicationExecution {
 				);
 				if (!record) continue;
 				const request = record.prepared.request;
-				const route = this.access.configAt(worldId, material.configRevision)
-					.models?.actor;
-				if (route && "tier" in route)
-					throw Error("Tier publication requires frozen model owner");
+				assertPublicationRoute(
+					saved,
+					request,
+					this.access.configAt(worldId, material.configRevision),
+				);
 				if (
-					request.version !== 2 ||
-					request.provider !== route?.provider ||
-					request.model !== route.model ||
+					request.lane !== "publication" ||
 					request.jobId !== saved.id ||
 					request.agentId !== saved.authorAgentId ||
 					request.modelSettingsRevision !== saved.modelSettingsRevision ||

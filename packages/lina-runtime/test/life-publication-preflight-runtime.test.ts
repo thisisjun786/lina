@@ -19,7 +19,7 @@ nativeTest(
 						...options,
 						selection(request) {
 							const selected = options.selection(request);
-							return request.version === 2
+							return request.lane === "publication"
 								? {
 										...selected,
 										connection: {
