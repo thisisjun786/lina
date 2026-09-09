@@ -43,7 +43,13 @@ export class FleetResources {
 			policy: options.policy,
 			assertRecoveryOwnership: options.assertInstallation,
 		});
-		this.engine.recover();
+		try {
+			this.engine.recover();
+		} catch (error) {
+			// Construction has not exposed consumers or started asynchronous jobs.
+			this.engine.store.close();
+			throw error;
+		}
 	}
 	scope(id: string | null): ResourceScope {
 		this.open();

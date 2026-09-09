@@ -181,7 +181,11 @@ export class ResourceEngine {
 	}
 	recover() {
 		this.open();
-		if (this.busy || !this.options.assertRecoveryOwnership)
+		if (
+			this.busy ||
+			this.inflight.size > 0 ||
+			!this.options.assertRecoveryOwnership
+		)
 			throw Error("exclusive resource recovery ownership required");
 		this.options.assertRecoveryOwnership();
 		return this.store.recoverOwnedState();

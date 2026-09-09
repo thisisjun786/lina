@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -269,6 +269,149 @@ test("a rejected resource catalog leaves Fleet chat settings and tasks available
 		).toMatchObject({ resources: { state: "rejected" } });
 	} finally {
 		await app.stop();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("resource recovery rejects queued and running consumer operations", async () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-recovery-consumer-"));
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const engine = new ResourceEngine({
+		root,
+		limits,
+		scope: () => scope("a"),
+		services,
+		policy: defaultEnginePolicy,
+		assertRecoveryOwnership: () => {},
+	});
+	let running: Promise<void> | undefined;
+	try {
+		running = engine.execute(async () => {
+			entered.resolve();
+			await release.promise;
+		}, new AbortController().signal);
+		expect(() => engine.recover()).toThrow(
+			"exclusive resource recovery ownership required",
+		);
+		await entered.promise;
+		expect(() => engine.recover()).toThrow(
+			"exclusive resource recovery ownership required",
+		);
+		release.resolve();
+		await running;
+		expect(engine.recover()).toEqual({ staging: 0, jobs: 0 });
+	} finally {
+		release.resolve();
+		await running;
+		await engine.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("failed installation recovery closes its catalog before propagating the error", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const { ResourceStore } = await import(
+		"../../lina-memory/src/resources/store.ts"
+	);
+	const root = mkdtempSync(join(tmpdir(), "lina-recovery-failure-"));
+	const original = ResourceStore.prototype.recoverOwnedState;
+	let opened: InstanceType<typeof ResourceStore> | undefined;
+	const recovery = spyOn(
+		ResourceStore.prototype,
+		"recoverOwnedState",
+	).mockImplementation(function (this: InstanceType<typeof ResourceStore>) {
+		opened = this;
+		throw Error("recovery storage failure");
+	});
+	try {
+		expect(
+			() =>
+				new FleetResources({
+					root,
+					limits,
+					services,
+					policy: defaultEnginePolicy,
+					validAgent: () => true,
+					assertInstallation: () => {},
+				}),
+		).toThrow("recovery storage failure");
+		if (!opened) throw Error("recovery was not reached");
+		expect(() => opened?.list(scope("a"))).toThrow();
+		recovery.mockRestore();
+		const reopened = new ResourceStore(root, limits);
+		try {
+			expect(original.call(reopened)).toEqual({ staging: 0, jobs: 0 });
+		} finally {
+			reopened.close();
+		}
+	} finally {
+		recovery.mockRestore();
+		opened?.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("offline checkpoint preserves the owned resource catalog, references and content", async () => {
+	const { acquireInstallationLock } = await import(
+		"../../lina-core/src/installation/lock.ts"
+	);
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const { checkpointCommand } = await import("../src/checkpoint-cli.ts");
+	const { ResourceStore } = await import(
+		"../../lina-memory/src/resources/store.ts"
+	);
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-checkpoint-"));
+	const home = join(root, "home"),
+		state = join(home, "state");
+	const lock = acquireInstallationLock(state);
+	let owned = true;
+	const owner = new FleetResources({
+		root: join(state, "resources"),
+		limits,
+		services,
+		policy: defaultEnginePolicy,
+		validAgent: () => true,
+		assertInstallation: () => {
+			if (!owned) throw Error("installation stopped");
+		},
+	});
+	const env = { LINA_HOME: home };
+	try {
+		const document = owner.engine.store.create(scope("a"), {
+			operationId: "checkpoint-document",
+			kind: "document",
+			title: "Research notes",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("Confirmed research result"),
+		});
+		const ref = owner.engine.store.ref(scope("a"), document.id);
+		expect(() =>
+			checkpointCommand("checkpoint", ["create", "active"], env),
+		).toThrow("busy");
+		await owner.close();
+		owned = false;
+		lock.close();
+		const checkpoint = checkpointCommand(
+			"checkpoint",
+			["create", "resource snapshot"],
+			env,
+		) as { id: string };
+		const restored = join(root, "restored");
+		checkpointCommand("restore", [checkpoint.id, restored], env);
+		const store = new ResourceStore(join(restored, "state/resources"), limits);
+		try {
+			expect(store.ref(scope("b"), document.id)).toEqual(ref);
+			expect(
+				new TextDecoder().decode(store.read(scope("b"), document.id).bytes),
+			).toBe("Confirmed research result");
+		} finally {
+			store.close();
+		}
+	} finally {
+		await owner.close();
+		lock.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });
