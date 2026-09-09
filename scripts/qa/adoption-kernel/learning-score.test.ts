@@ -123,6 +123,25 @@ for (const row of ["B11", "B12"]) {
 		expect(result.quality).toBe(true);
 		expect(result.uptake).toBe(true);
 		expect(decodeTrace(trace).status).toBe("complete");
+		const duplicated = structuredClone(trace);
+		const originalAdoption = duplicated.adoptions[0];
+		if (!originalAdoption) throw Error("missing original adoption");
+		duplicated.adoptions.push({
+			...originalAdoption,
+			id: "fabricated-adoption",
+		});
+		expect(() => decodeTrace(duplicated)).toThrow();
+		const reusedRequest = structuredClone(trace);
+		const adoptedStep = reusedRequest.steps.find(
+			(step) => step.kernel.status === "adopted",
+		);
+		if (!adoptedStep) throw Error("missing adopted step");
+		reusedRequest.steps.push({
+			...adoptedStep,
+			kernel: { ...adoptedStep.kernel, decisionId: "fabricated-decision" },
+		});
+		expect(() => decodeTrace(reusedRequest)).toThrow();
+
 		const forgedProposal = structuredClone(trace);
 		const firstRequest = forgedProposal.requests[0];
 		if (firstRequest?.transport.kind !== "ok")

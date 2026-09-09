@@ -150,6 +150,7 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		}
 	}
 	const decisions = new Set<string>();
+	const adoptedRequests = new Set<number>();
 	const adopted = new Map<string, { requestIndex: number; stage: number }>();
 	const answered = new Map<string, number>();
 	for (const value of list(r["steps"])) {
@@ -163,8 +164,13 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		text(k["decisionId"]);
 		decisions.add(k["decisionId"]);
 		if (k["status"] === "adopted") {
-			if (typeof s["requestIndex"] !== "number" || adopted.has(k["decisionId"]))
+			if (
+				typeof s["requestIndex"] !== "number" ||
+				adopted.has(k["decisionId"]) ||
+				adoptedRequests.has(s["requestIndex"])
+			)
 				throw Error("invalid adopted request link");
+			adoptedRequests.add(s["requestIndex"]);
 			adopted.set(k["decisionId"], {
 				requestIndex: s["requestIndex"],
 				stage: s["stage"] as number,
@@ -212,6 +218,7 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		}
 	}
 	const adoptionIds = new Set<string>();
+	const adoptionDecisions = new Set<string>();
 	for (const value of list(r["adoptions"])) {
 		const a = object(value, [
 			"id",
@@ -229,6 +236,14 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		decodeRecord("adoption", a["id"], a["revision"], JSON.stringify(a));
 		if (!decisions.has(String(a["sourceDecisionId"])))
 			throw Error("adoption decision absent");
+		if (
+			a["id"] !== `${a["sourceDecisionId"]}:adoption` ||
+			a["revision"] !== 1 ||
+			adoptionIds.has(String(a["id"])) ||
+			adoptionDecisions.has(String(a["sourceDecisionId"]))
+		)
+			throw Error("nonunique adoption decision");
+		adoptionDecisions.add(String(a["sourceDecisionId"]));
 		const link = adopted.get(String(a["sourceDecisionId"]));
 		if (!link) throw Error("adoption has no adopted decision");
 		const request = requests[
