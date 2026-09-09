@@ -15,6 +15,7 @@ import {
 	projectCurrentPersona,
 	projectSharedPersona,
 } from "../../../lina-core/src/world/views.ts";
+import { resolveLifeModelProfile } from "../life/model-selection.ts";
 import type { LifeForeground } from "../life/runner.ts";
 import { createLifeRuntime, systemLifeClock } from "../life/runtime.ts";
 import type { LifeClock } from "../life/scheduler.ts";
@@ -320,18 +321,9 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 				route.model !== request.model
 			)
 				throw Error("LIFE exact model/settings selection changed");
-			const matching = settings.profiles.filter(
-				(profile) =>
-					profile.provider === route.provider && profile.model === route.model,
-			);
-			// LIFE config selects a route, never the conversation default or another actor's profile.
-			if (matching.length !== 1 || !matching[0])
-				throw Error(
-					"LIFE requires one explicit unambiguous model profile for its selected route",
-				);
 			return {
 				connection: options.connection(),
-				selected: matching[0],
+				selected: resolveLifeModelProfile(settings, route),
 				settingsRevision: settings.revision,
 			};
 		},

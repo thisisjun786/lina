@@ -255,3 +255,10 @@ red/green/types.log: 9개 통합 테스트·40개 단언 및 루트·브라우�
 WAL 복사는 파일 전체를 메모리에 올린다. 임시 복사본은 0700/0600이며 정상
 종료·예외에서 삭제된다. 프로세스 강제 종료 후 남은 임시 경로는 다른 설치의
 실행 중 probe와 구별되지 않으므로 이름 패턴만으로 자동 삭제하지 않는다.
+
+LIFE 모델 선택의 첫 연결을 구현했다. Fleet의 기존 exact profile 검색을
+`life/model-selection.ts`로 모아 provider/model 중복 거부를 유지했다. 같은
+해석기는 명시적 tier를 공통 routes로 해석해 reasoning/output cap을 반환하며
+대화 기본값으로 fallback하지 않는다. 기존 Fleet 실행 회귀와 4단계 해석 테스트
+12개가 통과했다. 아직 authored config의 tier 허용과 Step v4/새 model request에
+해석 결과를 저장하는 연결은 미완료이므로 LIFE tier 기능 완료로 간주하지 않는다.
