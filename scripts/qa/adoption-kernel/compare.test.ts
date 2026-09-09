@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareBatch } from "./compare.ts";
+import { RunRegistry } from "./run-registry.ts";
 import { exportBatch } from "./scenario-export.ts";
 
 test("comparison runs separate mode and scorer processes retaining each result", async () => {
@@ -57,6 +58,12 @@ test("comparison runs separate mode and scorer processes retaining each result",
 			OLLAMA_MODEL: "fixture",
 			OLLAMA_API_KEY: "synthetic",
 		});
+		const registry = new RunRegistry(join(root, "run-registry.sqlite"));
+		try {
+			expect(registry.entries()[0]?.state).toBe("completed");
+		} finally {
+			registry.close();
+		}
 		const started = JSON.parse(
 			readFileSync(join(root, "result", "started.json"), "utf8"),
 		);
@@ -128,6 +135,12 @@ test("comparison rejects truth changed while a model request is running", async 
 				OLLAMA_API_KEY: "synthetic",
 			}),
 		).rejects.toThrow();
+		const registry = new RunRegistry(join(root, "run-registry.sqlite"));
+		try {
+			expect(registry.entries()[0]?.state).toBe("failed");
+		} finally {
+			registry.close();
+		}
 		expect(calls).toBe(1);
 		expect(
 			JSON.parse(readFileSync(join(root, "result", "invalidated.json"), "utf8"))
