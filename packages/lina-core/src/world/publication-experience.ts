@@ -25,7 +25,7 @@ function experienceText(source: PublicationInputSource): string {
 
 /** Only the frozen permitted observation can become a private, uncertain experience. */
 export function publicationExperiences(step: LifeStep) {
-	if (step.version !== 3) return [];
+	if (step.version !== 3 && step.version !== 4) return [];
 	const blocked = new Set(step.source.publicationBudget?.blockedInputIds ?? []);
 	return pendingPublicationExperiences(step.source).filter(
 		(row) => !blocked.has(row.inputId),

@@ -441,6 +441,13 @@ export class WorkPersistence {
 			],
 		});
 	}
+	ensureVersion2(worldId: string): WorkEvidenceSnapshot {
+		const previous = this.snapshot(worldId);
+		if (previous.version === 2) return previous;
+		const next = this.upgrade(previous);
+		this.save(previous, next, { kind: "upgrade", version: 2 }, null);
+		return next;
+	}
 	private upgrade(state: WorkEvidenceSnapshot): WorkEvidenceSnapshot {
 		if (state.version !== 1) invalid();
 		return parseWorkEvidenceV2({

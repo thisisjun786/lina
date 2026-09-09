@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { DatabaseSync } from "node:sqlite";
+import { lifeDigest } from "../src/world/life-json.ts";
 import { WorldStore } from "../src/world/store.ts";
 import { autonomyStoreFixture } from "./life-autonomy-store-fixture.ts";
 import { socialRequest } from "./life-social-store-fixture.ts";
@@ -144,6 +145,101 @@ test("manual social preparation remains inspectable after autonomous ownership s
 				() => 7,
 			),
 		).toThrow(/autonom/i);
+	} finally {
+		f.close();
+	}
+});
+
+test("new step freezes exact model selections and restores accepted work v2", () => {
+	const f = autonomyStoreFixture();
+	try {
+		const resolvedModels = frozenModels(f);
+		const request = { ...f.request, resolvedModels };
+		const step = f.store.prepareLifeStep(request, () => 1);
+		expect(step.version).toBe(4);
+		expect(step.source.resolvedModels).toEqual(request.resolvedModels);
+		expect(step.source.work?.version).toBe(2);
+		f.store.prepareLifeObservations(step.lease, step.id, null, f.clock());
+		f.store.finishLifeStep(step.lease, step.id, f.clock());
+		f.store.acceptLifeStep(
+			step.lease,
+			step.id,
+			{ identity: f.source.identity, modelSettingsRevision: 1 },
+			f.clock(),
+		);
+		const accepted = f.store.lifeStep(request.worldId, step.id);
+		f.store.close();
+		const reopened = new WorldStore(f.path, f.clock);
+		try {
+			expect(reopened.lifeStep(request.worldId, step.id)).toEqual(accepted);
+			expect(
+				reopened.prepareLifeStep(request, () => {
+					throw Error("must replay");
+				}),
+			).toMatchObject({ id: step.id, source: step.source });
+		} finally {
+			reopened.close();
+		}
+	} finally {
+		f.close();
+	}
+});
+
+function frozenModels(f: ReturnType<typeof autonomyStoreFixture>) {
+	const resolve = (lane: "director" | "actor") => {
+		const configured = f.source.config.models?.[lane];
+		if (!configured) return null;
+		const exact = {
+			profileId: `world-${lane}`,
+			...configured,
+			reasoning: "off" as const,
+			maxOutputTokens: null,
+			settingsRevision: 1,
+		};
+		return { ...exact, routeFingerprint: lifeDigest(exact) };
+	};
+	return { director: resolve("director"), actor: resolve("actor") };
+}
+
+test("invalid frozen lanes roll back work upgrade and reject replay selection drift", () => {
+	const f = autonomyStoreFixture();
+	try {
+		const resolvedModels = frozenModels(f);
+		expect(() =>
+			f.store.prepareLifeStep(
+				{ ...f.request, resolvedModels: { ...resolvedModels, actor: null } },
+				() => 1,
+			),
+		).toThrow(/model source mismatch/);
+		const db = new DatabaseSync(f.path);
+		try {
+			expect(
+				db
+					.prepare(
+						"SELECT count(*) AS n FROM life_work_history WHERE event_json LIKE '%upgrade%'",
+					)
+					.get()?.["n"],
+			).toBe(0);
+		} finally {
+			db.close();
+		}
+		f.store.prepareLifeStep({ ...f.request, resolvedModels }, () => 1);
+		const actor = resolvedModels.actor;
+		if (!actor) throw Error("fixture requires actor");
+		const { routeFingerprint: _digest, ...selection } = actor;
+		const changed = { ...selection, reasoning: "high" as const };
+		expect(() =>
+			f.store.prepareLifeStep(
+				{
+					...f.request,
+					resolvedModels: {
+						...resolvedModels,
+						actor: { ...changed, routeFingerprint: lifeDigest(changed) },
+					},
+				},
+				() => 1,
+			),
+		).toThrow(/idempotency conflict/);
 	} finally {
 		f.close();
 	}

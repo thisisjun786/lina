@@ -11,6 +11,7 @@ import type {
 import type { IdentityPolicySnapshot, LifeReceipt } from "./life-types.ts";
 
 export interface LifePrepareRequest {
+	resolvedModels?: import("./model-selection.ts").LifeResolvedModels;
 	worldId: string;
 	idempotencyKey: string;
 	expectedConfigRevision: number;

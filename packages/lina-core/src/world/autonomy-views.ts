@@ -164,10 +164,12 @@ export function buildLifeModelInput(
 			? { experiences: perception.experiences, beliefs: perception.beliefs }
 			: null;
 	const feedback =
-		step.version === 3 ? projectPublicationObservations(step, agentId) : [];
+		step.version === 3 || step.version === 4
+			? projectPublicationObservations(step, agentId)
+			: [];
 	const body = {
 		...(feedback.length ? { publicationFeedback: feedback } : {}),
-		...(step.version === 2 || step.version === 3
+		...(step.version === 2 || step.version === 3 || step.version === 4
 			? {
 					sharedPersona: sharedPersonaBehavior(
 						profile,
@@ -187,7 +189,7 @@ export function buildLifeModelInput(
 					),
 				}
 			: {}),
-		...(step.version === 2 || step.version === 3
+		...(step.version === 2 || step.version === 3 || step.version === 4
 			? { work: projectWorkObservations(source, agentId) }
 			: {}),
 		agentId,
@@ -243,7 +245,7 @@ export function buildLifeModelInput(
 		throw Error("Autonomy scoped input capacity exceeded");
 	return {
 		systemPrompt:
-			step.version === 2 || step.version === 3
+			step.version === 2 || step.version === 3 || step.version === 4
 				? `${INSTRUCTIONS[lane]}\n${SHARED_PERSONA_AUTHORITY}`
 				: INSTRUCTIONS[lane],
 		input: serialized,

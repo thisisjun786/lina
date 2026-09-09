@@ -6,6 +6,7 @@ import type {
 } from "./authoring-types.ts";
 import type { AutonomySource } from "./autonomy-types.ts";
 import { lifeDigest } from "./life-json.ts";
+import { parseLifeResolvedModels } from "./model-selection.ts";
 import { parsePublicationAncestry } from "./publication-ancestry.ts";
 import { parsePublicationBudget } from "./publication-budget.ts";
 import { parsePublicationEvidence } from "./publication-input.ts";
@@ -37,6 +38,24 @@ export function assertAutonomySource(source: AutonomySource): void {
 		life.definitionRevision !== pack.life.revision
 	)
 		throw Error("Autonomy source boundary mismatch");
+	if (source.resolvedModels) {
+		const models = parseLifeResolvedModels(source.resolvedModels);
+		if (source.work?.version !== 2)
+			throw Error("Frozen LIFE source requires work evidence v2");
+		for (const lane of ["director", "actor"] as const) {
+			const selected = models[lane],
+				configured = source.config.models?.[lane];
+			if (configured === null || configured === undefined) {
+				if (selected !== null) throw Error("Unexpected resolved LIFE lane");
+			} else if (
+				!selected ||
+				selected.provider !== configured.provider ||
+				selected.model !== configured.model ||
+				selected.settingsRevision !== source.modelSettingsRevision
+			)
+				throw Error("Resolved LIFE model source mismatch");
+		}
+	}
 	if (source.work) {
 		const work = parseWorkEvidence(source.work);
 		if (

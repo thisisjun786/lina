@@ -27,6 +27,7 @@ import {
 	parseLifeInput,
 	parseLifeState,
 } from "./life-validation.ts";
+import { parseLifeResolvedModels } from "./model-selection.ts";
 import { parsePublicationAncestry } from "./publication-ancestry.ts";
 import { parsePublicationBudget } from "./publication-budget.ts";
 import { parsePublicationEvidence } from "./publication-input.ts";
@@ -129,10 +130,11 @@ export class LifeStepRecords {
 			"autonomy",
 			"inputs",
 			"modelSettingsRevision",
-			...(raw.version === 2 || raw.version === 3
+			...(raw.version === 4 ? ["resolvedModels"] : []),
+			...(raw.version === 2 || raw.version === 3 || raw.version === 4
 				? ["work", "workAncestry"]
 				: []),
-			...(raw.version === 3
+			...(raw.version === 3 || raw.version === 4
 				? ["publication", "publicationAncestry", "publicationBudget"]
 				: []),
 		]);
@@ -164,13 +166,16 @@ export class LifeStepRecords {
 		if (pack.schemaVersion !== 3) throw Error("Corrupt autonomous world pack");
 		if (!Array.isArray(s["inputs"])) throw Error("Corrupt autonomous inputs");
 		const source: AutonomySource = {
-			...(raw.version === 2 || raw.version === 3
+			...(raw.version === 4
+				? { resolvedModels: parseLifeResolvedModels(s["resolvedModels"]) }
+				: {}),
+			...(raw.version === 2 || raw.version === 3 || raw.version === 4
 				? {
 						work: parseWorkEvidence(s["work"]),
 						workAncestry: parseWorkAncestry(s["workAncestry"]),
 					}
 				: {}),
-			...(raw.version === 3
+			...(raw.version === 3 || raw.version === 4
 				? {
 						publication: parsePublicationEvidence(s["publication"]),
 						publicationBudget: parsePublicationBudget(s["publicationBudget"]),
@@ -193,16 +198,23 @@ export class LifeStepRecords {
 			inputs: s["inputs"].map(parseLifeInput),
 			modelSettingsRevision: revision(s["modelSettingsRevision"]),
 		};
-		if (raw.version !== 3 && source.inputs.some((input) => input.version === 3))
+		if (
+			raw.version !== 3 &&
+			raw.version !== 4 &&
+			source.inputs.some((input) => input.version === 3)
+		)
 			throw Error("Legacy step cannot carry publication input");
-		if (source.work?.version === 2)
+		if (raw.version !== 4 && source.work?.version === 2)
 			throw Error("Legacy step cannot carry work evidence v2");
-		if (source.inputs.some((input) => input.version === 4))
+		if (raw.version !== 4 && source.inputs.some((input) => input.version === 4))
 			throw Error("Legacy step cannot carry resource activity input");
 		assertAutonomySource(source);
 		const step = raw as unknown as LifeStep;
 		if (
-			(raw.version !== 1 && raw.version !== 2 && raw.version !== 3) ||
+			(raw.version !== 1 &&
+				raw.version !== 2 &&
+				raw.version !== 3 &&
+				raw.version !== 4) ||
 			row.world_id !== identifier(raw.worldId) ||
 			row.step_id !== identifier(raw.id) ||
 			row.idempotency_key !== identifier(raw.idempotencyKey) ||
@@ -275,7 +287,7 @@ export class LifeStepRecords {
 				![
 					"quiet",
 					"work",
-					...(step.version === 3 ? ["feedback"] : []),
+					...(step.version === 3 || step.version === 4 ? ["feedback"] : []),
 					"activity",
 					"extension_required",
 				].includes(step.outcome.kind)

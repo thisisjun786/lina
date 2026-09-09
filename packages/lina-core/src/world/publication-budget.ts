@@ -229,7 +229,11 @@ export function applyPublicationBudget(
 	step: LifeStep,
 	state: AutonomyState,
 ): PublicationBudgetAction[] {
-	if (step.version !== 3 || !step.source.publicationBudget) return [];
+	if (
+		(step.version !== 3 && step.version !== 4) ||
+		!step.source.publicationBudget
+	)
+		return [];
 	const budget = parsePublicationBudget(step.source.publicationBudget);
 	for (const event of state.pendingEvents)
 		if (

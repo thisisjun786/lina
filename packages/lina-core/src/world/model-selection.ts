@@ -47,3 +47,16 @@ export function parseLifeModelSelection(value: unknown): LifeModelSelection {
 		throw Error("LIFE model selection fingerprint mismatch");
 	return { ...selected, routeFingerprint };
 }
+
+export interface LifeResolvedModels {
+	director: LifeModelSelection | null;
+	actor: LifeModelSelection | null;
+}
+export function parseLifeResolvedModels(value: unknown): LifeResolvedModels {
+	fields(value, ["director", "actor"]);
+	return {
+		director:
+			value.director === null ? null : parseLifeModelSelection(value.director),
+		actor: value.actor === null ? null : parseLifeModelSelection(value.actor),
+	};
+}

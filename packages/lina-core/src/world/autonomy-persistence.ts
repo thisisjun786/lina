@@ -46,6 +46,7 @@ import type {
 	LifeState,
 } from "./life-types.ts";
 import { parseIdentityPolicy } from "./life-validation.ts";
+import { parseLifeResolvedModels } from "./model-selection.ts";
 import type { PublicationAncestryRecord } from "./publication-ancestry.ts";
 import type { PublicationBudgetSnapshot } from "./publication-budget.ts";
 import type { PublicationEvidenceSnapshot } from "./publication-input.ts";
@@ -67,6 +68,7 @@ type Access = {
 	config(worldId: string): LifeConfig;
 	configAt(worldId: string, revision: number): LifeConfig;
 	inputs(worldId: string): LifeInput[];
+	upgradeWork(worldId: string): WorkEvidenceSnapshot;
 	work(worldId: string, revision?: number): WorkEvidenceSnapshot;
 	workAncestry(worldId: string, lifeRevision: number): WorkAncestryRecord[];
 	recordWorkStep(step: LifeStep): void;
@@ -390,7 +392,7 @@ export class AutonomyPersistence {
 		source: Source,
 		currentPublication = false,
 	): void {
-		if (step.version === 3) {
+		if (step.version === 3 || step.version === 4) {
 			if (!step.source.publication) throw Error("Missing publication source");
 			if (currentPublication)
 				this.access.assertPublicationCurrent(
@@ -419,7 +421,9 @@ export class AutonomyPersistence {
 		}
 		if (step.source.work)
 			same(
-				step.source.inputs.filter((input) => input.version === 2),
+				step.source.inputs.filter(
+					(input) => input.version === 2 || input.version === 4,
+				),
 				this.access.workInputsAt(
 					step.worldId,
 					step.source.work.revision,
@@ -504,6 +508,7 @@ export class AutonomyPersistence {
 	}
 	prepare(value: LifePrepareRequest, entropy: () => number): LifeStep {
 		fields(value, [
+			...(value.resolvedModels !== undefined ? ["resolvedModels"] : []),
 			"worldId",
 			"idempotencyKey",
 			"expectedConfigRevision",
@@ -523,8 +528,24 @@ export class AutonomyPersistence {
 		revision(value.nowMs);
 		const identity = parseIdentityPolicy(value.identity),
 			profiles = autonomyProfiles(value.profiles);
+		const resolvedModels =
+			value.resolvedModels === undefined
+				? undefined
+				: parseLifeResolvedModels(value.resolvedModels);
+		if (
+			resolvedModels &&
+			Object.values(resolvedModels).some(
+				(r) => r !== null && r.settingsRevision !== value.modelSettingsRevision,
+			)
+		)
+			throw Error("LIFE resolved model settings mismatch");
 		const prior = this.steps.byKey(value.worldId, value.idempotencyKey);
 		if (prior) {
+			if (
+				lifeDigest(prior.source.resolvedModels ?? null) !==
+				lifeDigest(resolvedModels ?? null)
+			)
+				throw Error("LIFE step idempotency conflict");
 			same(
 				{
 					identity,
@@ -580,7 +601,10 @@ export class AutonomyPersistence {
 		const id = `step-${lifeDigest([value.worldId, value.idempotencyKey]).slice(0, 48)}`;
 		const existing = this.state(value.worldId);
 		const source: AutonomySource = {
-			work: this.access.work(value.worldId),
+			...(resolvedModels ? { resolvedModels } : {}),
+			work: resolvedModels
+				? this.access.upgradeWork(value.worldId)
+				: this.access.work(value.worldId),
 			workAncestry: this.access.workAncestry(
 				value.worldId,
 				current.life.revision,
@@ -615,7 +639,7 @@ export class AutonomyPersistence {
 				value.leaseMs,
 			);
 		return this.steps.save({
-			version: 3,
+			version: resolvedModels ? 4 : 3,
 			id,
 			worldId: value.worldId,
 			idempotencyKey: value.idempotencyKey,

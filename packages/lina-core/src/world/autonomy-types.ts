@@ -91,6 +91,7 @@ export interface AutonomyState {
 	pendingEvents: CausalEvent[];
 }
 export interface AutonomySource {
+	resolvedModels?: import("./model-selection.ts").LifeResolvedModels;
 	/** Added by v3 steps; original work snapshots remain present alongside it. */
 	publication?: import("./publication-input.ts").PublicationEvidenceSnapshot;
 	publicationAncestry?: import("./publication-ancestry.ts").PublicationAncestryRecord[];
@@ -282,7 +283,7 @@ export interface LifeSchedule {
 	lastSkippedIntervals: number;
 }
 export interface LifeStep {
-	version: 1 | 2 | 3;
+	version: 1 | 2 | 3 | 4;
 	id: string;
 	worldId: string;
 	idempotencyKey: string;

@@ -70,7 +70,7 @@ export function derivePublicationAncestry(
 	if (!step.outcome)
 		throw Error("Publication ancestry requires a completed step");
 	let roots: PublicationChainRef[] = [];
-	if (step.version === 3) {
+	if (step.version === 3 || step.version === 4) {
 		if (!step.source.publication || !step.source.publicationAncestry)
 			throw Error("Missing frozen publication ancestry source");
 		const publication = parsePublicationEvidence(step.source.publication),

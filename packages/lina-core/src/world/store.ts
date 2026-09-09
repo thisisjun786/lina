@@ -470,6 +470,7 @@ export class WorldStore
 				configAt: (worldId, revision) =>
 					this.author.lifeConfigAt(worldId, revision),
 				inputs: (worldId) => this.life.inputs(worldId),
+				upgradeWork: (worldId) => this.work.ensureVersion2(worldId),
 				work: (worldId, revision) => this.work.snapshot(worldId, revision),
 				workAncestry: (worldId, revision) =>
 					this.work.ancestry(worldId, revision),
