@@ -10,6 +10,7 @@ import type {
 	ToolReceipt,
 	Visibility,
 } from "./types.ts";
+import { parseReceipt } from "./validation.ts";
 
 const VERSION = 1;
 const parse = <T>(text: string): T => JSON.parse(text) as T;
@@ -202,7 +203,7 @@ export class KernelStore {
 					[...frame.evidence, ...frame.adoptions].some((x) => !refs.has(key(x)))
 				)
 					return [];
-				return [effect.receipt];
+				return [parseReceipt(effect.receipt)];
 			});
 	}
 
@@ -226,11 +227,31 @@ export class KernelStore {
 		}
 	}
 	adopt(decisionId: string, adoption: Adoption): void {
-		this.put("adoption", adoption.id, adoption.revision, adoption);
-		this.db
-			.prepare("UPDATE kernel_decisions SET data=? WHERE id=?")
-			.run(JSON.stringify({ status: "adopted", adoption }), decisionId);
+		this.db.exec("BEGIN IMMEDIATE");
+		try {
+			const row = this.db
+				.prepare("SELECT data FROM kernel_decisions WHERE id=?")
+				.get(decisionId);
+			if (!row) throw Error("unknown decision");
+			const original = parse<{ frame: Frame; status: string }>(
+				String(row["data"]),
+			);
+			if (original.status !== "prepared" || !this.current(original.frame))
+				throw Error("stale adoption decision");
+			this.put("adoption", adoption.id, adoption.revision, adoption);
+			this.db
+				.prepare("UPDATE kernel_decisions SET data=? WHERE id=?")
+				.run(
+					JSON.stringify({ ...original, status: "adopted", adoption }),
+					decisionId,
+				);
+			this.db.exec("COMMIT");
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
 	}
+
 	defer(decisionId: string, condition: string, reason: string): void {
 		const row = this.db
 			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
@@ -280,7 +301,8 @@ export class KernelStore {
 		);
 		return true;
 	}
-	recordResult(receipt: ToolReceipt): void {
+	recordResult(input: ToolReceipt): void {
+		const receipt = parseReceipt(input);
 		const row = this.db
 			.prepare("SELECT data FROM kernel_effects WHERE id=?")
 			.get(receipt.effectId);
@@ -294,10 +316,28 @@ export class KernelStore {
 			receipt.effectId,
 		);
 	}
+	pendingEffect(effectId: string): { tool: string; decisionId: string } | null {
+		const row = this.db
+			.prepare("SELECT data FROM kernel_effects WHERE id=?")
+			.get(effectId);
+		if (!row) return null;
+		const value: unknown = JSON.parse(String(row["data"]));
+		if (!value || typeof value !== "object" || Array.isArray(value))
+			throw Error("invalid effect record");
+		const data = value as Record<string, unknown>;
+		if (
+			data["effectId"] !== effectId ||
+			typeof data["tool"] !== "string" ||
+			typeof data["fence"] !== "string"
+		)
+			throw Error("invalid effect identity");
+		return { tool: data["tool"], decisionId: data["fence"] };
+	}
+
 	pending(): string[] {
 		return this.db
 			.prepare(
-				"SELECT id FROM kernel_effects WHERE json_extract(data,'$.status')='dispatched'",
+				"SELECT id FROM kernel_effects WHERE json_extract(data,'$.status') IN ('dispatched','unknown')",
 			)
 			.all()
 			.map((row) => String(row["id"]));

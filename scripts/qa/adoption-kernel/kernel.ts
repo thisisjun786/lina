@@ -111,19 +111,31 @@ export class AdoptionKernel {
 			return { status: "rejected", decisionId, detail: "stale final fence" };
 		tool.admit(effectId, proposal.args, decisionId);
 		const receipt = await tool.result(effectId);
-		if (!receipt) return { status: "unknown", decisionId };
+		if (!receipt || receipt.status === "unknown")
+			return { status: "unknown", decisionId };
+		if (receipt.effectId !== effectId)
+			throw Error("tool receipt identity mismatch");
 		this.options.store.recordResult(receipt);
 		return { status: "dispatched", decisionId };
 	}
 	async resume(): Promise<KernelTrace[]> {
-		return [
-			...this.options.store
-				.deferred()
-				.map((decisionId) => ({ status: "deferred" as const, decisionId })),
-			...this.options.store.pending().map((effectId) => ({
-				status: "unknown" as const,
-				decisionId: effectId,
-			})),
-		];
+		const traces: KernelTrace[] = this.options.store
+			.deferred()
+			.map((decisionId) => ({ status: "deferred", decisionId }));
+		for (const effectId of this.options.store.pending()) {
+			const effect = this.options.store.pendingEffect(effectId);
+			if (!effect) throw Error("missing pending effect");
+			const owner = this.options.tools.get(effect.tool);
+			const receipt = await owner?.reconcile(effectId);
+			if (!receipt || receipt.status === "unknown") {
+				traces.push({ status: "unknown", decisionId: effect.decisionId });
+				continue;
+			}
+			if (receipt.effectId !== effectId)
+				throw Error("reconciliation receipt identity mismatch");
+			this.options.store.recordResult(receipt);
+			traces.push({ status: "dispatched", decisionId: effect.decisionId });
+		}
+		return traces;
 	}
 }

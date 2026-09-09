@@ -420,3 +420,170 @@ test("private tool receipt never enters another subject or public frame", async 
 		delivery.close();
 	}
 });
+
+test("resume reconciles original tool receipt without another admission or model call", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	let admissions = 0,
+		models = 0;
+	let completed = false;
+	const tool: ToolPort = {
+		admit: () => {
+			admissions++;
+		},
+		result: async () => null,
+		reconcile: async (id) =>
+			completed
+				? {
+						effectId: id,
+						status: "completed",
+						output: "recovered",
+						quality: {
+							status: "unverified",
+							verifier: null,
+							detail: "owner receipt",
+						},
+					}
+				: null,
+	};
+	try {
+		store.setPurpose(purpose);
+		const kernel = new AdoptionKernel({
+			store,
+			delivery,
+			tools: new Map([["lookup", tool]]),
+			model: {
+				propose: async () => {
+					models++;
+					return { kind: "tool", purposeRevision: 1, tool: "lookup", args: {} };
+				},
+			},
+		});
+		expect((await kernel.step("p")).status).toBe("unknown");
+		expect((await kernel.resume())[0]?.status).toBe("unknown");
+		completed = true;
+		expect((await kernel.resume())[0]?.status).toBe("dispatched");
+		expect(store.frame("p").receipts[0]?.output).toBe("recovered");
+		expect(await kernel.resume()).toEqual([]);
+		expect(admissions).toBe(1);
+		expect(models).toBe(1);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("explicit unknown receipt remains reconcilable", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	let resolve = false;
+	const tool: ToolPort = {
+		admit: () => {},
+		result: async (id) => ({
+			effectId: id,
+			status: "unknown",
+			output: null,
+			quality: { status: "unverified", verifier: null, detail: "unknown" },
+		}),
+		reconcile: async (id) =>
+			resolve
+				? {
+						effectId: id,
+						status: "completed",
+						output: "resolved",
+						quality: {
+							status: "unverified",
+							verifier: null,
+							detail: "receipt",
+						},
+					}
+				: null,
+	};
+	try {
+		store.setPurpose(purpose);
+		const kernel = new AdoptionKernel({
+			store,
+			delivery,
+			tools: new Map([["lookup", tool]]),
+			model: {
+				propose: async () => ({
+					kind: "tool",
+					purposeRevision: 1,
+					tool: "lookup",
+					args: {},
+				}),
+			},
+		});
+		expect((await kernel.step("p")).status).toBe("unknown");
+		expect(store.pending()).toHaveLength(1);
+		resolve = true;
+		expect((await kernel.resume())[0]?.status).toBe("dispatched");
+		expect(store.pending()).toEqual([]);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("invalid runtime receipt cannot become trusted input", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	const tool: ToolPort = {
+		admit: () => {},
+		result: async (id) =>
+			JSON.parse(
+				JSON.stringify({
+					effectId: id,
+					status: "completed",
+					output: "bad",
+					quality: { status: "invented", verifier: null, detail: "invalid" },
+				}),
+			),
+		reconcile: async () => null,
+	};
+	try {
+		store.setPurpose(purpose);
+		const kernel = new AdoptionKernel({
+			store,
+			delivery,
+			tools: new Map([["lookup", tool]]),
+			model: {
+				propose: async () => ({
+					kind: "tool",
+					purposeRevision: 1,
+					tool: "lookup",
+					args: {},
+				}),
+			},
+		});
+		await expect(kernel.step("p")).rejects.toThrow();
+		expect(store.frame("p").receipts).toEqual([]);
+		expect(store.pending()).toHaveLength(1);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("adoption preserves the original decision snapshot", async () => {
+	const { store, kernel } = fixture({
+		kind: "adopt",
+		purposeRevision: 1,
+		adoptionKind: "plan",
+		text: "check first",
+		refs: [{ id: "e", revision: 1 }],
+		condition: "before work",
+	});
+	try {
+		const result = await kernel.step("p");
+		const row = store.db
+			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
+			.get(result.decisionId);
+		const value = JSON.parse(String(row?.["data"]));
+		expect(value.frame.purpose).toEqual(purpose);
+		expect(value.frame.evidence).toEqual([evidence]);
+		expect(value.status).toBe("adopted");
+	} finally {
+		store.close();
+	}
+});

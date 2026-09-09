@@ -1,5 +1,11 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: untrusted records require indexed access under strict TypeScript.
-import type { JsonValue, Proposal, Quality, Ref } from "./types.ts";
+import type {
+	JsonValue,
+	Proposal,
+	Quality,
+	Ref,
+	ToolReceipt,
+} from "./types.ts";
 
 const MAX_TEXT = 16_384;
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -139,4 +145,18 @@ export function parseProposal(value: unknown): Proposal {
 		default:
 			throw Error("unknown proposal kind");
 	}
+}
+
+export function parseReceipt(value: unknown): ToolReceipt {
+	if (!isObject(value)) throw Error("invalid tool receipt");
+	only(value, ["effectId", "status", "output", "quality"]);
+	const status = value["status"];
+	if (status !== "completed" && status !== "failed" && status !== "unknown")
+		throw Error("invalid receipt status");
+	return {
+		effectId: string(value["effectId"], "effect id"),
+		status,
+		output: parseJson(value["output"]),
+		quality: parseQuality(value["quality"]),
+	};
 }
