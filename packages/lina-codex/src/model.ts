@@ -74,31 +74,13 @@ export function advertisedEfforts(catalog: unknown, model: string): string[] {
 	return names;
 }
 
-function catalogDefaultEffort(
-	catalog: unknown,
-	model: string,
-	efforts: readonly string[],
-): string | undefined {
-	const entry = catalogEntry(catalog, model);
-	const named = entry
-		? (entry["defaultReasoningEffort"] ?? entry["default_reasoning_level"])
-		: undefined;
-	if (typeof named === "string" && named.trim()) return named;
-	return efforts[0];
-}
-
 export function nativeEffort(
 	catalog: unknown,
 	model: string,
 	reasoning?: ModelReasoning,
 ): string | undefined {
 	const efforts = advertisedEfforts(catalog, model);
-	if (!reasoning) return;
-	if (reasoning === "off") {
-		if (efforts.length === 0 && !catalogDefaultEffort(catalog, model, efforts))
-			return;
-		return catalogDefaultEffort(catalog, model, efforts);
-	}
+	if (!reasoning || reasoning === "off") return;
 	if (efforts.length === 0) return;
 	if (efforts.includes(reasoning)) return reasoning;
 	throw new Error(

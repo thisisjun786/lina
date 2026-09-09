@@ -425,7 +425,7 @@ test("conversationTurn rejects a modelProvider change because turn/start cannot 
 	).toThrow(/provider/i);
 });
 
-test("conversationTurn maps off to the catalog default effort and omits it for non-reasoning models", () => {
+test("conversationTurn omits off instead of promoting it to an advertised effort", () => {
 	const withDefault = {
 		data: [
 			{
@@ -463,13 +463,13 @@ test("conversationTurn maps off to the catalog default effort and omits it for n
 			{ models: models(), modelSettings: settings("off") },
 			withDefault,
 		),
-	).toEqual({ model: MODEL, modelProvider: "opencodex", effort: "medium" });
+	).toEqual({ model: MODEL, modelProvider: "opencodex" });
 	expect(
 		conversationTurn(
 			{ models: models(), modelSettings: settings("off") },
 			highOnly,
 		),
-	).toEqual({ model: MODEL, modelProvider: "opencodex", effort: "low" });
+	).toEqual({ model: MODEL, modelProvider: "opencodex" });
 	expect(
 		conversationTurn(
 			{ models: models(), modelSettings: settings("high") },

@@ -206,3 +206,9 @@ GLM Flash 지정 대화로 과거 만남 여부·비개발 행사 업무·가격
 별도 LIFE 작업트리는 cefaffc이고 dirty 없음으로 재확인했다. Git ancestor는 아니므로 전체 LIFE 브랜치를 merge했다고 주장하지 않는다. 적용한 경계·복구 port는 integration-world-port.patch/paths와 integration-final-review에 기록된 선택적 통합이며, 최종 독립 검토에서 현재 계약과 대조한다.
 
 현재 LIFE port 대조: integration-world-port-paths의47개 중37개가 cefaffc와 byte-identical이다. 차이가 있는10개는 agents/world store, autonomy persistence, Fleet 연결 및 통합 fixture이며, d0221de→현재 diff는 모두 비어 있다. 따라서 이10개는 integration-final-review.md의 기존 독립 PASS 이후 변경되지 않았다. `world-port-current-comparison.json`에 head와 파일 목록을 남겼다. 이 근거는 검토된 선택적 통합 경계이며 전체 upstream ancestry나 원격 PR 상태 증거가 아니다.
+
+## 2026-09-09 최종 독립 검토 지적 반영
+
+검토01a08515의 off 매핑 지적을 반영했다. nativeEffort는 명시적 off를 catalog default medium/low로 바꾸지 않고 미지정처럼 요청 effort를 생략한다. 기존 session-lifecycle 회귀가 옛 기본값 매핑을 직접 기대하고 있었으므로 새 계약으로 변경해 실패→관련45 pass·0 fail, 타입 종료0을 확인했다. 생략은 LINA의 effort override가 없다는 뜻이며 backend 자체 추론 비활성 보장이 아니다. 고정 대화 모델과 명시적 지원 effort/미지원 거부는 유지한다.
+
+Quick/Deep 성공 증거가 없다는 지적에는 최신 기록으로 반박한다. memory.json은 관찰 accepted2·통합 committed2·corrected records3·재열기 provider0을 기록한다. calls39/43은 Quick Flash,40–42/44–45는 Deep Pro다. consolidation-45.json에는 두 record/revision을 근거로 caffeine-free beverage 선호를 제안한 비어 있지 않은 induction이 있고, memory.json에 저장됐다. 초기24/26/36 실패·빈 제안 결과는 후속 성공을 대체하지 않는다. 동일 증거를 독립 검토자에게 다시 전달했다.
