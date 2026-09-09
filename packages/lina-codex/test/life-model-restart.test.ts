@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
+import { lifeDigest } from "../../lina-core/src/world/life-json.ts";
 import {
 	lifeFixture,
 	lifeRequest,
@@ -76,49 +77,70 @@ function processFixture(value: unknown) {
 	};
 }
 
-nativeTest(
-	"prepared/result journals survive actual parent restarts and competing processes dispatch once",
-	async () => {
-		const f = lifeFixture();
-		clean.push(() => f.close());
-		const base = { root: f.root, origin: f.selection.connection.origin };
-		const first = await processFixture({
-			...base,
-			mode: "prepare",
-			request: lifeRequest(),
-		}).result();
-		expect(first.ok).toBe(true);
-		expect(f.captures).toHaveLength(0);
-		const saved = await processFixture({
-			...base,
-			mode: "reconcile",
-			prepared: first.value,
-		}).result();
-		expect(saved.value).toEqual({ status: "not_dispatched" });
-		const second = processFixture({
-			...base,
-			mode: "complete",
-			prepared: first.value,
-		});
-		const competitor = processFixture({
-			...base,
-			mode: "complete",
-			prepared: first.value,
-		});
-		const results = await Promise.all([second.result(), competitor.result()]);
-		expect(results.filter((r) => r.ok)).toHaveLength(1);
-		expect(f.captures).toHaveLength(1);
-		const result = results.find((r) => r.ok).value;
-		const reopened = await processFixture({
-			...base,
-			mode: "reconcile",
-			prepared: first.value,
-		}).result();
-		expect(reopened.value).toEqual({ status: "completed", result });
-		expect(f.captures).toHaveLength(1);
-	},
-	60000,
-);
+for (const requestVersion of [1, 3] as const)
+	nativeTest(
+		`prepared/result journals v${requestVersion} survive actual parent restarts and competing processes dispatch once`,
+		async () => {
+			const f = lifeFixture();
+			clean.push(() => f.close());
+			const base = { root: f.root, origin: f.selection.connection.origin };
+			const original = lifeRequest();
+			const selected = {
+				profileId: "life",
+				provider: original.provider,
+				model: original.model,
+				reasoning: "off",
+				maxOutputTokens: null,
+				settingsRevision: 7,
+			};
+			const request =
+				requestVersion === 1
+					? original
+					: {
+							...original,
+							version: 3,
+							selection: {
+								...selected,
+								routeFingerprint: lifeDigest(selected),
+							},
+						};
+			const first = await processFixture({
+				...base,
+				mode: "prepare",
+				request,
+			}).result();
+			expect(first.ok).toBe(true);
+			expect(f.captures).toHaveLength(0);
+			const saved = await processFixture({
+				...base,
+				mode: "reconcile",
+				prepared: first.value,
+			}).result();
+			expect(saved.value).toEqual({ status: "not_dispatched" });
+			const second = processFixture({
+				...base,
+				mode: "complete",
+				prepared: first.value,
+			});
+			const competitor = processFixture({
+				...base,
+				mode: "complete",
+				prepared: first.value,
+			});
+			const results = await Promise.all([second.result(), competitor.result()]);
+			expect(results.filter((r) => r.ok)).toHaveLength(1);
+			expect(f.captures).toHaveLength(1);
+			const result = results.find((r) => r.ok).value;
+			const reopened = await processFixture({
+				...base,
+				mode: "reconcile",
+				prepared: first.value,
+			}).result();
+			expect(reopened.value).toEqual({ status: "completed", result });
+			expect(f.captures).toHaveLength(1);
+		},
+		60000,
+	);
 
 nativeTest(
 	"killed dispatch parent leaves an unknown marker and restart performs no inference",
