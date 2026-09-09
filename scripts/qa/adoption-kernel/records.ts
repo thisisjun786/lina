@@ -1,5 +1,10 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: strict indexed access for persisted unknown records.
-import { parseQuality, parseRef } from "./validation.ts";
+import {
+	parseJudgment,
+	parseQuality,
+	parseReceipt,
+	parseRef,
+} from "./validation.ts";
 
 /** Validate persisted domain rows before trusted generic consumers see them. */
 export function decodeRecord(
@@ -99,4 +104,87 @@ export function decodeRecord(
 	if (Object.keys(r).some((k) => !allowed.includes(k)))
 		throw Error("unknown stored record field");
 	return r;
+}
+
+/** Validate a persisted dependency snapshot before using its scope labels. */
+export function decodeFrame(value: unknown): import("./types.ts").Frame {
+	if (!value || typeof value !== "object" || Array.isArray(value))
+		throw Error("invalid stored frame");
+	const frame = value as Record<string, unknown>;
+	if (
+		frame["version"] !== 1 ||
+		!Array.isArray(frame["evidence"]) ||
+		!Array.isArray(frame["adoptions"]) ||
+		!Array.isArray(frame["receipts"])
+	)
+		throw Error("invalid stored frame");
+	const validate = (kind: string, value: unknown) => {
+		if (!value || typeof value !== "object" || Array.isArray(value))
+			throw Error("invalid frame row");
+		const row = value as Record<string, unknown>;
+		decodeRecord(kind, row["id"], row["revision"], JSON.stringify(row));
+	};
+	validate("purpose", frame["purpose"]);
+	for (const item of frame["evidence"]) validate("evidence", item);
+	for (const item of frame["adoptions"]) validate("adoption", item);
+	for (const item of frame["receipts"]) parseReceipt(item);
+	return value as import("./types.ts").Frame;
+}
+
+export function decodeDecision(text: unknown): Record<string, unknown> {
+	if (typeof text !== "string") throw Error("invalid stored decision");
+	const value: unknown = JSON.parse(text);
+	if (!value || typeof value !== "object" || Array.isArray(value))
+		throw Error("invalid stored decision");
+	const data = value as Record<string, unknown>;
+	const frame = decodeFrame(data["frame"]);
+	if (
+		data["purposeId"] !== frame.purpose.id ||
+		data["policyVersion"] !== frame.purpose.policyVersion ||
+		![
+			"prepared",
+			"adopted",
+			"deferred",
+			"resumed",
+			"answered",
+			"dispatched",
+			"rejected",
+			"noop",
+			"unknown",
+		].includes(String(data["status"]))
+	)
+		throw Error("invalid stored decision");
+	parseJudgment({ method: data["method"], expectation: data["expectation"] });
+	if (
+		data["judgmentRecorded"] !== undefined &&
+		typeof data["judgmentRecorded"] !== "boolean"
+	)
+		throw Error("invalid stored judgment");
+	if (data["status"] === "deferred" || data["status"] === "resumed") {
+		if (
+			typeof data["condition"] !== "string" ||
+			!data["condition"] ||
+			typeof data["reason"] !== "string" ||
+			typeof data["signaled"] !== "boolean"
+		)
+			throw Error("invalid stored defer");
+	}
+	if (
+		data["status"] === "resumed" &&
+		(data["signaled"] !== true ||
+			typeof data["nextDecisionId"] !== "string" ||
+			!data["nextDecisionId"])
+	)
+		throw Error("invalid stored wake");
+	if (data["status"] === "adopted") {
+		const adoption = data["adoption"] as Record<string, unknown> | undefined;
+		if (!adoption) throw Error("invalid stored adoption decision");
+		decodeRecord(
+			"adoption",
+			adoption["id"],
+			adoption["revision"],
+			JSON.stringify(adoption),
+		);
+	}
+	return data;
 }

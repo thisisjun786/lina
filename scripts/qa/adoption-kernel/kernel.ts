@@ -194,7 +194,11 @@ export class AdoptionKernel {
 			const owner = effectId.endsWith(":answer")
 				? this.options.delivery
 				: this.options.tools.get(effect.tool);
-			const receipt = await owner?.reconcile(effectId);
+			const saved = this.options.store.consume(effectId);
+			const receipt =
+				saved && saved.status !== "unknown"
+					? saved
+					: await owner?.reconcile(effectId);
 			if (!receipt || receipt.status === "unknown") {
 				traces.push({ status: "unknown", decisionId: effect.decisionId });
 				continue;

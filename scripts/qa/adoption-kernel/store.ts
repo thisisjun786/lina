@@ -1,6 +1,6 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: SQLite rows are untrusted indexed records.
 import { DatabaseSync } from "node:sqlite";
-import { decodeRecord } from "./records.ts";
+import { decodeDecision, decodeFrame, decodeRecord } from "./records.ts";
 import type {
 	Adoption,
 	Evidence,
@@ -208,14 +208,17 @@ export class KernelStore {
 		);
 		return this.db
 			.prepare(
-				"SELECT data FROM kernel_effects WHERE json_extract(data,'$.receipt') IS NOT NULL",
+				"SELECT id,data FROM kernel_effects WHERE json_extract(data,'$.receipt') IS NOT NULL",
 			)
 			.all()
 			.flatMap((row) => {
 				const effect = parse<{ receipt: ToolReceipt; sourceFrame?: Frame }>(
 					String(row["data"]),
 				);
-				const frame = effect.sourceFrame;
+				const receipt = parseReceipt(effect.receipt);
+				if (receipt.effectId !== row["id"])
+					throw Error("invalid stored receipt identity");
+				const frame = decodeFrame(effect.sourceFrame);
 				if (!frame || frame.purpose.subject !== purpose.subject) return [];
 				if (
 					purpose.audience === "public" &&
@@ -331,7 +334,7 @@ export class KernelStore {
 		if (!row) throw Error("unknown decision");
 		this.db.prepare("UPDATE kernel_decisions SET data=? WHERE id=?").run(
 			JSON.stringify({
-				...parse<Record<string, unknown>>(String(row["data"])),
+				...decodeDecision(row["data"]),
 				status: "deferred",
 				condition,
 				reason,
@@ -345,9 +348,8 @@ export class KernelStore {
 			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
 			.get(id);
 		if (!row) throw Error("unknown decision");
-		const data = parse<{ frame?: Frame }>(String(row["data"]));
-		if (!data.frame) throw Error("missing decision frame");
-		return data.frame;
+		const data = decodeDecision(row["data"]);
+		return decodeFrame(data["frame"]);
 	}
 
 	dispatch(
@@ -409,7 +411,7 @@ export class KernelStore {
 	pending(): string[] {
 		return this.db
 			.prepare(
-				"SELECT id FROM kernel_effects WHERE json_extract(data,'$.status') IN ('dispatched','unknown')",
+				"SELECT e.id FROM kernel_effects e LEFT JOIN kernel_decisions d ON d.id=json_extract(e.data,'$.fence') WHERE json_extract(e.data,'$.status') IN ('dispatched','unknown') OR json_extract(d.data,'$.status') IN ('prepared','unknown')",
 			)
 			.all()
 			.map((row) => String(row["id"]));
@@ -418,7 +420,7 @@ export class KernelStore {
 		for (const row of this.db
 			.prepare("SELECT id,data FROM kernel_decisions")
 			.all()) {
-			const data = parse<Record<string, unknown>>(String(row["data"]));
+			const data = decodeDecision(row["data"]);
 			if (data["status"] === "deferred" && data["condition"] === condition)
 				this.db
 					.prepare("UPDATE kernel_decisions SET data=? WHERE id=?")
@@ -432,7 +434,7 @@ export class KernelStore {
 			)
 			.all()
 			.map((row) => {
-				const data = parse<Record<string, unknown>>(String(row["data"]));
+				const data = decodeDecision(row["data"]);
 				if (typeof data["purposeId"] !== "string")
 					throw Error("invalid deferred purpose");
 				return { id: String(row["id"]), purposeId: data["purposeId"] };
@@ -443,7 +445,7 @@ export class KernelStore {
 			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
 			.get(id);
 		if (!row) throw Error("missing deferred decision");
-		const data = parse<Record<string, unknown>>(String(row["data"]));
+		const data = decodeDecision(row["data"]);
 		if (
 			data["status"] === "resumed" &&
 			data["nextDecisionId"] === nextDecisionId
@@ -461,7 +463,7 @@ export class KernelStore {
 			.prepare("SELECT id,data FROM kernel_decisions")
 			.all()
 			.filter((row) => {
-				const data = parse<Record<string, unknown>>(String(row["data"]));
+				const data = decodeDecision(row["data"]);
 				return data["status"] === "deferred" && data["signaled"] !== true;
 			})
 			.map((row) => String(row["id"]));
@@ -470,8 +472,12 @@ export class KernelStore {
 		const row = this.db
 			.prepare("SELECT data FROM kernel_effects WHERE id=?")
 			.get(effectId);
-		return row
-			? (parse<{ receipt?: ToolReceipt }>(String(row["data"])).receipt ?? null)
-			: null;
+		if (!row) return null;
+		const data = parse<{ receipt?: unknown }>(String(row["data"]));
+		if (data.receipt === undefined) return null;
+		const receipt = parseReceipt(data.receipt);
+		if (receipt.effectId !== effectId)
+			throw Error("invalid stored receipt identity");
+		return receipt;
 	}
 }

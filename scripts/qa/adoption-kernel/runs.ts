@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { decodeDecision } from "./records.ts";
 import type { KernelTrace } from "./types.ts";
 
 function restoredTrace(
@@ -95,12 +96,32 @@ export class RunReservations {
 		}
 	}
 	finish(trace: KernelTrace): void {
-		this.db
-			.prepare("UPDATE kernel_runs SET status=?,trace=? WHERE decision_id=?")
-			.run(
-				trace.status === "unknown" ? "unknown" : "done",
-				JSON.stringify(trace),
-				trace.decisionId,
-			);
+		this.db.exec("BEGIN IMMEDIATE");
+		try {
+			const row = this.db
+				.prepare("SELECT data FROM kernel_decisions WHERE id=?")
+				.get(trace.decisionId);
+			if (row) {
+				const data = decodeDecision(row["data"]);
+				if (data["status"] !== "resumed")
+					this.db
+						.prepare("UPDATE kernel_decisions SET data=? WHERE id=?")
+						.run(
+							JSON.stringify({ ...data, status: trace.status }),
+							trace.decisionId,
+						);
+			}
+			this.db
+				.prepare("UPDATE kernel_runs SET status=?,trace=? WHERE decision_id=?")
+				.run(
+					trace.status === "unknown" ? "unknown" : "done",
+					JSON.stringify(trace),
+					trace.decisionId,
+				);
+			this.db.exec("COMMIT");
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
 	}
 }

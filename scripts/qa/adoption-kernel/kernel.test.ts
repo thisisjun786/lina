@@ -1016,3 +1016,107 @@ test("private purpose text cannot become a public adoption without evidence refs
 		delivery.close();
 	}
 });
+
+for (const corruption of ["receipt", "frame"] as const) {
+	test(`restored effect rejects corrupted ${corruption} before projection`, async () => {
+		const { store, kernel } = fixture({
+			kind: "answer",
+			purposeRevision: 1,
+			text: "result",
+		});
+		try {
+			const trace = await kernel.step("p");
+			const id = `${trace.decisionId}:answer`;
+			const path =
+				corruption === "receipt"
+					? "$.receipt.effectId"
+					: "$.sourceFrame.evidence[0].domain";
+			store.db
+				.prepare("UPDATE kernel_effects SET data=json_set(data,?,?) WHERE id=?")
+				.run(path, "forged", id);
+			expect(() => store.frame("p")).toThrow();
+		} finally {
+			store.close();
+		}
+	});
+}
+
+test("unknown persisted decision status fails restoration instead of disappearing", async () => {
+	const { store, kernel } = fixture({
+		kind: "defer",
+		purposeRevision: 1,
+		condition: "ready",
+		reason: "wait",
+	});
+	try {
+		const trace = await kernel.step("p");
+		store.db
+			.prepare(
+				"UPDATE kernel_decisions SET data=json_set(data,'$.status','corrupt') WHERE id=?",
+			)
+			.run(trace.decisionId);
+		await expect(kernel.resume()).rejects.toThrow();
+	} finally {
+		store.close();
+	}
+});
+
+test("terminal answer decision retains its snapshot and actual status", async () => {
+	const { store, kernel } = fixture({
+		kind: "answer",
+		purposeRevision: 1,
+		text: "done",
+	});
+	try {
+		const trace = await kernel.step("p");
+		const row = store.db
+			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
+			.get(trace.decisionId);
+		const decision = JSON.parse(String(row?.["data"]));
+		expect(decision.status).toBe("answered");
+		expect(decision.frame.purpose.id).toBe("p");
+		expect(decision.expectation).toEqual({ kind: "none" });
+	} finally {
+		store.close();
+	}
+});
+
+test("saved owner result completes an interrupted request during resume", async () => {
+	const { store, kernel } = fixture({
+		kind: "answer",
+		purposeRevision: 1,
+		text: "done",
+	});
+	const save = store.recordResult.bind(store);
+	try {
+		store.recordResult = (receipt) => {
+			save(receipt);
+			throw Error("after saved receipt");
+		};
+		await expect(kernel.step("p", "saved-result-request")).rejects.toThrow(
+			"after saved receipt",
+		);
+		store.recordResult = save;
+		const recovered = new AdoptionKernel({
+			store,
+			delivery: {
+				admit: () => {
+					throw Error("readmission forbidden");
+				},
+				reconcile: async () => null,
+			},
+			tools: new Map(),
+			model: {
+				propose: async () => {
+					throw Error("model retry forbidden");
+				},
+			},
+		});
+		expect((await recovered.resume())[0]?.status).toBe("answered");
+		expect((await kernel.step("p", "saved-result-request")).status).toBe(
+			"answered",
+		);
+	} finally {
+		store.close();
+	}
+});
