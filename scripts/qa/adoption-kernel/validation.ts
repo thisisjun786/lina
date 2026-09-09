@@ -45,6 +45,8 @@ export function parseJson(value: unknown, depth = 0): JsonValue {
 		typeof value === "symbol"
 	)
 		throw Error("invalid JSON");
+	if (typeof value === "string" && value.length > MAX_TEXT)
+		throw Error("JSON string too large");
 	if (value === null || typeof value === "string" || typeof value === "boolean")
 		return value;
 	if (typeof value === "number") {

@@ -111,6 +111,7 @@ test("H02 excludes another subject's evidence from the frame", () => {
 		...evidence,
 		id: "other",
 		subject: "other-subject",
+		sourceId: "other-source",
 	});
 	expect(store.frame("p").evidence.map((item) => item.id)).toEqual(["e"]);
 });
@@ -192,7 +193,12 @@ test("H15 concurrent independent purposes reach separate model calls", async () 
 	store.setPurpose(purpose);
 	store.setPurpose({ ...purpose, id: "p2", subject: "s2" });
 	store.observe("owner", evidence);
-	store.observe("owner", { ...evidence, id: "e2", subject: "s2" });
+	store.observe("owner", {
+		...evidence,
+		id: "e2",
+		subject: "s2",
+		sourceId: "second-source",
+	});
 	let resolveFirst: (() => void) | undefined;
 	const first = new Promise<void>((resolve) => {
 		resolveFirst = resolve;
@@ -1614,5 +1620,81 @@ test("durable unadmitted cancellation recovers before request finalization", asy
 	} finally {
 		store.close();
 		delivery.close();
+	}
+});
+
+test("model transport failure retains unknown request without implicit retry", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	let calls = 0;
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools: new Map(),
+		model: {
+			propose: async () => {
+				calls++;
+				throw Error("transport lost");
+			},
+		},
+	});
+	try {
+		const first = await kernel.step("p", "transport-request");
+		expect(first.status).toBe("unknown");
+		expect((await kernel.step("p", "transport-request")).status).toBe(
+			"unknown",
+		);
+		expect((await kernel.step("p", "new-request")).status).toBe("unknown");
+		expect((await kernel.resume())[0]?.status).toBe("unknown");
+		expect(calls).toBe(1);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("same source with distinct notification IDs has one canonical revision stream", () => {
+	const store = new KernelStore();
+	try {
+		store.setPurpose(purpose);
+		store.observe("owner", { ...evidence, id: "notification-a" });
+		store.observe("owner", { ...evidence, id: "notification-b" });
+		expect(store.frame("p").evidence.map((item) => item.id)).toEqual([
+			"notification-a",
+		]);
+		store.correct("owner", {
+			...evidence,
+			id: "notification-c",
+			revision: 2,
+			text: "corrected",
+		});
+		expect(
+			store
+				.frame("p")
+				.evidence.map((item) => [item.id, item.revision, item.text]),
+		).toEqual([["notification-a", 2, "corrected"]]);
+		expect(() =>
+			store.observe("owner", { ...evidence, id: "notification-d" }),
+		).toThrow("invalid evidence revision");
+	} finally {
+		store.close();
+	}
+});
+
+test("nested tool strings exceeding the contract bound are rejected", async () => {
+	const { store, kernel } = fixture({
+		kind: "tool",
+		purposeRevision: 1,
+		tool: "tool",
+		args: { nested: ["x".repeat(20000)] },
+	});
+	try {
+		const result = await kernel.step("p");
+		expect(result.status).toBe("rejected");
+		expect(result.detail).toBe("JSON string too large");
+		expect(store.pending()).toEqual([]);
+	} finally {
+		store.close();
 	}
 });

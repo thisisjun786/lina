@@ -70,7 +70,30 @@ export class KernelStore {
 			);
 	}
 	observe(actor: string, evidence: Evidence): void {
+		this.db.exec("BEGIN IMMEDIATE");
+		try {
+			this.observeSource(actor, evidence);
+			this.db.exec("COMMIT");
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
+	}
+	private observeSource(actor: string, input: Evidence): void {
+		let evidence = input;
 		if (actor !== evidence.sourceOwner) throw Error("source owner mismatch");
+		const named = this.latest<Evidence>("evidence", evidence.id);
+		if (
+			named &&
+			(named.sourceOwner !== actor || named.sourceId !== evidence.sourceId)
+		)
+			throw Error("source identity mismatch");
+		const source = this.db
+			.prepare(
+				"SELECT id FROM kernel_rows WHERE kind='evidence' AND json_extract(data,'$.sourceOwner')=? AND json_extract(data,'$.sourceId')=? ORDER BY revision DESC LIMIT 1",
+			)
+			.get(actor, evidence.sourceId);
+		if (source) evidence = { ...evidence, id: String(source["id"]) };
 		const old = this.latest<Evidence>("evidence", evidence.id);
 		if (
 			old &&

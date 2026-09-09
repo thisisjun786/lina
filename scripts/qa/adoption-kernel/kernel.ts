@@ -47,11 +47,19 @@ export class AdoptionKernel {
 		decisionId: string,
 	): Promise<KernelTrace> {
 		const frame = this.options.store.prepare(purposeId, decisionId);
+		let response: unknown;
+		try {
+			response = await this.options.model.propose(structuredClone(frame));
+		} catch {
+			return {
+				status: "unknown",
+				decisionId,
+				detail: "model request interrupted",
+			};
+		}
 		let proposal: Proposal;
 		try {
-			proposal = parseProposal(
-				await this.options.model.propose(structuredClone(frame)),
-			);
+			proposal = parseProposal(response);
 		} catch (error) {
 			return {
 				status: "rejected",
