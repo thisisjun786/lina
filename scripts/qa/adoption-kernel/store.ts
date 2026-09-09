@@ -42,9 +42,11 @@ export class KernelStore {
 		revision: number,
 		value: unknown,
 	): void {
+		const data = JSON.stringify(value);
+		decodeRecord(kind, id, revision, data);
 		this.db
 			.prepare("INSERT INTO kernel_rows VALUES (?,?,?,?)")
-			.run(kind, id, revision, JSON.stringify(value));
+			.run(kind, id, revision, data);
 	}
 	private latest<T>(kind: string, id: string): T | null {
 		const row = this.db
@@ -150,7 +152,10 @@ export class KernelStore {
 		const currentEvidence = new Set(evidence.map((item) => key(item)));
 		const allEvidence = this.rows<Evidence>("evidence");
 		const candidates = this.rows<Adoption>("adoption").filter(
-			(item) =>
+			(item, _, all) =>
+				!all.some(
+					(other) => other.id === item.id && other.revision > item.revision,
+				) &&
 				item.subject === subject &&
 				item.status === "active" &&
 				(audience === "private" || item.visibility === "public"),
@@ -266,6 +271,22 @@ export class KernelStore {
 				JSON.stringify({ ...data, ...judgment, judgmentRecorded: true }),
 				id,
 			);
+	}
+
+	admitCurrent(frame: Frame, admit: () => void): boolean {
+		this.db.exec("BEGIN IMMEDIATE");
+		try {
+			if (!this.current(frame)) {
+				this.db.exec("ROLLBACK");
+				return false;
+			}
+			admit();
+			this.db.exec("COMMIT");
+			return true;
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
 	}
 
 	current(frame: Frame): boolean {
@@ -404,6 +425,37 @@ export class KernelStore {
 					.run(JSON.stringify({ ...data, signaled: true }), String(row["id"]));
 		}
 	}
+	readyDeferred(): { id: string; purposeId: string }[] {
+		return this.db
+			.prepare(
+				"SELECT id,data FROM kernel_decisions WHERE json_extract(data,'$.status')='deferred' AND json_extract(data,'$.signaled')=1",
+			)
+			.all()
+			.map((row) => {
+				const data = parse<Record<string, unknown>>(String(row["data"]));
+				if (typeof data["purposeId"] !== "string")
+					throw Error("invalid deferred purpose");
+				return { id: String(row["id"]), purposeId: data["purposeId"] };
+			});
+	}
+	completeDeferred(id: string, nextDecisionId: string): void {
+		const row = this.db
+			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
+			.get(id);
+		if (!row) throw Error("missing deferred decision");
+		const data = parse<Record<string, unknown>>(String(row["data"]));
+		if (
+			data["status"] === "resumed" &&
+			data["nextDecisionId"] === nextDecisionId
+		)
+			return;
+		if (data["status"] !== "deferred" || data["signaled"] !== true)
+			throw Error("deferred decision not ready");
+		this.db
+			.prepare("UPDATE kernel_decisions SET data=? WHERE id=?")
+			.run(JSON.stringify({ ...data, status: "resumed", nextDecisionId }), id);
+	}
+
 	deferred(): string[] {
 		return this.db
 			.prepare("SELECT id,data FROM kernel_decisions")

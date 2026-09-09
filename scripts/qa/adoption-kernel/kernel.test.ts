@@ -303,15 +303,17 @@ test("defer survives then resumes only on its matching signal", async () => {
 		reason: "waiting",
 		condition: "receipt",
 	});
-	await kernel.step("p");
+	const original = await kernel.step("p");
 	store.signal("other");
 	expect(
 		(await kernel.resume()).some((trace) => trace.status === "deferred"),
 	).toBe(true);
 	store.signal("receipt");
-	expect(
-		(await kernel.resume()).some((trace) => trace.status === "deferred"),
-	).toBe(false);
+	const resumed = await kernel.resume();
+	expect(resumed).toHaveLength(1);
+	expect(resumed[0]?.status).toBe("deferred");
+	expect(resumed[0]?.decisionId).not.toBe(original.decisionId);
+	expect(store.deferred()).not.toContain(original.decisionId);
 });
 test("tool result persists after admission", async () => {
 	const receipt = {
@@ -691,5 +693,326 @@ test("answer receipt is tracked and recovered after owner admission interruption
 	} finally {
 		store.close();
 		owner.close();
+	}
+});
+
+test("matching deferred signal actually runs a new judgment once", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	let calls = 0;
+	try {
+		store.setPurpose(purpose);
+		const kernel = new AdoptionKernel({
+			store,
+			delivery,
+			tools: new Map(),
+			model: {
+				propose: async () =>
+					++calls === 1
+						? {
+								kind: "defer",
+								purposeRevision: 1,
+								reason: "waiting",
+								condition: "ready",
+							}
+						: { kind: "answer", purposeRevision: 2, text: "new purpose" },
+			},
+		});
+		expect((await kernel.step("p")).status).toBe("deferred");
+		store.signal("other");
+		await kernel.resume();
+		expect(calls).toBe(1);
+		store.setPurpose({ ...purpose, revision: 2, text: "updated" });
+		store.signal("ready");
+		expect((await kernel.resume())[0]?.status).toBe("answered");
+		expect(calls).toBe(2);
+		expect(await kernel.resume()).toEqual([]);
+		expect(calls).toBe(2);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("another SQLite writer cannot change evidence inside final owner admission", async () => {
+	const { mkdtempSync, rmSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { tmpdir } = await import("node:os");
+	const root = mkdtempSync(join(tmpdir(), "admission-fence-"));
+	const path = join(root, "state.sqlite");
+	const first = new KernelStore(path);
+	const second = new KernelStore(path);
+	let blocked = false;
+	try {
+		first.setPurpose(purpose);
+		first.observe("owner", evidence);
+		const kernel = new AdoptionKernel({
+			store: first,
+			tools: new Map(),
+			delivery: {
+				admit: () => {
+					try {
+						second.correct("owner", {
+							...evidence,
+							revision: 2,
+							text: "changed",
+						});
+					} catch {
+						blocked = true;
+					}
+				},
+				reconcile: async (id) => ({
+					effectId: id,
+					status: "completed",
+					output: "delivered",
+					quality: { status: "unverified", verifier: null, detail: "delivery" },
+				}),
+			},
+			model: {
+				propose: async () => ({
+					kind: "answer",
+					purposeRevision: 1,
+					text: "answer",
+				}),
+			},
+		});
+		expect((await kernel.step("p")).status).toBe("answered");
+		expect(blocked).toBe(true);
+		second.correct("owner", { ...evidence, revision: 2, text: "changed" });
+		expect(first.frame("p").evidence[0]?.revision).toBe(2);
+	} finally {
+		first.close();
+		second.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("durable request reservation excludes concurrent judgment and replays result", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	let calls = 0;
+	let release!: () => void;
+	const gate = new Promise<void>((r) => {
+		release = r;
+	});
+	let entered!: () => void;
+	const started = new Promise<void>((r) => {
+		entered = r;
+	});
+	const options = {
+		store,
+		delivery,
+		tools: new Map<string, ToolPort>(),
+		model: {
+			propose: async () => {
+				calls++;
+				entered();
+				await gate;
+				return { kind: "answer", purposeRevision: 1, text: "once" };
+			},
+		},
+	};
+	try {
+		store.setPurpose(purpose);
+		const first = new AdoptionKernel(options);
+		const second = new AdoptionKernel(options);
+		const pending = first.step("p", "request-one");
+		await started;
+		const duplicate = second.step("p", "request-two");
+		release();
+		const blocked = await duplicate;
+		const done = await pending;
+		expect(blocked.status).toBe("unknown");
+		expect(calls).toBe(1);
+		expect(done.status).toBe("answered");
+		expect(await second.step("p", "request-one")).toEqual(done);
+		expect(calls).toBe(1);
+	} finally {
+		release();
+		store.close();
+		delivery.close();
+	}
+});
+
+test("request result replay survives closing kernel storage", async () => {
+	const { mkdtempSync, rmSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { tmpdir } = await import("node:os");
+	const root = mkdtempSync(join(tmpdir(), "request-replay-"));
+	const path = join(root, "kernel.sqlite");
+	const owner = new DeliveryOwner(join(root, "delivery.sqlite"));
+	let calls = 0;
+	const model = {
+		propose: async () => {
+			calls++;
+			return { kind: "answer", purposeRevision: 1, text: "stored" };
+		},
+	};
+	try {
+		const first = new KernelStore(path);
+		first.setPurpose(purpose);
+		const result = await new AdoptionKernel({
+			store: first,
+			delivery: owner,
+			tools: new Map(),
+			model,
+		}).step("p", "stable-request");
+		first.close();
+		const second = new KernelStore(path);
+		try {
+			expect(
+				await new AdoptionKernel({
+					store: second,
+					delivery: owner,
+					tools: new Map(),
+					model,
+				}).step("p", "stable-request"),
+			).toEqual(result);
+			expect(calls).toBe(1);
+		} finally {
+			second.close();
+		}
+	} finally {
+		owner.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("model cannot rewrite the admission snapshot to hide a correction", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	store.observe("owner", evidence);
+	try {
+		const kernel = new AdoptionKernel({
+			store,
+			delivery,
+			tools: new Map(),
+			model: {
+				propose: async (frame) => {
+					store.observe("owner", {
+						...evidence,
+						revision: 2,
+						text: "corrected",
+					});
+					frame.evidence = store.frame("p").evidence;
+					return { kind: "answer", purposeRevision: 1, text: "stale judgment" };
+				},
+			},
+		});
+		expect((await kernel.step("p")).status).toBe("rejected");
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("deferred wake replays its judgment after interruption before linking", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	let calls = 0;
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools: new Map(),
+		model: {
+			propose: async () =>
+				++calls === 1
+					? {
+							kind: "defer",
+							purposeRevision: 1,
+							reason: "waiting",
+							condition: "ready",
+						}
+					: { kind: "answer", purposeRevision: 1, text: "once" },
+		},
+	});
+	try {
+		await kernel.step("p");
+		store.signal("ready");
+		const complete = store.completeDeferred.bind(store);
+		store.completeDeferred = () => {
+			throw Error("crash before link");
+		};
+		await expect(kernel.resume()).rejects.toThrow("crash before link");
+		store.completeDeferred = complete;
+		const resumed = await Promise.all([kernel.resume(), kernel.resume()]);
+		expect(resumed[0]?.[0]?.status).toBe("answered");
+		expect(calls).toBe(2);
+		expect(await kernel.resume()).toEqual([]);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("invalid source writes are rejected without poisoning the next frame", () => {
+	const store = new KernelStore();
+	try {
+		store.setPurpose(purpose);
+		const invalid = { ...evidence, revision: -1 };
+		expect(() => store.observe("owner", invalid)).toThrow();
+		expect(store.frame("p").evidence).toEqual([]);
+	} finally {
+		store.close();
+	}
+});
+
+test("withdrawn adoption revision suppresses the older active judgment", async () => {
+	const { store, kernel } = fixture({
+		kind: "adopt",
+		purposeRevision: 1,
+		adoptionKind: "plan",
+		text: "plan",
+		refs: [{ id: "e", revision: 1 }],
+		condition: "always",
+	});
+	try {
+		await kernel.step("p");
+		const adopted = store.frame("p").adoptions[0];
+		expect(adopted).toBeDefined();
+		if (!adopted) throw Error("missing adoption");
+		const withdrawn = { ...adopted, revision: 2, status: "withdrawn" };
+		store.db
+			.prepare("INSERT INTO kernel_rows VALUES ('adoption',?,?,?)")
+			.run(adopted.id, 2, JSON.stringify(withdrawn));
+		expect(store.frame("p").adoptions).toEqual([]);
+	} finally {
+		store.close();
+	}
+});
+
+test("private purpose text cannot become a public adoption without evidence refs", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose({ ...purpose, text: "private canary" });
+	try {
+		const kernel = new AdoptionKernel({
+			store,
+			delivery,
+			tools: new Map(),
+			model: {
+				propose: async () => ({
+					kind: "adopt",
+					purposeRevision: 1,
+					adoptionKind: "understanding",
+					text: "private canary",
+					refs: [],
+					condition: "always",
+				}),
+			},
+		});
+		expect((await kernel.step("p")).status).toBe("adopted");
+		store.setPurpose({
+			...purpose,
+			revision: 2,
+			audience: "public",
+			text: "public task",
+		});
+		expect(store.frame("p").adoptions).toEqual([]);
+	} finally {
+		store.close();
+		delivery.close();
 	}
 });

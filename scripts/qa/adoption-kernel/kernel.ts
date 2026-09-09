@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { RunReservations } from "./runs.ts";
 import type { KernelStore } from "./store.ts";
 import type {
 	Adoption,
@@ -19,13 +20,39 @@ export type KernelOptions = {
 };
 
 export class AdoptionKernel {
-	constructor(private readonly options: KernelOptions) {}
-	async step(purposeId: string): Promise<KernelTrace> {
-		const decisionId = randomUUID();
+	private readonly runs: RunReservations;
+	constructor(private readonly options: KernelOptions) {
+		this.runs = new RunReservations(options.store.db);
+	}
+	async step(
+		purposeId: string,
+		requestId: string = randomUUID(),
+	): Promise<KernelTrace> {
+		const claim = this.runs.claim(purposeId, requestId);
+		if (claim.replay) return claim.replay;
+		try {
+			const result = await this.execute(purposeId, claim.decisionId);
+			this.runs.finish(result);
+			return result;
+		} catch (error) {
+			this.runs.finish({
+				status: "unknown",
+				decisionId: claim.decisionId,
+				detail: "interrupted judgment",
+			});
+			throw error;
+		}
+	}
+	private async execute(
+		purposeId: string,
+		decisionId: string,
+	): Promise<KernelTrace> {
 		const frame = this.options.store.prepare(purposeId, decisionId);
 		let proposal: Proposal;
 		try {
-			proposal = parseProposal(await this.options.model.propose(frame));
+			proposal = parseProposal(
+				await this.options.model.propose(structuredClone(frame)),
+			);
 		} catch (error) {
 			return {
 				status: "rejected",
@@ -59,12 +86,17 @@ export class AdoptionKernel {
 				{ bytes: proposal.text, audience: frame.purpose.audience },
 				decisionId,
 			);
-			this.options.delivery.admit(
-				effectId,
-				proposal.text,
-				frame.purpose.audience,
-				decisionId,
-			);
+			if (
+				!this.options.store.admitCurrent(frame, () =>
+					this.options.delivery.admit(
+						effectId,
+						proposal.text,
+						frame.purpose.audience,
+						decisionId,
+					),
+				)
+			)
+				return { status: "rejected", decisionId, detail: "stale final fence" };
 			const receipt = await this.options.delivery.reconcile(effectId);
 			if (!receipt || receipt.status === "unknown")
 				return { status: "unknown", decisionId };
@@ -94,12 +126,18 @@ export class AdoptionKernel {
 				id: `${decisionId}:adoption`,
 				revision: 1,
 				subject: frame.purpose.subject,
-				domain: frame.evidence.some((item) => item.domain === "fiction")
+				domain: [...frame.evidence, ...frame.adoptions].some(
+					(item) => item.domain === "fiction",
+				)
 					? "fiction"
 					: "real",
-				visibility: frame.evidence.some((item) => item.visibility === "private")
-					? "private"
-					: "public",
+				visibility:
+					frame.purpose.audience === "private" ||
+					[...frame.evidence, ...frame.adoptions].some(
+						(item) => item.visibility === "private",
+					)
+						? "private"
+						: "public",
 				kind: proposal.adoptionKind,
 				text: proposal.text,
 				refs: proposal.refs,
@@ -126,7 +164,12 @@ export class AdoptionKernel {
 		this.options.beforeAdmit?.();
 		if (!this.options.store.current(frame))
 			return { status: "rejected", decisionId, detail: "stale final fence" };
-		tool.admit(effectId, proposal.args, decisionId);
+		if (
+			!this.options.store.admitCurrent(frame, () =>
+				tool.admit(effectId, proposal.args, decisionId),
+			)
+		)
+			return { status: "rejected", decisionId, detail: "stale final fence" };
 		const receipt = await tool.result(effectId);
 		if (!receipt || receipt.status === "unknown")
 			return { status: "unknown", decisionId };
@@ -139,6 +182,12 @@ export class AdoptionKernel {
 		const traces: KernelTrace[] = this.options.store
 			.deferred()
 			.map((decisionId) => ({ status: "deferred", decisionId }));
+		for (const deferred of this.options.store.readyDeferred()) {
+			const result = await this.step(deferred.purposeId, `wake:${deferred.id}`);
+			if (result.status !== "unknown")
+				this.options.store.completeDeferred(deferred.id, result.decisionId);
+			traces.push(result);
+		}
 		for (const effectId of this.options.store.pending()) {
 			const effect = this.options.store.pendingEffect(effectId);
 			if (!effect) throw Error("missing pending effect");
@@ -153,6 +202,10 @@ export class AdoptionKernel {
 			if (receipt.effectId !== effectId)
 				throw Error("reconciliation receipt identity mismatch");
 			this.options.store.recordResult(receipt);
+			this.runs.finish({
+				status: effectId.endsWith(":answer") ? "answered" : "dispatched",
+				decisionId: effect.decisionId,
+			});
 			traces.push({
 				status: effectId.endsWith(":answer") ? "answered" : "dispatched",
 				decisionId: effect.decisionId,
