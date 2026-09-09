@@ -34,7 +34,7 @@
 - 읽기: `GET /api/models` → catalog·settings revision·적용값.
 - 쓰기: `PATCH /api/models/settings` `{revision, settings}`. stale는 409 「설정이 바뀌었습니다」.
 - 시험: `POST /api/models/test` `{profileId, prompt}`. 진행 중 409, 실패 502. 12초 제한.
-- UI: 저장된 등급 표시와 에이전트별 override. 내부 역할의 예전 모델/에포트 편집은 전역·에이전트 범위 모두 잠근다. 등급 미구성은 별도 안내하며, 새 tier 편집 화면은 이 목록의 구현이 아니다.
+- UI: 저장된 등급 표시와 일반 대화의 에이전트별 override. 내부 역할의 예전 모델/에포트 편집은 전역·에이전트 범위 모두 잠근다. 등급 미구성은 별도 안내하며, 새 tier 편집 화면은 이 목록의 구현이 아니다.
 
 ## 2. 개인 기억
 
