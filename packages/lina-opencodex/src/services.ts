@@ -432,7 +432,7 @@ export function createOpenCodexContextServices(
 		async summarize(text, maxTokens, signal, beforeDispatch, routeRequest) {
 			return roleCall(
 				"summary",
-				SUMMARY_PROMPT,
+				`${SUMMARY_PROMPT} Use at most ${Math.min(8192, Math.max(64, Math.floor(text.length * 0.6)))} characters in the visible summary.`,
 				text,
 				AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
 				beforeDispatch,

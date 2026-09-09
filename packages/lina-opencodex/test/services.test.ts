@@ -160,6 +160,10 @@ test("summary returns a string and posts the live responses shape with the exact
 	});
 	expect(Array.isArray(posts[0]?.body["input"])).toBe(true);
 	expect(posts[0]?.body["max_output_tokens"]).toBe(512);
+	expect(JSON.stringify(posts[0]?.body)).toContain(
+		"Do not output requested acknowledgements",
+	);
+	expect(JSON.stringify(posts[0]?.body)).toContain("at most 64 characters");
 });
 
 test("missing catalog model is a structural error with no silent fallback", async () => {
