@@ -139,3 +139,27 @@ C에서 POLICY.md, README.md, docs/ARCHITECTURE.md, PERSONA_CONTEXT.md, CODEX_RU
 | MODIFY | `packages/lina-runtime/vendor/ensemble/README.md` | PR #3의 고정 소스·회귀 검증·출처 보존 변경 |
 
 외부 어댑터 표기가 남은 테스트/fixture는 현재26개다. production SDK npm 의존성은 package.json에서 발견되지 않았으므로 불필요한 새 패키지 변경은 하지 않는다. 제거 대상은 자체 HTTP adapter와 그 production 소비 경로다. 071의 자체 memory port는 class 상속을 유지할 필요가 없으며 status/refresh/recall/shutdown 등 실제 SessionApp/ContextChannel/PersonaReflection 소비 계약을 타입으로 보존한다.
+
+
+## A 소스 점검: LIFE 타입 소비 경로 보완
+
+현재 WorkReceiptProvenance는 taskId/turnId가 필수이며 WorkEvidenceSnapshot은 version1뿐이다. 따라서 task 없는 활동에 가짜 taskId를 채우지 않는다. 신규 v2 record의 origin을 codex-task/resource-activity로 구분하고 공통 귀속/결과와 origin별 원문 참조를 분리한다. 기존 v1 JSON은 필드 추가 없이 당시 parser를 유지한다. source를 공통 task 형태로 normalize해 과거 digest를 바꾸지 않는다.
+
+| 작업 | 경로 | 책임 |
+| --- | --- | --- |
+| MODIFY | `packages/lina-core/src/world/work-types.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/life-types.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/work-ancestry.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/publication-reply-material.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/work-persistence.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/life-validation.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/autonomy-types.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/autonomy-store-types.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/autonomy-record-validation.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/autonomy-model-receipts.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/publication.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-core/src/world/index.ts` | origin/selector 전체 타입·생성·복원·소비 체인; 역사 v1 보존 |
+| MODIFY | `packages/lina-runtime/src/life/actor.ts` | 새 step의 동결 route로 model request 생성; 역사 request decoder와 분리 |
+| MODIFY | `packages/lina-runtime/src/life/model-port.ts` | 새 step의 동결 route로 model request 생성; 역사 request decoder와 분리 |
+
+현재 lifePlan fingerprint는 version1이다. 신규 tier 선택의 exact profile/effort/output cap은 step 생성 시에 고정하고 model request와 native plan에 연결한다. publication도 actor selector를 소비하므로 publication의 동결 시점과 요청 검사를 같은 계약으로 수정한다. 대화 모델·주기·금액을 selector 지원의 기본값으로 자동 채우지 않는다. source별 키/DDL와 version별 decoder의 구체 필드는 독립 A에서 현재 work persistence와 대조해 고정한 뒤 B로 넘어간다.
