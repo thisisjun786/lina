@@ -28,6 +28,7 @@ import type { EnginePolicySnapshot } from "../context/policy-settings.ts";
 import type { ContextServices } from "../context/port.ts";
 import type { LinaHost } from "../host.ts";
 import { createResourceActivityBridge } from "../life/resource-bridge.ts";
+import { installActivityTools } from "../resources/activity-tools.ts";
 import { ResourceEngine } from "../resources/services.ts";
 
 interface Options {
@@ -223,10 +224,18 @@ export class FleetResources {
 	}
 	install(host: LinaHost, id: string) {
 		this.consumer(id).install(host);
+		installActivityTools(host, {
+			ledger: this.activities,
+			scope: () => this.scope(id),
+		});
 	}
 	dynamicTools() {
 		const host = new CodexHost(this.options.root, () => ({ action: "allow" }));
 		this.consumer(null).install(host.asLinaHost());
+		installActivityTools(host.asLinaHost(), {
+			ledger: this.activities,
+			scope: () => this.scope(null),
+		});
 		return [...host.tools.values()].map((t) => ({
 			type: "function" as const,
 			name: t.name,
@@ -283,6 +292,13 @@ export class FleetResources {
 				(r) => this.schedule(id, r.id),
 			);
 			client.install(host.asLinaHost());
+			installActivityTools(host.asLinaHost(), {
+				ledger: this.activities,
+				scope: () => {
+					context?.assertCurrent();
+					return this.scope(id);
+				},
+			});
 			const result = await host.invokeTool(name, callId, args, combined);
 			context?.assertCurrent();
 			return result;

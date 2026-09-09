@@ -630,33 +630,93 @@ test("installation activity bridge pins shared scope and checks ownership on eac
 			mediaType: "text/plain",
 			bytes: new TextEncoder().encode("Research text"),
 		});
-		owner.activities.create(actor, {
-			operationId: "create",
-			activityId: "activity",
-			worldId,
-			actorAgentId: "lina",
-			participantAgentIds: ["lina"],
-			activityKind: "research",
-			outcome: "recorded",
-			resourceId: doc.id,
-			versionId: null,
-			memoryId: null,
-			quotes: [],
-			hostConfirmed: false,
-			fields: {
-				categoryId: "research",
-				outcome: "recorded",
+		const created = await owner.executeTool(
+			"lina_resource_activity_record",
+			"record",
+			{
+				operationId: "create",
+				activityId: "activity",
+				worldId,
 				participantAgentIds: ["lina"],
-				summary: "Research result",
+				activityKind: "research",
+				outcome: "recorded",
+				resourceId: doc.id,
+				versionId: null,
+				memoryId: null,
+				quotes: [],
+				fields: {
+					categoryId: "research",
+					outcome: "recorded",
+					participantAgentIds: ["lina"],
+					summary: "Research result",
+				},
+				policyRevision: 1,
 			},
-			policyRevision: 1,
-		});
+			new AbortController().signal,
+			{ taskId: "work", agentId: "lina", revision: 1, assertCurrent: () => {} },
+		);
+		expect(created.success).toBe(true);
 		const bridge = owner.activityBridge(world.store);
 		expect(bridge.poll(worldId)).toEqual({ delivered: 1, replayed: 0 });
 		const source = world.store.workEvidence(worldId).records[0]?.source;
 		if (!source || source.kind !== "resource_activity")
 			throw Error("missing source");
 		expect(bridge.current(worldId, source)).toBe(true);
+		const invoke = (action: string, input: unknown, agentId = "lina") =>
+			owner.executeTool(
+				`lina_resource_activity_${action}`,
+				action,
+				input,
+				new AbortController().signal,
+				{ taskId: "work", agentId, revision: 1, assertCurrent: () => {} },
+			);
+		const shared = {
+			categoryId: "research",
+			outcome: "recorded",
+			participantAgentIds: ["lina"],
+			summary: "Revised research",
+		};
+		const correction = {
+			operationId: "correct",
+			activityId: "activity",
+			expectedRevision: 1,
+			outcome: "recorded",
+			memoryId: null,
+			quotes: [],
+			fields: shared,
+			policyRevision: 2,
+			correction: { kind: "amend", reason: "New evidence" },
+		};
+		await expect(
+			invoke("correct", { ...correction, hostConfirmed: true }),
+		).rejects.toThrow();
+		expect((await invoke("correct", correction, "mira")).success).toBe(false);
+		expect((await invoke("correct", correction)).success).toBe(true);
+		expect(
+			(
+				await invoke("restrict", {
+					operationId: "restrict",
+					activityId: "activity",
+					expectedRevision: 2,
+					worldId,
+					policyRevision: 3,
+				})
+			).success,
+		).toBe(true);
+		expect(
+			(
+				await invoke("grant", {
+					operationId: "grant",
+					activityId: "activity",
+					expectedRevision: 3,
+					worldId,
+					policyRevision: 4,
+					fields: shared,
+				})
+			).success,
+		).toBe(true);
+		expect(bridge.current(worldId, source)).toBe(false);
+
 		owned = false;
 		expect(() => bridge.poll(worldId)).toThrow(/lost installation/);
 		expect(() => bridge.current(worldId, source)).toThrow(/lost installation/);
