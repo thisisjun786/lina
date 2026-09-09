@@ -1,7 +1,8 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: JSON evidence crosses a file boundary.
+import { isDeepStrictEqual } from "node:util";
 import type { EpisodeTrace } from "./harness-types.ts";
 import { decodeRecord } from "./records.ts";
-import { parseJson, parseReceipt } from "./validation.ts";
+import { parseJson, parseProposal, parseReceipt } from "./validation.ts";
 
 function object(
 	value: unknown,
@@ -125,6 +126,15 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 				["requestId"],
 			);
 			text(t["content"]);
+			let parsed: unknown = null;
+			try {
+				parsed = JSON.parse(t["content"]);
+			} catch {
+				/* Rejected non-JSON output is recorded as null. */
+			}
+			if (!isDeepStrictEqual(parsed, q["proposal"]))
+				throw Error("recorded proposal differs from model output");
+
 			text(t["model"]);
 			if (t["requestId"] !== undefined) text(t["requestId"]);
 			const u = object(t["usage"], ["prompt", "completion"]);
@@ -140,6 +150,7 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		}
 	}
 	const decisions = new Set<string>();
+	const adopted = new Map<string, { requestIndex: number; stage: number }>();
 	const answered = new Map<string, number>();
 	for (const value of list(r["steps"])) {
 		const s = object(value, ["stage", "kernel", "requestIndex"]);
@@ -151,6 +162,15 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		choice(k["status"], statuses);
 		text(k["decisionId"]);
 		decisions.add(k["decisionId"]);
+		if (k["status"] === "adopted") {
+			if (typeof s["requestIndex"] !== "number" || adopted.has(k["decisionId"]))
+				throw Error("invalid adopted request link");
+			adopted.set(k["decisionId"], {
+				requestIndex: s["requestIndex"],
+				stage: s["stage"] as number,
+			});
+		}
+
 		if (k["status"] === "answered")
 			answered.set(k["decisionId"], s["stage"] as number);
 		if (k["detail"] !== undefined) text(k["detail"]);
@@ -209,6 +229,28 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		decodeRecord("adoption", a["id"], a["revision"], JSON.stringify(a));
 		if (!decisions.has(String(a["sourceDecisionId"])))
 			throw Error("adoption decision absent");
+		const link = adopted.get(String(a["sourceDecisionId"]));
+		if (!link) throw Error("adoption has no adopted decision");
+		const request = requests[
+			link.requestIndex
+		] as EpisodeTrace["requests"][number];
+		if (
+			!request ||
+			request.stage !== link.stage ||
+			request.transport.kind !== "ok"
+		)
+			throw Error("adoption request mismatch");
+		const proposal = parseProposal(request.proposal);
+		const body = JSON.parse(request.input.messages[1]?.content ?? "");
+		if (
+			proposal.kind !== "adopt" ||
+			proposal.purposeRevision !== body.purpose?.revision ||
+			proposal.adoptionKind !== a["kind"] ||
+			proposal.text !== a["text"] ||
+			proposal.condition !== a["condition"] ||
+			!isDeepStrictEqual(proposal.refs, a["refs"])
+		)
+			throw Error("adoption differs from model proposal");
 		adoptionIds.add(String(a["id"]));
 	}
 	for (const value of list(r["delivered"])) {

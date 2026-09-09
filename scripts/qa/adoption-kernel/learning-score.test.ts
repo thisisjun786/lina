@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { runEpisode } from "./runner.ts";
 import { generateCase } from "./scenarios.ts";
 import { scoreTrial } from "./score.ts";
+import { decodeTrace } from "./trace.ts";
 
 for (const condition of ["always", '{"method":"wrong","when":"wrong"}']) {
 	test(`B12 rejects ungrounded condition ${condition}`, async () => {
@@ -121,6 +122,18 @@ for (const row of ["B11", "B12"]) {
 		const result = scoreTrial(generated.privateTruth, trace);
 		expect(result.quality).toBe(true);
 		expect(result.uptake).toBe(true);
+		expect(decodeTrace(trace).status).toBe("complete");
+		const forgedProposal = structuredClone(trace);
+		const firstRequest = forgedProposal.requests[0];
+		if (firstRequest?.transport.kind !== "ok")
+			throw Error("missing adopt request");
+		const proposed = JSON.parse(firstRequest.transport.content);
+		proposed.condition = "always";
+		firstRequest.proposal = proposed;
+		expect(() => decodeTrace(forgedProposal)).toThrow();
+		firstRequest.transport.content = JSON.stringify(proposed);
+		expect(() => decodeTrace(forgedProposal)).toThrow();
+
 		const missingRefs = structuredClone(trace);
 		for (const request of missingRefs.requests.filter(
 			(r) => r.stage === generated.privateTruth.expected.finalStage,

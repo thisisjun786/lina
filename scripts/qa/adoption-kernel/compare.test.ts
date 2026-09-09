@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareBatch } from "./compare.ts";
+import { rescoreBatch } from "./rescore.ts";
 import { RunRegistry } from "./run-registry.ts";
 import { exportBatch } from "./scenario-export.ts";
 
@@ -80,6 +81,40 @@ test("comparison runs separate mode and scorer processes retaining each result",
 			expect(request).toContain("messages");
 		}
 		expect(report.trials.every((t) => t.quality)).toBe(true);
+		const rescored = rescoreBatch(
+			path,
+			join(root, "result"),
+			started.sourceHash,
+		);
+		expect(rescored.trials).toEqual(report.trials);
+		const tracePath = join(
+			root,
+			"result",
+			episode.episodeId,
+			"kernel",
+			"trace.json",
+		);
+		const originalTrace = readFileSync(tracePath, "utf8");
+		const modifiedTrace = JSON.parse(originalTrace);
+		modifiedTrace.requests[0].transport.model = "different-model";
+		writeFileSync(tracePath, JSON.stringify(modifiedTrace));
+		expect(() =>
+			rescoreBatch(path, join(root, "result"), started.sourceHash),
+		).toThrow();
+		writeFileSync(tracePath, originalTrace);
+
+		writeFileSync(
+			join(root, "result", "report.json"),
+			JSON.stringify({ trials: [], qualification: { qualified: true } }),
+		);
+		expect(
+			rescoreBatch(path, join(root, "result"), started.sourceHash).trials,
+		).toEqual(report.trials);
+		expect(() =>
+			rescoreBatch(path, join(root, "result"), "f".repeat(64)),
+		).toThrow();
+		writeFileSync(join(root, "result", "report.json"), JSON.stringify(report));
+
 		expect(report.qualification.qualified).toBe(false);
 		expect(
 			JSON.parse(readFileSync(join(root, "result", "report.json"), "utf8"))
