@@ -18,6 +18,7 @@ import {
 	readRegular,
 	writeExclusive,
 } from "../../../lina-core/src/attachments/filesystem.ts";
+import { ResourceActivities } from "../../../lina-memory/src/resources/activities.ts";
 import type { ResourceContentLimits } from "../../../lina-memory/src/resources/content.ts";
 import { ResourceStore } from "../../../lina-memory/src/resources/store.ts";
 import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts";
@@ -40,7 +41,8 @@ function validateStoredResources(
 	limits: ResourceContentLimits,
 ): void {
 	const catalog = join(root, "catalog.sqlite");
-	if (!existsSync(catalog)) return;
+	if (!existsSync(catalog) && !existsSync(join(root, "activities.sqlite")))
+		return;
 	checkedDirectory(root, false);
 	const files = () => {
 		const names = [
@@ -48,6 +50,10 @@ function validateStoredResources(
 			"catalog.sqlite-wal",
 			"catalog.sqlite-journal",
 			"catalog.sqlite-shm",
+			"activities.sqlite",
+			"activities.sqlite-wal",
+			"activities.sqlite-journal",
+			"activities.sqlite-shm",
 		];
 		const blobs = join(root, "blobs");
 		if (existsSync(blobs)) {
@@ -78,7 +84,7 @@ function validateStoredResources(
 		for (const name of files()) {
 			const path = join(root, name);
 			// The WAL index is ephemeral; SQLite rebuilds it only in the private copy.
-			if (!existsSync(path) || name === "catalog.sqlite-shm") continue;
+			if (!existsSync(path) || name.endsWith(".sqlite-shm")) continue;
 			const blob = name.startsWith("blobs/");
 			const bytes = readRegular(
 				path,
@@ -96,6 +102,13 @@ function validateStoredResources(
 		const probe = new ResourceStore(temporary, limits);
 		try {
 			probe.recoverOwnedState();
+			if (existsSync(join(temporary, "activities.sqlite"))) {
+				// Read-only integrity audit never originates activities or grants.
+				const activities = new ResourceActivities(temporary, probe, {
+					isWorldParticipant: () => false,
+				});
+				activities.close();
+			}
 		} finally {
 			probe.close();
 		}

@@ -503,3 +503,56 @@ test("valid crash WAL resource data remains readable after the copy audit", asyn
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("rejected activity WAL preserves both resource databases and sidecars", async () => {
+	const { ResourceStore } = await import(
+		"../../lina-memory/src/resources/store.ts"
+	);
+	const { ResourceActivities } = await import(
+		"../../lina-memory/src/resources/activities.ts"
+	);
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const root = mkdtempSync(join(tmpdir(), "lina-activity-crash-audit-"));
+	try {
+		const store = new ResourceStore(root, limits);
+		const activities = new ResourceActivities(root, store, {
+			isWorldParticipant: () => false,
+		});
+		activities.close();
+		store.close();
+		const child = Bun.spawnSync([
+			process.execPath,
+			"-e",
+			'import {DatabaseSync} from "node:sqlite"; const db=new DatabaseSync(process.argv[1]); db.exec("PRAGMA wal_autocheckpoint=0; PRAGMA user_version=999"); process.kill(process.pid,"SIGKILL");',
+			join(root, "activities.sqlite"),
+		]);
+		expect(child.exitCode).not.toBe(0);
+		const snapshot = () =>
+			Object.fromEntries(
+				readdirSync(root)
+					.filter((n) => n.includes(".sqlite"))
+					.sort()
+					.map((n) => [n, readFileSync(join(root, n)).toString("base64")]),
+			);
+		const before = snapshot();
+		expect(before["activities.sqlite-wal"]).toBeDefined();
+		let owner: InstanceType<typeof FleetResources> | undefined;
+		try {
+			expect(() => {
+				owner = new FleetResources({
+					root,
+					limits,
+					services,
+					policy: defaultEnginePolicy,
+					validAgent: () => true,
+					assertInstallation: () => {},
+				});
+			}).toThrow();
+			expect(snapshot()).toEqual(before);
+		} finally {
+			await owner?.close();
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
