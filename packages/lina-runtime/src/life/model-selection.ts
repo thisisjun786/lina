@@ -1,3 +1,8 @@
+import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
+import {
+	type LifeModelSelection,
+	parseLifeModelSelection,
+} from "../../../lina-core/src/world/model-selection.ts";
 import { resolveModelRoute } from "../models/routes.ts";
 import type {
 	ModelProfile,
@@ -33,4 +38,24 @@ export function resolveLifeModelProfile(
 			"LIFE requires one explicit unambiguous model profile for its selected route",
 		);
 	return structuredClone(matching[0]);
+}
+
+/** Freeze the exact resolved settings, retaining an absent provider cap as null. */
+export function freezeLifeModelSelection(
+	settings: ModelSettings,
+	selector: LifeModelSelector,
+): LifeModelSelection {
+	const profile = resolveLifeModelProfile(settings, selector);
+	const selected = {
+		profileId: profile.id,
+		provider: profile.provider,
+		model: profile.model,
+		reasoning: profile.reasoning,
+		maxOutputTokens: profile.maxOutputTokens ?? null,
+		settingsRevision: settings.revision,
+	};
+	return parseLifeModelSelection({
+		...selected,
+		routeFingerprint: lifeDigest(selected),
+	});
 }

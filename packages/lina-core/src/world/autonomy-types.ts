@@ -162,7 +162,22 @@ export type PublicationModelRequest = Omit<
 	jobId: string;
 	lane: "publication";
 };
-export type LifeModelRequest = StepModelRequest | PublicationModelRequest;
+export type FrozenStepModelRequest = Omit<StepModelRequest, "version"> & {
+	version: 3;
+	selection: import("./model-selection.ts").LifeModelSelection;
+};
+export type FrozenPublicationModelRequest = Omit<
+	PublicationModelRequest,
+	"version"
+> & {
+	version: 3;
+	selection: import("./model-selection.ts").LifeModelSelection;
+};
+export type LifeModelRequest =
+	| StepModelRequest
+	| PublicationModelRequest
+	| FrozenStepModelRequest
+	| FrozenPublicationModelRequest;
 export interface PreparedLifeModelRequest {
 	version: 1;
 	request: LifeModelRequest;

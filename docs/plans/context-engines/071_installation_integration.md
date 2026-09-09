@@ -262,3 +262,17 @@ LIFE 모델 선택의 첫 연결을 구현했다. Fleet의 기존 exact profile 
 대화 기본값으로 fallback하지 않는다. 기존 Fleet 실행 회귀와 4단계 해석 테스트
 12개가 통과했다. 아직 authored config의 tier 허용과 Step v4/새 model request에
 해석 결과를 저장하는 연결은 미완료이므로 LIFE tier 기능 완료로 간주하지 않는다.
+
+새 모델 요청 v3의 계약을 먼저 연결했다. 정확 선택은 profileId/provider/model/
+reasoning/maxOutputTokens/settingsRevision의 canonical LIFE digest를
+routeFingerprint로 갖는다. 출력 한도 미지정은 null로 보존해 임의 예산을 만들지
+않는다. parser는 step 요청 v1 및 publication 요청 v2를 기존 parser로 검증한 뒤
+v3 selection과 모델·revision·출력 한도를 대조한다. 옛 요청에 필드를 추가하지
+않는다. 네이티브 lifePlan은 v3의 실제 profile/effort/cap과 고정 선택이 다르면
+준비를 거부하며 fingerprint envelope v2에 선택을 포함한다.
+
+Fleet의 기존 실행 owner는 아직 요청 v3을 받지 않는다. Step v4와 새 publication
+owner를 구현할 때 이 임시 거부 경계를 제거해야 한다. 요청 계층만 구현된 상태를
+LIFE tier 활성화 완료로 주장하지 않는다. 과거 native fingerprint의 전체 호환성도
+별도 수용 검증 대상이다. 4개 파일 18개 테스트·85개 단언 통과에는 실제 임시
+journal의 v1/v3 재개방과 initial.json 바이트 보존이 포함된다. provider 호출은 0이다.

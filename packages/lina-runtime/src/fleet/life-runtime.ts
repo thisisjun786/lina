@@ -230,6 +230,8 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		providerEnv: options.providerEnv,
 		...(options.command ? { command: options.command } : {}),
 		beforeOutbound(request) {
+			if (request.version === 3)
+				throw Error("Frozen LIFE requests require a versioned execution owner");
 			if (request.version === 1) {
 				store.assertLifeModelOutbound(request);
 				assertWorkSourceCurrent(
@@ -253,6 +255,8 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 			);
 		},
 		selection(request) {
+			if (request.version === 3)
+				throw Error("Frozen LIFE requests require a versioned execution owner");
 			const config = store.lifeConfig(request.worldId);
 			if (request.version === 2) {
 				const job = store.assertPublicationDispatch(

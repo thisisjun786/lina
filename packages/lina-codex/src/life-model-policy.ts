@@ -1,6 +1,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { parseLifeModelRequest } from "../../lina-core/src/world/autonomy-record-validation.ts";
 import type { LifeModelRequest } from "../../lina-core/src/world/autonomy-types.ts";
+import { lifeDigest } from "../../lina-core/src/world/life-json.ts";
 import type { IsolatedHomeConnection } from "../../lina-opencodex/src/hub.ts";
 import type { ModelProfile } from "../../lina-runtime/src/models/types.ts";
 import {
@@ -57,6 +59,20 @@ export function lifePlan(
 		selection.settingsRevision !== request.modelSettingsRevision
 	)
 		throw Error("LIFE exact model/settings selection changed");
+	if (request.version === 3) {
+		parseLifeModelRequest(request);
+		const exact = {
+			profileId: selection.selected.id,
+			provider: selection.selected.provider,
+			model: selection.selected.model,
+			reasoning: selection.selected.reasoning,
+			maxOutputTokens: selection.selected.maxOutputTokens ?? null,
+			settingsRevision: selection.settingsRevision,
+		};
+		if (lifeDigest(exact) !== request.selection.routeFingerprint)
+			throw Error("LIFE frozen selection changed before native preparation");
+	}
+
 	const metadata = authorSelection(selection);
 	if (
 		typeof metadata["context_window"] !== "number" ||
@@ -79,7 +95,10 @@ export function lifePlan(
 	};
 	const fingerprint = authorHash(
 		JSON.stringify({
-			version: 1,
+			version: request.version === 3 ? 2 : 1,
+			...(request.version === 3
+				? { resolvedSelection: request.selection }
+				: {}),
 			author: authorFingerprint(partial),
 			settingsRevision: selection.settingsRevision,
 			implementation: [

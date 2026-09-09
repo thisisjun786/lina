@@ -18,6 +18,7 @@ import {
 	nullableId,
 	revision,
 } from "./life-json.ts";
+import { parseLifeModelSelection } from "./model-selection.ts";
 import { fields, integer, MAX_WORLD_BYTES } from "./validation.ts";
 
 function one(value: unknown): 1 {
@@ -54,6 +55,31 @@ export function parseLifeModelLimits(value: unknown): LifeModelLimits {
 }
 export function parseLifeModelRequest(value: unknown): LifeModelRequest {
 	jsonBoundary(value);
+	if (
+		value &&
+		typeof value === "object" &&
+		"version" in value &&
+		value.version === 3
+	) {
+		if (!("selection" in value))
+			throw Error("Missing frozen LIFE model selection");
+		const { selection: rawSelection, version: _version, ...rest } = value;
+		const legacy = parseLifeModelRequest({
+			...rest,
+			version: "lane" in rest && rest.lane === "publication" ? 2 : 1,
+		});
+		const selection = parseLifeModelSelection(rawSelection);
+		if (
+			selection.provider !== legacy.provider ||
+			selection.model !== legacy.model ||
+			selection.settingsRevision !== legacy.modelSettingsRevision ||
+			(selection.maxOutputTokens !== null &&
+				legacy.limits.maxOutputTokens > selection.maxOutputTokens)
+		)
+			throw Error("Frozen LIFE model selection differs from request");
+		return { ...legacy, version: 3, selection };
+	}
+
 	if (
 		!value ||
 		typeof value !== "object" ||
