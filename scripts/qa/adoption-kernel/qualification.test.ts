@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { candidateDigests } from "./candidate.ts";
+import { createFreeze, readFreeze } from "./freshness.ts";
 import { qualify } from "./qualification.ts";
 import { RunRegistry } from "./run-registry.ts";
 
@@ -12,13 +13,16 @@ test("qualification rejects absent history and missing host proofs", () => {
 		const registry = new RunRegistry(join(root, "registry.sqlite"));
 		registry.close();
 		const path = join(root, "index.json");
+		const freezePath = join(root, "freeze.json");
+		createFreeze(freezePath);
 		writeFileSync(
 			path,
 			JSON.stringify({
 				version: 1,
 				registryPath: join(root, "registry.sqlite"),
 				...candidateDigests(),
-				frozenAt: "2000-01-01T00:00:00.000Z",
+				frozenAt: readFreeze(freezePath).at,
+				freezePath,
 				hosts: [],
 			}),
 		);

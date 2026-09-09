@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { candidateDigests } from "./candidate.ts";
+import { readFreeze } from "./freshness.ts";
 import { validateHostEvidence } from "./host-evidence.ts";
 import { loadManifest } from "./manifest.ts";
 import { rescoreBatch } from "./rescore.ts";
@@ -41,6 +42,7 @@ export function qualify(indexPath: string) {
 				"generatorHash",
 				"rubricHash",
 				"frozenAt",
+				"freezePath",
 				"hosts",
 			]
 				.sort()
@@ -49,10 +51,13 @@ export function qualify(indexPath: string) {
 		typeof index["registryPath"] !== "string" ||
 		!isAbsolute(index["registryPath"]) ||
 		!existsSync(index["registryPath"]) ||
-		typeof index["frozenAt"] !== "string"
+		typeof index["frozenAt"] !== "string" ||
+		typeof index["freezePath"] !== "string"
 	)
 		throw Error("invalid qualification index fields");
 	const digests = candidateDigests();
+	const freeze = readFreeze(index["freezePath"] as string);
+	if (freeze.at !== index["frozenAt"]) throw Error("freeze time mismatch");
 	for (const [key, hash] of Object.entries(digests))
 		if (index[key] !== hash)
 			throw Error("candidate differs from qualification freeze");
@@ -66,6 +71,20 @@ export function qualify(indexPath: string) {
 		let configuration: string | null = null;
 		const batches = candidates.map((entry) => {
 			const manifest = loadManifest(entry.manifestPath);
+			const generation = registry.generation(entry.seed);
+			if (
+				!generation ||
+				generation.freezeHash !== freeze.hash ||
+				generation.manifestPath !== entry.manifestPath ||
+				generation.manifestHash !== entry.manifestHash ||
+				generation.finishedAt === null ||
+				!Number.isFinite(Date.parse(generation.startedAt)) ||
+				!Number.isFinite(Date.parse(generation.finishedAt)) ||
+				Date.parse(generation.startedAt) < Date.parse(freeze.at) ||
+				Date.parse(generation.finishedAt) < Date.parse(generation.startedAt) ||
+				Date.parse(generation.finishedAt) > Date.parse(entry.startedAt)
+			)
+				throw Error("batch was not freshly generated under candidate freeze");
 			if (
 				manifest.purpose !== "qualification" ||
 				manifest.seed !== entry.seed ||

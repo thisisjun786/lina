@@ -122,7 +122,7 @@ for (const row of ["B11", "B12"]) {
 		const result = scoreTrial(generated.privateTruth, trace);
 		expect(result.quality).toBe(true);
 		expect(result.uptake).toBe(true);
-		expect(decodeTrace(trace).status).toBe("complete");
+		expect(decodeTrace(trace, generated.publicCase).status).toBe("complete");
 		const wrongEffect = structuredClone(trace);
 		const deliveryEffect = wrongEffect.effects.find(
 			(effect) => effect.tool === "@delivery",
@@ -138,7 +138,7 @@ for (const row of ["B11", "B12"]) {
 		for (const delivery of wrongEffect.delivered)
 			if (delivery.effectId === deliveryEffect.effectId)
 				delivery.bytes = "forged";
-		expect(() => decodeTrace(wrongEffect)).toThrow();
+		expect(() => decodeTrace(wrongEffect, generated.publicCase)).toThrow();
 
 		const reused = structuredClone(trace);
 		const answeredStep = reused.steps.find(
@@ -146,12 +146,12 @@ for (const row of ["B11", "B12"]) {
 		);
 		if (!answeredStep) throw Error("missing answer");
 		answeredStep.requestIndex = 0;
-		expect(() => decodeTrace(reused)).toThrow();
+		expect(() => decodeTrace(reused, generated.publicCase)).toThrow();
 		const wrongStatus = structuredClone(trace);
 		const firstStep = wrongStatus.steps[0];
 		if (!firstStep) throw Error("missing first step");
 		firstStep.kernel.status = "noop";
-		expect(() => decodeTrace(wrongStatus)).toThrow();
+		expect(() => decodeTrace(wrongStatus, generated.publicCase)).toThrow();
 
 		const crossStatus = structuredClone(trace);
 		const sourceStep = crossStatus.steps[0];
@@ -160,7 +160,7 @@ for (const row of ["B11", "B12"]) {
 			...sourceStep,
 			kernel: { status: "noop", decisionId: sourceStep.kernel.decisionId },
 		});
-		expect(() => decodeTrace(crossStatus)).toThrow();
+		expect(() => decodeTrace(crossStatus, generated.publicCase)).toThrow();
 
 		const duplicated = structuredClone(trace);
 		const originalAdoption = duplicated.adoptions[0];
@@ -169,7 +169,7 @@ for (const row of ["B11", "B12"]) {
 			...originalAdoption,
 			id: "fabricated-adoption",
 		});
-		expect(() => decodeTrace(duplicated)).toThrow();
+		expect(() => decodeTrace(duplicated, generated.publicCase)).toThrow();
 		const reusedRequest = structuredClone(trace);
 		const adoptedStep = reusedRequest.steps.find(
 			(step) => step.kernel.status === "adopted",
@@ -179,7 +179,7 @@ for (const row of ["B11", "B12"]) {
 			...adoptedStep,
 			kernel: { ...adoptedStep.kernel, decisionId: "fabricated-decision" },
 		});
-		expect(() => decodeTrace(reusedRequest)).toThrow();
+		expect(() => decodeTrace(reusedRequest, generated.publicCase)).toThrow();
 
 		const forgedProposal = structuredClone(trace);
 		const firstRequest = forgedProposal.requests[0];
@@ -188,9 +188,9 @@ for (const row of ["B11", "B12"]) {
 		const proposed = JSON.parse(firstRequest.transport.content);
 		proposed.condition = "always";
 		firstRequest.proposal = proposed;
-		expect(() => decodeTrace(forgedProposal)).toThrow();
+		expect(() => decodeTrace(forgedProposal, generated.publicCase)).toThrow();
 		firstRequest.transport.content = JSON.stringify(proposed);
-		expect(() => decodeTrace(forgedProposal)).toThrow();
+		expect(() => decodeTrace(forgedProposal, generated.publicCase)).toThrow();
 
 		const missingRefs = structuredClone(trace);
 		for (const request of missingRefs.requests.filter(

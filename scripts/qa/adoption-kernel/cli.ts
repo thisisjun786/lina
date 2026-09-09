@@ -31,11 +31,29 @@ export async function main(argv: string[]): Promise<void> {
 	const command = argv[0];
 	if (command === "--help" || command === "help") {
 		process.stdout.write(
-			"Independent adoption experiment\nexport --seed VALUE --output DIRECTORY\nrun --case PUBLIC_JSON --mode baseline|kernel|ablation --output DIRECTORY\nscore --truth PRIVATE_JSON --trace TRACE_JSON --output SCORE_JSON\ncompare --manifest BATCH_MANIFEST --output DIRECTORY\nqualify --index INDEX_JSON --output NEW_REPORT_JSON\nrun requires OLLAMA_BASE_URL (ending /v1), OLLAMA_MODEL, OLLAMA_API_KEY. Six calls, 4096 output tokens per call.\n",
+			"Independent adoption experiment\nexport --seed VALUE --output DIRECTORY\nrun --case PUBLIC_JSON --mode baseline|kernel|ablation --output DIRECTORY\nscore --case PUBLIC_JSON --truth PRIVATE_JSON --trace TRACE_JSON --output SCORE_JSON\ncompare --manifest BATCH_MANIFEST --output DIRECTORY\nqualify --index INDEX_JSON --output NEW_REPORT_JSON\nfreeze --output NEW_FREEZE_JSON\nexport-fresh --freeze FREEZE_JSON --registry REGISTRY_SQLITE --output NEW_DIRECTORY\nrun requires OLLAMA_BASE_URL (ending /v1), OLLAMA_MODEL, OLLAMA_API_KEY. Six calls, 4096 output tokens per call.\n",
 		);
 		return;
 	}
 	const args = options(argv.slice(1));
+	if (command === "freeze") {
+		const { createFreeze } = await import("./freshness.ts");
+		createFreeze(required(args, "--output"));
+		process.stdout.write("candidate frozen\n");
+		return;
+	}
+	if (command === "export-fresh") {
+		const { exportFresh } = await import("./freshness.ts");
+		const manifest = exportFresh(
+			required(args, "--freeze"),
+			required(args, "--registry"),
+			required(args, "--output"),
+		);
+		process.stdout.write(
+			`${manifest.episodes.length} fresh episodes exported\n`,
+		);
+		return;
+	}
 	if (command === "qualify") {
 		const { qualify } = await import("./qualification.ts");
 		const result = qualify(required(args, "--index"));
@@ -107,6 +125,7 @@ export async function main(argv: string[]): Promise<void> {
 		);
 		const trace = decodeTrace(
 			JSON.parse(readFileSync(required(args, "--trace"), "utf8")),
+			JSON.parse(readFileSync(required(args, "--case"), "utf8")),
 		);
 		const score = scoreTrial(truth, trace);
 		writeFileSync(

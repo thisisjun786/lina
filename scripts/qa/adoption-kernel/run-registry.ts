@@ -53,6 +53,56 @@ export class RunRegistry {
    CREATE TABLE IF NOT EXISTS attempts (sequence INTEGER PRIMARY KEY AUTOINCREMENT, output TEXT UNIQUE NOT NULL, payload TEXT NOT NULL, started TEXT NOT NULL) STRICT;
    CREATE TABLE IF NOT EXISTS completions (output TEXT PRIMARY KEY REFERENCES attempts(output), state TEXT NOT NULL CHECK(state IN ('completed','failed')), ended TEXT NOT NULL) STRICT;`);
 	}
+	private generationTables(): void {
+		this.db.exec(`CREATE TABLE IF NOT EXISTS generations(seed TEXT PRIMARY KEY, freezeHash TEXT NOT NULL, startedAt TEXT NOT NULL) STRICT;
+            CREATE TABLE IF NOT EXISTS generated(seed TEXT PRIMARY KEY REFERENCES generations(seed), manifestPath TEXT NOT NULL, manifestHash TEXT NOT NULL, finishedAt TEXT NOT NULL) STRICT;`);
+	}
+	beginGeneration(seed: string, freezeHash: string): void {
+		if (!seed || !/^[a-f0-9]{64}$/.test(freezeHash))
+			throw Error("invalid generation identity");
+		this.generationTables();
+		this.db
+			.prepare("INSERT INTO generations VALUES(?,?,?)")
+			.run(seed, freezeHash, new Date().toISOString());
+	}
+	finishGeneration(
+		seed: string,
+		manifestPath: string,
+		manifestHash: string,
+	): void {
+		if (!isAbsolute(manifestPath) || !/^[a-f0-9]{64}$/.test(manifestHash))
+			throw Error("invalid generated artifact");
+		this.generationTables();
+		this.db
+			.prepare("INSERT INTO generated VALUES(?,?,?,?)")
+			.run(seed, manifestPath, manifestHash, new Date().toISOString());
+	}
+	generation(seed: string): {
+		freezeHash: string;
+		startedAt: string;
+		manifestPath: string | null;
+		manifestHash: string | null;
+		finishedAt: string | null;
+	} | null {
+		this.generationTables();
+		const row = this.db
+			.prepare(
+				"SELECT g.freezeHash,g.startedAt,d.manifestPath,d.manifestHash,d.finishedAt FROM generations g LEFT JOIN generated d ON g.seed=d.seed WHERE g.seed=?",
+			)
+			.get(seed);
+		if (!row) return null;
+		const { freezeHash, startedAt, manifestPath, manifestHash, finishedAt } =
+			row;
+		if (
+			typeof freezeHash !== "string" ||
+			typeof startedAt !== "string" ||
+			(manifestPath !== null && typeof manifestPath !== "string") ||
+			(manifestHash !== null && typeof manifestHash !== "string") ||
+			(finishedAt !== null && typeof finishedAt !== "string")
+		)
+			throw Error("invalid generation record");
+		return { freezeHash, startedAt, manifestPath, manifestHash, finishedAt };
+	}
 	begin(value: RegisteredRun): void {
 		const row = decode(value);
 		this.db

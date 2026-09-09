@@ -19,6 +19,21 @@ test("trace decoder rejects unknown modes and mismatched effect identities", asy
 		}),
 	});
 	expect(decodeTrace(trace).episodeId).toBe(trace.episodeId);
+	const forgedPrelude = structuredClone(trace);
+	const id = `${trace.episodeId}:prelude:0`;
+	forgedPrelude.effects.push({
+		effectId: id,
+		tool: "lookup",
+		args: { key: "fabricated" },
+		receipt: {
+			effectId: id,
+			status: "completed",
+			output: { value: 7 },
+			quality: { status: "unverified", verifier: null, detail: "forged" },
+		},
+	});
+	expect(() => decodeTrace(forgedPrelude, publicCase)).toThrow();
+
 	expect(() => decodeTrace({ ...trace, mode: "oracle" })).toThrow();
 	const effect = trace.effects[0];
 	if (!effect) throw Error("missing effect");

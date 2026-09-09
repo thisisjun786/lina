@@ -154,6 +154,8 @@ export async function compareBatch(
 				const scoreExitCode = await child(
 					[
 						"score",
+						"--case",
+						episode.publicPath,
 						"--truth",
 						episode.truthPath,
 						"--trace",
@@ -191,6 +193,7 @@ export async function compareBatch(
 				} else {
 					const trace = decodeTrace(
 						JSON.parse(readFileSync(tracePath, "utf8")),
+						JSON.parse(readFileSync(episode.publicPath, "utf8")),
 					);
 					const score = JSON.parse(
 						readFileSync(scorePath, "utf8"),

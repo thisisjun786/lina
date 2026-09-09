@@ -60,7 +60,10 @@ export function rescoreBatch(
 				read(join(dir, "score.log"))["exit"] !== 0
 			)
 				throw Error("incomplete subprocess evidence");
-			const trace = decodeTrace(read(join(dir, "trace.json")));
+			const trace = decodeTrace(
+				read(join(dir, "trace.json")),
+				read(episode.publicPath),
+			);
 			if (
 				trace.episodeId !== episode.episodeId ||
 				trace.mode !== mode ||

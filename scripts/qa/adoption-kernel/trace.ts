@@ -1,6 +1,8 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: JSON evidence crosses a file boundary.
 import { isDeepStrictEqual } from "node:util";
+import { Environment } from "./environment.ts";
 import type { EpisodeTrace } from "./harness-types.ts";
+import { decodePublicCase } from "./public-case.ts";
 import { decodeRecord } from "./records.ts";
 import { parseJson, parseProposal, parseReceipt } from "./validation.ts";
 
@@ -57,7 +59,7 @@ const statuses = [
 	"dispatched",
 	"unknown",
 ];
-export function decodeTrace(value: unknown): EpisodeTrace {
+export function decodeTrace(value: unknown, scenario?: unknown): EpisodeTrace {
 	const r = object(
 		value,
 		[
@@ -81,6 +83,25 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 	choice(r["mode"], ["baseline", "kernel", "ablation"]);
 	choice(r["status"], ["complete", "incomplete", "limit"]);
 	if (r["detail"] !== undefined) text(r["detail"]);
+	const declaredPrelude = new Map<string, EpisodeTrace["effects"][number]>();
+	if (scenario !== undefined) {
+		const publicCase = decodePublicCase(scenario);
+		if (publicCase.episodeId !== r["episodeId"])
+			throw Error("trace scenario identity mismatch");
+		const environment = new Environment(publicCase);
+		try {
+			for (const [index, operation] of publicCase.prelude.entries()) {
+				const id = `${publicCase.episodeId}:prelude:${index}`;
+				const port = environment.tools().get(operation.tool);
+				if (!port) throw Error("undeclared prelude tool");
+				port.admit(id, operation.args, id);
+			}
+			for (const event of environment.events())
+				declaredPrelude.set(event.effectId, event);
+		} finally {
+			environment.close();
+		}
+	}
 	const requests = list(r["requests"]);
 	if (requests.length > 6) throw Error("trace exceeds call budget");
 	for (const value of requests) {
@@ -229,6 +250,11 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		if (receipt.effectId !== e["effectId"] || effects.has(receipt.effectId))
 			throw Error("invalid effect identity");
 		effects.add(receipt.effectId);
+		if (receipt.effectId.startsWith(`${r["episodeId"]}:prelude:`)) {
+			if (!isDeepStrictEqual(e, declaredPrelude.get(receipt.effectId)))
+				throw Error("prelude differs from declared scenario operation");
+		}
+
 		if (!receipt.effectId.startsWith(`${r["episodeId"]}:prelude:`)) {
 			const step = (r["steps"] as EpisodeTrace["steps"]).find(
 				(step) =>
@@ -283,6 +309,8 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 			});
 		}
 	}
+	for (const id of declaredPrelude.keys())
+		if (!effects.has(id)) throw Error("declared prelude receipt missing");
 	const adoptionIds = new Set<string>();
 	const adoptionDecisions = new Set<string>();
 	for (const value of list(r["adoptions"])) {

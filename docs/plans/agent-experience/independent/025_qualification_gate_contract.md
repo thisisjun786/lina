@@ -58,3 +58,12 @@ registry preserves every seed occurrence and separate terminal execution records
 An alternate registry is explicit programmatic configuration and defines a
 separate experiment history, not a way to reset the held-out seed rule. Existing
 runs from before registry adoption remain development-only archived evidence.
+
+Implemented entrypoints: `freeze --output NEW_FREEZE_JSON`, then
+`export-fresh --freeze FREEZE_JSON --registry REGISTRY_SQLITE --output NEW_DIRECTORY`.
+The qualification index also requires `freezePath`; `frozenAt` must match that
+file. Generation start/completion and manifest hash must belong to that freeze
+and precede the recorded run. This is a local provenance ledger, not resistance
+to an operator rewriting both SQLite and artifacts. Final independent review
+remains required. Scoring now requires `--case PUBLIC_JSON` to validate declared
+prelude effects against the same manifest-bound scenario.
