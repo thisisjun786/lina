@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { SourceProof } from "../../../lina-core/src/source-policy.ts";
 import {
@@ -5,7 +6,7 @@ import {
 	mergeProofs,
 	requireCurrentProofs,
 } from "./provenance.ts";
-import { mergeSources } from "./records.ts";
+import { mergeSources, sameValue } from "./records.ts";
 import {
 	type ConclusionProposal,
 	ENGINE_BATCH_MAX,
@@ -90,6 +91,33 @@ export interface PreparedConclusion {
 	support: EngineRecord["support"];
 }
 
+/** Identity whose reconfirmation preserves generation and descendant content hashes. */
+export function sameConclusion(
+	previous: EngineRecord,
+	item: PreparedConclusion,
+): boolean {
+	return Boolean(
+		previous.reasoning &&
+			sameValue(previous, {
+				subject: item.proposal.subject,
+				kind: item.proposal.kind,
+				key: item.proposal.key,
+				text: item.proposal.text,
+				evidence: "inferred",
+				sources: item.sources,
+			}) &&
+			previous.reasoning.kind === item.reasoning.kind &&
+			isDeepStrictEqual(
+				previous.reasoning.premises
+					.map((p) => JSON.stringify([p.recordId, p.contentHash]))
+					.sort(),
+				item.reasoning.premises
+					.map((p) => JSON.stringify([p.recordId, p.contentHash]))
+					.sort(),
+			),
+	);
+}
+
 /** The complete evidence remains in premise history and proofs; excerpts stay bounded. */
 export function conclusionSources(
 	premises: readonly EngineRecord[],
@@ -106,10 +134,17 @@ export function prepareConclusions(input: {
 	promptProofs: SourceProof[];
 	lookup: LookupEntry;
 	now: number;
+	/** Checked store classifies the whole prepared batch before any writes. */
+	preservedBatchTargets?: (
+		prepared: readonly PreparedConclusion[],
+	) => ReadonlySet<string>;
 }): PreparedConclusion[] {
 	const proposals = parseConclusions(input.proposals);
 	const targets = new Set(proposals.map((p) => recordId(input.agentId, p)));
+	let checkBatchTargets = !input.preservedBatchTargets;
+	let preserved: ReadonlySet<string> = new Set();
 	if (
+		checkBatchTargets &&
 		proposals.some((p) =>
 			p.premises.some(
 				(ref) =>
@@ -129,7 +164,8 @@ export function prepareConclusions(input: {
 	const walk = (id: string, target: string, visiting: Set<string>): void => {
 		if (id === target || visiting.has(id))
 			throw Error("conclusion premise cycle");
-		if (targets.has(id)) throw Error("conclusion batch replaces a premise");
+		if (checkBatchTargets && targets.has(id) && !preserved.has(id))
+			throw Error("conclusion batch replaces a premise");
 		const record = (input.resolveAncestor ?? input.resolve)(id);
 		if (!eligible(record)) throw Error("ineligible conclusion premise");
 		visiting.add(id);
@@ -141,7 +177,7 @@ export function prepareConclusions(input: {
 		}
 		visiting.delete(id);
 	};
-	return proposals.map((proposal) => {
+	const prepared: PreparedConclusion[] = proposals.map((proposal) => {
 		const target = recordId(input.agentId, proposal);
 		const premises = proposal.premises.map((ref) => {
 			const record = input.resolve(ref.recordId);
@@ -179,4 +215,14 @@ export function prepareConclusions(input: {
 					: "provisional",
 		};
 	});
+	if (input.preservedBatchTargets) {
+		preserved = input.preservedBatchTargets(prepared);
+		checkBatchTargets = true;
+		for (const item of prepared) {
+			const target = recordId(input.agentId, item.proposal);
+			for (const ref of item.proposal.premises)
+				walk(ref.recordId, target, new Set());
+		}
+	}
+	return prepared;
 }

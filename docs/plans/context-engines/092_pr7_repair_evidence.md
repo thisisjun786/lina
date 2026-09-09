@@ -171,3 +171,13 @@ still have repeated snapshot/validation queries. A separate confirmed cap-bounda
 false-completion issue is retained for the recovery cycle: a65th unselected member
 can leave an old ready derivation marked complete across a fresh process. The
 optimization does not claim to fix that issue; the overall additional loop is open.
+
+The additional reasoning cycle now permits mixed batches that reconfirm an
+eligible ancestor without changing its content hash or support. Preparation
+validates the entire batch, classifies stable targets in the checked store, then
+checks ancestry again before any writes. The generation identity predicate is
+shared with the write loop. Normal and new-proof cases preserve dependent records
+in either output order; changed premises and source revocation still reject.
+Actual CompanionMemory search expansion, HTTP read and reopen show committed
+results with no extra synthetic calls after restart. Independent review passed
+33 focused reasoning tests. No external product model was called.

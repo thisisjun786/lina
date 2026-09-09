@@ -1240,3 +1240,176 @@ for (const replacementFirst of [false, true]) {
 		).toContain("trails");
 	});
 }
+
+for (const corroboration of [false, true])
+	test(`safe ancestor reconfirmation has identical outcomes in both orders (new proof: ${corroboration})`, () => {
+		const run = (reverse: boolean) => {
+			const f = persistentFixture();
+			const { parent, child } = commitParksAndVisits(f);
+			const a = current(f, "walking"),
+				b = current(f, "outdoors");
+			if (!a || !b) throw Error("missing direct premises");
+			const ids = [a.id, b.id, parent.id, child.id];
+			if (corroboration) {
+				f.entries.set(
+					"u3",
+					ordinarySource({
+						entryId: "u3",
+						role: "user",
+						text: "I enjoy reading.",
+					}),
+				);
+				f.store.apply({
+					requestId: "reading",
+					expectedRevision: f.store.currentRevision(),
+					sourceProofs: captureSourceProofs(["u3"], f.lookup),
+					observations: [
+						{
+							subject: "user",
+							kind: "interest",
+							key: "reading",
+							text: "Enjoys reading",
+							evidence: "explicit",
+							sources: [{ entryId: "u3", quote: "reading" }],
+						},
+					],
+				});
+				const reading = current(f, "reading");
+				if (!reading) throw Error("missing reading");
+				ids.push(reading.id);
+			}
+			const claim = f.store.beginReasoning(
+				{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+				ids,
+			);
+			if (!claim) throw Error("missing claim");
+			const parentProposal = {
+				...f.proposal,
+				reasoningKind: "deduction",
+				premises: [
+					{ recordId: a.id, revision: a.revision },
+					{ recordId: b.id, revision: b.revision },
+				],
+			};
+			const dependent = {
+				...f.proposal,
+				key: "trails",
+				text: "May enjoy trails",
+				reasoningKind: "deduction",
+				premises: [{ recordId: child.id, revision: child.revision }],
+			};
+			let error: string | undefined;
+			try {
+				f.store.applyConclusions({
+					requestId: claim.claim.id,
+					expectedRevision: claim.input.expectedRevision,
+					claim: claim.claim,
+					proposals: reverse
+						? [dependent, parentProposal]
+						: [parentProposal, dependent],
+				});
+			} catch (value) {
+				error = value instanceof Error ? value.message : String(value);
+			}
+			const records = f.store
+				.state()
+				.records.map((r) => ({
+					id: r.id,
+					key: r.key,
+					text: r.text,
+					evidence: r.evidence,
+					revision: r.revision,
+					generation: r.generation,
+					support: r.support,
+					status: r.status,
+					reasoning: r.reasoning,
+				}))
+				.sort((a, b) => a.key.localeCompare(b.key));
+			const parentAfter = current(f, "parks"),
+				childAfter = current(f, "park.visits");
+			f.store.close();
+			const reopened = f.open();
+			return {
+				error,
+				records,
+				parentBefore: parent,
+				parentAfter,
+				childBefore: child,
+				childAfter,
+				recall: reopened.recall("trails").map((r) => r.key),
+				job: reopened.reasoningJobs().find((j) => j.id === claim.claim.id)
+					?.state,
+			};
+		};
+		const forward = run(false),
+			reverse = run(true);
+		expect([forward.error, reverse.error]).toEqual([undefined, undefined]);
+		expect(forward.records).toEqual(reverse.records);
+		for (const result of [forward, reverse]) {
+			if (corroboration) {
+				if (!result.parentAfter) throw Error("missing reconfirmation");
+				expect(contentHash(result.parentAfter)).toBe(
+					contentHash(result.parentBefore),
+				);
+				expect(result.parentAfter.support).toBe(result.parentBefore.support);
+				expect(
+					result.parentAfter.sourceProofs?.some((p) => p.entryId === "u3"),
+				).toBe(true);
+				expect(result.parentAfter.revision).toBeGreaterThan(
+					result.parentBefore.revision,
+				);
+			} else expect(result.parentAfter).toEqual(result.parentBefore);
+			expect(result.childAfter).toEqual(result.childBefore);
+			expect(result.recall).toContain("trails");
+			expect(result.job).toBe("committed");
+			expect(result.records.find((r) => r.key === "trails")).toMatchObject({
+				evidence: "inferred",
+				support: "provisional",
+				status: "active",
+				generation: 0,
+			});
+		}
+	});
+
+for (const reverse of [false, true])
+	test(`mixed reconfirmation cannot bypass fresh source eligibility (${reverse})`, () => {
+		const f = persistentFixture();
+		const { parent, child } = commitParksAndVisits(f);
+		const a = current(f, "walking"),
+			b = current(f, "outdoors");
+		if (!a || !b) throw Error("missing direct premises");
+		const started = f.store.beginReasoning(
+			{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+			[a.id, b.id, parent.id, child.id],
+		);
+		if (!started) throw Error("missing claim");
+		const stable = {
+			...f.proposal,
+			reasoningKind: "deduction",
+			premises: [
+				{ recordId: a.id, revision: a.revision },
+				{ recordId: b.id, revision: b.revision },
+			],
+		};
+		const next = {
+			...stable,
+			key: "trails",
+			premises: [{ recordId: child.id, revision: child.revision }],
+		};
+		const source = f.entries.get("u1");
+		if (!source) throw Error("missing source");
+		restrictSource(source);
+		expect(() =>
+			f.store.applyConclusions({
+				requestId: started.claim.id,
+				expectedRevision: started.input.expectedRevision,
+				claim: started.claim,
+				proposals: reverse ? [next, stable] : [stable, next],
+			}),
+		).toThrow();
+		expect(f.store.currentRevision()).toBe(started.input.expectedRevision);
+		expect(
+			f.store.reasoningJobs().find((j) => j.id === started.claim.id)?.state,
+		).toBe("running");
+		expect(f.store.recall("trails")).toHaveLength(0);
+	});

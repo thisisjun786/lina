@@ -21,6 +21,7 @@ import {
 	contentHash,
 	parseConclusions,
 	prepareConclusions,
+	sameConclusion,
 } from "./reasoning.ts";
 import {
 	parseReasoningInput,
@@ -513,6 +514,19 @@ export class EngineStore {
 				promptProofs: frozen.promptProofs,
 				lookup: this.lookup,
 				now: validTime(this.now),
+				preservedBatchTargets: (items) =>
+					new Set(
+						items.flatMap((item) => {
+							const id = recordId(this.agentId, item.proposal);
+							const previous = this.get(id);
+							return previous &&
+								this.reasoningEligible(previous) &&
+								sameConclusion(previous, item) &&
+								previous.support === item.support
+								? [id]
+								: [];
+						}),
+					),
 			});
 			if (proposals.some((p) => p.reasoningKind !== frozen.stage))
 				throw Error("reasoning stage mismatch");
@@ -536,27 +550,11 @@ export class EngineStore {
 					)
 				)
 					throw Error("invalidated conclusion evidence");
-				const sameConclusion =
-					previous?.reasoning &&
+				const unchangedConclusion =
+					previous &&
 					this.reasoningEligible(previous) &&
-					sameValue(previous, {
-						subject: item.proposal.subject,
-						kind: item.proposal.kind,
-						key: item.proposal.key,
-						text: item.proposal.text,
-						evidence: "inferred",
-						sources: item.sources,
-					}) &&
-					previous.reasoning.kind === item.reasoning.kind &&
-					isDeepStrictEqual(
-						previous.reasoning.premises
-							.map((p) => JSON.stringify([p.recordId, p.contentHash]))
-							.sort(),
-						item.reasoning.premises
-							.map((p) => JSON.stringify([p.recordId, p.contentHash]))
-							.sort(),
-					);
-				if (sameConclusion && previous) {
+					sameConclusion(previous, item);
+				if (unchangedConclusion && previous) {
 					if (
 						isDeepStrictEqual(previous.sources, item.sources) &&
 						isDeepStrictEqual(previous.sourceProofs, item.sourceProofs) &&
@@ -582,7 +580,7 @@ export class EngineStore {
 						this.lookup,
 					),
 					generation: previous
-						? previous.generation + (sameConclusion ? 0 : 1)
+						? previous.generation + (unchangedConclusion ? 0 : 1)
 						: 0,
 					createdAt: previous?.createdAt ?? now,
 					sourceRequestId: input.requestId,
