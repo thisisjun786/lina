@@ -398,7 +398,12 @@ export class WorkPersistence {
 			) {
 				if (
 					a.receipt.resourceId !== b.receipt.resourceId ||
-					a.receipt.actorAgentId !== b.receipt.actorAgentId
+					a.receipt.actorAgentId !== b.receipt.actorAgentId ||
+					a.receipt.activityKind !== b.receipt.activityKind ||
+					!isDeepStrictEqual(
+						a.receipt.participantAgentIds,
+						b.receipt.participantAgentIds,
+					)
 				)
 					invalid();
 			} else invalid();

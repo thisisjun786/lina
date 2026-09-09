@@ -168,6 +168,33 @@ test("first resource input atomically upgrades task history and reopens mixed ev
 	close.push(() => reopened.close());
 	expect(reopened.workEvidence(worldId)).toEqual(next);
 	expect(reopened.admitWorkInput(input).replayed).toBe(true);
+	for (const patch of [
+		{ participantAgentIds: ["lina", "mira"] },
+		{ activityKind: "writing" as const },
+	]) {
+		const changed = {
+			...source,
+			deliveryId: "identity-change",
+			policyRevision: 2,
+			receipt: {
+				...source.receipt,
+				...patch,
+				activityRevision: 2,
+				supersedesRevision: 1,
+				correction: { kind: "amend" as const, reason: "changed" },
+			},
+		};
+		expect(() =>
+			reopened.admitWorkInput({
+				...input,
+				id: changed.deliveryId,
+				sourceRevision: 2,
+				source: changed,
+				payloadDigest: lifeDigest(changed),
+			}),
+		).toThrow();
+		expect(reopened.workEvidence(worldId)).toEqual(next);
+	}
 	const restricted = {
 		...source,
 		deliveryId: "resource-restrict",
