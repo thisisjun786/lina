@@ -51,6 +51,14 @@ export type TaskToolResult = {
 	success: boolean;
 };
 
+/** Host-only executeTool context. Never serialized into model arguments. */
+export type TaskToolContext = {
+	taskId: string;
+	agentId: string | null;
+	revision: number;
+	assertCurrent: () => void;
+};
+
 export type TaskManagerOptions = {
 	path: string;
 	rpc: TaskRpc;
@@ -62,5 +70,6 @@ export type TaskManagerOptions = {
 		callId: string,
 		args: unknown,
 		signal: AbortSignal,
+		context?: TaskToolContext,
 	) => Promise<TaskToolResult>;
 };

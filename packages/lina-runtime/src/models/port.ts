@@ -8,6 +8,9 @@ export interface CatalogModel {
 	contextWindow: number;
 	maxOutputTokens: number;
 	reasoning: boolean;
+	/** Absent means effort support was not advertised, not unrestricted support. */
+	reasoningEfforts?: string[];
+	defaultReasoning?: string;
 	authenticated: boolean;
 	/** Projected from native model input capabilities; absent means not supported. */
 	imageInput?: boolean;
@@ -24,6 +27,10 @@ export interface ModelControl {
 	authoring?(
 		input: {
 			agentId: string;
+			/** Optional for existing onboarding callers; pins a captured author request. */
+			expectedSettingsRevision?: number;
+			/** Trusted synchronous source check, run immediately before provider dispatch. */
+			beforeDispatch?: () => void;
 			systemPrompt: string;
 			messages: Array<{ role: "user" | "assistant"; content: string }>;
 		},

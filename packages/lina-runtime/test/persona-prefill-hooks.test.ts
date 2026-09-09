@@ -28,7 +28,7 @@ test("current authored persona stays verbatim in prefill and settings apply with
 		const hook = handlers.get("before_agent_start");
 		const first = hook?.({ prompt: "안녕?" }) as { systemPrompt: string };
 		expect(first.systemPrompt).toContain(seed.voice);
-		expect(first.systemPrompt).not.toContain(seed.appearance);
+		expect(first.systemPrompt).toContain(seed.appearance);
 		expect(services.systemTokens).toBe(first.systemPrompt.length);
 		const p = agents.get(seed.id);
 		if (!p) throw Error("profile");
@@ -91,24 +91,38 @@ test("native prefill explains asynchronous preference and withdrawal processing 
 	const seed = readPresets(process.cwd())[0];
 	if (!seed) throw Error("seed");
 	agents.create(seed);
-	const handlers = new Map<string, () => { systemPrompt: string }>();
+	const handlers = new Map<
+		string,
+		() => { systemPrompt: string; beforeDeliver: () => void }
+	>();
 	const host = {
-		on: (name: string, fn: () => { systemPrompt: string }) =>
-			handlers.set(name, fn),
+		on: (
+			name: string,
+			fn: () => { systemPrompt: string; beforeDeliver: () => void },
+		) => handlers.set(name, fn),
 		registerTool: () => {},
 	} as unknown as LinaHost;
 	const services = {
 		systemTokens: 0,
 		estimateText: (s: string) => s.length,
 	} as ContextServices;
+	let mode: "automatic" | "disabled" = "automatic";
 	try {
 		installPersona(host, agents, seed.id, "FIXED", services, {
 			nativeDynamics: true,
+			memoryMode: () => mode,
 		});
-		const prompt = handlers.get("before_agent_start")?.().systemPrompt;
+		const prepared = handlers.get("before_agent_start")?.();
+		const prompt = prepared?.systemPrompt;
 		expect(prompt).toContain("대화가 끝난 뒤");
 		expect(prompt).toContain("철회");
 		expect(prompt).toContain(seed.voice);
+		mode = "disabled";
+		expect(() => prepared?.beforeDeliver()).toThrow("Memory policy changed");
+		const disabled = handlers.get("before_agent_start")?.();
+		expect(disabled?.systemPrompt).not.toContain("[네이티브 기억 처리]");
+		expect(disabled?.systemPrompt).toContain(seed.voice);
+		expect(() => disabled?.beforeDeliver()).not.toThrow();
 	} finally {
 		agents.close();
 		rmSync(root, { recursive: true, force: true });

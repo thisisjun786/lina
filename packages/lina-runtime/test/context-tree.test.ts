@@ -4,6 +4,7 @@ import {
 	ContextStore,
 	type SourceRef,
 } from "../../lina-core/src/context/index.ts";
+import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
 import { createSummaryTree } from "../src/context/tree.ts";
 import { createRuntimeFixture } from "./runtime-fixture.ts";
 
@@ -12,13 +13,13 @@ test("summarization consumes the complete source projection including its final 
 	const store = new ContextStore(
 		join(f.root, "context-complete.sqlite"),
 		f.runtime.binding,
-		(id) => f.store.entry(id),
+		(id) => f.store.sourceEntry(id),
 	);
 	try {
 		const text =
 			"Early background. ".repeat(6000) +
 			"\nFinal correction: use violet, not blue. UNIQUE-END-927";
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: "long",
 			role: "user",
 			text,
@@ -52,7 +53,7 @@ test("a thousand sources and a megabyte entry form a bounded tree with every ori
 	const store = new ContextStore(
 		join(f.root, "context.sqlite"),
 		f.runtime.binding,
-		(id) => f.store.entry(id),
+		(id) => f.store.sourceEntry(id),
 	);
 	try {
 		const sources: SourceRef[] = [];
@@ -62,7 +63,7 @@ test("a thousand sources and a megabyte entry form a bounded tree with every ori
 					index === 0
 						? "Source original. ".repeat(65536)
 						: `Important decision ${index}. `;
-			f.store.appendEntry({
+			appendContextEntry(f.store, f.runtime.binding.sessionId, {
 				entryId: id,
 				role: "user",
 				text,
@@ -109,17 +110,17 @@ test("a thousand sources and a megabyte entry form a bounded tree with every ori
 		store.close();
 		await f.close();
 	}
-});
+}, 30_000); // Real journal provenance adds durable request/association transactions.
 
 test("unchanged source summaries reuse successful cached nodes but recheck active budget", async () => {
 	const f = createRuntimeFixture();
 	const store = new ContextStore(
 		join(f.root, "cached.sqlite"),
 		f.runtime.binding,
-		(id) => f.store.entry(id),
+		(id) => f.store.sourceEntry(id),
 	);
 	try {
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: "cached",
 			role: "user",
 			text: "Saved decisions. ".repeat(100),

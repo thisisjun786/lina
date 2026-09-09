@@ -123,14 +123,14 @@ describe("durable context queries", () => {
 		expect(store.revision()).toBe(155);
 		store.close();
 		const db = new DatabaseSync(fixture.file);
-		expect(db.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(1);
+		expect(db.prepare("PRAGMA user_version").get()?.["user_version"]).toBe(2);
 		expect(
 			db
 				.prepare(
 					"SELECT COUNT(*) AS n FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
 				)
 				.get()?.["n"],
-		).toBe(5);
+		).toBe(11);
 		db.close();
 	});
 });

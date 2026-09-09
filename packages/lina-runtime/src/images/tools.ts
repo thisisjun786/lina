@@ -1,12 +1,13 @@
 import { Type } from "typebox";
 import type { LinaToolResult } from "../host.ts";
+import type { ImageOwner } from "./contracts.ts";
 import type { ImageJobs } from "./jobs.ts";
 import type { ImageJob } from "./store.ts";
 
 type Jobs = Pick<
 	ImageJobs,
 	"connect" | "list" | "get" | "start" | "wait" | "reconcile" | "cancel"
->;
+> & { owner?: ImageOwner };
 const field = (maxLength: number) => Type.String({ minLength: 1, maxLength });
 const jobId = field(128);
 const selection = {
@@ -38,6 +39,8 @@ export function createImageTools(
 	jobs: Jobs,
 	requestId: () => string | undefined,
 ) {
+	if (jobs.owner && jobs.owner.kind !== "conversation")
+		throw Error("Image tools require a conversation owner");
 	const run = async (
 		callId: string,
 		input: {

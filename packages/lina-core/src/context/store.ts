@@ -1,8 +1,22 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { BotBinding } from "../protocol.ts";
 import { openCheckedDatabase, validateBinding } from "../session-binding.ts";
+import {
+	captureSourceProofs,
+	type SourceContextOptions,
+	type SourceProof,
+	sourceProofsCurrent,
+} from "../source-policy.ts";
+import { isOrdinaryArchiveEntry } from "./archive.ts";
+import { ContextArtifacts } from "./artifacts.ts";
 import { expandSource } from "./expansion.ts";
+import {
+	parseSummaryGeneration,
+	type SummaryGeneration,
+} from "./generation.ts";
 import { initializeContextSchema } from "./schema.ts";
+import { SummaryRecords } from "./summary-records.ts";
+import type { ContextStoreOptions } from "./types.ts";
 import {
 	type ActivateInput,
 	type ActiveSummary,
@@ -17,25 +31,18 @@ import {
 	type WorkingFields,
 	type WorkingState,
 } from "./types.ts";
-import { fingerprintOf, validId, validRef } from "./validation.ts";
+import {
+	fingerprintOf,
+	sourceDeliveryGuard,
+	unionProofs,
+	validId,
+	validRef,
+} from "./validation.ts";
 import {
 	decodeWorkingRow,
 	mergeWorkingFields,
 	type WorkingRow,
 } from "./working-state.ts";
-
-interface SummaryRow {
-	id: string;
-	text: string;
-	kind: SummaryNode["kind"];
-	depth: number;
-	fingerprint: string;
-}
-
-interface SourceRow {
-	source_kind: SourceRef["kind"];
-	source_id: string;
-}
 
 interface ActiveRow {
 	summary_id: string;
@@ -48,19 +55,36 @@ export class ContextStore {
 	private readonly db: DatabaseSync;
 	private readonly lookupEntry: LookupEntry;
 	private closed = false;
+	private readonly artifacts: ContextArtifacts;
+	private readonly summaries: SummaryRecords;
 
-	constructor(path: string, binding: BotBinding, lookupEntry: LookupEntry) {
+	constructor(
+		path: string,
+		binding: BotBinding,
+		lookupEntry: LookupEntry,
+		options: ContextStoreOptions = {},
+	) {
 		if (typeof lookupEntry !== "function")
 			throw new Error("invalid entry lookup");
 		const identity = validateBinding(binding);
 		const opened = openCheckedDatabase(path);
 		this.db = opened.db;
 		this.lookupEntry = lookupEntry;
+		this.summaries = new SummaryRecords(this.db);
+		this.artifacts = new ContextArtifacts(
+			this.db,
+			lookupEntry,
+			identity.sessionId,
+			options,
+		);
 		let transaction = false;
 		try {
 			this.db.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE");
 			transaction = true;
 			initializeContextSchema(this.db, identity, opened.fresh);
+			this.artifacts.validate();
+			this.workingView({});
+			this.summaries.validate();
 			this.db.exec("COMMIT");
 			transaction = false;
 			this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL");
@@ -92,11 +116,15 @@ export class ContextStore {
 		if (keys.size !== sources.length)
 			throw new Error("summary sources must be unique");
 		const canonical: StageInput = {
+			...(input.generation !== undefined
+				? { generation: parseSummaryGeneration(input.generation) }
+				: {}),
 			text: input.text,
 			kind: input.kind,
 			sources,
 		};
-		const fingerprint = fingerprintOf(canonical);
+		const sourceProofs = this.proofs(sources);
+		const fingerprint = fingerprintOf(canonical, sourceProofs);
 		const id = `summary-${fingerprint.slice(0, 32)}`;
 		return this.transaction(() => {
 			const existing = this.get(id);
@@ -109,7 +137,7 @@ export class ContextStore {
 						throw new Error(`unknown source entry: ${ref.id}`);
 					continue;
 				}
-				const parent = this.summaryRow(ref.id);
+				const parent = this.summaries.row(ref.id);
 				if (!parent) throw new Error(`unknown source summary: ${ref.id}`);
 				depth = Math.max(depth, parent.depth + 1);
 			}
@@ -130,36 +158,70 @@ export class ContextStore {
 			const insert = this.db.prepare(
 				"INSERT INTO summary_sources (summary_id, source_kind, source_id, ordinal) VALUES (?, ?, ?, ?)",
 			);
+			this.db
+				.prepare("INSERT INTO summary_provenance VALUES (?, ?)")
+				.run(id, JSON.stringify(sourceProofs));
+			if (canonical.generation)
+				this.db
+					.prepare("INSERT INTO summary_generations VALUES (?,?)")
+					.run(id, JSON.stringify(canonical.generation));
 			sources.forEach((ref, ordinal) => {
 				insert.run(id, ref.kind, ref.id, ordinal);
 			});
 			return {
+				...(canonical.generation ? { generation: canonical.generation } : {}),
 				id,
 				text: canonical.text,
 				kind: canonical.kind,
 				depth,
 				sources,
 				fingerprint,
+				sourceProofs,
 			};
 		});
 	}
 
-	get(id: string): SummaryNode | undefined {
+	findGenerated(
+		sources: SourceRef[],
+		raw: SummaryGeneration,
+	): SummaryNode | undefined {
 		this.assertOpen();
-		if (typeof id !== "string") return undefined;
-		const row = this.summaryRow(id);
-		if (!row) return undefined;
-		return {
-			id: row.id,
-			text: row.text,
-			kind: row.kind,
-			depth: row.depth,
-			sources: this.sourcesOf(id),
-			fingerprint: row.fingerprint,
-		};
+		const generation = parseSummaryGeneration(raw),
+			refs = sources.map(validRef);
+		const rows = this.db
+			.prepare(
+				"SELECT summary_id FROM summary_generations WHERE generation_json=? ORDER BY summary_id",
+			)
+			.all(JSON.stringify(generation));
+		for (const row of rows) {
+			const node = this.get(String(row["summary_id"]));
+			if (
+				node?.kind === "model" &&
+				JSON.stringify(node.sources) === JSON.stringify(refs)
+			)
+				return node;
+		}
+		return undefined;
+	}
+	get(id: string): SummaryNode | undefined {
+		const node = this.inspectSummary(id);
+		return node && sourceProofsCurrent(node.sourceProofs, this.lookupEntry)
+			? node
+			: undefined;
+	}
+
+	/** Human inspection only; model consumers use get(). */
+	inspectSummary(id: string): SummaryNode | undefined {
+		this.assertOpen();
+		return this.summaries.inspect(id);
 	}
 
 	active(): ActiveSummary | null {
+		const active = this.activeReceipt();
+		return active && this.get(active.id) ? active : null;
+	}
+
+	private activeReceipt(): ActiveSummary | null {
 		this.assertOpen();
 		const row = this.db
 			.prepare("SELECT * FROM active_summary WHERE id = 1")
@@ -172,6 +234,16 @@ export class ContextStore {
 					revision: row.revision,
 				}
 			: null;
+	}
+
+	readActive() {
+		const value = this.active();
+		return {
+			value,
+			beforeDeliver: this.guardSources(
+				value ? [{ kind: "summary", id: value.id }] : [],
+			),
+		};
 	}
 
 	activate(input: ActivateInput): ActiveSummary {
@@ -187,7 +259,7 @@ export class ContextStore {
 		if (input.expectedActiveId !== null)
 			validId(input.expectedActiveId, "expected active id");
 		return this.transaction(() => {
-			if (!this.summaryRow(id)) throw new Error(`unknown summary: ${id}`);
+			if (!this.get(id)) throw new Error(`unknown summary: ${id}`);
 			const current = this.active();
 			if (
 				current &&
@@ -200,7 +272,7 @@ export class ContextStore {
 				throw new Error("active summary receipt conflict");
 			if ((current?.id ?? null) !== input.expectedActiveId)
 				throw new Error("stale active summary");
-			const revision = (current?.revision ?? 0) + 1;
+			const revision = (this.activeReceipt()?.revision ?? 0) + 1;
 			this.db
 				.prepare(
 					`INSERT INTO active_summary (id, summary_id, native_entry_id, first_kept_entry_id, revision)
@@ -215,7 +287,41 @@ export class ContextStore {
 		});
 	}
 
-	working(): WorkingState {
+	working(options: SourceContextOptions = {}): WorkingState {
+		this.recoverPending();
+		return this.workingView(options);
+	}
+
+	private workingView(options: SourceContextOptions): WorkingState {
+		const state = this.inspectWorking();
+		const artifact = this.artifacts.get(`working-${state.revision}`);
+		if (artifact && artifact.content !== JSON.stringify(state))
+			throw Error("Working revision content mismatch");
+		if (artifact && this.artifacts.eligible(artifact, options)) return state;
+		return {
+			revision: state.revision,
+			goal: "",
+			decisions: [],
+			openItems: [],
+			nextSteps: [],
+			sourceEntryIds: [],
+		};
+	}
+
+	/** Use this pair across async model status/tool delivery boundaries. */
+	readWorking(options: SourceContextOptions = {}) {
+		const value = this.working(options);
+		const id = `working-${value.revision}`;
+		const artifact = this.artifacts.get(id);
+		const beforeDeliver =
+			artifact && this.artifacts.eligible(artifact, options)
+				? this.artifacts.deliveryGuard(id, options)
+				: () => {};
+		return { value, beforeDeliver };
+	}
+
+	/** Human inspection only; this includes withheld legacy text. */
+	inspectWorking(): WorkingState {
 		this.assertOpen();
 		const row = this.db
 			.prepare("SELECT * FROM working_state WHERE id = 1")
@@ -224,16 +330,42 @@ export class ContextStore {
 		return decodeWorkingRow(row);
 	}
 
-	updateWorking(expectedRevision: number, fields: WorkingFields): WorkingState {
+	updateWorking(
+		expectedRevision: number,
+		fields: WorkingFields,
+		options: SourceContextOptions = {},
+	): WorkingState {
 		this.assertOpen();
 		if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
 			throw new Error("invalid working revision");
 		return this.transaction(() => {
-			const current = this.working();
+			const current = this.inspectWorking();
 			const next = mergeWorkingFields(current, fields, this.lookupEntry);
 			if (current.revision !== expectedRevision)
 				throw new Error("stale working revision");
 			const revision = current.revision + 1;
+			const fullReplacement = [
+				"goal",
+				"decisions",
+				"openItems",
+				"nextSteps",
+			].every((key) => Object.hasOwn(fields, key));
+			const hasText = [
+				current.goal,
+				...current.decisions,
+				...current.openItems,
+				...current.nextSteps,
+			].some(Boolean);
+			this.artifacts.create(
+				`working-${revision}`,
+				"working",
+				JSON.stringify({ revision, ...next }),
+				next.sourceEntryIds,
+				options,
+				fullReplacement
+					? undefined
+					: { id: `working-${current.revision}`, hasText },
+			);
 			this.db
 				.prepare(
 					`UPDATE working_state SET revision = ?, goal = ?, decisions = ?, open_items = ?,
@@ -248,13 +380,83 @@ export class ContextStore {
 					JSON.stringify(next.sourceEntryIds),
 					expectedRevision,
 				);
-			return { revision, ...next };
+			return this.workingView(options);
 		});
 	}
 
 	expand(ref: SourceRef, options: ExpandOptions = {}): ExpandPage {
 		this.assertOpen();
-		return expandSource(ref, options, this.lookupEntry, (id) => this.get(id));
+		return expandSource(
+			ref,
+			options,
+			(id) => this.eligibleEntry(id),
+			(id) => this.get(id),
+		);
+	}
+
+	/** Trusted current provenance, before summary selection or text budgeting. */
+	eligibleEntry(id: string) {
+		const source = this.lookupEntry(id);
+		return isOrdinaryArchiveEntry(source) ? source : undefined;
+	}
+
+	proofs(sources: SourceRef[]): SourceProof[] {
+		return unionProofs(
+			...sources.map((ref) => {
+				if (ref.kind === "summary") {
+					const parent = this.get(ref.id);
+					if (!parent) throw Error(`unknown source summary: ${ref.id}`);
+					return parent.sourceProofs;
+				}
+				if (!this.eligibleEntry(ref.id))
+					throw Error(`unknown source entry: ${ref.id}`);
+				return captureSourceProofs([ref.id], this.lookupEntry);
+			}),
+		);
+	}
+
+	proofsCurrent(proofs: SourceProof[]): boolean {
+		return sourceProofsCurrent(proofs, this.lookupEntry);
+	}
+
+	guardSources(sources: SourceRef[]): () => void {
+		return sourceDeliveryGuard(this.proofs(sources), this.lookupEntry);
+	}
+
+	finalizeRequest(requestId: string): number {
+		this.assertOpen();
+		validId(requestId, "request id");
+		return this.transaction(() => this.artifacts.finalizeRequest(requestId));
+	}
+
+	recoverPending(): number {
+		this.assertOpen();
+		return this.transaction(() => this.artifacts.finalizeRequest());
+	}
+
+	appendNote(callId: string, text: string, options: SourceContextOptions = {}) {
+		this.assertOpen();
+		this.recoverPending();
+		return this.transaction(() =>
+			this.artifacts.appendNote(callId, text, options),
+		);
+	}
+
+	notes(limit?: number) {
+		this.assertOpen();
+		this.recoverPending();
+		return this.artifacts.notes(limit);
+	}
+
+	readNotes(limit?: number) {
+		const value = this.notes(limit);
+		const guards = value.map((note) => this.artifacts.deliveryGuard(note.id));
+		return {
+			value,
+			beforeDeliver: () => {
+				for (const guard of guards) guard();
+			},
+		};
 	}
 
 	close(): void {
@@ -265,24 +467,6 @@ export class ContextStore {
 
 	private assertOpen(): void {
 		if (this.closed) throw new Error("context store is closed");
-	}
-
-	private summaryRow(id: string): SummaryRow | undefined {
-		return this.db
-			.prepare(
-				"SELECT id, text, kind, depth, fingerprint FROM summaries WHERE id = ?",
-			)
-			.get(id) as SummaryRow | undefined;
-	}
-
-	private sourcesOf(id: string): SourceRef[] {
-		return (
-			this.db
-				.prepare(
-					"SELECT source_kind, source_id FROM summary_sources WHERE summary_id = ? ORDER BY ordinal",
-				)
-				.all(id) as unknown as SourceRow[]
-		).map((row) => ({ kind: row.source_kind, id: row.source_id }));
 	}
 
 	private transaction<T>(action: () => T): T {

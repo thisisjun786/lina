@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { captureSourceProofs } from "../../lina-core/src/source-policy.ts";
 import { CompanionMemory } from "../src/context/companion.ts";
 import { CompanionQueue } from "../src/context/companion-queue.ts";
-import { createRuntimeFixture } from "./runtime-fixture.ts";
+import { trustNativeFixture } from "./helpers/native-memory-source.ts";
+import { createRuntimeFixture as baseFixture } from "./runtime-fixture.ts";
 
 test("settled evidence becomes scoped memory without a Honcho request and survives reopening", async () => {
 	const f = createRuntimeFixture();
@@ -101,6 +103,50 @@ function deferred<T>() {
 	});
 	return { promise, resolve };
 }
+
+test("a memory correction invalidates cached recall even when original source permissions stay valid", async () => {
+	const f = createRuntimeFixture();
+	const memory = new CompanionMemory({
+		path: join(f.root, "mind.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+	});
+	const lookup = (id: string) => f.store.sourceEntry(id);
+	const observe = (id: string, text: string) => {
+		f.store.createRequest(`request-${id}`, text);
+		entry(f, id, "user", text);
+		f.store.setRequest(`request-${id}`, "accepted", { entryId: id });
+		f.store.setRequest(`request-${id}`, "settled");
+		memory.mind.apply({
+			requestId: id,
+			expectedRevision: memory.mind.snapshot().revision,
+			sourceProofs: captureSourceProofs([id], lookup),
+			observations: [
+				{
+					subject: "user",
+					kind: "preference",
+					key: "drink",
+					text,
+					evidence: "explicit",
+					sources: [{ entryId: id, quote: text }],
+				},
+			],
+		});
+	};
+	try {
+		observe("tea", "Prefers tea");
+		const cached = await memory.recall("drink");
+		expect(cached).toContain("Prefers tea");
+		expect(memory.recallSourceProofs(cached)).toBeDefined();
+		observe("coffee", "Prefers coffee");
+		expect(memory.recallSourceProofs(cached)).toBeUndefined();
+		expect(memory.status().recallText).toBe("");
+		expect(await memory.recall("drink")).toContain("Prefers coffee");
+	} finally {
+		await memory.close();
+		await f.close();
+	}
+});
 
 // RED: separate assistant jobs included interrupted output and split settled episodes.
 test("only complete settled episodes include the last final assistant", async () => {
@@ -364,7 +410,9 @@ test("concurrent apply discards stale generation and retries with a fresh snapsh
 		entry(f, "seed", "user");
 		f.store.createRequest("seed-r", "seed");
 		f.store.setRequest("seed-r", "accepted", { entryId: "seed" });
-		f.store.setRequest("seed-r", "interrupted");
+		f.store.setRequest("seed-r", "settled");
+		memory.configure(async () => "[]");
+		await memory.refresh();
 		user(f, "u");
 		memory.configure(async (prompt) => {
 			prompts.push(prompt);
@@ -378,8 +426,11 @@ test("concurrent apply discards stale generation and retries with a fresh snapsh
 		const refresh = memory.refresh();
 		await started.promise;
 		memory.mind.apply({
+			sourceProofs: captureSourceProofs(["seed"], (id) =>
+				f.store.sourceEntry(id),
+			),
 			requestId: "other",
-			expectedRevision: 0,
+			expectedRevision: 1,
 			observations: [observation("seed", "concurrent preference", "other")],
 		});
 		output.resolve(JSON.stringify([observation("u", "stale")]));
@@ -421,6 +472,7 @@ test("retraction during observation fences regenerated output through retry exha
 	try {
 		user(f, "u");
 		const seed = memory.mind.apply({
+			sourceProofs: captureSourceProofs(["u"], (id) => f.store.sourceEntry(id)),
 			requestId: "seed",
 			expectedRevision: 0,
 			observations: [observation("u", "original")],
@@ -516,7 +568,9 @@ test("restart reconciles done jobs against actual engine receipts", async () => 
 	const f = createRuntimeFixture();
 	const path = join(f.root, "mind.sqlite");
 	user(f, "u");
-	const q = new CompanionQueue(`${path}.queue`, f.runtime.binding);
+	const q = new CompanionQueue(`${path}.queue`, f.runtime.binding, {
+		lookup: (id) => f.store.sourceEntry(id),
+	});
 	q.add("u", ["u"], 1);
 	q.start("u");
 	q.finish("u", true);
@@ -552,9 +606,17 @@ test("committed receipt recovers a crash on the final queue attempt without gene
 		journal: f.store,
 		...time,
 	});
-	memory.mind.apply({ requestId: "u", expectedRevision: 0, observations: [] });
+	memory.mind.apply({
+		sourceProofs: captureSourceProofs(["u"], (id) => f.store.sourceEntry(id)),
+		requestId: "u",
+		expectedRevision: 0,
+		observations: [],
+	});
 	await memory.close();
-	const q = new CompanionQueue(`${path}.queue`, f.runtime.binding, time);
+	const q = new CompanionQueue(`${path}.queue`, f.runtime.binding, {
+		...time,
+		lookup: (id) => f.store.sourceEntry(id),
+	});
 	q.add("u", ["u"], 1);
 	for (let i = 0; i < 2; i++) {
 		q.start("u");
@@ -610,6 +672,46 @@ test("scan failure preserves pending work without a zero-delay background loop",
 		expect(memory.status().accepted).toBe(1);
 	} finally {
 		f.store.scanAfter = scan;
+		await memory.close();
+		await f.close();
+	}
+});
+
+test("journal episode lookup failure preserves pending work and resumes without dispatching during the outage", async () => {
+	const f = createRuntimeFixture();
+	const time = clock();
+	const memory = new CompanionMemory({
+		path: join(f.root, "episode-outage.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		...time,
+	});
+	const episode = f.store.sourceEpisode.bind(f.store);
+	let calls = 0;
+	try {
+		user(f, "u");
+		entry(f, "a", "assistant");
+		await memory.refresh();
+		memory.configure(async () => {
+			calls++;
+			return "[]";
+		});
+		f.store.sourceEpisode = () => {
+			f.store.sourceEpisode = episode;
+			throw Error("episode lookup unavailable");
+		};
+		await memory.refresh();
+		expect(calls).toBe(0);
+		expect(memory.status().pending).toBe(1);
+		expect(memory.status().withheld).toBe(0);
+		expect(memory.status().service).toBe("unavailable");
+		expect(time.count()).toBe(0);
+		await memory.refresh();
+		expect(calls).toBe(1);
+		expect(memory.mind.hasReceipt("u")).toBe(true);
+		expect(memory.status().accepted).toBe(1);
+	} finally {
+		f.store.sourceEpisode = episode;
 		await memory.close();
 		await f.close();
 	}
@@ -767,6 +869,7 @@ test("native preference stage survives observation failure and is not replayed a
 	const preferences = {
 		resetRevision: () => 0,
 		hasReceipt: () => saved,
+		receiptWithheld: () => false,
 		process: async () => {
 			calls++;
 			saved = true;
@@ -828,6 +931,64 @@ test("validation retry explains duplicate slots to observer without weakening va
 		expect(m.mind.recordCount()).toBe(1);
 	} finally {
 		await m.close();
+		await f.close();
+	}
+});
+
+function createRuntimeFixture() {
+	const f = baseFixture();
+	trustNativeFixture(f.store, f.runtime.binding);
+	return f;
+}
+
+test("learning policy stops automatic observation and rejects output after disabling", async () => {
+	const f = createRuntimeFixture();
+	let enabled = false,
+		calls = 0;
+	const memory = new CompanionMemory({
+		path: join(f.root, "policy.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		learningEnabled: () => enabled,
+	});
+	memory.configure(async () => {
+		calls++;
+		enabled = false;
+		return JSON.stringify({
+			observations: [
+				{
+					subject: "user",
+					kind: "preference",
+					key: "drink",
+					text: "Prefers tea",
+					evidence: "explicit",
+					sources: [{ entryId: "u-policy", quote: "tea" }],
+				},
+			],
+			communicationPreferences: [],
+		});
+	});
+	try {
+		f.store.createRequest("r-policy", "tea");
+		f.store.appendEntry({
+			entryId: "u-policy",
+			role: "user",
+			text: "tea",
+			timestamp: new Date().toISOString(),
+			raw: {},
+		});
+		f.store.setRequest("r-policy", "accepted", { entryId: "u-policy" });
+		f.store.setRequest("r-policy", "settled");
+		await memory.refresh();
+		expect(calls).toBe(0);
+		expect(memory.status().pending).toBe(0);
+		enabled = true;
+		await memory.refresh();
+		expect(calls).toBe(1);
+		expect(memory.mind.state().records).toEqual([]);
+		expect(memory.status().service).toBe("disabled");
+	} finally {
+		await memory.close();
 		await f.close();
 	}
 });

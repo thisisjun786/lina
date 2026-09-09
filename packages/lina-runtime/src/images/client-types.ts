@@ -28,6 +28,44 @@ export type Ima2SubmitInput = {
 	prompt: string;
 	reference?: { bytes: Uint8Array; mime: Ima2ImageMime };
 };
+export type Ima2GenerationBody = Readonly<{
+	requestId: string;
+	provider: string;
+	model: string;
+	prompt: string;
+	async: true;
+	n: 1;
+	references: readonly string[];
+	format: "png";
+}>;
+/** Trusted runtime material, not a public DTO or a log payload. */
+export type Ima2SubmissionSnapshot = Readonly<{
+	url: string;
+	method: "POST";
+	version: "3.14.0";
+	headers: Readonly<Record<string, string>>;
+	body: Ima2GenerationBody;
+	/** Exact UTF-8 JSON sent to fetch. Strings retain bytes without mutable buffers. */
+	bodyJson: string;
+	bodySha256: string;
+	bodyByteLength: number;
+	reference?: Readonly<{
+		mime: Ima2ImageMime;
+		sha256: string;
+		byteLength: number;
+		/** Exact approved bytes including metadata, encoded without transformation. */
+		dataUrl: string;
+	}>;
+}>;
+/**
+ * Trusted, nonserialized authority check after all preparation awaits. Finish
+ * guards and durable dispatch marking synchronously, then return undefined.
+ * Throwing denies POST. Async/non-undefined returns deny; void would allow async
+ * callbacks in TypeScript. Do not mark an attempt and then throw or abort.
+ */
+export type Ima2BeforeSubmit = (snapshot: Ima2SubmissionSnapshot) => undefined;
+/** Handoff to fetch, independent of HTTP rejection or provider execution/cost. */
+export type Ima2Dispatch = "not-dispatched" | "dispatched" | "unknown";
 export type Ima2ClientOptions = {
 	baseUrl?: string;
 	serverFile?: string;
@@ -51,7 +89,11 @@ export type Ima2Connection = {
 };
 export interface Ima2ClientPort {
 	connect(signal?: AbortSignal): Promise<Ima2Connection>;
-	submit(input: Ima2SubmitInput, signal?: AbortSignal): Promise<Ima2Job>;
+	submit(
+		input: Ima2SubmitInput,
+		signal?: AbortSignal,
+		beforeSubmit?: Ima2BeforeSubmit,
+	): Promise<Ima2Job>;
 	read(requestId: string, signal?: AbortSignal): Promise<Ima2Job>;
 	cancel(requestId: string, signal?: AbortSignal): Promise<Ima2Cancellation>;
 	download(
@@ -69,6 +111,7 @@ export type Ima2ErrorCode =
 	| "LANE_UNAVAILABLE"
 	| "MODEL_UNAVAILABLE"
 	| "UNSUPPORTED_OPERATION"
+	| "SUBMIT_DENIED"
 	| "INVALID_IMAGE"
 	| "INVALID_RESULT"
 	| "BODY_TOO_LARGE"
@@ -88,6 +131,8 @@ export class Ima2Error extends Error {
 		message: string,
 		readonly outcome: "rejected" | "unknown" = "rejected",
 		readonly status?: number,
+		/** Unknown by default; only an owned submit boundary can prove no POST. */
+		readonly dispatch: Ima2Dispatch = "unknown",
 	) {
 		super(message);
 		this.name = "Ima2Error";

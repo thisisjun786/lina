@@ -1,0 +1,194 @@
+{
+	"revision": "8b74bdec4ba2ef4e14795b7591df3b5d73f283e3",
+	"engineRevision": "8b74bdec-lina-1",
+	"source": "https://github.com/ensemble-engine/ensemble",
+	"license": {
+		"file": "LICENSE.md",
+		"sha256": "b175fcb34794b239cd34a5ed23206e8e96a22624972801fdf2d03e8245182c88"
+	},
+	"modules": [
+		{
+			"name": "util",
+			"upstreamPath": "ensemble/jslib/util.js",
+			"file": "upstream/util.js.txt",
+			"sha256": "06d8ac34b2acec846a19ced4b4107eb6f2695baac77df3489e2756ad631f3d96",
+			"patchedSha256": "321b1662134a30c2a64400e7fee488a343f1740810b96a2266b12d59ffc300a5",
+			"patches": [
+				{
+					"id": "full-state-util",
+					"find": "// revealing public API",
+					"replace": "\n__lina.hooks.util = { read: function(){ return {_iterators,_noRepeatTracker}; }, write: function(s){_iterators=s._iterators;_noRepeatTracker=s._noRepeatTracker;}, definition: function(){return {};} };\n// revealing public API"
+				}
+			]
+		},
+		{
+			"name": "socialRecord",
+			"upstreamPath": "ensemble/socialRecord.js",
+			"file": "upstream/socialRecord.js.txt",
+			"sha256": "910d966f7b80e251bc55048b5b24858984d25b50d36b49a5e0a207513170c5fd",
+			"patchedSha256": "a3accdf75afa7457ae0beb1163c8db877bbeab15cac06a8646745dc157f2abe5",
+			"patches": [
+				{
+					"id": "full-state-socialRecord",
+					"find": "return socialRecordInterface;",
+					"replace": "\n__lina.hooks.socialRecord = { read: function(){ return {socialRecord,currentTimeStep,offstageCharacters,eliminatedCharacters}; }, write: function(s){socialRecord=s.socialRecord;currentTimeStep=s.currentTimeStep;offstageCharacters=s.offstageCharacters;eliminatedCharacters=s.eliminatedCharacters;}, definition: function(){return {defaultValues,maxValues,minValues,directions,isBooleans,clonePolicies,durations};} };\nreturn socialRecordInterface;"
+				},
+				{
+					"id": "query-budget-and-introduction",
+					"find": "var get = function(searchPredicate, mostRecentTime, lessRecentTime, useDefaultValue, params) {",
+					"replace": "var get = function(searchPredicate, mostRecentTime, lessRecentTime, useDefaultValue, params) {\n __lina.tick(\"operation\");\n var range = __lina.window(searchPredicate, mostRecentTime, lessRecentTime, currentTimeStep);\n if (range === null) return []; mostRecentTime=range[0]; lessRecentTime=range[1];"
+				},
+				{
+					"id": "write-budget-and-policy",
+					"find": "var set = function(setPredicate) {",
+					"replace": "var set = function(setPredicate) {\n __lina.tick(\"operation\"); __lina.beforeSet(setPredicate);"
+				},
+				{
+					"id": "reciprocal-pattern-not-effect",
+					"find": "var recipPredicate = util.clone(setPredicate);",
+					"replace": "var recipPredicate = util.clone(pattern);"
+				}
+			]
+		},
+		{
+			"name": "ruleLibrary",
+			"upstreamPath": "ensemble/RuleLibrary.js",
+			"file": "upstream/ruleLibrary.js.txt",
+			"sha256": "27ad972d1efe09244f0788cb02b2e9b16dd3eaee79ace46edf8645e6dd21024b",
+			"patchedSha256": "aae50ed87eafe9d070947cb1fef11d5db5cd2b03b285bad324f2d7033e49035a",
+			"patches": [
+				{
+					"id": "full-state-ruleLibrary",
+					"find": "return ruleLibraryInterface;",
+					"replace": "\n__lina.hooks.ruleLibrary = { read: function(){ return {}; }, write: function(s){}, definition: function(){return {ruleLibrary,ruleIndexes};} };\nreturn ruleLibraryInterface;"
+				},
+				{
+					"id": "rule-binding-limits",
+					"find": "var matchUniqueBindings = function (uniqueBindings, availableCastMembers, processResult, rule, params, unaffectedCharacters) {",
+					"replace": "var matchUniqueBindings = function (uniqueBindings, availableCastMembers, processResult, rule, params, unaffectedCharacters) {\n __lina.tick(\"binding\");\n if (!__lina.bindingAllowed(uniqueBindings)) return;"
+				},
+				{
+					"id": "declared-rule-bindings",
+					"find": "var uniqueBindings = getUniqueBindings(allPredicates);",
+					"replace": "var uniqueBindings = getUniqueBindings(allPredicates);\n (rules[i].linaRoles || []).forEach(function(role){if(uniqueBindings[role] === undefined) uniqueBindings[role]=\"\";});\n Object.keys(uniqueBindings).forEach(function(role){var fixed=__lina.fixedBinding(role);if(fixed)uniqueBindings[role]=fixed;});"
+				},
+				{
+					"id": "trigger-trace",
+					"find": "processResult(boundEffects[j], boundConditions, rule, j, boundEffects.length-1);",
+					"replace": "__lina.matched(rule.name);\n\t\t\t\tprocessResult(boundEffects[j], boundConditions, rule, j, boundEffects.length-1);"
+				}
+			]
+		},
+		{
+			"name": "actionLibrary",
+			"upstreamPath": "ensemble/ActionLibrary.js",
+			"file": "upstream/actionLibrary.js.txt",
+			"sha256": "e8112091865701257db40464e46e7a855fd598def6e50fe13ae63e4cb5e46838",
+			"patchedSha256": "f77c63aa50ffa26bc2c1bea3da2332d90650c91167ade0104ce321ec429b06d8",
+			"patches": [
+				{
+					"id": "full-state-actionLibrary",
+					"find": "return actionLibraryInterface;",
+					"replace": "\n__lina.hooks.actionLibrary = { read: function(){ return {}; }, write: function(s){}, definition: function(){return {actions,startSymbols,nonTerminals,terminalActions};} };\nreturn actionLibraryInterface;"
+				},
+				{
+					"id": "chosen-root-negative-score",
+					"find": "if(terminalAction.weight < 0){",
+					"replace": "if(terminalAction.weight < 0 && !__lina.explicitRoot){"
+				},
+				{
+					"id": "either-response",
+					"find": "if(action.isAccept === undefined && action.leadsTo === undefined && action.effects !== undefined){",
+					"replace": "if(action.isAccept === undefined && action.leadsTo === undefined && action.effects !== undefined && !action.linaEither){"
+				},
+				{
+					"id": "bound-only-roles",
+					"find": "var conditions = actionObject.conditions;",
+					"replace": "var conditions = actionObject.conditions;\n (actionObject.linaRoles || []).forEach(function(role){if(uniqueBindings[role] === undefined) uniqueBindings[role]=\"\";});"
+				},
+				{
+					"id": "binding-limits",
+					"find": "var getWorkingBindingCombinations = function(action, uniqueBindings, availableCastMembers, combinationsToUse, allCastMembers){",
+					"replace": "var getWorkingBindingCombinations = function(action, uniqueBindings, availableCastMembers, combinationsToUse, allCastMembers){\n __lina.tick(\"binding\");"
+				},
+				{
+					"id": "action-binding-constraints",
+					"find": "var evaluationResult = ruleLibrary.evaluateConditions(boundConditions);",
+					"replace": "var evaluationResult = __lina.bindingAllowed(uniqueBindings) && ruleLibrary.evaluateConditions(boundConditions);"
+				},
+				{
+					"id": "explicit-root-entrypoint",
+					"find": "return actionLibraryInterface;",
+					"replace": "\nactionLibraryInterface.resolveRoot = function(name, initiator, responder, accepted, weight, cast, maxCandidateIds) {\n var root = getActionFromName(name);\n if (!root || !root.intent || !root.leadsTo) throw Error(\"Unknown requested social root\");\n var bindings={initiator:initiator,responder:responder};\n root.goodBindings=[bindings]; root.weight=weight;\n __lina.explicitRoot=true;\n try {\n  // The finite per-group width comes from the authored table, never a trace budget.\n  // Request operation/binding limits still bound traversal across every DAG path.\n  var hierarchy=getActionHierarchyFromNonTerminal(root,accepted,terminalActions.length || 1,bindings,cast) || [];\n  var terminals=grabAllTerminals(hierarchy);\n  terminals.sort(function(a,b){return b.weight-a.weight || (a.name<b.name?-1:a.name>b.name?1:0);});\n  // Keep weighted path alternatives for selection; expose each terminal ID once.\n  var candidateIds=Array.from(new Set(terminals.map(function(t){return t.name;})));\n  if(candidateIds.length>maxCandidateIds) throw Error(\"Social candidate budget exceeded\");\n  if(!terminals.length) return {action:null,bindings:{},candidateIds:[]};\n  var ties=terminals.filter(function(t){return t.weight===terminals[0].weight;});\n  var selected=ties[_.random(0,ties.length-1)];\n  var best=selected.goodBindings.filter(function(b){return b.weight$$===selected.weight;});\n  best.sort(function(a,b){var aa=JSON.stringify(a),bb=JSON.stringify(b); return aa<bb?-1:aa>bb?1:0;});\n  var selectedBindings=best[_.random(0,best.length-1)];\n  if(!selectedBindings) throw Error(\"No best social binding\");\n  return {action:bindActionEffects(util.clone(selected),selectedBindings),bindings:util.clone(selectedBindings),candidateIds:candidateIds};\n } finally {__lina.explicitRoot=false;}\n};\nreturn actionLibraryInterface;"
+				},
+				{
+					"id": "concrete-action-reference",
+					"find": "(actionObject.linaRoles || []).forEach(function(role){if(uniqueBindings[role] === undefined) uniqueBindings[role]=\"\";});",
+					"replace": "(actionObject.linaRoles || []).forEach(function(role){if(uniqueBindings[role] === undefined) uniqueBindings[role]=__lina.fixedBinding(role) || \"\";});"
+				},
+				{
+					"id": "finite-negative-influence-score",
+					"find": "var bestWeightFoundSoFar = -999999;",
+					"replace": "var bestWeightFoundSoFar = -Infinity;"
+				}
+			]
+		},
+		{
+			"name": "volition",
+			"upstreamPath": "ensemble/Volition.js",
+			"file": "upstream/volition.js.txt",
+			"sha256": "a831a825352ec441b6a0d281b3c7638a155ab76292bb6daf8703992a526b46df",
+			"patchedSha256": "f587e1abf60a55e141eb52544ffde2196dc9308150d5e5b84c74fe9689dd9acd",
+			"patches": [
+				{
+					"id": "full-state-volition",
+					"find": "return volitionInterface;",
+					"replace": "\n__lina.hooks.volition = { read: function(){ return {volitionCache,cachePositions}; }, write: function(s){volitionCache=s.volitionCache;cachePositions=s.cachePositions;}, definition: function(){return {};} };\nreturn volitionInterface;"
+				}
+			]
+		},
+		{
+			"name": "validate",
+			"upstreamPath": "ensemble/Validate.js",
+			"file": "upstream/validate.js.txt",
+			"sha256": "97c335a662e59ab207be5b757c8e1fabccef8939ecc617a170008938d7a7f814",
+			"patchedSha256": "e5ae495590d85d99a82a9dd5709d1a7ecb213a0466b5a171e163447310140a02",
+			"patches": [
+				{
+					"id": "full-state-validate",
+					"find": "return validateInterface;",
+					"replace": "\n__lina.hooks.validate = { read: function(){ return {}; }, write: function(s){}, definition: function(){return {socialStructure,allowedDirTypes,allowedOpsConditions,allowedOpsEffects,allowedTurnConstants};} };\nreturn validateInterface;"
+				}
+			]
+		},
+		{
+			"name": "ensemble",
+			"upstreamPath": "ensemble/ensemble.js",
+			"file": "upstream/ensemble.js.txt",
+			"sha256": "6b33036e567a8ea9e0639869bb38dde0d3443f7710b67d77603e3ff6ff4a044c",
+			"patchedSha256": "1f0068acc901f1c93caca95eeae73d8034f343061375a0ca697afba748b72e52",
+			"patches": [
+				{
+					"id": "full-state-ensemble",
+					"find": "return ensembleInterface;",
+					"replace": "\n__lina.hooks.ensemble = { read: function(){ return {}; }, write: function(s){}, definition: function(){return {socialStructure,savedChars};} };\nreturn ensembleInterface;"
+				},
+				{
+					"id": "rootless-empty-schema",
+					"find": "if (!atLeastOneCategoryAllowsIntent) {",
+					"replace": "if (!atLeastOneCategoryAllowsIntent && blueprints.length > 0) {"
+				}
+			]
+		}
+	],
+	"compatibility": {
+		"file": "underscore.ts",
+		"sha256": "9cf4a1a1b701a8762bc550a8cacb8399cdfccf19edb2d2dc74c76bd684f2b30a",
+		"origin": "independently authored; Apache-2.0; keys size sortBy random only"
+	},
+	"assembly": {
+		"file": "../../src/life/social/pinned.ts",
+		"sha256": "d09c6cb884a3c6c68a0471ba0ab8a51c77dc4e7911120a1e16aa13b4d112f663",
+		"origin": "Lina fixed-source closure assembly; per-instance transient globals"
+	}
+}

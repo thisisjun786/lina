@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
 	ATTACHMENT_MAX_BYTES,
@@ -5,10 +6,13 @@ import {
 } from "../../../lina-core/src/attachments/validation.ts";
 import {
 	Ima2Error,
+	type Ima2GenerationBody,
 	type Ima2ImageMime,
 	type Ima2Job,
 	type Ima2Lane,
 	type Ima2Result,
+	type Ima2SubmissionSnapshot,
+	type Ima2SubmitInput,
 } from "./client-types.ts";
 
 export const IMA2_VERSION = "3.14.0";
@@ -46,6 +50,50 @@ export const submitSchema = z.strictObject({
 		})
 		.optional(),
 });
+
+/** Own and freeze every outbound byte before yielding to connection discovery. */
+export function prepareSubmission(
+	input: Ima2SubmitInput,
+	maxImageBytes: number,
+): Omit<Ima2SubmissionSnapshot, "url"> {
+	const value = parse(submitSchema, input, "INVALID_INPUT");
+	let reference: Ima2SubmissionSnapshot["reference"];
+	if (value.reference) {
+		const bytes = new Uint8Array(value.reference.bytes);
+		const mime = imageMime(bytes, value.reference.mime, maxImageBytes);
+		reference = Object.freeze({
+			mime,
+			sha256: createHash("sha256").update(bytes).digest("hex"),
+			byteLength: bytes.byteLength,
+			dataUrl: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`,
+		});
+	}
+	const body: Ima2GenerationBody = Object.freeze({
+		requestId: value.requestId,
+		provider: value.provider,
+		model: value.model,
+		prompt: value.prompt,
+		async: true,
+		n: 1,
+		references: Object.freeze(reference ? [reference.dataUrl] : []),
+		format: "png",
+	});
+	const bodyJson = JSON.stringify(body);
+	return Object.freeze({
+		method: "POST",
+		version: IMA2_VERSION,
+		headers: Object.freeze({
+			"Content-Type": "application/json",
+			"Idempotency-Key": body.requestId,
+			"X-Request-Id": body.requestId,
+		}),
+		body,
+		bodyJson,
+		bodySha256: createHash("sha256").update(bodyJson).digest("hex"),
+		bodyByteLength: Buffer.byteLength(bodyJson, "utf8"),
+		...(reference ? { reference } : {}),
+	});
+}
 export const healthSchema = z.object({
 	ok: z.literal(true),
 	version: z.string(),

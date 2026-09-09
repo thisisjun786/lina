@@ -1,12 +1,17 @@
 import { setTimeout as delay } from "node:timers/promises";
-import {
-	AttachmentError,
-	type AttachmentStore,
-} from "../../../lina-core/src/attachments/store.ts";
+import type { AttachmentStore } from "../../../lina-core/src/attachments/store.ts";
 import { isImageMime } from "../../../lina-core/src/attachments/types.ts";
 import type { SessionPort } from "../sdk-port.ts";
 import type { Ima2Client } from "./client.ts";
-import { Ima2Error } from "./client-types.ts";
+import type {
+	ImageArtifactPort,
+	ImageCompletionPort,
+	ImageReferenceBytes,
+	ImageStartAuthority,
+} from "./contracts.ts";
+import { conversationImagePorts } from "./conversation.ts";
+import { ImageJobExecution, safeError } from "./image-job-execution.ts";
+import { sameImageTerminal } from "./image-store-schema.ts";
 import {
 	type ImageJob,
 	type ImageJobInput,
@@ -18,52 +23,51 @@ export type ImageClient = Pick<
 	Ima2Client,
 	"connect" | "submit" | "read" | "cancel" | "download"
 >;
-type Options = {
+type BaseOptions = {
 	store: ImageJobStore;
-	attachments: AttachmentStore;
 	client: ImageClient;
-	notify: SessionPort["appendNotice"];
+	onChange?: (job: ImageJob) => void;
 };
-const POLL_MS = 1500;
+type Options = BaseOptions &
+	(
+		| { attachments: AttachmentStore; notify: SessionPort["appendNotice"] }
+		| { artifacts: ImageArtifactPort; completion: ImageCompletionPort }
+	);
+/** Provider status recovery interval; this is not a LIFE scheduling cadence. */
+export const IMAGE_POLL_MS = 1500;
 const WAIT_MS = 5 * 60 * 1000;
-const ERROR_GUIDANCE: Record<string, string> = {
-	DISCOVERY_UNAVAILABLE:
-		"이미지 엔진이 연결되지 않았습니다. ima2를 시작하거나 연결 주소를 설정해주세요.",
-	ACCESS_DENIED: "ima2에서 인증 정보를 확인해주세요.",
-	LANE_UNAVAILABLE:
-		"선택한 이미지 서비스가 준비되지 않았습니다. ima2 연결 설정을 확인해주세요.",
-	MODEL_UNAVAILABLE:
-		"선택한 이미지 모델을 찾지 못했습니다. 이미지 모델 목록을 확인해주세요.",
-	UNSUPPORTED_OPERATION: "선택한 모델은 이 이미지 작업을 지원하지 않습니다.",
-	UNSUPPORTED_VERSION: "연결된 ima2 버전이 지원 범위와 다릅니다.",
-	BODY_TOO_LARGE:
-		"이미지가 첨부 크기 한도를 넘었습니다. 최대 2 MiB까지 저장할 수 있습니다.",
-	INVALID_IMAGE:
-		"이미지 파일을 검증하지 못했습니다. 결과를 표시하지 않았습니다.",
-};
-function safeError(error: unknown): string {
-	if (error instanceof AttachmentError)
-		return `ATTACHMENT_${error.code.toUpperCase().replaceAll("-", "_")}: 이미지 결과를 저장하거나 검증하지 못했습니다.`;
-	// Upstream response bodies may contain credentials. Persist only our own code.
-	const code =
-		error &&
-		typeof error === "object" &&
-		"code" in error &&
-		typeof error.code === "string" &&
-		/^[A-Z_]{1,64}$/.test(error.code)
-			? error.code
-			: "IMAGE_CONNECTION_FAILED";
-	return `${code}: ${ERROR_GUIDANCE[code] ?? "이미지 연결 또는 작업 상태를 확인해주세요."}`;
-}
 export class ImageJobs {
 	private readonly active = new Map<string, Promise<ImageJob>>();
+	private readonly observed = new Map<string, string>();
 	private readonly shutdown = new AbortController();
 	private poll: Promise<void> | undefined;
 	private notices: Promise<void> | undefined;
 	private recoveryError: string | null = null;
+	private readonly artifacts: ImageArtifactPort;
+	private readonly execution: ImageJobExecution;
+	private readonly completion: ImageCompletionPort;
 	constructor(private readonly options: Options) {
-		if (!options.attachments.isBoundTo(options.store.binding))
-			throw Error("Image attachment binding differs");
+		const ports =
+			"attachments" in options
+				? conversationImagePorts(
+						options.store,
+						options.attachments,
+						options.notify,
+					)
+				: options;
+		this.artifacts = ports.artifacts;
+		this.execution = new ImageJobExecution(
+			options.store,
+			options.client,
+			ports.artifacts,
+			(signal) => this.signal(signal),
+		);
+		this.completion = ports.completion;
+		for (const job of this.list())
+			this.observed.set(job.id, this.observation(job));
+	}
+	get owner() {
+		return structuredClone(this.options.store.owner);
 	}
 	list() {
 		return this.options.store.list();
@@ -90,86 +94,87 @@ export class ImageJobs {
 			recoveryError: this.recoveryError,
 		};
 	}
-	async start(input: ImageJobInput, signal?: AbortSignal): Promise<ImageJob> {
+	/** Durable creation only. Runtime links this UUID to its core attempt before startPrepared. */
+	prepare(input: ImageJobInput): ImageJob {
+		this.shutdown.signal.throwIfAborted();
+		const previous = this.options.store.find(input);
+		if (previous) return previous;
+		this.assertIdle();
+		return this.changed(this.options.store.create(input));
+	}
+	async start(raw: ImageJobInput, signal?: AbortSignal): Promise<ImageJob> {
+		if (this.options.store.owner.kind === "life")
+			throw Error(
+				"LIFE requires prepare, UUID link and startPrepared authority",
+			);
+		const input = structuredClone(raw);
 		this.shutdown.signal.throwIfAborted();
 		signal?.throwIfAborted();
-		const previous = this.list().find(
-			(j) => j.requestId === input.requestId && j.callId === input.callId,
-		);
-		if (previous) return this.options.store.create(input);
-		if (this.list().some((j) => !terminalImageState(j.state)))
+		const previous = this.options.store.find(input);
+		if (previous) return previous;
+		this.assertIdle();
+		// Preserve pre-create rejection of references outside this conversation.
+		const reference = await this.artifacts.resolveReference(input);
+		const created = this.prepare(input);
+		return this.runPrepared(created.id, undefined, signal, reference);
+	}
+	async startPrepared(
+		id: string,
+		authority: ImageStartAuthority,
+		signal?: AbortSignal,
+	): Promise<ImageJob> {
+		if (this.options.store.owner.kind !== "life")
+			throw Error("startPrepared is LIFE-only");
+		if (!authority || typeof authority.beforeSubmit !== "function")
+			throw Error("LIFE image start authority is required");
+		return this.runPrepared(id, authority, signal);
+	}
+	private assertIdle(id?: string): void {
+		if (this.list().some((j) => j.id !== id && !terminalImageState(j.state)))
 			throw Error(
 				"이미지 작업이 아직 끝나지 않았습니다. 기존 작업을 확인해주세요.",
 			);
-		let reference:
-			| { bytes: Uint8Array; mime: "image/png" | "image/jpeg" }
-			| undefined;
-		if (input.sourceArtifactId) {
-			const meta = this.options.attachments.get(input.sourceArtifactId);
-			if (!isImageMime(meta.mime))
-				throw Error("편집할 이미지 첨부가 아닙니다.");
-			reference = {
-				bytes: this.options.attachments.bytes(meta.id),
-				mime: meta.mime,
-			};
-		}
-		const created = this.options.store.create(input);
-		return this.exclusive(created.id, async () => {
-			let dispatched = false;
-			let admitted = false;
-			try {
-				const connection = await this.options.client.connect(
-					this.signal(signal),
-				);
-				this.signal(signal).throwIfAborted();
-				if (this.get(created.id).cancelRequested) {
-					return this.options.store.update(created.id, {
-						state: "cancelled",
-						error: null,
-					});
-				}
-				this.options.store.update(created.id, {
-					endpoint: connection.baseUrl,
-					runtimeVersion: connection.version,
-					state: "submitting",
-				});
-				dispatched = true;
-				const result = await this.options.client.submit(
-					{
-						requestId: created.id,
-						provider: input.provider,
-						model: input.model,
-						prompt: input.prompt,
-						...(reference ? { reference } : {}),
-					},
-					this.signal(signal),
-				);
-				admitted = true;
-				await this.apply(created.id, result);
-			} catch (error) {
-				const rejected =
-					!admitted &&
-					error instanceof Ima2Error &&
-					error.outcome === "rejected";
-				this.options.store.update(created.id, {
-					state:
-						dispatched && !rejected
-							? this.get(created.id).cancelRequested
-								? "cancelling"
-								: "uncertain"
-							: signal?.aborted
-								? "cancelled"
-								: "failed",
-					error: safeError(error),
-				});
-			}
-			return this.get(created.id);
-		});
 	}
-	async reconcile(id: string): Promise<ImageJob> {
+	private runPrepared(
+		id: string,
+		authority?: ImageStartAuthority,
+		signal?: AbortSignal,
+		resolved?: ImageReferenceBytes | null,
+	): Promise<ImageJob> {
 		return this.exclusive(id, async () => {
 			const job = this.get(id);
+			if (job.state !== "prepared") return job;
+			this.assertIdle(id);
+			return this.changed(
+				await this.execution.submit(id, authority, signal, resolved),
+			);
+		});
+	}
+	private changed(job: ImageJob): ImageJob {
+		const observation = this.observation(job);
+		if (this.observed.get(job.id) !== observation) {
+			this.observed.set(job.id, observation);
+			this.options.onChange?.(structuredClone(job));
+		}
+		return job;
+	}
+	private observation(job: ImageJob): string {
+		const { updatedAt: _updatedAt, ...facts } = job;
+		return JSON.stringify(facts);
+	}
+	async reconcile(id: string, signal?: AbortSignal): Promise<ImageJob> {
+		signal?.throwIfAborted();
+		return this.exclusive(id, async () => {
+			const job = this.get(id);
+			if (
+				job.owner.kind === "life" &&
+				job.state === "prepared" &&
+				!job.cancelRequested
+			)
+				return job;
 			if (terminalImageState(job.state)) {
+				if (job.owner.kind === "life" && job.artifact)
+					await this.artifacts.verify(job);
 				await this.flushNotices();
 				return this.get(id);
 			}
@@ -185,22 +190,22 @@ export class ImageJobs {
 					});
 				} else {
 					const connection = await this.options.client.connect(
-						this.shutdown.signal,
+						this.signal(signal),
 					);
 					if (
 						connection.baseUrl !== job.endpoint ||
 						connection.version !== job.runtimeVersion
 					)
 						throw Error("Image runtime changed");
-					let result = await this.options.client.read(id, this.shutdown.signal);
+					let result = await this.options.client.read(id, this.signal(signal));
 					if (
 						this.get(id).cancelRequested &&
 						["queued", "running", "post_processing"].includes(result.state)
 					) {
-						await this.options.client.cancel(id, this.shutdown.signal);
-						result = await this.options.client.read(id, this.shutdown.signal);
+						await this.options.client.cancel(id, this.signal(signal));
+						result = await this.options.client.read(id, this.signal(signal));
 					}
-					await this.apply(id, result);
+					await this.execution.apply(id, result);
 				}
 			} catch (error) {
 				if (!terminalImageState(this.get(id).state))
@@ -210,7 +215,7 @@ export class ImageJobs {
 					});
 			}
 			await this.flushNotices();
-			return this.get(id);
+			return this.changed(this.get(id));
 		});
 	}
 	async cancel(id: string): Promise<ImageJob> {
@@ -225,11 +230,13 @@ export class ImageJobs {
 		return this.exclusive(id, async () => {
 			const job = this.get(id);
 			if (terminalImageState(job.state)) return job;
-			if (job.endpoint === null)
-				return this.options.store.update(id, {
-					state: "cancelled",
-					error: null,
-				});
+			if (job.endpoint === null) {
+				this.changed(
+					this.options.store.update(id, { state: "cancelled", error: null }),
+				);
+				await this.flushNotices();
+				return this.changed(this.get(id));
+			}
 			try {
 				const connection = await this.options.client.connect(
 					this.shutdown.signal,
@@ -240,7 +247,7 @@ export class ImageJobs {
 				)
 					throw Error("Image runtime changed");
 				await this.options.client.cancel(id, this.shutdown.signal);
-				await this.apply(
+				await this.execution.apply(
 					id,
 					await this.options.client.read(id, this.shutdown.signal),
 				);
@@ -251,14 +258,14 @@ export class ImageJobs {
 				});
 			}
 			await this.flushNotices();
-			return this.get(id);
+			return this.changed(this.get(id));
 		});
 	}
 	async wait(id: string, signal?: AbortSignal): Promise<ImageJob> {
 		const deadline = Date.now() + WAIT_MS;
 		while (!this.shutdown.signal.aborted) {
 			if (signal?.aborted) return this.cancel(id);
-			const job = await this.reconcile(id);
+			const job = await this.reconcile(id, signal);
 			if (
 				terminalImageState(job.state) ||
 				job.state === "uncertain" ||
@@ -266,7 +273,7 @@ export class ImageJobs {
 			)
 				return job;
 			try {
-				await delay(POLL_MS, undefined, { signal: this.signal(signal) });
+				await delay(IMAGE_POLL_MS, undefined, { signal: this.signal(signal) });
 			} catch {
 				if (signal?.aborted) return this.cancel(id);
 				break;
@@ -281,6 +288,10 @@ export class ImageJobs {
 		}
 	}
 	resume(): void {
+		if (this.options.store.owner.kind === "life")
+			throw Error(
+				"LIFE eager resume is forbidden; runtime must link and reconcile explicitly",
+			);
 		if (this.poll) return;
 		this.poll = (async () => {
 			while (!this.shutdown.signal.aborted) {
@@ -291,7 +302,7 @@ export class ImageJobs {
 					this.recoveryError =
 						"이미지 작업 복구를 완료하지 못했습니다. 저장소 상태를 확인해주세요.";
 				}
-				await delay(POLL_MS, undefined, { signal: this.shutdown.signal });
+				await delay(IMAGE_POLL_MS, undefined, { signal: this.shutdown.signal });
 			}
 		})().catch((error) => {
 			if (!this.shutdown.signal.aborted) throw error;
@@ -302,31 +313,33 @@ export class ImageJobs {
 	async flushNotices(): Promise<void> {
 		if (this.notices) return this.notices;
 		this.notices = Promise.resolve().then(async () => {
-			for (const job of this.list()) {
-				if (!terminalImageState(job.state) || job.deliveredEntryId) continue;
-				try {
-					const artifact = job.artifact;
-					if (artifact) this.options.attachments.get(artifact.id);
-					const suffix = `?sessionId=${encodeURIComponent(this.options.store.binding.sessionId)}`;
-					const text = artifact
-						? `${job.sourceArtifactId ? "이미지를 수정했습니다." : "이미지를 만들었습니다."}\n\n![생성 이미지](/api/attachments/${artifact.id}/preview${suffix})\n\n[이미지 다운로드](/api/attachments/${artifact.id}${suffix})`
-						: job.state === "cancelled"
-							? "이미지 생성을 취소했습니다."
-							: `${job.resultFilename ? "이미지는 생성됐지만 저장하지 못했습니다." : "이미지를 만들지 못했습니다."} ${job.error ?? "연결 상태를 확인해주세요."}`;
-					const entry = await this.options.notify(
-						{ jobId: `image_${job.id}`, terminalRevision: 1 },
-						text,
-					);
-					if (entry)
-						this.options.store.update(job.id, {
-							deliveredEntryId: entry,
-							deliveryError: null,
-						});
-				} catch {
-					this.options.store.update(job.id, {
-						deliveryError:
-							"이미지 결과를 대화에 전달하지 못했습니다. 저장된 결과로 다시 전달합니다.",
-					});
+			for (const initial of this.list()) {
+				let job = initial;
+				while (
+					terminalImageState(job.state) &&
+					job.delivery.kind === "pending"
+				) {
+					try {
+						if (job.artifact) await this.artifacts.verify(job);
+						const receipt = await this.completion.complete(job);
+						if (receipt.kind !== "pending")
+							this.changed(
+								this.options.store.acknowledgeCompletion(job, receipt),
+							);
+					} catch {
+						this.changed(
+							this.options.store.recordCompletionError(
+								job,
+								job.owner.kind === "conversation"
+									? "이미지 결과를 대화에 전달하지 못했습니다. 저장된 결과로 다시 전달합니다."
+									: "이미지 완료 영수증을 저장하지 못했습니다. 원래 결과로 다시 전달합니다.",
+							),
+						);
+					}
+					const current = this.get(job.id);
+					if (sameImageTerminal(job, current)) break;
+					// Recovery can advance this one terminal observation while its old receipt is awaited.
+					job = current;
 				}
 			}
 		});
@@ -335,6 +348,45 @@ export class ImageJobs {
 		} finally {
 			this.notices = undefined;
 		}
+	}
+	async recoverArtifact(id: string, signal?: AbortSignal): Promise<ImageJob> {
+		signal?.throwIfAborted();
+		return this.exclusive(id, async () => {
+			const job = this.get(id);
+			if (job.owner.kind !== "life")
+				throw Error("Artifact recovery is LIFE-only");
+			if (job.state === "completed" && job.artifactRecovery) {
+				await this.artifacts.verify(job);
+				await this.flushNotices();
+				return this.get(id);
+			}
+			if (
+				job.state !== "failed" ||
+				!job.resultFilename ||
+				!job.endpoint ||
+				!job.runtimeVersion
+			)
+				throw Error(
+					"Artifact recovery requires failed known-result provenance",
+				);
+			const connection = await this.options.client.connect(this.signal(signal));
+			if (
+				connection.baseUrl !== job.endpoint ||
+				connection.version !== job.runtimeVersion
+			)
+				throw Error("Image runtime changed during artifact recovery");
+			await this.artifacts.preflight(job);
+			const output = await this.options.client.download(
+				{ requestId: id, filename: job.resultFilename },
+				this.signal(signal),
+			);
+			if (!isImageMime(output.mime)) throw Error("Unsupported image format");
+			const artifact = await this.artifacts.importOutput(job, output);
+			await this.artifacts.verify({ ...job, artifact });
+			this.changed(this.options.store.recoverArtifact(id, artifact));
+			await this.flushNotices();
+			return this.get(id);
+		});
 	}
 	async close(): Promise<void> {
 		this.shutdown.abort();
@@ -366,68 +418,5 @@ export class ImageJobs {
 			});
 		this.active.set(id, promise);
 		return promise;
-	}
-	private async apply(
-		id: string,
-		result: Awaited<ReturnType<ImageClient["read"]>>,
-	): Promise<void> {
-		if (
-			result.requestId !== id ||
-			(result.result && result.result.requestId !== id)
-		)
-			throw Error("Foreign image result");
-		const job = this.get(id);
-		if (result.state === "completed" && !result.result)
-			throw Error("Missing image result");
-		if (result.state === "completed" && result.result) {
-			this.options.store.update(id, { resultFilename: result.result.filename });
-			try {
-				const output = await this.options.client.download(
-					result.result,
-					this.shutdown.signal,
-				);
-				if (!isImageMime(output.mime)) throw Error("Unsupported image format");
-				const artifact = this.options.attachments.put(
-					`image-${id}.${output.mime === "image/png" ? "png" : "jpg"}`,
-					output.bytes,
-					id,
-				);
-				this.options.store.update(id, {
-					state: "completed",
-					artifact,
-					error: null,
-				});
-			} catch (error) {
-				if (
-					error instanceof AttachmentError ||
-					(error instanceof Ima2Error &&
-						["BODY_TOO_LARGE", "INVALID_IMAGE", "INVALID_RESULT"].includes(
-							error.code,
-						))
-				) {
-					this.options.store.update(id, {
-						state: "failed",
-						error: safeError(error),
-					});
-				} else throw error;
-			}
-		} else if (result.state === "failed" || result.state === "cancelled") {
-			this.options.store.update(id, {
-				state: result.state,
-				error: result.state === "failed" ? safeError(result.error) : null,
-			});
-		} else {
-			this.options.store.update(id, {
-				state: job.cancelRequested
-					? "cancelling"
-					: result.state === "unknown" || result.state === "timed_out"
-						? "uncertain"
-						: result.state,
-				error:
-					result.state === "unknown" || result.state === "timed_out"
-						? "생성 결과가 아직 확인되지 않았습니다. 같은 요청을 조회하며 다시 생성하지 않습니다."
-						: null,
-			});
-		}
 	}
 }

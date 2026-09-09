@@ -72,8 +72,10 @@ export function mergeWorkingFields(
 ): Omit<WorkingState, "revision"> {
 	if (typeof fields !== "object" || fields === null || Array.isArray(fields))
 		throw new Error("invalid working fields");
-	for (const key of Object.keys(fields))
+	for (const [key, value] of Object.entries(fields)) {
 		if (!FIELD_KEYS.has(key)) throw new Error(`unknown working field ${key}`);
+		if (value === undefined) throw new Error(`undefined working field ${key}`);
+	}
 	const next = {
 		goal: current.goal,
 		decisions: current.decisions,

@@ -105,6 +105,7 @@ export type TaskNotice =
 	| { type: "completion"; task: TaskSummary; noticeKey: string };
 
 export type TaskErrorCode =
+	| "unauthorized"
 	| "invalid_input"
 	| "workspace"
 	| "conflict"

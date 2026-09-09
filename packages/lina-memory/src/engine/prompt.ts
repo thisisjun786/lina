@@ -1,4 +1,9 @@
 import {
+	captureSourceProofs,
+	type SourceLookup,
+} from "../../../lina-core/src/source-policy.ts";
+import { eligibleRecord } from "./provenance.ts";
+import {
 	ENGINE_BATCH_MAX,
 	ENGINE_READ_MAX,
 	ENGINE_RENDER_MAX,
@@ -23,11 +28,14 @@ function dataJSON(value: unknown): string {
 export function renderMemoryReference(
 	snapshot: EngineSnapshot,
 	budget: number,
+	lookup: SourceLookup = () => undefined,
 ): string {
 	const max = budgetOf(budget);
 	if (max < REFERENCE_HEADER.length) return "";
 	let output = REFERENCE_HEADER;
-	for (const record of snapshot.records.slice(0, ENGINE_READ_MAX)) {
+	for (const record of snapshot.records
+		.filter((record) => eligibleRecord(record, lookup))
+		.slice(0, ENGINE_READ_MAX)) {
 		if (
 			record.agentId !== snapshot.agentId ||
 			record.status !== "active" ||
@@ -44,7 +52,26 @@ export function buildObservationPrompt(
 	entries: SourceEntry[],
 	snapshot: EngineSnapshot,
 	budget = ENGINE_RENDER_MAX,
+	lookup: SourceLookup = () => undefined,
 ): string {
+	captureSourceProofs(
+		entries.map((entry) => entry.entryId),
+		lookup,
+	);
+	if (
+		entries.some(
+			(entry) =>
+				lookup(entry.entryId)?.text !== entry.text ||
+				lookup(entry.entryId)?.role !== entry.role,
+		)
+	)
+		throw Error("observation source mismatch");
+	const qualified = {
+		...snapshot,
+		records: snapshot.records.filter((record) =>
+			eligibleRecord(record, lookup),
+		),
+	};
 	const max = budgetOf(budget);
 	if (entries.length > ENGINE_BATCH_MAX)
 		throw new Error("observation source count exceeds budget");
@@ -54,14 +81,15 @@ export function buildObservationPrompt(
 	const input = `${OBSERVATION_HEADER}SOURCE DATA: ${dataJSON(sources)}\n`;
 	if (input.length > max)
 		throw new Error("complete observation sources exceed prompt budget");
-	const slots = `KNOWN SLOTS DATA: ${dataJSON(snapshot.records.map(({ subject, kind, key, status, text }) => ({ subject, kind, key, status, text })))}\n`;
+	const slots = `KNOWN SLOTS DATA: ${dataJSON(qualified.records.map(({ subject, kind, key, status, text }) => ({ subject, kind, key, status, text })))}\n`;
 	const remaining = max - input.length;
 	return (
 		input +
 		(slots.length <= remaining ? slots : "") +
 		renderMemoryReference(
-			snapshot,
+			qualified,
 			remaining - (slots.length <= remaining ? slots.length : 0),
+			lookup,
 		)
 	);
 }

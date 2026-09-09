@@ -1,3 +1,4 @@
+import type { SessionContextPolicy } from "./context-policy.ts";
 import type { SdkSessionOptions } from "./host.ts";
 import type { SessionPort } from "./sdk-port.ts";
 
@@ -8,6 +9,7 @@ export interface SessionEngine {
 	initialize(
 		sessionFile: string,
 		workspace: string,
+		policy?: SessionContextPolicy,
 	):
 		| { sessionId: string; sessionFile: string }
 		| Promise<{ sessionId: string; sessionFile: string }>;

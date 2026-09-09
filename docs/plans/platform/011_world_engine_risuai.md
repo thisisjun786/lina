@@ -1,7 +1,11 @@
 # LINA world engine: RisuAI reference and adoption backlog
 
+Implementation update,2026-09-08: the bounded authored lore/rule subset, isolated social adapter, autonomous work/persona/publication paths and image/avatar integration are implemented in010–070. Use the [consumer guide](../../LIFE_ENGINE.md) and080 for current integration evidence. Native Risu imports, arbitrary scripts and compatibility with its full runtime remain unclaimed.
+
 Date: 2026-09-07. Status: world-engine direction and RisuAI reference selected by
-the user; design backlog, not runtime implementation.
+the user. The [minimal world implementation](012_world_engine_mvp.md) now supplies opt-in state, events and scoped context; RisuAI imports and the broader mechanisms below remain backlog.
+The [deeper source research and LIFE contract](013_life_engine_research.md) supersede the earlier assumption that raw world events should automatically enter ordinary Lina conversation. Shared personality/relationship development and event/secret disclosure are separate paths.
+The [complete LIFE plan](../life/000_plan.md) specifies the implementation order, including the [supported authoring/rule subset](../life/020_world_authoring.md) and [social-engine adapter](../life/030_social_engine.md). These implemented additions do not establish native Risu import compatibility.
 Related: [daily-life/SNS ideas](010_agent_daily_life_ideas.md),
 [ima2 image engine](009_ima2_image_engine.md),
 [refactor preparation](008_refactor_preparation.md).
@@ -16,7 +20,7 @@ multi-agent continuity, as well as contextual lore retrieval.
 
 The setting, degree of simulation, time scale, posting cadence and initial world
 are undecided. A contemporary shared living space is an example, not a selected
-setting. Implementation follows the ongoing refactor; this note does not start a
+setting. The implemented minimum is documented separately; this reference does not enable a
 world simulation or add features to the current ima2 implementation slice.
 
 ## Ownership and composition
@@ -42,8 +46,7 @@ shared events to disagree; keeping it only in generated posts cannot explain or
 reliably reconstruct what happened. A separate world owner supports shared scenes
 while preserving each agent's knowledge and perspective. It adds event/state
 versioning and consistency work across persona, memory, jobs and SNS. Exact
-package paths and APIs must be mapped against the completed refactor before code
-changes; no existing module is renamed by this document.
+package paths, implemented APIs and current limitations are recorded in the [minimal implementation](012_world_engine_mvp.md); no existing module is renamed by this document.
 
 ## Source evidence
 
@@ -95,6 +98,12 @@ not a durable autonomous everyday-life simulation.
   imported JS/Lua, network requests or persona rewrites. Report unsupported syntax
   rather than claiming whole-RisuAI compatibility.
 
+## Implemented Lina subset
+
+[020 world authoring](../life/020_world_authoring.md) now implements independently written typed pack/draft storage, version confirmation and a bounded lore/rule evaluator. Supported input is Lina's version-1 JSON protocol: exact token phrases with primary/secondary keys, always-active entries, probability, priority, placement, bounded recursion, typed expressions and proposed variable/event/fact/attitude/goal effects. Visibility is applied before key matching and random draws; conditions pass before recursive text can activate another entry; discarded records cannot apply effects. Persisted preview receipts are validated on creation and replay, including their actor/recipient/seed binding.
+
+This is not a Risu character-card, module, CBS or Lua loader. The import adapter preserves unsupported entries as non-executable reports and retains source IDs. It does not run imported regex, scripts, network calls, image jobs or persona writes. Actor simulation, internal publication and image delivery remain later implementation units. Core tests and independent review cover the implemented subset; native author-session isolation, teardown fixes and independent review are recorded in 020. Integrated acceptance is scoped to the tested source candidate. Synthetic model responses do not establish live authoring quality.
+
 ## Reuse and license record
 
 The upstream [LICENSE](https://github.com/kwaroran/Risuai/blob/c454df882aaf32e02a22da26d3718c8cadc97814/LICENSE)
@@ -127,6 +136,5 @@ the application repository's license does not establish permission for all conte
    import/export. Verify a quiet tick, chain/budget limits, malformed imports,
    unsupported scripts, audience boundaries and recovery without duplicate posts.
 
-These are design candidates and acceptance targets, not test results or a committed
-delivery schedule. The user selected the direction; details above remain proposals.
-Runtime integration, schedules and external publication require separate implementation and verification.
+This sequence records design candidates and acceptance targets, not test results or a committed
+delivery schedule. The [minimal implementation record](012_world_engine_mvp.md) identifies the completed subset and its verification. Remaining mechanisms, schedules and publication need their own implementation and authorization.

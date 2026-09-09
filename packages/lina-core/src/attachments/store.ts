@@ -21,6 +21,7 @@ import {
 } from "./types.ts";
 import {
 	ATTACHMENT_ID,
+	ATTACHMENT_MAX_BYTES,
 	ATTACHMENT_MAX_FILES,
 	ATTACHMENT_MAX_TOTAL_BYTES,
 	ATTACHMENT_READ_CHARS,
@@ -63,6 +64,20 @@ export class AttachmentStore {
 
 	isBoundTo(binding: BotBinding): boolean {
 		return isDeepStrictEqual(this.binding, binding);
+	}
+
+	/** Check space for one new file; this does not reserve capacity or import bytes. */
+	preflight(size: number): void {
+		this.assertOpen();
+		if (!Number.isSafeInteger(size) || size < 0 || size > ATTACHMENT_MAX_BYTES)
+			throw new AttachmentError("size-limit", "Invalid attachment size");
+		if (this.records.size + this.orphanCount >= ATTACHMENT_MAX_FILES)
+			throw new AttachmentError("quota", "Attachment file quota is exhausted");
+		if (this.totalBytes + size > ATTACHMENT_MAX_TOTAL_BYTES)
+			throw new AttachmentError(
+				"quota",
+				"Attachment storage quota is exhausted",
+			);
 	}
 
 	/** A caller-owned stable ID makes a generated artifact import replayable. */

@@ -224,6 +224,33 @@ test("backend settings API validates only referenced profiles, vision capability
 			catalog: CatalogModel[];
 		};
 		expect(listing.catalog.find((m) => m.id === "one")?.imageInput).toBe(true);
+		// Activated tiers own internal models; preserved legacy references are dormant.
+		const routed = {
+			...base(),
+			roles: { summary: "stale" },
+			agentRoles: { lina: { reflection: "eye" } },
+			routes: {
+				version: 1,
+				tiers: {
+					quick: { profileId: "one" },
+					standard: { profileId: "one" },
+					deep: { profileId: "one" },
+					intensive: { profileId: "one" },
+				},
+				roleTiers: {
+					summary: "standard",
+					observation: "quick",
+					reflection: "deep",
+					recall: "standard",
+					vision: "standard",
+				},
+			},
+		};
+		expect((await patch(routed)).status).toBe(200);
+		expect(fleet.modelSettings.snapshot().roles.summary).toBe("stale");
+		expect(
+			(await patch({ ...routed, roles: { conversation: "stale" } })).status,
+		).toBe(400);
 	} finally {
 		await server.stop();
 		rmSync(root, { recursive: true, force: true });

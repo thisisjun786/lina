@@ -11,6 +11,23 @@ export type ModelRole = (typeof MODEL_ROLES)[number];
 
 export type ModelReasoning = "off" | "low" | "medium" | "high";
 
+export const MODEL_TIERS = ["quick", "standard", "deep", "intensive"] as const;
+export type ModelTier = (typeof MODEL_TIERS)[number];
+export interface ModelTierBinding {
+	profileId: string;
+	reasoning?: ModelReasoning;
+	maxOutputTokens?: number;
+}
+export interface ModelRoutes {
+	version: 1;
+	tiers: Record<ModelTier, ModelTierBinding>;
+	roleTiers: Partial<Record<Exclude<ModelRole, "conversation">, ModelTier>>;
+}
+export interface ModelRouteRequest {
+	tier?: ModelTier;
+	overrideProfileId?: string;
+}
+
 /** Public selection options only; native provider configuration owns auth/URLs. */
 export interface ModelProfile {
 	id: string;
@@ -25,6 +42,7 @@ export interface ModelProfile {
 export type RoleReasoning = Partial<Record<ModelRole, ModelReasoning>>;
 
 export interface ModelSettings {
+	routes?: ModelRoutes;
 	revision: number;
 	profiles: ModelProfile[];
 	defaultProfileId: string | null;

@@ -1,3 +1,4 @@
+import type { ContextStore } from "../../lina-core/src/context/store.ts";
 import { activityFrame } from "./broadcast/activity.ts";
 import type { LinaHost } from "./host.ts";
 import { AgentRunState } from "./intervention/protocol.ts";
@@ -11,6 +12,10 @@ export type ActivateOptions = {
 	/** 0 disables the idle nudge. */
 	readonly idleTimeoutMs: number;
 	readonly dataDir: string;
+	readonly notepad: {
+		store: ContextStore;
+		activeRequestId: () => string | undefined;
+	};
 };
 
 export interface LinaRuntime {
@@ -25,11 +30,16 @@ export async function activate(
 	pi: LinaHost,
 	options: ActivateOptions,
 ): Promise<LinaRuntime> {
+	if (!options.notepad || typeof options.notepad.activeRequestId !== "function")
+		throw Error("Managed notepad context is required");
 	const startedAt = new Date().toISOString();
 	let lastAgentEndAt: string | undefined;
 	let state: AgentRunState = AgentRunState.idle;
 
-	const notepad = createNotepadTools(options.dataDir);
+	const notepad = createNotepadTools(
+		options.notepad.store,
+		options.notepad.activeRequestId,
+	);
 	pi.registerTool(notepad.read);
 	pi.registerTool(notepad.append);
 	pi.registerTool(

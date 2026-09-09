@@ -108,8 +108,9 @@ Do not automatically update running services or blindly follow upstream `main`.
 - **Codex and OpenCodex:** external execution/proxy services as well as Lina-owned
   adapters. Record the actual tested engine/service versions separately from the
   npm lockfile, plus provider, API, model and affected capability.
-- **OpenViking/Honcho:** optional external memory adapters; validate their consumer
-  contracts without production memory in CI.
+- **Memory and resources:** LINA owns the runtime engines. OpenViking/Honcho
+  adapters are retired; legacy selection reports migration required and does not
+  access or automatically import external data. CI uses temporary local stores.
 - **CXC/paperthin:** development tools; contributor skill installations are not
   required dependencies of ordinary CI.
 

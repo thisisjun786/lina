@@ -1,0 +1,729 @@
+import { expect, spyOn, test } from "bun:test";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { conservativeEstimator } from "../src/context/budget.ts";
+import { defaultEnginePolicy } from "../src/context/policy-settings.ts";
+import type { ContextServices } from "../src/context/port.ts";
+import { ResourceEngine } from "../src/resources/services.ts";
+
+const limits = {
+	maxFileBytes: 4096,
+	maxCatalogBytes: 8192,
+	maxExtractionBytes: 4096,
+};
+const scope = (id: string) => ({
+	principalId: `agent:${id}`,
+	agentId: id,
+	allowedVisibilities: ["private", "shared"] as ("private" | "shared")[],
+});
+function services(): ContextServices {
+	return {
+		estimateText: conservativeEstimator.text,
+		estimateMessages: conservativeEstimator.messages,
+		estimator: conservativeEstimator,
+		systemTokens: 0,
+		contextWindow: 32000,
+		reserveTokens: 1024,
+		summarize: async () => "",
+		prepare: () => {
+			throw Error("unused");
+		},
+		resourceInputOverhead: () => 20,
+	};
+}
+test("one resource owner isolates consumers and joins pending search before closing", async () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-owner-search-")),
+		svc = services(),
+		entered = Promise.withResolvers<void>(),
+		release = Promise.withResolvers<void>();
+	let finished = false;
+
+	const engine = new ResourceEngine({
+		root,
+		limits,
+		scope: () => scope("a"),
+		services: () => svc,
+		policy: defaultEnginePolicy,
+	});
+	try {
+		const privateDoc = engine.store.create(scope("a"), {
+			operationId: "private",
+			kind: "document",
+			title: "search private",
+			visibility: "private",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("secret"),
+		});
+		const b = engine.consumer(() => scope("b"));
+		expect(
+			(await b.search.search({ query: "search" }, new AbortController().signal))
+				.items,
+		).toEqual([]);
+		svc.planResources = async () => '{"collectionIds":[],"terms":[]}';
+		svc.rankResources = async (_text, _signal, before) => {
+			before?.();
+			entered.resolve();
+			await release.promise;
+			finished = true;
+			return '{"ids":[]}';
+		};
+		const a = engine.consumer(() => scope("a"));
+		const searching = a.search
+			.search({ query: "search" }, new AbortController().signal)
+			.catch(() => undefined);
+		await entered.promise;
+		let closed = false;
+		const closing = engine.close().then(() => {
+			closed = true;
+		});
+		expect(closed).toBe(false);
+		expect(finished).toBe(false);
+		release.resolve();
+		await closing;
+		await searching;
+		expect(finished).toBe(true);
+		expect(() => a.scope()).toThrow("closed");
+		expect(() => engine.store.get(scope("a"), privateDoc.id)).toThrow();
+	} finally {
+		release.resolve();
+		await engine.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("installation resource tools share one catalog without granting other agents private access", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const root = mkdtempSync(join(tmpdir(), "lina-fleet-resources-"));
+	let owned = true;
+	const owner = new FleetResources({
+		root,
+		limits,
+		services,
+		policy: defaultEnginePolicy,
+		validAgent: (id) => ["a", "b"].includes(id),
+		assertInstallation: () => {
+			if (!owned) throw Error("lost owner");
+		},
+	});
+	try {
+		const result = await owner.executeTool(
+			"lina_resource_put",
+			"put",
+			{
+				operationId: "d",
+				kind: "document",
+				title: "Notes",
+				visibility: "shared",
+				text: "shared",
+			},
+			new AbortController().signal,
+			{ taskId: "task", agentId: "a", revision: 1, assertCurrent: () => {} },
+		);
+		expect(result.success).toBe(true);
+		await owner.drain();
+		const r = owner.engine.store.list(scope("b")).items[0];
+		if (!r) throw Error("missing sharedresource");
+		expect(
+			(
+				await owner.executeTool(
+					"lina_resource_read",
+					"read",
+					{ id: r.id },
+					new AbortController().signal,
+				)
+			).success,
+		).toBe(true);
+		expect(
+			owner.dynamicTools().some((t) => t.name === "lina_resource_memory_read"),
+		).toBe(true);
+		await owner.close();
+		owned = false;
+		expect(() => owner.consumer("a")).toThrow("closed");
+	} finally {
+		await owner.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("Fleet serves persistent engine policy and local shared resources with no external memory host", async () => {
+	const { startCodexFleet } = await import("../src/fleet/codex-fleet.ts"),
+		{ resolve } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "lina-integrated-fleet-")),
+		opts = {
+			workspace: resolve(import.meta.dir, "../../.."),
+			stateRoot: root,
+			port: 0,
+			homeDir: root,
+			env: {},
+		};
+	let app = await startCodexFleet(opts);
+	try {
+		let base = `http://127.0.0.1:${app.port}`;
+		const policyResponse = await fetch(`${base}/api/engines/policy`);
+		expect(policyResponse.status).toBe(200);
+		const p = (await policyResponse.json()) as {
+			revision: number;
+			version: number;
+		};
+		const { revision, ...settings } = p;
+		const patch = await fetch(`${base}/api/engines/policy`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ expectedRevision: revision, settings }),
+		});
+		expect(patch.status).toBe(200);
+		const conflict = await fetch(`${base}/api/engines/policy`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ expectedRevision: revision, settings }),
+		});
+		expect(conflict.status).toBe(409);
+		const privateResponse = await fetch(`${base}/api/agents/lina/resources`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				operationId: "private",
+				kind: "document",
+				title: "Private",
+				visibility: "private",
+				text: "private data",
+				mediaType: "text/plain",
+			}),
+		});
+		expect(privateResponse.status).toBe(201);
+		const privateResource = (await privateResponse.json()) as { id: string };
+		expect(
+			(await fetch(`${base}/api/resources/${privateResource.id}`)).status,
+		).not.toBe(200);
+		expect(
+			(await fetch(`${base}/api/agents/lina/resources/${privateResource.id}`))
+				.status,
+		).toBe(200);
+		const saved = await fetch(`${base}/api/resources`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				operationId: "d",
+				kind: "document",
+				title: "Shared notes",
+				visibility: "shared",
+				text: "noncoding research",
+				mediaType: "text/plain",
+			}),
+		});
+		expect(saved.status).toBe(201);
+		const r = (await saved.json()) as { id: string };
+		await app.stop();
+		app = await startCodexFleet(opts);
+		base = `http://127.0.0.1:${app.port}`;
+		expect((await fetch(`${base}/api/resources/${r.id}`)).status).toBe(200);
+		expect(
+			(
+				(await (await fetch(`${base}/api/engines/policy`)).json()) as {
+					revision: number;
+				}
+			).revision,
+		).toBe(p.revision + 1);
+	} finally {
+		await app.stop();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("a rejected resource catalog leaves Fleet chat settings and tasks available", async () => {
+	const { ResourceStore } = await import(
+			"../../lina-memory/src/resources/store.ts"
+		),
+		{ DatabaseSync } = await import("node:sqlite"),
+		{ startCodexFleet } = await import("../src/fleet/codex-fleet.ts"),
+		{ resolve } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-rejected-"));
+	const store = new ResourceStore(join(root, "resources"), limits);
+	store.create(scope("a"), {
+		operationId: "d",
+		kind: "document",
+		title: "Notes",
+		visibility: "shared",
+		mediaType: "text/plain",
+		bytes: new TextEncoder().encode("data"),
+	});
+	store.close();
+	const db = new DatabaseSync(join(root, "resources", "catalog.sqlite"));
+	db.exec("PRAGMA foreign_keys=OFF; DELETE FROM resource_versions");
+	db.close();
+	const app = await startCodexFleet({
+		workspace: resolve(import.meta.dir, "../../.."),
+		stateRoot: root,
+		port: 0,
+		homeDir: root,
+		env: {},
+	});
+	try {
+		const base = `http://127.0.0.1:${app.port}`;
+		expect((await fetch(`${base}/api/tasks`)).status).toBe(200);
+		expect((await fetch(`${base}/api/models`)).status).toBe(200);
+		expect((await fetch(`${base}/api/resources`)).status).toBe(503);
+		expect(
+			await (await fetch(`${base}/api/engines/status`)).json(),
+		).toMatchObject({ resources: { state: "rejected" } });
+	} finally {
+		await app.stop();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("resource recovery rejects queued and running consumer operations", async () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-recovery-consumer-"));
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const engine = new ResourceEngine({
+		root,
+		limits,
+		scope: () => scope("a"),
+		services,
+		policy: defaultEnginePolicy,
+		assertRecoveryOwnership: () => {},
+	});
+	let running: Promise<void> | undefined;
+	try {
+		running = engine.execute(async () => {
+			entered.resolve();
+			await release.promise;
+		}, new AbortController().signal);
+		expect(() => engine.recover()).toThrow(
+			"exclusive resource recovery ownership required",
+		);
+		await entered.promise;
+		expect(() => engine.recover()).toThrow(
+			"exclusive resource recovery ownership required",
+		);
+		release.resolve();
+		await running;
+		expect(engine.recover()).toEqual({ staging: 0, jobs: 0 });
+	} finally {
+		release.resolve();
+		await running;
+		await engine.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("failed installation recovery closes its catalog before propagating the error", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const { ResourceStore } = await import(
+		"../../lina-memory/src/resources/store.ts"
+	);
+	const root = mkdtempSync(join(tmpdir(), "lina-recovery-failure-"));
+	const original = ResourceStore.prototype.recoverOwnedState;
+	let opened: InstanceType<typeof ResourceStore> | undefined;
+	const recovery = spyOn(
+		ResourceStore.prototype,
+		"recoverOwnedState",
+	).mockImplementation(function (this: InstanceType<typeof ResourceStore>) {
+		opened = this;
+		throw Error("recovery storage failure");
+	});
+	try {
+		expect(
+			() =>
+				new FleetResources({
+					root,
+					limits,
+					services,
+					policy: defaultEnginePolicy,
+					validAgent: () => true,
+					assertInstallation: () => {},
+				}),
+		).toThrow("recovery storage failure");
+		if (!opened) throw Error("recovery was not reached");
+		expect(() => opened?.list(scope("a"))).toThrow();
+		recovery.mockRestore();
+		const reopened = new ResourceStore(root, limits);
+		try {
+			expect(original.call(reopened)).toEqual({ staging: 0, jobs: 0 });
+		} finally {
+			reopened.close();
+		}
+	} finally {
+		recovery.mockRestore();
+		opened?.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("offline checkpoint preserves the owned resource catalog, references and content", async () => {
+	const { acquireInstallationLock } = await import(
+		"../../lina-core/src/installation/lock.ts"
+	);
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const { checkpointCommand } = await import("../src/checkpoint-cli.ts");
+	const { ResourceStore } = await import(
+		"../../lina-memory/src/resources/store.ts"
+	);
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-checkpoint-"));
+	const home = join(root, "home"),
+		state = join(home, "state");
+	const lock = acquireInstallationLock(state);
+	let owned = true;
+	const owner = new FleetResources({
+		root: join(state, "resources"),
+		limits,
+		services,
+		policy: defaultEnginePolicy,
+		validAgent: () => true,
+		assertInstallation: () => {
+			if (!owned) throw Error("installation stopped");
+		},
+	});
+	const env = { LINA_HOME: home };
+	try {
+		const document = owner.engine.store.create(scope("a"), {
+			operationId: "checkpoint-document",
+			kind: "document",
+			title: "Research notes",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("Confirmed research result"),
+		});
+		const ref = owner.engine.store.ref(scope("a"), document.id);
+		expect(() =>
+			checkpointCommand("checkpoint", ["create", "active"], env),
+		).toThrow("busy");
+		await owner.close();
+		owned = false;
+		lock.close();
+		const checkpoint = checkpointCommand(
+			"checkpoint",
+			["create", "resource snapshot"],
+			env,
+		) as { id: string };
+		const restored = join(root, "restored");
+		checkpointCommand("restore", [checkpoint.id, restored], env);
+		const store = new ResourceStore(join(restored, "state/resources"), limits);
+		try {
+			expect(store.ref(scope("b"), document.id)).toEqual(ref);
+			expect(
+				new TextDecoder().decode(store.read(scope("b"), document.id).bytes),
+			).toBe("Confirmed research result");
+		} finally {
+			store.close();
+		}
+	} finally {
+		await owner.close();
+		lock.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("rejected crash WAL catalog preserves original database and sidecar bytes", async () => {
+	const { ResourceStore } = await import(
+		"../../lina-memory/src/resources/store.ts"
+	);
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-crash-audit-"));
+	try {
+		const store = new ResourceStore(root, limits);
+		store.create(scope("a"), {
+			operationId: "d",
+			kind: "document",
+			title: "Notes",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("preserve me"),
+		});
+		store.close();
+		const child = Bun.spawnSync([
+			process.execPath,
+			"-e",
+			'import {DatabaseSync} from "node:sqlite"; const db=new DatabaseSync(process.argv[1]); db.exec("PRAGMA wal_autocheckpoint=0; PRAGMA foreign_keys=OFF; DELETE FROM resource_versions"); process.kill(process.pid,"SIGKILL");',
+			join(root, "catalog.sqlite"),
+		]);
+		expect(child.exitCode).not.toBe(0);
+		const snapshot = () =>
+			Object.fromEntries(
+				readdirSync(root)
+					.filter((n) => n.startsWith("catalog.sqlite"))
+					.sort()
+					.map((n) => [n, readFileSync(join(root, n)).toString("base64")]),
+			);
+		const before = snapshot();
+		expect(before["catalog.sqlite-wal"]).toBeDefined();
+		expect(
+			() =>
+				new FleetResources({
+					root,
+					limits,
+					services,
+					policy: defaultEnginePolicy,
+					validAgent: () => true,
+					assertInstallation: () => {},
+				}),
+		).toThrow();
+		expect(snapshot()).toEqual(before);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("valid crash WAL resource data remains readable after the copy audit", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const { resolve } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-valid-wal-"));
+	let owner: InstanceType<typeof FleetResources> | undefined;
+	try {
+		const child = Bun.spawnSync([
+			process.execPath,
+			"-e",
+			'const {ResourceStore}=await import(process.argv[1]); const store=new ResourceStore(process.argv[2],{maxFileBytes:4096,maxCatalogBytes:8192,maxExtractionBytes:4096}); store.create({principalId:"agent:a",agentId:"a",allowedVisibilities:["private","shared"]},{operationId:"wal",kind:"document",title:"Saved in WAL",visibility:"shared",mediaType:"text/plain",bytes:new TextEncoder().encode("committed before crash")}); process.kill(process.pid,"SIGKILL");',
+			resolve(import.meta.dir, "../../lina-memory/src/resources/store.ts"),
+			root,
+		]);
+		expect(child.exitCode).not.toBe(0);
+		expect(readdirSync(root)).toContain("catalog.sqlite-wal");
+		owner = new FleetResources({
+			root,
+			limits,
+			services,
+			policy: defaultEnginePolicy,
+			validAgent: () => true,
+			assertInstallation: () => {},
+		});
+		const docs = owner.engine.store.list(scope("b")).items;
+		expect(docs).toHaveLength(1);
+		const doc = docs[0];
+		if (!doc) throw Error("missing recovered document");
+		expect(
+			new TextDecoder().decode(
+				owner.engine.store.read(scope("b"), doc.id).bytes,
+			),
+		).toBe("committed before crash");
+	} finally {
+		await owner?.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("rejected activity WAL preserves both resource databases and sidecars", async () => {
+	const { ResourceStore } = await import(
+		"../../lina-memory/src/resources/store.ts"
+	);
+	const { ResourceActivities } = await import(
+		"../../lina-memory/src/resources/activities.ts"
+	);
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const root = mkdtempSync(join(tmpdir(), "lina-activity-crash-audit-"));
+	try {
+		const store = new ResourceStore(root, limits);
+		const activities = new ResourceActivities(root, store, {
+			isWorldParticipant: () => false,
+		});
+		activities.close();
+		store.close();
+		const child = Bun.spawnSync([
+			process.execPath,
+			"-e",
+			'import {DatabaseSync} from "node:sqlite"; const db=new DatabaseSync(process.argv[1]); db.exec("PRAGMA wal_autocheckpoint=0; PRAGMA user_version=999"); process.kill(process.pid,"SIGKILL");',
+			join(root, "activities.sqlite"),
+		]);
+		expect(child.exitCode).not.toBe(0);
+		const snapshot = () =>
+			Object.fromEntries(
+				readdirSync(root)
+					.filter((n) => n.includes(".sqlite"))
+					.sort()
+					.map((n) => [n, readFileSync(join(root, n)).toString("base64")]),
+			);
+		const before = snapshot();
+		expect(before["activities.sqlite-wal"]).toBeDefined();
+		let owner: InstanceType<typeof FleetResources> | undefined;
+		try {
+			expect(() => {
+				owner = new FleetResources({
+					root,
+					limits,
+					services,
+					policy: defaultEnginePolicy,
+					validAgent: () => true,
+					assertInstallation: () => {},
+				});
+			}).toThrow();
+			expect(snapshot()).toEqual(before);
+		} finally {
+			await owner?.close();
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("installation owns activity ledger lifecycle", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const root = mkdtempSync(join(tmpdir(), "lina-owned-activities-"));
+	const owner = new FleetResources({
+		root,
+		limits,
+		services,
+		policy: defaultEnginePolicy,
+		validAgent: () => true,
+		assertInstallation: () => {},
+	});
+	try {
+		const activity = owner.activities;
+		expect(activity.pending(owner.scope(null))).toEqual([]);
+		await owner.close();
+		expect(() => owner.activities).toThrow(/closed/);
+		expect(() => activity.pending(scope("a"))).toThrow();
+	} finally {
+		await owner.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("installation activity bridge pins shared scope and checks ownership on each use", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const { autonomyStoreFixture } = await import(
+		"../../lina-core/test/life-autonomy-store-fixture.ts"
+	);
+	const world = autonomyStoreFixture();
+	const root = mkdtempSync(join(tmpdir(), "lina-installation-bridge-"));
+	let owned = true;
+	const owner = new FleetResources({
+		root,
+		limits,
+		services,
+		policy: defaultEnginePolicy,
+		validAgent: () => true,
+		assertInstallation: () => {
+			if (!owned) throw Error("lost installation");
+		},
+		isWorldParticipant: (id, agent) =>
+			world.store.lifeDefinition(id).participants.includes(agent),
+	});
+	try {
+		const { worldId, revision, ...config } = world.store.lifeConfig(
+			world.request.worldId,
+		);
+		world.store.setLifeConfig(worldId, revision, {
+			...config,
+			version: 2,
+			work: {
+				rules: [
+					{
+						id: "research",
+						familyId: "meet",
+						categoryId: "research",
+						outcomes: [],
+						attribution: "owner",
+						weight: 1,
+						requiredMatch: false,
+					},
+				],
+			},
+		});
+		const actor = owner.scope("lina");
+		const doc = owner.engine.store.create(actor, {
+			operationId: "doc",
+			kind: "document",
+			title: "Research",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("Research text"),
+		});
+		const created = await owner.executeTool(
+			"lina_resource_activity_record",
+			"record",
+			{
+				operationId: "create",
+				activityId: "activity",
+				worldId,
+				participantAgentIds: ["lina"],
+				activityKind: "research",
+				outcome: "recorded",
+				resourceId: doc.id,
+				versionId: null,
+				memoryId: null,
+				quotes: [],
+				fields: {
+					categoryId: "research",
+					outcome: "recorded",
+					participantAgentIds: ["lina"],
+					summary: "Research result",
+				},
+				policyRevision: 1,
+			},
+			new AbortController().signal,
+			{ taskId: "work", agentId: "lina", revision: 1, assertCurrent: () => {} },
+		);
+		expect(created.success).toBe(true);
+		const bridge = owner.activityBridge(world.store);
+		expect(bridge.poll(worldId)).toEqual({ delivered: 1, replayed: 0 });
+		const source = world.store.workEvidence(worldId).records[0]?.source;
+		if (!source || source.kind !== "resource_activity")
+			throw Error("missing source");
+		expect(bridge.current(worldId, source)).toBe(true);
+		const invoke = (action: string, input: unknown, agentId = "lina") =>
+			owner.executeTool(
+				`lina_resource_activity_${action}`,
+				action,
+				input,
+				new AbortController().signal,
+				{ taskId: "work", agentId, revision: 1, assertCurrent: () => {} },
+			);
+		const shared = {
+			categoryId: "research",
+			outcome: "recorded",
+			participantAgentIds: ["lina"],
+			summary: "Revised research",
+		};
+		const correction = {
+			operationId: "correct",
+			activityId: "activity",
+			expectedRevision: 1,
+			outcome: "recorded",
+			memoryId: null,
+			quotes: [],
+			fields: shared,
+			policyRevision: 2,
+			correction: { kind: "amend", reason: "New evidence" },
+		};
+		await expect(
+			invoke("correct", { ...correction, hostConfirmed: true }),
+		).rejects.toThrow();
+		expect((await invoke("correct", correction, "mira")).success).toBe(false);
+		expect((await invoke("correct", correction)).success).toBe(true);
+		expect(
+			(
+				await invoke("restrict", {
+					operationId: "restrict",
+					activityId: "activity",
+					expectedRevision: 2,
+					worldId,
+					policyRevision: 3,
+				})
+			).success,
+		).toBe(true);
+		expect(
+			(
+				await invoke("grant", {
+					operationId: "grant",
+					activityId: "activity",
+					expectedRevision: 3,
+					worldId,
+					policyRevision: 4,
+					fields: shared,
+				})
+			).success,
+		).toBe(true);
+		expect(bridge.current(worldId, source)).toBe(false);
+
+		owned = false;
+		expect(() => bridge.poll(worldId)).toThrow(/lost installation/);
+		expect(() => bridge.current(worldId, source)).toThrow(/lost installation/);
+	} finally {
+		owned = true;
+		await owner.close();
+		world.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

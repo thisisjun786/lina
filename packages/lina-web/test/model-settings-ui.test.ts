@@ -4,7 +4,11 @@ import type {
 	ModelTrial,
 } from "../../lina-runtime/src/models/port.ts";
 import type { ModelSettings } from "../../lina-runtime/src/models/types.ts";
-import { installModelSettings } from "../client/model-settings.ts";
+import {
+	installModelSettings,
+	profileFor,
+	settingsInput,
+} from "../client/model-settings.ts";
 
 // Structural DOM fixture exercises real event handlers without a server or inference.
 class Node {
@@ -283,17 +287,17 @@ test("role reasoning stays independent while its model keeps inheriting", async 
 	const f = setup();
 	await f.view.open();
 	await choose(f, "default", "glm");
-	const reason = f.find("model-summary-reasoning");
+	const reason = f.find("model-conversation-reasoning");
 	reason.value = "high";
 	await reason.fire("change");
 	await choose(f, "default", "vision");
 	await f.find("model-save").fire("click");
-	expect(f.stored().roles.summary).toBeUndefined();
-	expect(f.stored().roleReasoning?.summary).toBe("high");
-	expect(f.find("model-summary-input").value).toContain("Vision");
-	expect(f.find("model-summary-reasoning").value).toBe("high");
+	expect(f.stored().roles.conversation).toBeUndefined();
+	expect(f.stored().roleReasoning?.conversation).toBe("high");
+	expect(f.find("model-conversation-input").value).toContain("Vision");
+	expect(f.find("model-conversation-reasoning").value).toBe("high");
 });
-test("search excludes unconfigured providers and vision excludes text-only models", async () => {
+test("search excludes unconfigured providers and unconfigured engine roles cannot edit legacy models", async () => {
 	const f = setup();
 	await f.view.open();
 	const input = f.find("model-default-input");
@@ -309,7 +313,8 @@ test("search excludes unconfigured providers and vision excludes text-only model
 	const vision = f.find("model-vision-input");
 	await vision.fire("focus");
 	expect(f.find("model-vision-list").textContent).not.toContain("GLM Flash");
-	expect(f.find("model-vision-list").textContent).toContain("Vision");
+	expect(vision.disabled).toBe(true);
+	expect(f.find("model-vision-hint").textContent).toContain("등급 설정이 필요");
 	await vision.fire("keydown", "Escape");
 	expect(vision.attributes.get("aria-expanded")).toBe("false");
 });
@@ -353,14 +358,14 @@ test("model-name search chooses the actual model before inheritance and empty st
 	const f = setup();
 	await f.view.open();
 	await choose(f, "default", "glm");
-	await choose(f, "summary", "glm");
+	await choose(f, "conversation", "glm");
 	await f.find("model-save").fire("click");
-	expect(f.stored().roles.summary).toBeDefined();
-	const input = f.find("model-summary-input");
+	expect(f.stored().roles.conversation).toBeDefined();
+	const input = f.find("model-conversation-input");
 	input.value = "missing";
 	await input.fire("input");
-	expect(f.find("model-summary-empty").parent).not.toBe(
-		f.find("model-summary-list"),
+	expect(f.find("model-conversation-empty").parent).not.toBe(
+		f.find("model-conversation-list"),
 	);
 });
 test("reselecting inherited model in agent scope creates no false dirty edit", async () => {
@@ -407,4 +412,95 @@ test("model role scope includes unopened agents from the fleet catalog", async (
 		f.find("model-scope").children.some((option) => option.value === "kai"),
 	).toBe(true);
 	view.close();
+});
+
+const routed: ModelSettings = {
+	revision: 3,
+	profiles: [
+		{ id: "one", provider: "ollama", model: "glm-flash", reasoning: "low" },
+		{ id: "two", provider: "codex", model: "vision", reasoning: "medium" },
+	],
+	defaultProfileId: "one",
+	roles: {},
+	agentRoles: { alpha: { summary: "one" } },
+	routes: {
+		version: 1,
+		tiers: {
+			quick: { profileId: "one" },
+			standard: { profileId: "two", reasoning: "low" },
+			deep: { profileId: "two" },
+			intensive: { profileId: "two" },
+		},
+		roleTiers: { summary: "standard" },
+	},
+};
+
+test("settings clone and save keep routes while role rows show the effective tier model", async () => {
+	expect(settingsInput(routed).routes).toEqual(routed.routes);
+	expect(profileFor(routed, "conversation")?.model).toBe("glm-flash");
+	expect(profileFor(routed, "summary")?.model).toBe("vision");
+	expect(profileFor(routed, "summary", "alpha")?.model).toBe("vision");
+	expect(
+		profileFor(
+			{
+				...routed,
+				agentRoles: {},
+				agentRoleReasoning: { alpha: { summary: "high" } },
+			},
+			"summary",
+			"alpha",
+		),
+	).toMatchObject({ model: "vision", reasoning: "low" });
+	const f = setup(routed);
+	await f.view.open();
+	expect(f.find("model-conversation-input").value).toContain("전역 모델 사용");
+	expect(f.find("model-conversation-input").value).toContain("GLM Flash");
+	expect(f.find("model-summary-input").value).toContain("등급 설정 사용");
+	expect(f.find("model-summary-input").value).toContain("Vision");
+	expect(f.find("model-summary-input").value).not.toContain("전역 모델 사용");
+	expect(f.find("model-summary-hint").textContent).toContain("등급");
+	expect(f.find("model-effective").textContent).toContain("Vision");
+	expect(f.find("model-effective").textContent).toContain("등급");
+	await choose(f, "conversation", "vision");
+	await f.find("model-save").fire("click");
+	expect(f.stored().routes).toEqual(routed.routes);
+	expect(f.stored().roles.conversation).toBeDefined();
+});
+
+test("agent scope shows shared tiers and preserves dormant legacy bindings", async () => {
+	const f = setup(routed);
+	await f.view.open("alpha");
+	expect(f.find("model-summary-input").value).toContain("Vision");
+	expect(f.find("model-summary-input").value).toContain("등급 설정 사용");
+	expect(f.find("model-summary-input").disabled).toBe(true);
+	await f.find("model-save").fire("click");
+	expect(f.find("model-save").disabled).toBe(true);
+	expect(f.stored().routes).toEqual(routed.routes);
+	expect(f.stored().agentRoles["alpha"]?.summary).toBe("one");
+});
+
+test("global role binding stays shadowed by an active tier and does not look selected", async () => {
+	const coexist: ModelSettings = {
+		...routed,
+		roles: { summary: "one" },
+		agentRoles: {},
+	};
+	expect(profileFor(coexist, "summary")?.model).toBe("vision");
+	expect(profileFor(coexist, "conversation")?.model).toBe("glm-flash");
+	const f = setup(coexist);
+	await f.view.open();
+	expect(f.find("model-summary-input").value).toContain("등급 설정 사용");
+	expect(f.find("model-summary-input").value).toContain("Vision");
+	expect(f.find("model-summary-input").disabled).toBe(true);
+	expect(f.find("model-summary-hint").textContent).toContain("등급");
+	expect(f.find("model-summary-reasoning").disabled).toBe(true);
+	await choose(f, "summary", "glm");
+	expect(f.find("model-save").disabled).toBe(true);
+	await f.view.open("alpha");
+	expect(f.find("model-summary-input").disabled).toBe(true);
+	await choose(f, "summary", "glm");
+	await f.find("model-save").fire("click");
+	expect(f.stored().routes).toEqual(coexist.routes);
+	expect(f.stored().roles.summary).toBe("one");
+	expect(f.stored().agentRoles["alpha"]?.summary).toBeUndefined();
 });

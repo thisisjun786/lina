@@ -543,3 +543,85 @@ test("upstream filenames with model-version dots and Korean prompt text remain v
 		filename,
 	);
 });
+
+test("conversation failed-import terminal notice keeps its original marker after reopen and refuses LIFE artifact recovery", async () => {
+	const f = fixture();
+	const notices: Array<{ jobId: string; terminalRevision: number }> = [];
+	const b = backend({
+		read: async (id) => ({
+			requestId: id,
+			state: "completed",
+			result: { requestId: id, filename: "failed.png" },
+		}),
+		download: async () => {
+			throw new Ima2Error("BODY_TOO_LARGE", "too large");
+		},
+	});
+	const jobs = new ImageJobs({
+		store: f.store,
+		attachments: f.attached,
+		client: b.client,
+		notify: async (marker) => {
+			notices.push(marker);
+			return "failed-notice";
+		},
+	});
+	cleanups.push(() => jobs.close());
+	const job = await jobs.start(request);
+	await jobs.reconcile(job.id);
+	expect(notices).toEqual([{ jobId: `image_${job.id}`, terminalRevision: 1 }]);
+	expect(jobs.get(job.id).deliveredEntryId).toBe("failed-notice");
+	await expect(jobs.recoverArtifact(job.id)).rejects.toThrow("LIFE-only");
+	const restored = new ImageJobs({
+		store: new ImageJobStore(f.root, f.binding),
+		attachments: f.attached,
+		client: b.client,
+		notify: async (marker) => {
+			notices.push(marker);
+			return "unexpected";
+		},
+	});
+	cleanups.push(() => restored.close());
+	await restored.recover();
+	expect(notices).toHaveLength(1);
+	expect(restored.get(job.id)).toMatchObject({
+		state: "failed",
+		resultFilename: "failed.png",
+		deliveredEntryId: "failed-notice",
+		delivery: { kind: "conversation", entryId: "failed-notice" },
+		artifactRecovery: null,
+	});
+});
+
+test("conversation interrupted preparation remains a known-not-submitted failure after reopen", async () => {
+	const f = fixture();
+	const job = f.store.create(request);
+	const b = backend();
+	const jobs = manager(f, b.client);
+	await jobs.recover();
+	expect(jobs.get(job.id).state).toBe("failed");
+	expect(b.submits).toHaveLength(0);
+	expect(new ImageJobStore(f.root, f.binding).get(job.id)).toMatchObject({
+		requestId: request.requestId,
+		callId: request.callId,
+		state: "failed",
+		endpoint: null,
+	});
+});
+
+test("conversation request identity is frozen before the first asynchronous artifact lookup", async () => {
+	const f = fixture();
+	const b = backend();
+	const jobs = manager(f, b.client);
+	const mutable = { ...request };
+	const started = jobs.start(mutable);
+	mutable.prompt = "Mutated by caller";
+	mutable.requestId = "changed-owner";
+	const job = await started;
+	expect(job.prompt).toBe(request.prompt);
+	expect(job.requestId).toBe(request.requestId);
+	expect(b.submits[0]).toMatchObject({
+		prompt: request.prompt,
+		requestId: job.id,
+	});
+});

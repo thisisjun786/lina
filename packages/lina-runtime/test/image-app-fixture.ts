@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
+import { responseDeliveryCheck } from "../../lina-codex/src/guarded-response.ts";
 import type {
 	CodexRpc,
 	CodexRpcRequestHandler,
@@ -76,6 +77,7 @@ type ToolReply = {
 const MODEL = "synthetic-image-driver";
 
 function startIma2Fixture() {
+	const requests: string[] = [];
 	const submissions: Array<{
 		body: GenerateBody;
 		idempotencyKey: string | null;
@@ -88,6 +90,7 @@ function startIma2Fixture() {
 		port: 0,
 		async fetch(request) {
 			const url = new URL(request.url);
+			requests.push(`${request.method} ${url.pathname}`);
 			if (url.pathname === "/api/health")
 				return Response.json({ ok: true, version: "3.14.0" });
 			if (url.pathname === "/api/models") return Response.json(catalog);
@@ -133,6 +136,7 @@ function startIma2Fixture() {
 	});
 	return {
 		baseUrl: `http://127.0.0.1:${server.port}`,
+		requests,
 		submissions,
 		downloads,
 		stop: () => server.stop(true),
@@ -156,8 +160,15 @@ class ImageCodexRpc implements CodexRpc {
 	private readonly handlers = new Set<CodexRpcRequestHandler>();
 	private readonly pending = new Set<Promise<void>>();
 
-	async request<T>(method: string, params?: unknown): Promise<T> {
+	async request<T>(
+		method: string,
+		params?: unknown,
+		signal?: AbortSignal,
+		beforeSend?: () => void,
+	): Promise<T> {
 		if (this.closed) throw Error("Synthetic RPC closed");
+		signal?.throwIfAborted();
+		beforeSend?.();
 		this.methods.push(method);
 		return this.reply(method, params) as T;
 	}
@@ -165,7 +176,7 @@ class ImageCodexRpc implements CodexRpc {
 		if (method === "initialize") return { userAgent: "image-qa" };
 		if (method === "model/list") return { data: [{ id: MODEL, model: MODEL }] };
 		if (method === "skills/list") return { data: [] };
-		if (method === "thread/resume")
+		if (method === "thread/resume" || method === "thread/read")
 			this.threadId = (params as { threadId: string }).threadId;
 		if (["thread/start", "thread/resume", "thread/read"].includes(method)) {
 			// Empty native history makes the adapter's actual persisted journal the only replay source.
@@ -227,13 +238,21 @@ class ImageCodexRpc implements CodexRpc {
 		const handler = [...this.handlers][0];
 		if (!handler) throw Error("Codex adapter did not register its RPC handler");
 		const callId = randomUUID();
-		const result = (await handler("item/tool/call", {
-			threadId: this.threadId,
-			turnId,
-			callId,
-			tool,
-			arguments: args,
-		})) as ToolReply;
+		const checks: Array<() => void> = [];
+		const result = (await handler(
+			"item/tool/call",
+			{
+				threadId: this.threadId,
+				turnId,
+				callId,
+				tool,
+				arguments: args,
+			},
+			(check) => checks.push(check),
+		)) as ToolReply;
+		JSON.stringify(result);
+		for (const check of checks) check();
+		responseDeliveryCheck(result)?.();
 		this.calls.push({ tool, arguments: args, result });
 		this.emit("item/completed", {
 			threadId: this.threadId,
@@ -341,7 +360,9 @@ const models: ModelControl = {
 	},
 };
 
-export async function createImageAppFixture() {
+export async function createImageAppFixture(
+	options: { imageEngine?: false } = {},
+) {
 	const root = mkdtempSync(join(tmpdir(), "lina-image-app-"));
 	const workspace = join(root, "workspace");
 	const agentDir = join(root, "agent");
@@ -361,7 +382,7 @@ export async function createImageAppFixture() {
 				});
 				return native;
 			},
-			imageEngine: { baseUrl: ima2.baseUrl },
+			imageEngine: options.imageEngine ?? { baseUrl: ima2.baseUrl },
 			workspace,
 			agentDir,
 			stateRoot: join(root, "state"),

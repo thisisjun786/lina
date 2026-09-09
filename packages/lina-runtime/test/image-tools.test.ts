@@ -48,3 +48,51 @@ test("Codex registers image tools with explicit provider/model and rejects unown
 	).rejects.toThrow("active request");
 	expect(starts).toBe(0);
 });
+
+test("conversation image tools reject a LIFE owner before any execution", async () => {
+	const { ImageJobStore } = await import("../src/images/store.ts");
+	const { ImageJobs } = await import("../src/images/jobs.ts");
+	const { mkdtempSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "lina-image-tool-owner-"));
+	const store = new ImageJobStore(
+		root,
+		{ kind: "life", worldId: "world", agentId: "agent" },
+		{
+			maxActiveJobs: 1,
+			maxArchivedJobs: 1,
+			maxActiveBytes: 100000,
+			maxArchiveBytes: 100000,
+			maxTotalBytes: 200000,
+		},
+	);
+	const unreachable = async (): Promise<never> => {
+		throw Error("Unexpected operation");
+	};
+	const jobs = new ImageJobs({
+		store,
+		client: {
+			connect: unreachable,
+			submit: unreachable,
+			read: unreachable,
+			cancel: unreachable,
+			download: unreachable,
+		},
+		artifacts: {
+			resolveReference: unreachable,
+			preflight: unreachable,
+			importOutput: unreachable,
+			verify: unreachable,
+		},
+		completion: { complete: unreachable },
+	});
+	try {
+		expect(() => createImageTools(jobs, () => "conversation-request")).toThrow(
+			"conversation",
+		);
+	} finally {
+		await jobs.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

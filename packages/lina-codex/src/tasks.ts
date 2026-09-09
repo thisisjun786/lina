@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { jsonSchemaOf, validateToolArguments } from "./host.ts";
+import { isCodexRpcRemoteError } from "./rpc.ts";
 import {
 	isTaskApprovalMethod,
 	type TaskDynamicTool,
 	type TaskManagerOptions,
 	type TaskRpc,
 	type TaskServerRequest,
+	type TaskToolContext,
 	type TaskToolResult,
 } from "./task-rpc.ts";
 import { digestHex, TaskStore, toSummary } from "./task-store.ts";
@@ -21,6 +23,15 @@ import {
 	type TaskSummary,
 	type TaskThread,
 } from "./task-types.ts";
+import type {
+	ConfirmWorkInput,
+	CorrectWorkInput,
+	ShareWorkInput,
+	WorkAuthority,
+	WorkChange,
+	WorkProof,
+} from "./task-work-types.ts";
+import { nativeWorkStatus } from "./task-work-validation.ts";
 import {
 	activeTurnId,
 	approvalDecisionResult,
@@ -63,6 +74,7 @@ export type {
 	TaskNotification,
 	TaskRpc,
 	TaskServerRequest,
+	TaskToolContext,
 	TaskToolResult,
 } from "./task-rpc.ts";
 export type {
@@ -134,6 +146,7 @@ export class TaskManager {
 	private readonly unsubRequests: (() => void) | undefined;
 	private readonly listeners = new Set<(notice: TaskNotice) => void>();
 	private readonly tails = new Map<string, Promise<void>>();
+	private readonly inflightTools = new Set<Promise<void>>();
 	private readonly attached = new Set<string>();
 	private readonly controller = new AbortController();
 	private closed = false;
@@ -185,6 +198,80 @@ export class TaskManager {
 	list(): TaskSummary[] {
 		this.ensureOpen();
 		return this.store.list();
+	}
+
+	workReceipts(id: string) {
+		this.ensureOpen();
+		return this.store.workReceipts(taskId(id));
+	}
+	workSharing(id: string, receiptId: string) {
+		this.ensureOpen();
+		return this.store.workSharing(taskId(id), receiptId);
+	}
+	confirmWork(id: string, input: ConfirmWorkInput, authority: WorkAuthority) {
+		this.ensureOpen();
+		return this.enqueue(`task:${taskId(id)}`, async () =>
+			this.store.confirmWork(id, input, authority),
+		);
+	}
+	correctWork(id: string, input: CorrectWorkInput, authority: WorkAuthority) {
+		this.ensureOpen();
+		return this.enqueue(`task:${taskId(id)}`, async () =>
+			this.store.correctWork(id, input, authority),
+		);
+	}
+	shareWork(id: string, input: ShareWorkInput, authority: WorkAuthority) {
+		this.ensureOpen();
+		return this.enqueue(`task:${taskId(id)}`, async () =>
+			this.store.shareWork(id, input, authority),
+		);
+	}
+	pendingWorkDeliveries() {
+		this.ensureOpen();
+		return this.store.pendingWorkDeliveries();
+	}
+	workDeliveries() {
+		this.ensureOpen();
+		return this.store.workDeliveries();
+	}
+	workDeliveryAttempts(deliveryId: string) {
+		this.ensureOpen();
+		return this.store.workDeliveryAttempts(deliveryId);
+	}
+	workDeliveryCurrent(deliveryId: string, payloadDigest: string): boolean {
+		this.ensureOpen();
+		return this.store.workDeliveryCurrent(deliveryId, payloadDigest);
+	}
+
+	workProofCurrent(proof: WorkProof): boolean {
+		this.ensureOpen();
+		return this.store.workProofCurrent(proof);
+	}
+	acknowledgeWorkDelivery(deliveryId: string, payloadDigest: string): void {
+		this.ensureOpen();
+		this.store.acknowledgeWorkDelivery(deliveryId, payloadDigest);
+	}
+	recordWorkDeliveryAttempt(
+		deliveryId: string,
+		payloadDigest: string,
+		status: "failed" | "withheld",
+		reason: string,
+	): void {
+		this.ensureOpen();
+		this.store.recordWorkDeliveryAttempt(
+			deliveryId,
+			payloadDigest,
+			status,
+			reason,
+		);
+	}
+	retryWorkDelivery(deliveryId: string, payloadDigest: string): void {
+		this.ensureOpen();
+		this.store.retryWorkDelivery(deliveryId, payloadDigest);
+	}
+	subscribeWork(listener: (change: WorkChange) => void): () => void {
+		this.ensureOpen();
+		return this.store.subscribeWork(listener);
 	}
 
 	create(input: CreateTaskInput): Promise<TaskSummary> {
@@ -302,6 +389,11 @@ export class TaskManager {
 				this.emitChange(idValue);
 				return this.store.summary(idValue);
 			} catch (error) {
+				if (
+					isCodexRpcRemoteError(error) &&
+					[-32600, -32601, -32602].includes(error.code)
+				)
+					this.store.rejectWorkInput(idValue, requestId);
 				return this.failNative(idValue, error);
 			}
 		});
@@ -441,7 +533,7 @@ export class TaskManager {
 			pending.reject(new TaskError("closed", "task manager is closed"));
 		this.pendingApprovals.clear();
 		this.closing = (async () => {
-			await Promise.allSettled([...this.tails.values()]);
+			await Promise.allSettled([...this.tails.values(), ...this.inflightTools]);
 			await this.notifying;
 			this.listeners.clear();
 			this.store.close();
@@ -499,6 +591,11 @@ export class TaskManager {
 			this.emitChange(id);
 			return this.store.summary(id);
 		} catch (error) {
+			if (
+				isCodexRpcRemoteError(error) &&
+				[-32600, -32601, -32602].includes(error.code)
+			)
+				this.store.rejectWorkInput(id, requestId);
 			return this.failNative(id, error);
 		}
 	}
@@ -618,17 +715,21 @@ export class TaskManager {
 		if (!task) return;
 		if (notification.method === "turn/completed") {
 			const turn = notificationTurn(notification.params);
-			const status =
-				turn?.status === "interrupted"
-					? "interrupted"
-					: turn?.status === "failed"
-						? "failed"
-						: "idle";
-			this.store.completeTurn(task.id, {
-				turnId: turn?.id ?? task.lastTurnId,
-				status,
-			});
-			if (turn) this.completeNotice(task.id, `${turn.id}:${turn.status}`);
+			this.store.applyNativeCompletion(
+				task.id,
+				turn?.id ?? null,
+				turn?.status ?? "unknown",
+			);
+			if (this.store.hasPendingWorkAttribution(task.id)) {
+				try {
+					await this.reconcile(task.id);
+				} catch (error) {
+					this.emitChange(task.id);
+					throw error;
+				}
+			}
+			if (turn && nativeWorkStatus(turn.status))
+				this.completeNotice(task.id, `${turn.id}:${turn.status}`);
 			this.emitChange(task.id);
 			return;
 		}
@@ -641,7 +742,14 @@ export class TaskManager {
 			const threadId = threadIdFromParams(request.params);
 			const task = threadId ? this.store.byThreadId(threadId) : undefined;
 			if (!task) return;
-			await this.enqueue(`task:${task.id}`, () => this.handleToolCall(request));
+			const run = this.handleToolCall(request);
+			const joined = run.then(
+				() => undefined,
+				() => undefined,
+			);
+			this.inflightTools.add(joined);
+			void joined.finally(() => this.inflightTools.delete(joined));
+			await run;
 			return;
 		}
 		if (!isTaskApprovalMethod(request.method)) return;
@@ -684,12 +792,15 @@ export class TaskManager {
 		const callId =
 			typeof body["callId"] === "string" ? body["callId"] : String(request.id);
 		const specification = this.dynamicTools.find((item) => item.name === tool);
-		let result: TaskToolResult = {
+		const failed = (): TaskToolResult => ({
 			contentItems: [{ type: "inputText", text: "tool is unavailable" }],
 			success: false,
-		};
+		});
+		let result = failed();
+		const context = this.taskToolContext(task);
 		if (specification && this.executeTool) {
 			try {
+				context.assertCurrent();
 				result = await this.executeTool(
 					tool,
 					callId,
@@ -698,21 +809,63 @@ export class TaskManager {
 						body["arguments"],
 					),
 					this.controller.signal,
+					context,
 				);
 			} catch (error) {
-				result = {
-					contentItems: [
-						{
-							type: "inputText",
-							text: error instanceof Error ? error.message : String(error),
-						},
-					],
-					success: false,
-				};
+				try {
+					context.assertCurrent();
+					result = {
+						contentItems: [
+							{
+								type: "inputText",
+								text: error instanceof Error ? error.message : String(error),
+							},
+						],
+						success: false,
+					};
+				} catch {
+					result = failed();
+				}
 			}
 		}
-		if (!this.rpc.respond) return;
-		await this.rpc.respond(request.id, result);
+		await this.enqueue(`task:${task.id}`, async () => {
+			try {
+				context.assertCurrent();
+			} catch {
+				result = failed();
+			}
+			if (!this.rpc.respond) return;
+			await this.rpc.respond(request.id, result);
+		});
+	}
+
+	private taskToolContext(task: {
+		id: string;
+		ownerAgentId: string;
+		revision: number;
+	}): TaskToolContext {
+		const id = task.id;
+		const agentId = task.ownerAgentId;
+		const revision = task.revision;
+		return {
+			taskId: id,
+			agentId,
+			revision,
+			assertCurrent: () => {
+				if (this.closed)
+					throw new TaskError("closed", "task manager is closed");
+				const current = this.store.get(id);
+				if (
+					!current ||
+					current.ownerAgentId !== agentId ||
+					current.revision !== revision
+				)
+					throw new TaskError(
+						"revision_mismatch",
+						"task owner or revision changed",
+					);
+			},
+		};
 	}
 
 	private completeNotice(id: string, noticeKey: string): void {

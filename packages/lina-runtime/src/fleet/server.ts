@@ -1,17 +1,14 @@
-import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { ServerWebSocket } from "bun";
-import {
-	checkedDirectory,
-	checkedRegular,
-	readRegular,
-} from "../../../lina-core/src/attachments/filesystem.ts";
-import { inspectContent } from "../../../lina-core/src/attachments/validation.ts";
-import { HonchoClient } from "../../../lina-memory/src/honcho/client.ts";
 import { defaultConversation } from "../persona/conversation.ts";
+import type { GeneratedAvatarApplicationChecker } from "./agent-visual-routes.ts";
+import { agentVisualRoutes } from "./agent-visual-routes.ts";
+import type { GeneratedAvatarAuthorityChecker } from "./avatar-assets.ts";
+import { AvatarAssets } from "./avatar-assets.ts";
 import { companionRoutes } from "./companion-routes.ts";
 import { introRoutes } from "./intro-routes.ts";
+import type { FleetLifeImages } from "./life-images.ts";
+import { lifeRoutes } from "./life-routes.ts";
 import { type AgentFleet, validAgentId } from "./manager.ts";
 import { onboardingRoutes } from "./onboarding-routes.ts";
 
@@ -67,6 +64,11 @@ export async function startFleetServer(
 	primaryId = "lina",
 	options: {
 		lazy?: boolean;
+		lifeImages?: () => FleetLifeImages;
+		/** Main-owned world/job proof; absent means generated avatar serving is denied. */
+		generatedAvatarAuthority?: GeneratedAvatarAuthorityChecker;
+		/** Main-owned world/job proof; absent means generated avatar application is denied. */
+		generatedAvatarApplication?: GeneratedAvatarApplicationChecker;
 		route?: (
 			request: Request,
 			json: () => Promise<Record<string, unknown>>,
@@ -76,7 +78,16 @@ export async function startFleetServer(
 	if (!validAgentId(primaryId) || !fleet.agents.get(primaryId))
 		throw Error("Unknown primary agent");
 	const primary = options.lazy ? undefined : await fleet.app(primaryId),
-		avatars = checkedDirectory(join(fleet.root, "avatars"), true);
+		avatars = new AvatarAssets(
+			fleet.root,
+			fleet.agents,
+			options.generatedAvatarAuthority ?? (() => false),
+		);
+	avatars.recoverAvatarTemps();
+	avatars.migrateWorkspaceSeeds(workspace, fleet.presets);
+	avatars.syncInventory();
+	avatars.recoverReferenceTemps();
+	avatars.migrateCapturedLegacy();
 	const peers = new Set<ServerWebSocket<Peer>>();
 	const server = Bun.serve<Peer>({
 		hostname: "127.0.0.1",
@@ -87,12 +98,38 @@ export async function startFleetServer(
 			const url = new URL(request.url);
 			if (
 				request.method === "POST" &&
-				/^\/api\/(?:onboarding\/(?:interview|preview)|agents\/(?:birth|[a-z][a-z0-9-]{0,47}\/intro\/(?:turn|choose)))$/.test(
+				url.hostname === "127.0.0.1" &&
+				request.headers.get("host") === url.host &&
+				/^\/api\/life\/worlds\/[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,255}\/step$/.test(
+					url.pathname,
+				)
+			) {
+				// A step has multiple bounded native calls; the runner owns their deadlines and aborts.
+				server.timeout(request, 0);
+			}
+			if (
+				request.method === "POST" &&
+				/^\/api\/(?:onboarding\/(?:interview|preview)|agents\/(?:birth|[a-z][a-z0-9-]{0,47}\/intro\/(?:turn|choose))|life\/(?:drafts\/[a-zA-Z0-9._-]+\/suggest|author-sessions(?:\/[a-zA-Z0-9._-]+\/open)?))$/.test(
 					url.pathname,
 				)
 			)
 				server.timeout(request, 75);
 			try {
+				const visual = await agentVisualRoutes(
+					request,
+					fleet,
+					avatars,
+					options.generatedAvatarApplication ?? (() => false),
+					() => json(request),
+				);
+				if (visual) return visual;
+				const life = await lifeRoutes(
+					request,
+					fleet,
+					() => json(request),
+					options.lifeImages,
+				);
+				if (life) return life;
 				const extension = await options.route?.(request, () => json(request));
 				if (extension) return extension;
 				const intro = await introRoutes(request, fleet, () => json(request));
@@ -251,12 +288,22 @@ export async function startFleetServer(
 						);
 					}
 					if (action === "memory" && request.method === "POST") {
-						const app = await fleet.app(id),
-							config = fleet.memoryConfig(id);
-						if (!config)
-							return response({ error: "Honcho 연결 설정이 필요합니다." }, 409);
-						await new HonchoClient(config).initialize(request.signal);
-						await app.memory.refresh();
+						if (!(await fleet.initializeMemory(id, request.signal)))
+							return response(
+								{
+									code:
+										fleet.memoryBackend === "honcho"
+											? "MEMORY_MIGRATION_REQUIRED"
+											: "MEMORY_UNAVAILABLE",
+									migrationRequired: fleet.memoryBackend === "honcho",
+									error:
+										fleet.memoryBackend === "honcho"
+											? "기존 외부 기억은 아직 이전되지 않았습니다. 자체 기억 엔진으로 전환이 필요합니다."
+											: "기억 학습이 비활성화되어 있거나 준비되지 않았습니다.",
+								},
+								409,
+							);
+						const app = await fleet.app(id);
 						return response(app.memory.status());
 					}
 					if (action === "avatar" && request.method === "POST") {
@@ -269,60 +316,38 @@ export async function startFleetServer(
 								{ error: "설정이 바뀌었습니다. 다시 열어주세요." },
 								409,
 							);
-						for (const name of readdirSync(avatars)) {
-							const existing = join(avatars, name);
-							checkedRegular(existing);
-							readRegular(existing, 2_097_152);
-						}
-						if (readdirSync(avatars).length >= 128)
-							return response(
-								{ error: "프로필 이미지 저장 한도에 도달했습니다." },
-								507,
-							);
 						const bytes = await body(request, 2097152),
 							name = decodeURIComponent(
 								request.headers.get("X-Lina-Filename") ?? "",
 							);
-						const mime = inspectContent(name, bytes);
-						if (mime !== "image/png" && mime !== "image/jpeg")
-							return response(
-								{ error: "PNG 또는 JPEG 이미지를 선택해주세요." },
-								415,
-							);
-						const key = createHash("sha256").update(bytes).digest("hex");
-						const file = join(
-							avatars,
-							`${key}.${mime === "image/png" ? "png" : "jpg"}`,
+						const asset = avatars.importManual(
+							id,
+							`upload-${profile.revision}`,
+							bytes,
+							name,
 						);
-						if (!existsSync(file))
-							writeFileSync(file, bytes, { flag: "wx", mode: 0o600 });
 						return response(
-							fleet.agents.update(id, revision, { avatarId: key }),
+							fleet.agents.applyManualAvatarOnce(
+								id,
+								{
+									requestKey: `upload-${profile.revision}`,
+									expectedProfileRevision: revision,
+									expectedVisualRevision: fleet.agents.visual(id).revision,
+									asset,
+									source: { kind: "upload" },
+								},
+								(value) => avatars.read(value.sha256)?.size === value.size,
+							),
 						);
 					}
 				}
 				const avatar = /^\/api\/avatars\/([a-f0-9]{64})$/.exec(url.pathname);
 				if (avatar && request.method === "GET") {
-					for (const root of [
-						avatars,
-						join(workspace, "data/personas/avatars"),
-					])
-						if (existsSync(root)) {
-							checkedDirectory(root, false);
-							for (const ext of ["png", "jpg"]) {
-								const file = join(root, `${avatar[1]}.${ext}`);
-								if (existsSync(file)) {
-									const bytes = readRegular(file, 2_097_152);
-									return new Response(bytes, {
-										headers: {
-											...HEADERS,
-											"Content-Type":
-												ext === "png" ? "image/png" : "image/jpeg",
-										},
-									});
-								}
-							}
-						}
+					const asset = avatars.read(avatar[1] ?? "");
+					if (asset && avatars.globalAuthority(asset.sha256))
+						return new Response(asset.bytes, {
+							headers: { ...HEADERS, "Content-Type": asset.mime },
+						});
 					return new Response("Not found", { status: 404 });
 				}
 				if (url.pathname.startsWith("/api/attachments")) {

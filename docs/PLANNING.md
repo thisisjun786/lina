@@ -13,9 +13,12 @@
 | 전용 컴퓨터의 공통 계약 | [컴퓨터·실행·입력 소유권](plans/platform/001_runtime_contracts.md) | API·저장 계약 제안, 독립 GUI 입력은 아직 미검증 |
 | 프로바이더 선택과 로컬 모델 큐레이션 | [모델 온보딩](plans/platform/005_model_onboarding.md) | 제시 순서·큐레이션 요구 보존, 현재 연결은 Codex + OpenCodex |
 | 설치 구성과 전체 상태 버전관리 | [리팩터링 요구](plans/platform/008_refactor_preparation.md) | 홈·패키지 분리·로컬 체크포인트 구현, 자동 이력·선택 복원·외부 내보내기는 후속 |
-| ima2 이미지 엔진 | [생성·편집 연동](plans/platform/009_ima2_image_engine.md) | 도입 방향 확정, 어댑터 구현 전 |
-| 주기적 프로필 사진과 내부 SNS | [에이전트 일상](plans/platform/010_agent_daily_life_ideas.md) | 아이디어, 주기·예산·공유 대상 미정 |
-| 페르소나와 분리된 월드 엔진 | [RisuAI 참고와 월드 설계](plans/platform/011_world_engine_risuai.md) | 방향 확정, 장면·시간·사건·지식 범위·라이선스 검토 후 구현 |
+| ima2 이미지 엔진 | [생성·편집 연동](plans/platform/009_ima2_image_engine.md), [LIFE 통합 계약](plans/life/070_images_and_avatars.md) | 기존 이미지 엔진과 LIFE 게시·아바타 연결 구현. 070에서 전체 테스트 3,357개·HTTP 27건·독립 리뷰 통과. 실제 이미지 품질·UI는 별도 검증 |
+| 주기적 프로필 사진과 내부 SNS | [에이전트 일상](plans/platform/010_agent_daily_life_ideas.md), [LIFE 전체 구현 계획](plans/life/000_plan.md) | 내부 게시물·에이전트 답글·댓글·반응·재공유와 다음 경험 연결 구현·검토 통과. 이미지·주기적 프로필 사진 연결도 로컬 검증 통과. UI와 실제 생성 품질은 별도 검증. 주기·예산·공유 대상은 명시적 설정 |
+| 페르소나와 분리된 월드 엔진 | [RisuAI 참고와 월드 설계](plans/platform/011_world_engine_risuai.md), [최소 구현과 연결 계약](plans/platform/012_world_engine_mvp.md) | 장면·사건·개인 경험·믿음·공유 성장 저장과 목적별 전달 구현. 업무·기억·페르소나 출처 경계와 런타임 연결 완료. 운영 설치본의 활성화는 별도 요청 |
+| 세계 배경 편집과 규칙 미리보기 | [세계 편집 계약](plans/life/020_world_authoring.md) | 원문·질문·초안 버전 저장, 명시적 확인, 제한된 lore/규칙 평가와 전용 작성 세션 구현. 종료 경합 수정과 독립 검토 통과. 실제 모델 품질·UI는 별도 검증 |
+| LIFE 사회 시뮬레이션과 공유 성장 | [소스 분석과 구현 방향](plans/platform/013_life_engine_research.md) | 사용자 배경 설정·확률적 사건·업무 영향·개인 경험·비밀·관계가 목표. 성격·관계 성장은 일반 대화와 공유하고 사건 원문은 별도 공개 제어. [사회 엔진](plans/life/030_social_engine.md)의 규칙 판정·비밀 전달·저장·복구와 설치 패키지 연결 구현, 독립 검토 통과. [자율 일상](plans/life/040_autonomous_life.md)의 실행·복구·모델 격리·설치본 HTTP 검증과 독립 검토 통과 |
+| LIFE 전체 구현과 통합 검증 | [전체 계획](plans/life/000_plan.md), [첫 단위 저장 설계](plans/life/011_state_contract.md), [대화 이전 설계](plans/life/012_context_migration.md), [이미지·아바타 연결](plans/life/070_images_and_avatars.md) | 8단계 로컬 엔진 구현·검증 완료. 010~050 저장·세계 편집·사회 엔진·자동 일상·업무·기억 연결 검증 통과. 060 게시물·상호작용도 독립 재검토, 전체 테스트와 실제 HTTP 검증 통과. 070 이미지·아바타 연결도 완료. 080의 단일 설치 통합 흐름·저장소 장애 격리·체크포인트 복원과 [소비자 계약](LIFE_ENGINE.md) 검증 통과. 최종 전체 테스트 3,368개·독립 리뷰 통과 |
 
 UI 공개 참고 자료는 [설계 참고 자료](plans/codex-ui/000_source_research.md), 세부 시각 기준은 [Codex 디자인 언어](plans/codex-ui/005_codex_design_language.md)에 있다. 개인 캡처와 운영 이력은 제품 소스에 포함하지 않는다.
 

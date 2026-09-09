@@ -5,6 +5,7 @@ import { parseWireClient } from "../../lina-core/src/wire.ts";
 import { createAccessPolicy } from "./access.ts";
 import { proxyAgents } from "./agent-proxy.ts";
 import { proxyAttachment } from "./attachment-proxy.ts";
+import { proxyLife } from "./life-proxy.ts";
 import { parseServerFrame } from "./protocol.ts";
 
 import type { PwaAssets } from "./pwa-assets.ts";
@@ -88,6 +89,13 @@ export function startWebServer(options: Options) {
 							headers: HEADERS,
 						});
 			}
+			const lifeResponse = await proxyLife(
+				request,
+				upstream,
+				access.allowsSocket,
+				HEADERS,
+			);
+			if (lifeResponse) return lifeResponse;
 			const agentResponse = await proxyAgents(
 				request,
 				upstream,

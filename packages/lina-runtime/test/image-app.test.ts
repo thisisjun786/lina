@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { loadCodexJournal } from "../../lina-codex/src/identity.ts";
-import { ImageJobStore } from "../src/images/store.ts";
+import { type ImageJob, ImageJobStore } from "../src/images/store.ts";
 import {
 	createImageAppFixture,
 	EDITED_PNG,
@@ -17,6 +18,7 @@ afterEach(async () => {
 test("real image app persists a native notice and reuses the saved image after restart", async () => {
 	const fixture = await createImageAppFixture();
 	cleanup.push(() => fixture.close());
+	expect(fixture.app.images).toBeDefined();
 	const firstRequest = await fixture.submit("generate");
 	const first = fixture.app.images?.list()[0];
 	if (!first?.artifact) throw Error("Generated attachment missing");
@@ -71,11 +73,21 @@ test("real image app persists a native notice and reuses the saved image after r
 
 	// Simulate a crash after the native journal write but before recording delivery.
 	await fixture.app.stop();
+	const manifestPath = join(dirname(binding.sessionFile), "images/jobs.json");
+	const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+		jobs: ImageJob[];
+	};
+	const unacknowledged = manifest.jobs.find((job) => job.id === first.id);
+	if (!unacknowledged) throw Error("Interrupted image job missing");
+	// Fault injection models the pre-acknowledgement disk snapshot. The v2 store
+	// deliberately refuses to clear a committed delivery receipt through update().
+	unacknowledged.deliveredEntryId = null;
+	unacknowledged.delivery = { kind: "pending" };
+	writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
 	const interruptedStore = new ImageJobStore(
 		dirname(binding.sessionFile),
 		binding,
 	);
-	interruptedStore.update(first.id, { deliveredEntryId: null });
 	expect(interruptedStore.get(first.id).deliveredEntryId).toBeNull();
 	await fixture.restart();
 	expect(fixture.app.binding).toEqual(binding);
@@ -156,6 +168,7 @@ test("real image app persists a native notice and reuses the saved image after r
 test("failed image generation records one failure notice without creating an attachment", async () => {
 	const fixture = await createImageAppFixture();
 	cleanup.push(() => fixture.close());
+	expect(fixture.app.images).toBeDefined();
 	await fixture.submit("generate fail");
 	const failed = fixture.app.images?.list()[0];
 	expect(failed?.state).toBe("failed");

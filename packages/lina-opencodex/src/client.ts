@@ -23,14 +23,37 @@ export type HubRequest = {
 	maxBytes?: number;
 	fetchImpl?: FetchLike;
 	secrets?: readonly string[];
+	/** Trusted synchronous capability; omission supplies no source-policy proof. */
+	beforeDispatch?: () => void;
 };
 
 function combineSignals(
 	signal: AbortSignal | undefined,
 	timeoutMs: number,
-): AbortSignal {
-	const timeout = AbortSignal.timeout(timeoutMs);
-	return signal ? AbortSignal.any([signal, timeout]) : timeout;
+): { signal: AbortSignal; dispose: () => void } {
+	if (
+		!Number.isInteger(timeoutMs) ||
+		timeoutMs < 0 ||
+		timeoutMs > 4_294_967_295
+	)
+		throw new RangeError("Invalid OpenCodex request timeout");
+	const controller = new AbortController();
+	const combined = signal
+		? AbortSignal.any([signal, controller.signal])
+		: controller.signal;
+	const timer = setTimeout(
+		() =>
+			controller.abort(new DOMException("Request timed out", "TimeoutError")),
+		timeoutMs,
+	);
+	timer.unref();
+	const dispose = () => {
+		clearTimeout(timer);
+		combined.removeEventListener("abort", dispose);
+	};
+	if (combined.aborted) dispose();
+	else combined.addEventListener("abort", dispose, { once: true });
+	return { signal: combined, dispose };
 }
 
 async function readBounded(
@@ -126,17 +149,49 @@ export async function hubSend(request: HubRequest): Promise<Response> {
 	if (request.body !== undefined)
 		headers.set("Content-Type", "application/json");
 	const url = request.origin + request.path;
+	const fetchImpl = request.fetchImpl ?? fetch;
+	const init: RequestInit = {
+		method: request.method ?? "GET",
+		headers,
+		redirect: "manual",
+	};
+	let combined: ReturnType<typeof combineSignals>;
+	try {
+		if (request.body !== undefined) init.body = JSON.stringify(request.body);
+		combined = combineSignals(request.signal, timeoutMs);
+	} catch (error) {
+		throwHubTransportError(error, request.signal, secrets);
+	}
+	init.signal = combined.signal;
 	let response: Response;
 	try {
-		response = await (request.fetchImpl ?? fetch)(url, {
-			method: request.method ?? "GET",
-			headers,
-			body:
-				request.body === undefined ? undefined : JSON.stringify(request.body),
-			redirect: "manual",
-			signal: combineSignals(request.signal, timeoutMs),
-		});
+		combined.signal.throwIfAborted();
+		if (
+			request.beforeDispatch !== undefined &&
+			typeof request.beforeDispatch !== "function"
+		)
+			throw new OpenCodexError(
+				"invalid_input",
+				"Invalid provider dispatch check",
+			);
+		// No await or request preparation may separate this check from fetch.
+		const result: unknown = request.beforeDispatch?.();
+		if (result !== undefined) {
+			// A void signature also accepts async functions in TS. Never await one here.
+			if (result instanceof Promise) void result.catch(() => {});
+			throw new OpenCodexError(
+				"invalid_input",
+				"Provider dispatch check must return synchronously without a value",
+			);
+		}
 	} catch (error) {
+		combined.dispose();
+		throw error;
+	}
+	try {
+		response = await fetchImpl(url, init);
+	} catch (error) {
+		combined.dispose();
 		throwHubTransportError(error, request.signal, secrets);
 	}
 	if (

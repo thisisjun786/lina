@@ -9,13 +9,14 @@ import {
 	imageMime,
 	inflightJob,
 	parse,
+	prepareSubmission,
 	replaySchema,
 	requestIdSchema,
 	resultSchema,
-	submitSchema,
 } from "./client-contract.ts";
 import { Ima2Http } from "./client-http.ts";
 import {
+	type Ima2BeforeSubmit,
 	type Ima2Cancellation,
 	type Ima2ClientOptions,
 	type Ima2ClientPort,
@@ -28,16 +29,20 @@ import {
 } from "./client-types.ts";
 
 export type {
+	Ima2BeforeSubmit,
 	Ima2Cancellation,
 	Ima2ClientOptions,
 	Ima2ClientPort,
 	Ima2Connection,
+	Ima2Dispatch,
 	Ima2ErrorCode,
 	Ima2Failure,
+	Ima2GenerationBody,
 	Ima2ImageMime,
 	Ima2Job,
 	Ima2Lane,
 	Ima2Result,
+	Ima2SubmissionSnapshot,
 	Ima2SubmitInput,
 } from "./client-types.ts";
 export { Ima2Error } from "./client-types.ts";
@@ -96,16 +101,41 @@ export class Ima2Client implements Ima2ClientPort {
 		return structuredClone(this.#connection);
 	}
 
-	async submit(input: Ima2SubmitInput, signal?: AbortSignal): Promise<Ima2Job> {
-		const value = parse(submitSchema, input, "INVALID_INPUT");
-		const reference = value.reference;
-		if (reference)
-			imageMime(reference.bytes, reference.mime, this.#maxImageBytes);
-		const references = reference
-			? [
-					`data:${reference.mime};base64,${Buffer.from(reference.bytes).toString("base64")}`,
-				]
-			: [];
+	async submit(
+		input: Ima2SubmitInput,
+		signal?: AbortSignal,
+		beforeSubmit?: Ima2BeforeSubmit,
+	): Promise<Ima2Job> {
+		try {
+			return await this.#submit(input, signal, beforeSubmit);
+		} catch (error) {
+			// Connection GET failures are still known zero generation POSTs. The
+			// HTTP generation boundary marks all failures after handoff separately.
+			const safe =
+				error instanceof Ima2Error
+					? error
+					: new Ima2Error(
+							"INVALID_INPUT",
+							"ima2 submission preparation failed",
+						);
+			throw new Ima2Error(
+				safe.code,
+				safe.message,
+				safe.outcome,
+				safe.status,
+				safe.dispatch === "unknown" ? "not-dispatched" : safe.dispatch,
+			);
+		}
+	}
+
+	async #submit(
+		input: Ima2SubmitInput,
+		signal: AbortSignal | undefined,
+		beforeSubmit: Ima2BeforeSubmit | undefined,
+	): Promise<Ima2Job> {
+		const material = prepareSubmission(input, this.#maxImageBytes);
+		const value = material.body;
+		const reference = material.reference;
 		const connection = this.#connection ?? (await this.connect(signal));
 		const lane = connection.lanes.find(
 			(lane) => lane.provider === value.provider,
@@ -126,26 +156,18 @@ export class Ima2Client implements Ima2ClientPort {
 				"UNSUPPORTED_OPERATION",
 				"Selected ima2 model does not support this adapter operation",
 			);
-		const body = {
-			requestId: value.requestId,
-			provider: value.provider,
-			model: value.model,
-			prompt: value.prompt,
-			async: true,
-			n: 1,
-			references,
-			format: "png",
-		};
-		const response = await this.#http.json("/api/generate", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"Idempotency-Key": value.requestId,
-				"X-Request-Id": value.requestId,
+		const response = await this.#http.json(
+			"/api/generate",
+			{
+				method: material.method,
+				headers: material.headers,
+				body: material.bodyJson,
+				...(signal ? { signal } : {}),
 			},
-			body: JSON.stringify(body),
-			...(signal ? { signal } : {}),
-		});
+			beforeSubmit
+				? (url) => beforeSubmit(Object.freeze({ ...material, url }))
+				: undefined,
+		);
 		try {
 			if (response.status === 202) {
 				const accepted = parse(acceptedSchema, response.value);
@@ -170,6 +192,8 @@ export class Ima2Client implements Ima2ClientPort {
 				"INVALID_RESPONSE",
 				"ima2 submission response did not confirm the requested identity and output",
 				"unknown",
+				undefined,
+				"dispatched",
 			);
 		}
 	}

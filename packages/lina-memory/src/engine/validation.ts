@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
+	isOrdinarySource,
+	parseSourceProof,
+	type SourceProof,
+} from "../../../lina-core/src/source-policy.ts";
+import {
 	ENGINE_BATCH_MAX,
 	ENGINE_SOURCES_MAX,
 	ENGINE_TEXT_MAX,
@@ -46,6 +51,23 @@ const observationSchema = z.strictObject({
 	status: z.enum(["active", "resolved", "retracted"]).default("active"),
 });
 const recordSchema = z.strictObject({
+	reasoning: z
+		.strictObject({
+			kind: z.enum(["deduction", "induction"]),
+			premises: z
+				.array(
+					z.strictObject({
+						recordId: engineIdSchema,
+						revision: revisionSchema,
+						contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+					}),
+				)
+				.min(1)
+				.max(ENGINE_SOURCES_MAX),
+		})
+		.optional(),
+	sourceRequestId: engineIdSchema.optional(),
+	sourceProofs: z.unknown().optional(),
 	...fields,
 	id: engineIdSchema,
 	agentId: engineIdSchema,
@@ -92,20 +114,53 @@ export function parseApply(value: unknown) {
 			requestId: engineIdSchema,
 			expectedRevision: revisionSchema,
 			observations: z.unknown(),
+			sourceProofs: z.unknown(),
 		})
 		.parse(value);
-	return { ...input, observations: parseObservations(input.observations) };
+	return {
+		...input,
+		sourceProofs: parseProofs(input.sourceProofs),
+		observations: parseObservations(input.observations),
+	};
 }
 export function parseRecord(value: unknown): EngineRecord {
-	const record = recordSchema.parse(value);
+	const parsed = recordSchema.parse(value);
+	const { sourceProofs, sourceRequestId, reasoning, ...fields } = parsed;
+	const record: EngineRecord = {
+		...fields,
+		...(reasoning === undefined ? {} : { reasoning }),
+		...(sourceRequestId === undefined ? {} : { sourceRequestId }),
+		...(sourceProofs === undefined
+			? {}
+			: { sourceProofs: parseProofs(sourceProofs) }),
+	};
+	if (
+		record.sourceProofs &&
+		record.sources.some(
+			(source) =>
+				!record.sourceProofs?.some((proof) => proof.entryId === source.entryId),
+		)
+	)
+		throw Error("record source proof missing");
 	validateFacet(record);
 	const distinct = new Set(
 		record.userSourceIds ?? record.sources.map((s) => s.entryId),
 	).size;
-	const expected =
-		record.evidence === "explicit" || distinct >= 2
+	const expected = record.reasoning
+		? record.reasoning.kind === "induction"
+			? "provisional"
+			: record.support
+		: record.evidence === "explicit" || distinct >= 2
 			? "supported"
 			: "provisional";
+	if (
+		record.reasoning &&
+		(record.evidence !== "inferred" ||
+			!record.sourceRequestId?.startsWith("reasoning-") ||
+			new Set(record.reasoning.premises.map((p) => p.recordId)).size !==
+				record.reasoning.premises.length)
+	)
+		throw Error("invalid persisted reasoning record");
 	if (
 		record.support !== expected ||
 		(record.status === "resolved" && expected !== "supported")
@@ -129,6 +184,7 @@ export function validateSources(
 		for (const source of observation.sources) {
 			const entry = lookup(source.entryId);
 			if (
+				!isOrdinarySource(entry) ||
 				!entry ||
 				entry.entryId !== source.entryId ||
 				(entry.role !== "user" && entry.role !== "assistant")
@@ -153,4 +209,13 @@ export function recordId(
 }
 export function validTime(now: () => number): number {
 	return timeSchema.parse(now());
+}
+
+export function parseProofs(value: unknown): SourceProof[] {
+	if (!Array.isArray(value) || !value.length || value.length > 65536)
+		throw Error("invalid engine source proofs");
+	const proofs = value.map(parseSourceProof);
+	if (new Set(proofs.map((p) => p.entryId)).size !== proofs.length)
+		throw Error("duplicate engine source proof");
+	return proofs.sort((a, b) => a.entryId.localeCompare(b.entryId));
 }

@@ -58,3 +58,56 @@ test("Codex persona hooks use current authored identity and exclude appearance l
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("persona memory mode follows live policy and fences an obsolete prepared prompt", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-persona-policy-"));
+	const agents = new AgentStore(join(root, "agents.sqlite"));
+	const seed = readPresets(process.cwd())[0];
+	if (!seed) throw Error("missing seed");
+	agents.create(seed);
+	let enabled = true;
+	const host = new CodexHost(root, () => ({ action: "allow" }));
+	const refresh = installPersona(
+		host.asLinaHost(),
+		agents,
+		seed.id,
+		"Base",
+		{
+			estimateText: (text) => text.length,
+			estimateMessages: () => 0,
+			systemTokens: 0,
+			contextWindow: 48000,
+			reserveTokens: 1000,
+			summarize: async () => "unused",
+			prepare: () => {
+				throw Error("unused");
+			},
+		},
+		{
+			nativeDynamics: true,
+			allowNativeGrowth: () => enabled,
+			memoryMode: () => (enabled ? "automatic" : "disabled"),
+		},
+	);
+	try {
+		const prepared = refresh.prepare();
+		expect(prepared.systemPrompt).toContain(
+			"Settled conversation is captured automatically",
+		);
+		enabled = false;
+		expect(() => prepared.beforeDeliver()).toThrow("Memory policy changed");
+		const disabled = refresh.prepare();
+		expect(disabled.systemPrompt).toContain(
+			"Automatic long-term conversation memory is disabled",
+		);
+		expect(disabled.systemPrompt).not.toContain("[네이티브 기억 처리]");
+		enabled = true;
+		expect(() => disabled.beforeDeliver()).toThrow("Memory policy changed");
+		expect(refresh()).toContain(
+			"Settled conversation is captured automatically",
+		);
+	} finally {
+		agents.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

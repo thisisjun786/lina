@@ -32,6 +32,8 @@ export type CompleteRequest = {
 	maxOutputTokens?: number;
 	signal: AbortSignal;
 	fetchImpl?: FetchLike;
+	/** Trusted in-process capability, excluded from both wire payloads. */
+	beforeDispatch?: () => void;
 };
 
 function textParts(text: string): Array<{ type: "input_text"; text: string }> {
@@ -119,6 +121,8 @@ export async function complete(
 	};
 	if (request.token) send.token = request.token;
 	if (request.fetchImpl) send.fetchImpl = request.fetchImpl;
+	if (request.beforeDispatch !== undefined)
+		send.beforeDispatch = request.beforeDispatch;
 	const response = await hubSend(send);
 	return readCompletion(
 		response,

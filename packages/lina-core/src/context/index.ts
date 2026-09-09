@@ -1,12 +1,17 @@
 export { archiveText } from "./archive.ts";
+export type { SummaryGeneration } from "./generation.ts";
 export { CONTEXT_SCHEMA_VERSION } from "./schema.ts";
 export { ContextStore } from "./store.ts";
 export type {
 	ActivateInput,
 	ActiveSummary,
+	ArtifactStatus,
+	ContextStoreOptions,
 	ExpandOptions,
 	ExpandPage,
 	LookupEntry,
+	ManagedNote,
+	NoteReceipt,
 	SourceKind,
 	SourceRef,
 	StageInput,

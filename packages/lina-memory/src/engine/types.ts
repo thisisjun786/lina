@@ -1,3 +1,10 @@
+import type {
+	SourceLookup,
+	SourceProof,
+} from "../../../lina-core/src/source-policy-types.ts";
+
+export type { SourceEntry } from "../../../lina-core/src/source-policy-types.ts";
+
 /** These records are reference data, never authored identity or preference writes. */
 export interface Observation {
 	subject: "user" | "self" | "relationship";
@@ -12,19 +19,18 @@ export interface SourceQuote {
 	entryId: string;
 	quote: string;
 }
-export interface SourceEntry {
-	entryId: string;
-	role?: "user" | "assistant" | "tool" | "meta" | undefined;
-	text: string;
-	timestamp?: string;
-}
-export type LookupEntry = (entryId: string) => SourceEntry | undefined;
+export type LookupEntry = SourceLookup;
 export interface EngineOptions {
 	now?: () => number;
 	lookup: LookupEntry;
 	sourceSequence?: (entryId: string) => number | undefined;
 }
 export interface EngineRecord extends Omit<Observation, "status"> {
+	reasoning?: RecordReasoning;
+	/** Originating processing receipt; omission keeps old records unqualified. */
+	sourceRequestId?: string;
+	/** Absent only on preserved legacy records; those are never model eligible. */
+	sourceProofs?: SourceProof[];
 	id: string;
 	agentId: string;
 	status: "active" | "resolved" | "retracted";
@@ -39,6 +45,24 @@ export interface EngineRecord extends Omit<Observation, "status"> {
 	expiresAt: number | null;
 	invalidatedAt: number | null;
 }
+export interface PremiseRef {
+	recordId: string;
+	revision: number;
+	/** Host-computed semantic identity, independent of later corroborating evidence. */
+	contentHash: string;
+}
+export interface RecordReasoning {
+	kind: "deduction" | "induction";
+	premises: PremiseRef[];
+}
+export interface ConclusionProposal {
+	subject: Observation["subject"];
+	kind: Observation["kind"];
+	key: string;
+	text: string;
+	reasoningKind: RecordReasoning["kind"];
+	premises: Pick<PremiseRef, "recordId" | "revision">[];
+}
 export interface EngineSnapshot {
 	agentId: string;
 	revision: number;
@@ -48,6 +72,8 @@ export interface EngineSnapshot {
 }
 export type EngineState = EngineSnapshot;
 export interface ApplyInput {
+	/** Missing proofs fail closed, including empty deltas. */
+	sourceProofs?: SourceProof[];
 	requestId: string;
 	expectedRevision: number;
 	observations: Observation[];

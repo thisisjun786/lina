@@ -76,6 +76,7 @@ export class PromptLane {
 		try {
 			void this.native
 				.prompt(slot.text, {
+					requestId: slot.id,
 					signal: slot.controller.signal,
 					disposition,
 					rejected,

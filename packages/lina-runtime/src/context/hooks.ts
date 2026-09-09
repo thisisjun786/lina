@@ -5,6 +5,7 @@ export function installContextHooks(
 	host: LinaHost,
 	coordinator: ContextCoordinator,
 	recall: (query: string, signal?: AbortSignal) => Promise<string>,
+	currentRecall: () => string = () => "",
 ): void {
 	host.on("agent_settled", () => {
 		coordinator.settled();
@@ -14,15 +15,22 @@ export function installContextHooks(
 			throw Error("Codex turn cancellation signal is missing");
 		await coordinator.refreshExternal(context.signal);
 		try {
-			coordinator.setRecall(await recall(event.prompt, context.signal));
+			coordinator.setRecall(
+				await recall(event.prompt, context.signal),
+				currentRecall,
+			);
 		} catch {
 			coordinator.setRecall("");
 		}
 	});
 	host.on("context", (event) => {
-		const content = coordinator.injection(event.messages);
+		const { content, beforeDeliver } = coordinator.readInjection(
+			event.messages,
+			event.nativeEntryIds,
+		);
 		if (!content) return;
 		return {
+			beforeDeliver,
 			messages: [
 				{
 					role: "custom",

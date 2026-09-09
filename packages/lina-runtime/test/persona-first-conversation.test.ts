@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import {
+	settled,
+	sourceFixture,
+} from "../../lina-codex/test/source-provenance-fixture.ts";
 import { AgentStore } from "../../lina-core/src/agents/store.ts";
 import type { DurableStore } from "../../lina-core/src/store.ts";
 import { entry, Fixture } from "../../lina-core/test/fixture.ts";
@@ -12,8 +16,69 @@ import {
 	LINA_PRODUCT_USES,
 } from "../src/persona/first-conversation.ts";
 import { installPersona } from "../src/persona/hooks.ts";
+import { installResponsePolicy } from "../src/policy/hooks.ts";
+import { ResponsePolicy } from "../src/policy/response.ts";
 
 const productPrompt = readFileSync("data/app-system-prompt.md", "utf8");
+
+test("native RPC receives authored first-reply guidance once and preserves the fixed dialogue model after restart", async () => {
+	const f = sourceFixture();
+	const agents = new AgentStore(":memory:");
+	const preset = readPresets(process.cwd())[0];
+	if (!preset) throw Error("missing preset");
+	const profile = { ...preset, id: "mina" };
+	agents.create(profile);
+	const policy = new ResponsePolicy(productPrompt);
+	const register: Parameters<typeof f.open>[0] = {
+		register(host, services) {
+			installResponsePolicy(host, policy);
+			installPersona(host, agents, "mina", policy.sections.common, services, {
+				firstOrdinaryReply: () => !f.journal.hasNormalAssistantReply(),
+				userContext: () => "CONFIRMED_USER_CONTEXT",
+			});
+		},
+	};
+	try {
+		const first = await f.open(register);
+		const runtime = f.runtime(first.session);
+		const done = settled(runtime, "first");
+		runtime.submit("first", "안녕");
+		const started = await first.rpc.next("turn/start");
+		const injected = first.rpc.frames.filter(
+			(frame) => frame.method === "thread/inject_items",
+		);
+		const firstInput = JSON.stringify(injected);
+		expect(firstInput).toContain(FIRST_ORDINARY_REPLY_HEADER);
+		expect(firstInput).toContain(profile.voice.replaceAll("\n", "\\n"));
+		expect(firstInput).toContain("CONFIRMED_USER_CONTEXT");
+		expect(started.params["model"]).toBe("synthetic/companion-dialogue");
+		first.rpc.complete(first.session.threadId);
+		await done;
+		await first.session.close();
+		f.reopenJournal();
+		policy.select("execution");
+		const reopened = await f.open(register);
+		const nextRuntime = f.runtime(reopened.session);
+		const nextDone = settled(nextRuntime, "next");
+		nextRuntime.submit("next", "자료를 함께 읽자");
+		const next = await reopened.rpc.next("turn/start");
+		const nextInput = JSON.stringify(
+			reopened.rpc.frames.filter(
+				(frame) => frame.method === "thread/inject_items",
+			),
+		);
+		expect(nextInput).not.toContain(FIRST_ORDINARY_REPLY_HEADER);
+		expect(nextInput).toContain("CONFIRMED_USER_CONTEXT");
+		expect(nextInput).toContain(profile.voice.replaceAll("\n", "\\n"));
+		expect(next.params["model"]).toBe("synthetic/companion-dialogue");
+		expect(policy.current().mode).toBe("conversation");
+		reopened.rpc.complete(reopened.session.threadId);
+		await nextDone;
+	} finally {
+		await f.close();
+		agents.close();
+	}
+});
 
 function assemble(store: DurableStore, userContext = "", base = productPrompt) {
 	const agents = new AgentStore(":memory:");

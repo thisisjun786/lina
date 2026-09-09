@@ -150,6 +150,30 @@ function httpError(status: number): Ima2Error {
 	);
 }
 
+/** Callback errors/results are untrusted diagnostics, never serialized or echoed. */
+function authorizeSubmit(
+	beforeSubmit: (url: string) => undefined,
+	url: string,
+) {
+	try {
+		const result: unknown = beforeSubmit(url);
+		if (result !== undefined) {
+			// An untyped async callback is forbidden; consume its rejection without
+			// yielding or allowing POST. Its side effects remain the caller's error.
+			void Promise.resolve(result).catch(() => {});
+			throw new Error();
+		}
+	} catch {
+		throw new Ima2Error(
+			"SUBMIT_DENIED",
+			"ima2 submission authority denied POST",
+			"rejected",
+			undefined,
+			"not-dispatched",
+		);
+	}
+}
+
 export class Ima2Http {
 	readonly #options: Ima2ClientOptions;
 	readonly #timeoutMs: number;
@@ -187,8 +211,15 @@ export class Ima2Http {
 	async json(
 		path: string,
 		init: RequestInit = {},
+		beforeSubmit?: (url: string) => undefined,
 	): Promise<{ status: number; value: unknown }> {
-		const response = await this.request(path, init, MAX_JSON_BYTES, true);
+		const response = await this.request(
+			path,
+			init,
+			MAX_JSON_BYTES,
+			true,
+			beforeSubmit,
+		);
 		try {
 			return {
 				status: response.status,
@@ -203,6 +234,10 @@ export class Ima2Http {
 				init.method === "POST" || init.method === "DELETE"
 					? "unknown"
 					: "rejected",
+				undefined,
+				path === "/api/generate" && init.method === "POST"
+					? "dispatched"
+					: "unknown",
 			);
 		}
 	}
@@ -212,6 +247,7 @@ export class Ima2Http {
 		init: RequestInit,
 		limit: number,
 		json = false,
+		beforeSubmit?: (url: string) => undefined,
 	): Promise<{ bytes: Uint8Array; mime: string; status: number }> {
 		const controller = new AbortController();
 		const parent = init.signal;
@@ -233,15 +269,21 @@ export class Ima2Http {
 					"INVALID_SERVER_URL",
 					"ima2 request must stay on the selected origin",
 				);
+			const request = {
+				...init,
+				signal: controller.signal,
+				redirect: "manual" as const,
+				credentials: "omit" as const,
+			};
+			const send = this.#options.fetch ?? fetch;
+			if (controller.signal.aborted) throw aborted(controller.signal);
+			if (beforeSubmit) authorizeSubmit(beforeSubmit, target.href);
+			// Synchronous abort inside the guard also prevents dispatch. There is
+			// no await or mutable caller material between this check and fetch.
 			if (controller.signal.aborted) throw aborted(controller.signal);
 			sent = true;
 			response = await untilAbort(
-				(this.#options.fetch ?? fetch)(target.href, {
-					...init,
-					signal: controller.signal,
-					redirect: "manual",
-					credentials: "omit",
-				}),
+				send(target.href, request),
 				controller.signal,
 			);
 			if (
@@ -283,6 +325,11 @@ export class Ima2Http {
 				safe.message,
 				mutation && sent && !definiteRejection ? "unknown" : safe.outcome,
 				safe.status,
+				path === "/api/generate" && init.method === "POST"
+					? sent
+						? "dispatched"
+						: "not-dispatched"
+					: "unknown",
 			);
 		} finally {
 			clearTimeout(timer);

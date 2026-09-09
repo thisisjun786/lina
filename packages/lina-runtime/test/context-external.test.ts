@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
 import { ContextStore } from "../../lina-core/src/context/index.ts";
+import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
 import { ContextCoordinator } from "../src/context/coordinator.ts";
 import { ExternalContext } from "../src/context/external.ts";
 import { createRuntimeFixture } from "./runtime-fixture.ts";
@@ -14,14 +15,14 @@ function setup() {
 	const context = new ContextStore(
 		join(f.root, "external.sqlite"),
 		f.runtime.binding,
-		(id) => f.store.entry(id),
+		(id) => f.store.sourceEntry(id),
 	);
 	cleanups.push(async () => {
 		context.close();
 		await f.close();
 	});
 	const add = (id: string, text: string) =>
-		f.store.appendEntry({
+		appendContextEntry(f.store, f.runtime.binding.sessionId, {
 			entryId: id,
 			role: "user",
 			text,
@@ -266,5 +267,217 @@ test("external injection reserves space already occupied by native context", asy
 	});
 	expect(coordinator.injection([])).toBe("");
 	expect(coordinator.state().injectionOmitted).toBe(true);
+	coordinator.close();
+});
+
+test("policy changes rebuild an external checkpoint without new messages and retain a fresh tail", async () => {
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const f = setup();
+	f.add("old-a", "Initial decision A.");
+	f.add("old-b", "Correction B and why.");
+	f.add("fresh", "Keep this original promise.");
+	let policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			refreshThresholdTokens: 1,
+			freshTailEntries: 1,
+		},
+	};
+	const inputs: string[] = [];
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async (text) => {
+			inputs.push(text);
+			return "Decision B.";
+		},
+		{ policy: () => policy, routeKey: () => "fixture-route" },
+	);
+	await external.refresh(new AbortController().signal);
+	expect(
+		inputs.some((text) => text.includes("Keep this original promise")),
+	).toBe(false);
+	expect(f.context.active()?.firstKeptEntryId).toBe("old-b");
+	const previous = f.context.active()?.id;
+	policy = {
+		...policy,
+		revision: 1,
+		context: { ...policy.context, leafOutputTokens: 77 },
+	};
+	await external.refresh(new AbortController().signal);
+	expect(f.context.active()?.id).not.toBe(previous);
+	expect(inputs.length).toBe(2);
+	external.close();
+});
+
+test("fresh tail is source guarded and omitted when native message identity is unavailable", async () => {
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const f = setup();
+	f.add("archived", "An older decision.");
+	f.add("tail", "Fresh promise UNSEEN.");
+	const policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			refreshThresholdTokens: 1,
+			freshTailEntries: 1,
+		},
+	};
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async () => "Older decision.",
+		{ policy: () => policy },
+	);
+	await external.refresh(new AbortController().signal);
+	const visible = external.tail([{ entryId: "archived" }]);
+	expect(visible.text).toContain("Fresh promise UNSEEN");
+	visible.beforeDeliver();
+	expect(external.tail([{ content: "opaque native history" }]).reason).toBe(
+		"tail_dedup_unavailable",
+	);
+	expect(external.tail([{ entryId: "tail" }]).text).toBe("");
+	// The current prompt is not a native-history identity list.
+	expect(external.tail([{ content: "current question" }], []).text).toContain(
+		"Fresh promise UNSEEN",
+	);
+	expect(external.tail([{ content: "current question" }], ["tail"]).text).toBe(
+		"",
+	);
+	expect(external.tail([], ["unknown-native-entry"]).reason).toBe(
+		"tail_dedup_unavailable",
+	);
+	external.close();
+});
+
+test("a policy change during summary never replaces the previous checkpoint", async () => {
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const f = setup();
+	f.add("original", "Original decision.");
+	let policy = {
+			...defaultEnginePolicy(),
+			context: {
+				...defaultEnginePolicy().context,
+				refreshThresholdTokens: 1,
+				freshTailEntries: 0,
+			},
+		},
+		change = false,
+		calls = 0;
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async () => {
+			calls++;
+			if (change) policy = { ...policy, revision: policy.revision + 1 };
+			return "Decision.";
+		},
+		{ policy: () => policy, routeKey: () => "model" },
+	);
+	await external.refresh(new AbortController().signal);
+	const previous = f.context.active();
+	f.add("new", "New decision.");
+	change = true;
+	await expect(external.refresh(new AbortController().signal)).rejects.toThrow(
+		/policy changed/,
+	);
+	expect(f.context.active()).toEqual(previous);
+	expect(calls).toBe(2);
+	external.close();
+});
+
+test("route changes after staging cannot activate a summary from the previous generation", async () => {
+	const { spyOn } = await import("bun:test");
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const f = setup();
+	f.add("original", "Original.");
+	let route = "old";
+	const policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			refreshThresholdTokens: 1,
+			freshTailEntries: 0,
+		},
+	};
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async () => "Summary.",
+		{ policy: () => policy, routeKey: () => route },
+	);
+	await external.refresh(new AbortController().signal);
+	const before = f.context.active();
+	f.add("next", "New source.");
+	const original = f.context.stage.bind(f.context),
+		stage = spyOn(f.context, "stage").mockImplementation((input) => {
+			const result = original(input);
+			route = "new";
+			return result;
+		});
+	try {
+		await expect(
+			external.refresh(new AbortController().signal),
+		).rejects.toThrow(/generation/);
+		expect(f.context.active()).toEqual(before);
+	} finally {
+		stage.mockRestore();
+		external.close();
+	}
+});
+
+test("the injection policy also bounds external summaries rather than only working memory", async () => {
+	const { defaultEnginePolicy } = await import(
+		"../src/context/policy-settings.ts"
+	);
+	const { conservativeEstimator } = await import("../src/context/budget.ts");
+	const f = setup();
+	f.add("large", "Original detail. ".repeat(200));
+	const policy = {
+		...defaultEnginePolicy(),
+		context: {
+			...defaultEnginePolicy().context,
+			injectionTokens: 128,
+			refreshThresholdTokens: 1,
+			freshTailEntries: 0,
+		},
+	};
+	const external = new ExternalContext(
+		f.context,
+		f.store,
+		async () => "SUMMARY".repeat(100),
+		{ policy: () => policy },
+	);
+	await external.refresh(new AbortController().signal);
+	const coordinator = new ContextCoordinator({
+		store: f.context,
+		external,
+		policy: () => policy,
+		busy: () => false,
+		compact: async () => {},
+	});
+	coordinator.configure({
+		estimator: conservativeEstimator,
+		estimateText: conservativeEstimator.text,
+		estimateMessages: conservativeEstimator.messages,
+		systemTokens: 0,
+		contextWindow: 10000,
+		reserveTokens: 0,
+		summarize: async () => "",
+		prepare() {
+			throw Error("unused");
+		},
+	});
+	expect(coordinator.injection([])).toBe("");
+	expect(coordinator.state().omittedParts).toContain("external");
 	coordinator.close();
 });

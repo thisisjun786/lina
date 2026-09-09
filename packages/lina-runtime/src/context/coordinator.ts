@@ -2,9 +2,19 @@ import type {
 	ContextStore,
 	SourceRef,
 } from "../../../lina-core/src/context/index.ts";
+import {
+	type ContextEstimator,
+	characterPrefix,
+	conservativeEstimator,
+} from "./budget.ts";
 import type { ExternalContext } from "./external.ts";
-import { contextInjection } from "./injection.ts";
+import { type ContextInjection, contextInjection } from "./injection.ts";
 import type { CompactSourceEvent } from "./native.ts";
+import { contextPolicyDigest } from "./policy.ts";
+import {
+	defaultEnginePolicy,
+	type EnginePolicySnapshot,
+} from "./policy-settings.ts";
 import type { ContextServices } from "./port.ts";
 import {
 	activateReceipt,
@@ -14,11 +24,13 @@ import {
 import { createSummaryTree, nativeSummary } from "./tree.ts";
 
 type Options = {
+	policy?: () => EnginePolicySnapshot;
 	store: ContextStore;
 	busy: () => boolean;
 	compact: () => Promise<unknown>;
 	external?: ExternalContext;
 	nativeTokens?: () => number | null;
+	activeRequestId?: () => string | undefined;
 };
 type OwnedRequest = {
 	id: string;
@@ -41,10 +53,32 @@ export class ContextCoordinator {
 	private degraded = false;
 	private status: CompactionStatus = "idle";
 	private recall = "";
-	private lastInjection = { text: "", tokens: 0, omitted: false };
+	private tailReason: string | null = null;
+	private tailGuard: () => void = () => {};
+	private currentRecall: () => string = () => "";
+	private lastInjection: ContextInjection = {
+		text: "",
+		tokens: 0,
+		omitted: false,
+		omittedParts: [],
+	};
 	constructor(private readonly options: Options) {}
 	configure(services: ContextServices): void {
 		this.services = services;
+	}
+	private estimator(): ContextEstimator {
+		const services = this.services;
+		return (
+			services?.estimator ??
+			(services
+				? {
+						id: "host-estimate-v1",
+						kind: "host",
+						text: services.estimateText,
+						messages: services.estimateMessages,
+					}
+				: conservativeEstimator)
+		);
 	}
 	get isBusy(): boolean {
 		return this.manualBusy || this.request !== undefined;
@@ -60,6 +94,10 @@ export class ContextCoordinator {
 				: 0,
 			injectionTokens: this.lastInjection.tokens,
 			injectionOmitted: this.lastInjection.omitted,
+			omittedParts: [...this.lastInjection.omittedParts],
+			tailReason: this.tailReason,
+			policyRevision: (this.options.policy ?? defaultEnginePolicy)().revision,
+			estimator: this.estimator().id,
 		};
 	}
 	subscribe(listener: () => void): () => void {
@@ -71,11 +109,53 @@ export class ContextCoordinator {
 	changed(): void {
 		if (!this.closed) for (const listener of this.listeners) listener();
 	}
-	setRecall(text: string): void {
-		this.recall = text.slice(0, 4096);
+	setRecall(text: string, current: () => string = () => ""): void {
+		this.recall = characterPrefix(text, 4096);
+		this.currentRecall = current;
 		this.changed();
 	}
-	injection(messages: readonly unknown[]): string {
+
+	readInjection(
+		messages: readonly unknown[],
+		nativeEntryIds?: readonly string[],
+	) {
+		const policyDigest = contextPolicyDigest(
+			(this.options.policy ?? defaultEnginePolicy)(),
+		);
+		const requestId = this.options.activeRequestId?.();
+		const working = this.options.store.readWorking(
+			requestId ? { activeRequestId: requestId } : {},
+		);
+		const active = this.options.external
+			? this.options.store.readActive()
+			: undefined;
+		const currentRecall = this.currentRecall;
+		const content = this.injection(messages, nativeEntryIds),
+			recall = this.recall;
+		const tailGuard = this.tailGuard;
+		return {
+			content,
+			beforeDeliver: () => {
+				if (this.closed)
+					throw Error("Context source is closed before delivery");
+				if (
+					contextPolicyDigest(
+						(this.options.policy ?? defaultEnginePolicy)(),
+					) !== policyDigest
+				)
+					throw Error("Context policy changed before delivery");
+				tailGuard();
+				working.beforeDeliver();
+				active?.beforeDeliver();
+				if (recall && characterPrefix(currentRecall(), 4096) !== recall)
+					throw Error("Recall source changed before delivery");
+			},
+		};
+	}
+	injection(
+		messages: readonly unknown[],
+		nativeEntryIds?: readonly string[],
+	): string {
 		if (!this.services || this.closed) return "";
 		const used = this.options.nativeTokens?.() ?? 0;
 		const services = this.options.external
@@ -86,11 +166,26 @@ export class ContextCoordinator {
 						Math.max(0, used - this.services.systemTokens),
 				}
 			: this.services;
+		const injectionTokens = (this.options.policy ?? defaultEnginePolicy)()
+			.context.injectionTokens;
+		const available = Math.min(
+			injectionTokens,
+			services.contextWindow -
+				services.reserveTokens -
+				services.systemTokens -
+				services.estimateMessages(messages),
+		);
+		const requestId = this.options.activeRequestId?.();
+		if (characterPrefix(this.currentRecall(), 4096) !== this.recall)
+			this.recall = "";
 		this.lastInjection = contextInjection(
-			this.options.store.working(),
+			this.options.store.working(
+				requestId ? { activeRequestId: requestId } : {},
+			),
 			this.recall,
 			messages,
 			services,
+			injectionTokens,
 		);
 		const external = this.options.external?.injection();
 		if (external) {
@@ -98,14 +193,29 @@ export class ContextCoordinator {
 				.filter(Boolean)
 				.join("\n\n");
 			const tokens = this.services.estimateText(text);
-			const available =
-				services.contextWindow -
-				this.services.reserveTokens -
-				this.services.systemTokens -
-				this.services.estimateMessages(messages);
+
 			if (tokens <= available)
 				this.lastInjection = { ...this.lastInjection, text, tokens };
-			else this.lastInjection.omitted = true;
+			else {
+				this.lastInjection.omitted = true;
+				this.lastInjection.omittedParts.push("external");
+			}
+		}
+		const tail = this.options.external?.tail(messages, nativeEntryIds);
+		this.tailGuard = tail?.beforeDeliver ?? (() => {});
+		this.tailReason = tail?.reason ?? null;
+		if (tail?.text) {
+			const text = [this.lastInjection.text, tail.text]
+					.filter(Boolean)
+					.join("\n\n"),
+				tokens = services.estimateText(text);
+			if (tokens <= available)
+				this.lastInjection = { ...this.lastInjection, text, tokens };
+			else this.tailReason = "tail_budget_exceeded";
+		}
+		if (this.tailReason) {
+			this.lastInjection.omitted = true;
+			this.lastInjection.omittedParts.push("tail");
 		}
 		this.changed();
 		return this.lastInjection.text;
@@ -168,6 +278,13 @@ export class ContextCoordinator {
 				ownedSignal,
 				prepared.fits,
 				this.services.summaryCacheKey?.(),
+				{
+					policy: this.options.policy ?? defaultEnginePolicy,
+					estimator: this.estimator(),
+					...(this.services.summaryCacheKey
+						? { routeKey: this.services.summaryCacheKey }
+						: {}),
+				},
 			);
 			ownedSignal.throwIfAborted();
 			if (this.request !== request || this.closed)
@@ -178,9 +295,10 @@ export class ContextCoordinator {
 				tokensBefore: prepared.tokensBefore,
 				details: {
 					linaContext: {
-						version: 1,
+						version: 2,
 						id: root.id,
 						expectedActiveId: active?.id ?? null,
+						sourceProofs: root.sourceProofs,
 					},
 				},
 			};

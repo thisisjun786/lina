@@ -1,4 +1,9 @@
-# Lina-owned Honcho
+# Retired Honcho deployment templates
+
+These historical templates are not part of the supported LINA runtime. LINA uses
+its own memory and resource engines. Existing external data is not imported or
+deleted; these files are retained only as a reference for prior installations.
+Do not use this document as the current LINA installation guide.
 
 These optional service templates target Honcho 3.1.0, pinned to upstream commit
 `a026bebdef91e2b0d052574a653afc39b3ad3918`. They describe configuration, not an

@@ -182,7 +182,7 @@ it("resolves distinct agent, global role and default selections in order", () =>
 	};
 	expect(profileFor(data, "conversation", "alpha")?.id).toBe(c.id);
 	expect(profileFor(data, "conversation", "beta")?.id).toBe(b.id);
-	expect(profileFor(data, "summary", "alpha")?.id).toBe(a.id);
+	expect(profileFor(data, "summary", "alpha")).toBeNull();
 });
 it("fences a trial after closing and preserves draft on failed reload", async () => {
 	const pending = Promise.withResolvers<unknown>();

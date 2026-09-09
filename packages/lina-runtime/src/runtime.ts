@@ -83,8 +83,9 @@ export class DurableRuntime {
 		store.recover();
 		for (const raw of native.history()) {
 			const entry = projectNativeEntry(raw);
-			if (entry) store.appendEntry(entry);
+			if (entry) this.appendEntry(entry);
 		}
+		this.options.recoverPending?.();
 		this.unsubscribe = native.subscribe((raw) => {
 			const event = decodeNativeEvent(raw);
 			if (event && !this.closed) this.receive(event);
@@ -144,6 +145,7 @@ export class DurableRuntime {
 		this.store.setRequest(slot.id, slot.consumed ? "interrupted" : "rejected", {
 			error,
 		});
+		this.options.finalizeRequest?.(slot.id);
 		this.active.delete(slot.id);
 		const position = this.correlation.indexOf(slot);
 		if (position >= 0) this.correlation.splice(position, 1);
@@ -180,11 +182,18 @@ export class DurableRuntime {
 	private receive(event: NativeEvent): void {
 		switch (event.type) {
 			case "entry": {
-				const inserted = this.store.appendEntry(event.entry);
-				if (inserted && event.entry.role === "user") {
-					const slot = this.correlation[0];
-					if (slot && slot.text === event.entry.text) {
-						this.correlation.shift();
+				const inserted = this.appendEntry(event.entry);
+				if (event.entry.role === "user") {
+					const proof = this.native.sourceEntryPolicy?.(event.entry.entryId);
+					// Optional legacy ports retain lifecycle compatibility, never source eligibility.
+					const slot = this.native.sourceEntryPolicy
+						? proof && this.active.get(proof.requestId)
+						: inserted && this.correlation[0]?.text === event.entry.text
+							? this.correlation[0]
+							: undefined;
+					if (slot && !slot.consumed) {
+						const index = this.correlation.indexOf(slot);
+						if (index >= 0) this.correlation.splice(index, 1);
 						slot.consumed = true;
 						this.store.setRequest(slot.id, "accepted", {
 							entryId: event.entry.entryId,
@@ -256,6 +265,7 @@ export class DurableRuntime {
 								"Queued input was not consumed before settlement",
 						},
 			);
+			this.options.finalizeRequest?.(slot.id);
 		}
 		this.active.clear();
 		this.correlation.length = 0;
@@ -269,6 +279,21 @@ export class DurableRuntime {
 
 	private emit(event: RuntimeNotice): void {
 		if (!this.closed) for (const listener of this.listeners) listener(event);
+	}
+	private appendEntry(
+		entry: import("../../lina-core/src/protocol.ts").EntryInput,
+	): boolean {
+		const proof = this.native.sourceEntryPolicy?.(entry.entryId);
+		if (!proof) return this.store.appendEntry(entry);
+		const policy = this.store.requestSourcePolicy(proof.requestId);
+		if (
+			proof.entryId !== entry.entryId ||
+			proof.sessionId !== this.binding.sessionId ||
+			policy?.nativeEpoch !== proof.nativeEpoch ||
+			policy.scopeDigest !== proof.scopeDigest
+		)
+			throw Error("Native entry source differs from journal binding");
+		return this.store.appendSourceEntry(entry, proof.requestId);
 	}
 	private publish(): void {
 		if (!this.closed)

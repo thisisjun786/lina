@@ -1,43 +1,94 @@
 import type { WorkingState } from "../../../lina-core/src/context/index.ts";
+import {
+	type ContextEstimator,
+	characterPrefix,
+	takeBudgetPrefix,
+} from "./budget.ts";
 import type { ContextServices } from "./port.ts";
 
+export type ContextOmittedPart = "working" | "recall" | "external" | "tail";
+export interface ContextInjection {
+	text: string;
+	tokens: number;
+	omitted: boolean;
+	omittedParts: ContextOmittedPart[];
+}
 export function contextInjection(
 	working: WorkingState,
 	recall: string,
 	messages: readonly unknown[],
 	services: ContextServices,
-): { text: string; tokens: number; omitted: boolean } {
+	maxTokens = 2048,
+): ContextInjection {
 	const content = [
 		working.goal,
 		...working.decisions,
 		...working.openItems,
 		...working.nextSteps,
 	].some(Boolean);
-	if (!content && !recall) return { text: "", tokens: 0, omitted: false };
+	const omittedParts: ContextOmittedPart[] = [];
+	if (!content && !recall)
+		return { text: "", tokens: 0, omitted: false, omittedParts };
 	const budget = Math.min(
-		2048,
+		maxTokens,
 		services.contextWindow -
 			services.reserveTokens -
 			services.systemTokens -
 			services.estimateMessages(messages),
 	);
+	const estimator: ContextEstimator = services.estimator ?? {
+		id: "host-estimate-v1",
+		kind: "host",
+		text: services.estimateText,
+		messages: services.estimateMessages,
+	};
 	const prefix =
 		"[Reference data from prior work and memory. Latest user instructions override it.]\n";
-	let capsule = content ? JSON.stringify(working) : "";
-	let recalled = recall.slice(0, 4096);
-	let text = `${prefix}Working state: ${capsule}\nMemory (freshness unknown): ${recalled}`;
-	let omitted = recalled.length < recall.length;
-	if (services.estimateText(text) > budget) {
+	const state = structuredClone(working);
+	let recalled = characterPrefix(recall, 4096);
+	if (recalled.length < recall.length) omittedParts.push("recall");
+	const render = (goal = state.goal) =>
+		prefix +
+		(content ? `Working state: ${JSON.stringify({ ...state, goal })}` : "") +
+		(recalled ? `\nMemory (freshness unknown): ${recalled}` : "") +
+		(omittedParts.includes("working")
+			? "\n[Abridged; use lina_status for full working state]"
+			: "");
+	if (services.estimateText(render()) > budget && recalled) {
 		recalled = "";
-		omitted = true;
-		text = `${prefix}Working state: ${capsule}`;
+		if (!omittedParts.includes("recall")) omittedParts.push("recall");
 	}
-	while (capsule.length && services.estimateText(text) > budget) {
-		capsule = capsule.slice(0, Math.floor(capsule.length * 0.75));
-		text = `${prefix}Working state excerpt: ${capsule}\n[Abridged; use lina_status for current working state and lina_context_expand for archived sources]`;
-		omitted = true;
+	if (services.estimateText(render()) > budget && content) {
+		omittedParts.push("working");
+		for (const key of [
+			"nextSteps",
+			"openItems",
+			"decisions",
+			"sourceEntryIds",
+		] as const) {
+			while (state[key].length && services.estimateText(render()) > budget)
+				state[key].pop();
+		}
+		if (services.estimateText(render()) > budget) {
+			try {
+				state.goal = takeBudgetPrefix(
+					state.goal,
+					Math.max(0, budget),
+					estimator,
+					render,
+				);
+			} catch {
+				state.goal = "";
+			}
+		}
 	}
-	if (services.estimateText(text) > budget)
-		return { text: "", tokens: 0, omitted: true };
-	return { text, tokens: services.estimateText(text), omitted };
+	if (!content && !recalled)
+		return { text: "", tokens: 0, omitted: true, omittedParts };
+	const text = render(),
+		tokens = services.estimateText(text);
+	if (!Number.isSafeInteger(tokens) || tokens < 0)
+		throw Error("Invalid context token estimate");
+	if (tokens > budget)
+		return { text: "", tokens: 0, omitted: true, omittedParts };
+	return { text, tokens, omitted: omittedParts.length > 0, omittedParts };
 }

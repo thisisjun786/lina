@@ -25,15 +25,39 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { BotBinding } from "../../lina-core/src/protocol.ts";
 import {
+	captureSourceProofs,
+	type SourceLookup,
+} from "../../lina-core/src/source-policy.ts";
+import {
 	buildObservationPrompt,
 	renderMemoryReference,
 } from "../src/engine/prompt.ts";
 import { EngineStore } from "../src/engine/store.ts";
-import type { Observation, SourceEntry } from "../src/engine/types.ts";
-import { parseObservations } from "../src/engine/validation.ts";
+import type {
+	EngineOptions,
+	Observation,
+	SourceEntry,
+} from "../src/engine/types.ts";
+import { hash, parseObservations } from "../src/engine/validation.ts";
+import { removeReasoningSchema } from "./fixtures/engine-v3.ts";
+import { ordinarySource } from "./fixtures/native-sources.ts";
 
 const roots: string[] = [];
 const stores: EngineStore[] = [];
+const lookups = new WeakMap<EngineStore, SourceLookup>();
+function engine(path: string, binding: BotBinding, options: EngineOptions) {
+	const store = new EngineStore(path, binding, options);
+	lookups.set(store, options.lookup);
+	return store;
+}
+function proofsFor(store: EngineStore) {
+	const lookup = lookups.get(store);
+	if (!lookup) throw Error("missing fixture lookup");
+	return captureSourceProofs(
+		["u1", "u2", "u3", "u4", "a1"].filter((id) => lookup(id)),
+		lookup,
+	);
+}
 function fixture(botId = "lina") {
 	const root = mkdtempSync(join(tmpdir(), "lina-engine-"));
 	roots.push(root);
@@ -77,11 +101,12 @@ function fixture(botId = "lina") {
 		["m1", { entryId: "m1", role: "meta", text: "hiking" }],
 		["n1", { entryId: "n1", role: undefined, text: "hiking" }],
 	]);
+	for (const [id, entry] of entries) entries.set(id, ordinarySource(entry));
 	let time = 1_800_000_000_000;
 	const path = join(root, "engine.sqlite");
 	const options = { now: () => time, lookup: (id: string) => entries.get(id) };
 	const open = () => {
-		const s = new EngineStore(path, binding, options);
+		const s = engine(path, binding, options);
 		stores.push(s);
 		return s;
 	};
@@ -118,6 +143,7 @@ function apply(
 	observations = [observation()],
 ) {
 	return store.apply({
+		sourceProofs: proofsFor(store),
 		requestId,
 		expectedRevision: store.snapshot().revision,
 		observations,
@@ -167,6 +193,7 @@ describe("native EngineStore frozen contract", () => {
 		const s = f.open();
 		expect(s.agentId).toBe("lina");
 		const input = {
+			sourceProofs: proofsFor(s),
 			requestId: "one",
 			expectedRevision: 0,
 			observations: [observation()],
@@ -186,17 +213,11 @@ describe("native EngineStore frozen contract", () => {
 				observations: [observation({ text: "changed" })],
 			}),
 		).toThrow(/receipt/);
-		expect(
-			() =>
-				new EngineStore(f.path, { ...f.binding, botId: "other" }, f.options),
+		expect(() =>
+			engine(f.path, { ...f.binding, botId: "other" }, f.options),
 		).toThrow(/binding/);
-		expect(
-			() =>
-				new EngineStore(
-					f.path,
-					{ ...f.binding, sessionId: "another" },
-					f.options,
-				),
+		expect(() =>
+			engine(f.path, { ...f.binding, sessionId: "another" }, f.options),
 		).toThrow(/binding/);
 		const other = fixture("other").open();
 		expect(other.snapshot().records).toEqual([]);
@@ -303,6 +324,7 @@ describe("native EngineStore frozen contract", () => {
 		expect(s.state().records[0]?.generation).toBe(1);
 		expect(() =>
 			s.apply({
+				sourceProofs: proofsFor(s),
 				requestId: "late",
 				expectedRevision: before.revision,
 				observations: [observation()],
@@ -323,6 +345,7 @@ describe("native EngineStore frozen contract", () => {
 		expect(s.state().records).toEqual([]);
 		expect(() =>
 			s.apply({
+				sourceProofs: proofsFor(s),
 				requestId: "late",
 				expectedRevision: captured.revision,
 				observations: [observation()],
@@ -345,6 +368,7 @@ describe("native EngineStore frozen contract", () => {
 		expect(() =>
 			s.apply(
 				{
+					sourceProofs: proofsFor(s),
 					requestId: "abort",
 					expectedRevision: 0,
 					observations: [observation()],
@@ -356,7 +380,7 @@ describe("native EngineStore frozen contract", () => {
 		apply(s, "abort");
 		const original = f.options.lookup;
 		let fire = true;
-		const racing = new EngineStore(f.path, f.binding, {
+		const racing = engine(f.path, f.binding, {
 			...f.options,
 			lookup: (id) => {
 				if (fire) {
@@ -372,6 +396,7 @@ describe("native EngineStore frozen contract", () => {
 		stores.push(racing);
 		expect(() =>
 			racing.apply({
+				sourceProofs: proofsFor(racing),
 				requestId: "race",
 				expectedRevision: 1,
 				observations: [
@@ -394,9 +419,9 @@ describe("native EngineStore frozen contract", () => {
 		apply(s, "repeat", [observation({ kind: "mood", key: "mood" })]);
 		expect(s.state().records.map((r) => r.kind)).toEqual(["concern"]);
 		expect(s.recall("hiking").map((r) => r.kind)).toEqual(["concern"]);
-		expect(renderMemoryReference(s.snapshot(), 4000)).not.toContain(
-			'"kind":"mood"',
-		);
+		expect(
+			renderMemoryReference(s.snapshot(), 4000, lookups.get(s)),
+		).not.toContain('"kind":"mood"');
 		expect(() =>
 			apply(s, "unsupported-resolve", [
 				observation({
@@ -450,7 +475,7 @@ describe("native EngineStore frozen contract", () => {
 		expect(() => s.recall("hiking", { limit: NaN })).toThrow();
 		for (const budget of [0, 1, 128, 1000])
 			expect(
-				renderMemoryReference(s.snapshot(), budget).length,
+				renderMemoryReference(s.snapshot(), budget, lookups.get(s)).length,
 			).toBeLessThanOrEqual(budget);
 	});
 	test("parser rejects unknown fields, invalid enums, oversize/empty fields and duplicate slots", () => {
@@ -473,6 +498,7 @@ describe("native EngineStore frozen contract", () => {
 		const s = fixture().open();
 		expect(() =>
 			s.apply({
+				sourceProofs: proofsFor(s),
 				requestId: "invalid",
 				expectedRevision: 0,
 				observations: [{ ...observation(), extra: true }],
@@ -488,17 +514,23 @@ describe("native EngineStore frozen contract", () => {
 			[required(f.entries.get("u1"))],
 			s.snapshot(),
 			8000,
+			f.options.lookup,
 		);
 		expect(prompt).toContain("u1");
 		expect(prompt).toContain("I enjoy hiking.");
 		expect(prompt.length).toBeLessThanOrEqual(8000);
-		const reference = renderMemoryReference(s.snapshot(), 4000);
+		const reference = renderMemoryReference(s.snapshot(), 4000, lookups.get(s));
 		expect(reference).toContain("reference-only");
 		expect(reference).toContain("provisional");
 		expect(reference).toContain("authored core");
 		expect(reference).toContain("explicit preferences");
 		expect(() =>
-			buildObservationPrompt([required(f.entries.get("u1"))], s.snapshot(), 10),
+			buildObservationPrompt(
+				[required(f.entries.get("u1"))],
+				s.snapshot(),
+				10,
+				f.options.lookup,
+			),
 		).toThrow(/budget/);
 	});
 	test("reopening rejects unknown persisted observation enums and mismatched source projection", () => {
@@ -519,7 +551,7 @@ describe("native EngineStore frozen contract", () => {
 	});
 	test("invalid derived expiry rolls back without a receipt or partial record", () => {
 		const f = fixture();
-		const s = new EngineStore(f.path, f.binding, {
+		const s = engine(f.path, f.binding, {
 			...f.options,
 			now: () => 8_640_000_000_000_000,
 		});
@@ -532,7 +564,7 @@ describe("native EngineStore frozen contract", () => {
 	test("abort signaled during lookup leaves zero mutation and allows a later retry", () => {
 		const f = fixture();
 		const control = new AbortController();
-		const s = new EngineStore(f.path, f.binding, {
+		const s = engine(f.path, f.binding, {
 			...f.options,
 			lookup: (id) => {
 				control.abort();
@@ -543,6 +575,7 @@ describe("native EngineStore frozen contract", () => {
 		expect(() =>
 			s.apply(
 				{
+					sourceProofs: proofsFor(s),
 					requestId: "lookup-abort",
 					expectedRevision: 0,
 					observations: [observation()],
@@ -608,7 +641,7 @@ test("a later weak inference cannot replace an explicit user correction", () => 
 
 test("recovered older explicit evidence cannot retract a newer correction", () => {
 	const f = fixture();
-	const s = new EngineStore(f.path, f.binding, {
+	const s = engine(f.path, f.binding, {
 		...f.options,
 		sourceSequence: (id) => ({ u1: 1, u2: 2, u3: 3 })[id],
 	});
@@ -627,12 +660,15 @@ test("recovered older explicit evidence cannot retract a newer correction", () =
 
 test("backfilled mood expires from its source time, not processing time", () => {
 	const f = fixture();
-	f.entries.set("u1", {
-		entryId: "u1",
-		role: "user",
-		text: "nervous",
-		timestamp: "2020-01-01T00:00:00.000Z",
-	});
+	f.entries.set(
+		"u1",
+		ordinarySource({
+			entryId: "u1",
+			role: "user",
+			text: "nervous",
+			timestamp: "2020-01-01T00:00:00.000Z",
+		}),
+	);
 	const s = f.open();
 	apply(s, "old-mood", [
 		observation({
@@ -650,11 +686,14 @@ test("explicit conversational withdrawal retracts its slot and fences replay", (
 	const f = fixture();
 	const s = f.open();
 	apply(s, "first", [observation({ evidence: "explicit" })]);
-	f.entries.set("u4", {
-		entryId: "u4",
-		role: "user",
-		text: "Forget that hiking preference",
-	});
+	f.entries.set(
+		"u4",
+		ordinarySource({
+			entryId: "u4",
+			role: "user",
+			text: "Forget that hiking preference",
+		}),
+	);
 	apply(s, "withdraw", [
 		observation({
 			evidence: "explicit",
@@ -706,9 +745,21 @@ test("exact v1 engine migration retains records, sources and receipt fingerprint
 	const before = s.snapshot();
 	s.close();
 	const db = new DatabaseSync(f.path);
-	db.exec("DROP TABLE engine_slot_fences; PRAGMA user_version=1");
+	removeReasoningSchema(db);
+	db.exec(
+		"DROP TABLE engine_slot_fences; DROP TABLE engine_request_sources; DROP TABLE engine_record_history; UPDATE engine_records SET data=json_remove(data, '$.sourceProofs', '$.sourceRequestId'); PRAGMA user_version=1",
+	);
+	const old = {
+		expectedRevision: 0,
+		observations: [{ ...observation(), status: "active" }],
+	};
+	db.prepare("UPDATE engine_receipts SET fingerprint=?").run(hash(old));
 	db.close();
 	const reopened = f.open();
-	expect(reopened.snapshot()).toEqual(before);
-	expect(reopened.hasReceipt("r")).toBe(true);
+	expect(reopened.snapshot()).toMatchObject({
+		revision: before.revision,
+		records: [],
+	});
+	expect(reopened.recordCount()).toBe(1);
+	expect(reopened.hasReceipt("r")).toBe(false);
 });
