@@ -84,3 +84,78 @@ test("fleet rejects replay after frozen effort and cap settings change", async (
 		await f.close();
 	}
 });
+
+test("Fleet resolves authored tiers into actual frozen profile effort and output caps", async () => {
+	const f = await fleetLifeFixture();
+	try {
+		f.setup(false);
+		const store = storeOf(f);
+		const { revision: settingsRevision, ...settings } =
+			f.app.fleet.modelSettings.snapshot();
+		f.app.fleet.modelSettings.replace(settingsRevision, {
+			...settings,
+			routes: {
+				version: 1,
+				tiers: {
+					quick: { profileId: "director" },
+					standard: { profileId: "actor" },
+					deep: {
+						profileId: "director",
+						reasoning: "high",
+						maxOutputTokens: 1024,
+					},
+					intensive: {
+						profileId: "actor",
+						reasoning: "medium",
+						maxOutputTokens: 2048,
+					},
+				},
+				roleTiers: {},
+			},
+		});
+		const { worldId, revision, ...config } = store.lifeConfig("test-world");
+		store.setLifeConfig(worldId, revision, {
+			...config,
+			version: 2,
+			work: null,
+			models: { director: { tier: "deep" }, actor: { tier: "intensive" } },
+		});
+		const step = await f.app.fleet.lifeRuntime.run(
+			worldId,
+			"tiers",
+			2,
+			new AbortController().signal,
+		);
+		expect(step.status).toBe("accepted");
+		expect(step.source.resolvedModels?.director).toMatchObject({
+			profileId: "director",
+			reasoning: "high",
+			maxOutputTokens: 1024,
+		});
+		expect(step.source.resolvedModels?.actor).toMatchObject({
+			profileId: "actor",
+			reasoning: "medium",
+			maxOutputTokens: 2048,
+		});
+		expect(step.models.length).toBeGreaterThan(0);
+		for (const record of step.models) {
+			const request = record.prepared.request;
+			if (request.version !== 3) throw Error("Expected frozen request");
+			expect(request.limits.maxOutputTokens).toBeLessThanOrEqual(
+				request.lane === "director" ? 1024 : 2048,
+			);
+		}
+		await f.restart();
+		expect(
+			await f.app.fleet.lifeRuntime.run(
+				worldId,
+				"tiers",
+				2,
+				new AbortController().signal,
+			),
+		).toEqual(step);
+		expect(f.providerCalls).toBe(0);
+	} finally {
+		await f.close();
+	}
+});

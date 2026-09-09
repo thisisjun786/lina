@@ -73,7 +73,12 @@ test("live TaskManager revocation fences derived feed and interactions before a 
 			),
 			lease = run.lease,
 			item = run.batch[0];
-		if (!lease || !item || !config.models?.actor)
+		if (
+			!lease ||
+			!item ||
+			!config.models?.actor ||
+			"tier" in config.models.actor
+		)
 			throw Error("Missing work-derived publication candidate");
 		const job = store.freezePublicationJob(
 			lease,

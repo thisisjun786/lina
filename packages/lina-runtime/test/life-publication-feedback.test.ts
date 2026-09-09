@@ -62,7 +62,8 @@ async function setup(maxActionsPerChain = 20) {
 		);
 		const route = config.models?.actor,
 			claim = job.material?.allowedClaims[0];
-		if (!route || !claim) throw Error("Missing public source");
+		if (!route || "tier" in route || !claim)
+			throw Error("Missing public source");
 		const request: PublicationModelRequest = {
 			version: 2,
 			id: publicationModelId(job.attemptId),

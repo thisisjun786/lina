@@ -406,6 +406,7 @@ test("paused and missing actor configurations report explicit inactivity without
 	await expect(
 		f.runner.run("test-world", "paused", 2, signal()),
 	).rejects.toThrow(/paused/);
+	if (config.version !== 1) throw Error("Expected legacy fixture config");
 	f.store.setLifeConfig("test-world", 2, {
 		...config,
 		models: { director: config.models?.director ?? null, actor: null },
@@ -480,6 +481,7 @@ for (const quiet of [true, false]) {
 				const resolve = (lane: "director" | "actor") => {
 					const route = config.models?.[lane];
 					if (!route) return null;
+					if ("tier" in route) throw Error("Expected exact fixture model");
 					const fields = {
 						profileId: lane,
 						...route,

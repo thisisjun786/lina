@@ -17,7 +17,7 @@ test("actual v5 model request serialized before shared persona reopens without c
 		const step = f.store.prepareLifeStep(f.request, () => 42),
 			agentId = step.decision.agentId,
 			route = step.source.config.models?.director;
-		if (!agentId || !route) throw Error("Missing director");
+		if (!agentId || !route || "tier" in route) throw Error("Missing director");
 		const request = {
 			version: 1 as const,
 			id: "legacy-director",

@@ -17,7 +17,8 @@ import {
 function director(step: LifeStep): PreparedLifeModelRequest {
 	const agentId = step.decision.agentId,
 		route = step.source.config.models?.director;
-	if (!agentId || !route) throw Error("Missing fixture actor route");
+	if (!agentId || !route || "tier" in route)
+		throw Error("Missing fixture actor route");
 	const request = {
 		version: 1 as const,
 		id: "migration-director",

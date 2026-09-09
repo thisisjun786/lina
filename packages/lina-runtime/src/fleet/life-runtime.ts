@@ -343,6 +343,7 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 				)
 					throw Error("LIFE exact model/settings selection changed");
 			} else if (
+				"tier" in route ||
 				settings.revision !== request.modelSettingsRevision ||
 				route.provider !== request.provider ||
 				route.model !== request.model

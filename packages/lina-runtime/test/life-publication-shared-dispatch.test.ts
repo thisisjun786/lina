@@ -89,7 +89,12 @@ test.each(["step", "publication"] as const)(
 				maxOutputBytes: 10000,
 				timeoutMs: 1000,
 			};
-			if (!config.models?.director || !config.models.actor)
+			if (
+				!config.models?.director ||
+				!config.models.actor ||
+				"tier" in config.models.director ||
+				"tier" in config.models.actor
+			)
 				throw Error("Missing routes");
 			const sr: StepModelRequest = {
 				version: 1,

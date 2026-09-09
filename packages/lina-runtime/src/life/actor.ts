@@ -49,7 +49,11 @@ export function buildLifeRequest(
 	prompt: { systemPrompt: string; input: string },
 ): LifeModelRequest {
 	const config = step.source.config;
-	const route = config.models?.[lane === "director" ? "director" : "actor"];
+	const selector = config.models?.[lane === "director" ? "director" : "actor"];
+	const route =
+		selector && "tier" in selector
+			? step.source.resolvedModels?.[lane === "director" ? "director" : "actor"]
+			: selector;
 	if (!route || !config.usage)
 		throw new LifeExecutionError(
 			"unavailable",
@@ -104,7 +108,8 @@ export function buildLifeRequest(
 		stepId: step.id,
 		lane,
 		agentId,
-		...route,
+		provider: route.provider,
+		model: route.model,
 		modelSettingsRevision: step.source.modelSettingsRevision,
 		...prompt,
 		limits: {

@@ -120,7 +120,13 @@ function requestFor(
 	const route = config.models?.actor,
 		budget = config.usage,
 		evaluation = config.limits?.evaluation;
-	if (!route || !budget || !evaluation || job.modelSettingsRevision === null)
+	if (
+		!route ||
+		"tier" in route ||
+		!budget ||
+		!evaluation ||
+		job.modelSettingsRevision === null
+	)
 		throw new LifeExecutionError(
 			"unavailable",
 			"Publication model or evaluation configuration missing",

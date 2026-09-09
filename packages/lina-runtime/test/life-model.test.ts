@@ -320,7 +320,7 @@ test("frozen step requests carry lane selection and respect its output cap", asy
 	step.version = 4;
 	const resolve = (lane: "director" | "actor") => {
 		const route = step.source.config.models?.[lane];
-		if (!route) throw Error("Missing fixture route");
+		if (!route || "tier" in route) throw Error("Missing fixture route");
 		const fields = {
 			profileId: lane,
 			...route,

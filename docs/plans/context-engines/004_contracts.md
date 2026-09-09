@@ -149,3 +149,9 @@ resource activity outcome은 `recorded | verified_result | failed`다. 공통 wo
 에이전트 활동 도구는 `lina_resource_activity_record`, `correct`, `grant`, `restrict` 접미사를 사용한다. HTTP는 `/api/agents/:agentId/resources/activities/{record|correct|grant|restrict}`에 POST하고, `/api/agents/:agentId/resources/activities/:activityId`에서 GET한다. 기존 인증·Origin 거부·본문 크기 제한을 적용한다. 전역 자료 경로의 무주체 호출은 활동을 변경하거나 조회할 수 없다.
 
 도구와 HTTP는 같은 입력 검증과 명령 함수를 사용한다. actor는 호스트의 agent scope에서 정하며 `hostConfirmed`는 입력으로 받지 않는다. 모델·일반 HTTP 입력의 outcome은 recorded/failed만 허용한다. 조회는 해당 활동의 주체로 제한하고 receipt·공유 필드·철회 상태만 반환한다. 원본 본문과 내부 스냅샷은 반환하지 않는다. 변경 후 기존 LIFE 변경 알림을 호출하되, 세계의 주기·실행 모드·예산은 수정하지 않는다.
+
+### 세계의 공용 모델 등급 선택
+
+LifeConfig v2의 director/actor는 기존 `{provider, model}` 또는 `{tier}` 중 하나를 받는다. tier는 quick/standard/deep/intensive이며 두 형식을 섞으면 거부한다. v1은 직접 지정 형식만 유지한다. Fleet가 실행 전에 공통 모델 설정에서 등급을 해석하고, Step v4에 실제 프로필·추론 수준·출력 한도를 저장한다. 등급 자체를 모델 요청의 provider/model로 보내지 않는다. 일반 대화의 모델 설정은 변경하지 않는다.
+
+게시 실행의 기존 요청 v2는 등급 선택을 해석하지 않는다. 게시물에 고정된 선택을 저장하는 새 실행 계약을 연결할 때까지 등급 기반 게시 요청을 거부한다. 이 경로의 미완료를 전체 모델 라우팅 완료로 간주하지 않는다.

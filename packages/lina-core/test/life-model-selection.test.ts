@@ -46,3 +46,49 @@ test("frozen LIFE selection rejects tampering and invalid independently fingerpr
 		).toThrow();
 	}
 });
+
+test("world config v2 accepts explicit four-tier selectors and rejects ambiguous routes", async () => {
+	const { parseLifeConfigInput } = await import(
+		"../src/world/authoring-request-validation.ts"
+	);
+	const { autonomySource } = await import("./life-autonomy-pure-fixture.ts");
+	const {
+		worldId: _id,
+		revision: _revision,
+		...base
+	} = autonomySource().config;
+	for (const tier of ["quick", "standard", "deep", "intensive"] as const) {
+		const input = {
+			...base,
+			version: 2,
+			work: null,
+			models: { director: { tier }, actor: { tier } },
+		};
+		expect(parseLifeConfigInput(input).models).toEqual(input.models);
+	}
+	expect(() =>
+		parseLifeConfigInput({
+			...base,
+			version: 2,
+			work: null,
+			models: { director: { tier: "unknown" }, actor: null },
+		}),
+	).toThrow();
+	expect(() =>
+		parseLifeConfigInput({
+			...base,
+			version: 2,
+			work: null,
+			models: {
+				director: { tier: "quick", provider: "provider", model: "model" },
+				actor: null,
+			},
+		}),
+	).toThrow();
+	expect(() =>
+		parseLifeConfigInput({
+			...base,
+			models: { director: { tier: "quick" }, actor: null },
+		}),
+	).toThrow();
+});

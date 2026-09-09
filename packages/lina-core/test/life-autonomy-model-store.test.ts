@@ -17,7 +17,7 @@ function request(
 	const agentId = step.decision.agentId;
 	if (!agentId) throw Error("Expected active fixture");
 	const route = step.source.config.models?.director;
-	if (!route) throw Error("Missing fixture route");
+	if (!route || "tier" in route) throw Error("Missing fixture route");
 	const request = {
 		version: 1 as const,
 		id: "request-one",
@@ -292,7 +292,7 @@ test("a completed over-reservation model cannot fund another lane even with rema
 		);
 		const current = f.store.lifeStep(step.worldId, step.id),
 			route = f.source.config.models?.actor;
-		if (!route) throw Error("Missing fixture route");
+		if (!route || "tier" in route) throw Error("Missing fixture route");
 		const actor = {
 			...p.request,
 			...route,

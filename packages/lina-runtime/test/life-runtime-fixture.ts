@@ -1,4 +1,3 @@
-import type { LifeConfig } from "../../lina-core/src/world/authoring-types.ts";
 import type {
 	LifeModelReconciliation,
 	LifeModelRecord,
@@ -141,7 +140,7 @@ export class RuntimeModel implements LifeModelPort {
 	}
 }
 
-export function runtimeConfig(): LifeConfig {
+export function runtimeConfig(): import("../../lina-core/src/world/authoring-types.ts").LifeConfigV1 {
 	return {
 		version: 1,
 		worldId: "test-world",

@@ -253,8 +253,15 @@ export type LifeConfigInputV1 = {
 		maxPerWindow: number;
 	} | null;
 };
-export type LifeConfigInputV2 = Omit<LifeConfigInputV1, "version"> & {
+export type LifeConfigInputV2 = Omit<
+	LifeConfigInputV1,
+	"version" | "models"
+> & {
 	version: 2;
+	models: {
+		director: import("./model-selection.ts").LifeModelSelector | null;
+		actor: import("./model-selection.ts").LifeModelSelector | null;
+	} | null;
 	work: WorkConfig | null;
 };
 export type LifeConfigInput = LifeConfigInputV1 | LifeConfigInputV2;

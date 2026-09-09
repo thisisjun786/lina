@@ -401,6 +401,8 @@ export class PublicationExecution {
 			config = this.access.config(lease.worldId),
 			route = config.models?.actor,
 			run = this.runs.get(lease.worldId, runId);
+		if (route && "tier" in route)
+			throw Error("Tier publication requires frozen model owner");
 		if (
 			job.status !== "prepared" ||
 			r.worldId !== job.worldId ||
@@ -624,6 +626,8 @@ export class PublicationExecution {
 				const request = record.prepared.request;
 				const route = this.access.configAt(worldId, material.configRevision)
 					.models?.actor;
+				if (route && "tier" in route)
+					throw Error("Tier publication requires frozen model owner");
 				if (
 					request.version !== 2 ||
 					request.provider !== route?.provider ||

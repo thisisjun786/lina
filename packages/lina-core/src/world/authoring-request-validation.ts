@@ -27,6 +27,7 @@ import {
 	revision,
 } from "./life-json.ts";
 import { parseLifeViewLimits } from "./life-validation.ts";
+import { parseLifeModelSelector } from "./model-selection.ts";
 import { fields } from "./validation.ts";
 import { parseWorkConfig } from "./work-validation.ts";
 
@@ -103,10 +104,18 @@ export function parseLifeConfigInput(value: unknown): LifeConfigInput {
 		"version" in value &&
 		value.version === 2
 	) {
+		if (!("models" in value)) throw Error("Missing model configuration");
 		if (!("work" in value)) throw Error("Missing work configuration");
 		const { work, version: _version, ...rest } = value;
 		return {
-			...parseLifeConfigV1({ ...rest, version: 1 }),
+			...parseLifeConfigV1({ ...rest, models: null, version: 1 }),
+			models: nullable(value.models, (item) => {
+				fields(item, ["director", "actor"]);
+				return {
+					director: nullable(item.director, parseLifeModelSelector),
+					actor: nullable(item.actor, parseLifeModelSelector),
+				};
+			}),
 			version: 2,
 			work: work === null ? null : parseWorkConfig(work),
 		};

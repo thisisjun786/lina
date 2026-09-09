@@ -707,7 +707,15 @@ export class AutonomyPersistence {
 		} else if (r.version !== 1)
 			throw Error("Legacy step requires legacy model request");
 		const route =
-			step.source.config.models?.[r.lane === "director" ? "director" : "actor"];
+			step.version === 4
+				? step.source.resolvedModels?.[
+						r.lane === "director" ? "director" : "actor"
+					]
+				: step.source.config.models?.[
+						r.lane === "director" ? "director" : "actor"
+					];
+		if (route && "tier" in route)
+			throw Error("Tier route requires frozen LIFE owner");
 		if (
 			step.decision.kind !== "event" ||
 			r.stepId !== step.id ||

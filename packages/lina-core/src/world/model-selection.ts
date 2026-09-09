@@ -60,3 +60,20 @@ export function parseLifeResolvedModels(value: unknown): LifeResolvedModels {
 		actor: value.actor === null ? null : parseLifeModelSelection(value.actor),
 	};
 }
+
+export type LifeModelSelector =
+	| { provider: string; model: string }
+	| { tier: "quick" | "standard" | "deep" | "intensive" };
+export function parseLifeModelSelector(value: unknown): LifeModelSelector {
+	if (value !== null && typeof value === "object" && "tier" in value) {
+		fields(value, ["tier"]);
+		return {
+			tier: enumeration(value.tier, ["quick", "standard", "deep", "intensive"]),
+		};
+	}
+	fields(value, ["provider", "model"]);
+	return {
+		provider: authoringText(value.provider),
+		model: authoringText(value.model),
+	};
+}

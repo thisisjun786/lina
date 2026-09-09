@@ -38,6 +38,11 @@ export function assertAutonomySource(source: AutonomySource): void {
 		life.definitionRevision !== pack.life.revision
 	)
 		throw Error("Autonomy source boundary mismatch");
+	if (
+		!source.resolvedModels &&
+		Object.values(source.config.models ?? {}).some((r) => r && "tier" in r)
+	)
+		throw Error("Tier route requires frozen LIFE model selections");
 	if (source.resolvedModels) {
 		const models = parseLifeResolvedModels(source.resolvedModels);
 		if (source.work?.version !== 2)
@@ -49,8 +54,9 @@ export function assertAutonomySource(source: AutonomySource): void {
 				if (selected !== null) throw Error("Unexpected resolved LIFE lane");
 			} else if (
 				!selected ||
-				selected.provider !== configured.provider ||
-				selected.model !== configured.model ||
+				("provider" in configured &&
+					(selected.provider !== configured.provider ||
+						selected.model !== configured.model)) ||
 				selected.settingsRevision !== source.modelSettingsRevision
 			)
 				throw Error("Resolved LIFE model source mismatch");

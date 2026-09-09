@@ -64,7 +64,9 @@ export function autonomyPack(): WorldPackV3 {
 		},
 	};
 }
-export function autonomySource(): AutonomySource {
+export function autonomySource(): AutonomySource & {
+	config: import("../src/world/authoring-types.ts").LifeConfigV1;
+} {
 	const pack = autonomyPack(),
 		world = initialSnapshot(pack.world),
 		life = initialLifeState(world, pack.life);
@@ -74,6 +76,7 @@ export function autonomySource(): AutonomySource {
 		pack,
 		config: {
 			...unconfigured(),
+			version: 1,
 			worldId: pack.worldId,
 			revision: 1,
 			clock: { stepSize: 1, intervalMs: null, maxCatchUpSteps: 0 },
@@ -157,7 +160,7 @@ export function autonomySource(): AutonomySource {
 		modelSettingsRevision: 1,
 	};
 }
-export function pureStep(source = autonomySource()): LifeStep {
+export function pureStep(source: AutonomySource = autonomySource()): LifeStep {
 	return {
 		version: 1,
 		id: "step-1",
