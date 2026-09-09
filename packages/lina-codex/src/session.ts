@@ -999,7 +999,7 @@ async function startSession(
 					text,
 					admission.signal,
 					history
-						.filter((entry) => entry.codex?.nativeEpoch === epoch)
+						.filter((entry) => (entry.codex?.nativeEpoch ?? 0) === epoch)
 						.map((entry) => entry.id),
 				);
 				const checkPrepared = responseDeliveryCheck(prepared);

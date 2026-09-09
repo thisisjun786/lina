@@ -209,6 +209,32 @@ async function finish(
 	await pending;
 }
 
+test("native context identities include originals already delivered in epoch zero", async () => {
+	const f = setupNative();
+	const seen: Array<readonly string[] | undefined> = [];
+	const {
+		contextPolicy: _policy,
+		currentContextPolicy: _current,
+		contextExposure: _exposure,
+		...legacyOptions
+	} = f.options;
+	const session = await createCodexSession({
+		...legacyOptions,
+		register(host) {
+			host.on("context", (event) => {
+				seen.push(event.nativeEntryIds);
+			});
+		},
+	});
+	cleanup.push(() => session.close());
+	await finish(session, f.rpc);
+	const ids = session.history().map((entry) => (entry as { id: string }).id);
+	await finish(session, f.rpc);
+	expect(seen[0]).toEqual([]);
+	expect(ids.length).toBe(2);
+	expect(seen[1]).toEqual(ids);
+});
+
 test("ordinary settled notLoaded threads resume once before the idle audit", async () => {
 	const f = setupNative();
 	const first = await createCodexSession(f.options);

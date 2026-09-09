@@ -140,3 +140,7 @@
 출력 예산8192에서도 단문 요약이 실패했다. 격리 스크립트에 HTTP 상태와 공개 응답 본문만 기록하자, 실제 GLM이 길이 기준을 넘는 설명을 반환하고 재시도에서는 보관 원문 속 `LINA_APP_OK` 응답 지시를 실행하는 사례를 확인했다. 두 번째 결과는 길이 검사에는 통과했으나 색상 결정을 누락해 재시작 회상에 실패했다. 앞서 한 번 성공한 raw tail 회상과 모델 요약의 의미 보존은 서로 다른 증거다.
 
 summary 역할 요청에 소비자의 문자 상한을 명시하고, 보관 원문 속 응답 표식을 실행하지 말고 결정·정정 사실을 보존하도록 지침을 보완했다. 서비스 요청 회귀는 수정 전1 fail→수정 후22 pass·0 fail, 타입 종료0이다. 이는 요청 계약 증거이며 모델 의미 보존 성공으로 대신하지 않는다. 보완된 실제 반복 압축 검사는 진행 중이다.
+
+838b528의 프롬프트 보완 후 실제 GLM Flash native 검사가 종료0으로 끝났다. `/tmp/lina-live-e2e-O1iOtd`의 격리 Fleet에서 요약 체크포인트 두 번, 재시작 두 번, 초록 회상, 노랑/초록 정정 회상, `lina_context_expand` 실제 도구 호출과 원문 초록 복원을 확인했다. 논리 세션 ID·메시지 중복 없음·recoveryNeeded=false도 확인했다. 테스트 전용 freshTailEntries=1, 요약 출력8192 조건의 증거이며 기본 예산이나 장기 대화 품질을 보증하지 않는다. `native-context-live.json`의 archive-tool/restored-compaction/teardown과 종료0이 근거다.
+
+독립 reviewer 01a084ed는807a33b에 한정해 PASS, 51 focused tests 통과를 보고했다. metadata 모델 비노출, ordinary 적격 출처·guard·예산 유지 확인. 지적한 epoch0 ID 누락은 두 번째 실제 turn의 nativeEntryIds를 검사하는 실패→통과 회귀로 수정했다. native compaction 후 projection ID가 실제 resident 원문과 같다는 보장은 아직 없다. 이 한계와 요약 프롬프트 변경의 독립 검토는 전체 완료 전 남은 항목이다.

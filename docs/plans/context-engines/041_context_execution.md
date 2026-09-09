@@ -109,6 +109,6 @@ A closure PASS: 추정기는 summary packing, ContextServices.estimateText/estim
 
 `CodexHost.beforeTurn`의 `event.messages`는 현재 질문 한 개이며 native history 목록이 아니다. 이를 stable-ID 중복 검사 입력으로 사용해 최근 원문이 항상 생략됐다. `context-session-budget.test.ts`에서 실제 SessionApp→Codex `turn/start.additionalContext`에 최근 원문이 포함된다는 단언을 추가하자 실패했다.
 
-수정 계약: Codex가 알고 있는 현재 native epoch의 원문 ID를 별도 `nativeEntryIds` 메타데이터로 전달한다. 현재 질문의 content/토큰 계산과 분리한다. 새 epoch의 빈 목록은 알려진 빈 문맥이며, 메타데이터 미지원은 기존 opaque 거부를 유지한다. 이 메타데이터는 모델 요청 본문으로 직렬화하지 않는다. `session.ts`, `host.ts`, runtime host 계약, context hooks/coordinator/external이 변경 범위다. 최근 원문은 기존 적격 출처 검사·전달 직전 guard·예산·개수 제한을 모두 유지한다. 복구가 목적이며 출처 불명의 native turn을 신뢰하도록 바꾸지 않는다.
+수정 계약: LINA가 현재 native epoch에 투영한 원문 ID를 별도 `nativeEntryIds` 메타데이터로 전달한다. 현재 질문의 content/토큰 계산과 분리한다. 새 epoch의 빈 목록은 알려진 빈 문맥이며, 메타데이터 미지원은 기존 opaque 거부를 유지한다. 이 메타데이터는 모델 요청 본문으로 직렬화하지 않는다. `session.ts`, `host.ts`, runtime host 계약, context hooks/coordinator/external이 변경 범위다. 최근 원문은 기존 적격 출처 검사·전달 직전 guard·예산·개수 제한을 모두 유지한다. 복구가 목적이며 출처 불명의 native turn을 신뢰하도록 바꾸지 않는다.
 
 인수: 실제 SessionApp 원문 전달, 현재 epoch ID 중복 제외, 빈 목록에서 복구, 메타데이터 미지원 거부, 출처 무효화 guard, epoch 교체 후 실제 GLM 회상. 반복 압축과 원문 확장 인수는 별도로 유지한다.
