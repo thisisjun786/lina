@@ -317,3 +317,11 @@ receipt를 반환하고 원래 task 입력 재송신도 유지된다. 자료 gra
 관련 6개 파일 31개 테스트·146개 단언이 통과했고, grant 제한 추가 뒤 store
 5개 테스트·28개 단언 및 루트·브라우저 타입 검사도 통과했다. Step v4 연결 전에는
 legacy step이 v4 입력을 거부하므로 아직 전체 LIFE 실행 완료 상태는 아니다.
+
+독립 검토가 원자적 전환·롤백·grant 변경에 PASS를 반환했다(리뷰어 직접 실행
+11개 테스트·59개 단언). 세계의 관측 revision은 source owner의 전체 활동 이력과
+다르다. 공유하지 않았던 revision까지 세계에 전달하지 않으므로 admission에서
+중간 활동 revision을 강제로 생성하지 않는다. 원래 연속 correction chain은 자료
+활동 owner가 검증하고, 세계에서는 마지막으로 허용된 관측보다 오래된 revision을
+거부한다. 참여자 변경 보정의 명시성과 이전 경험의 제한은 활동 owner·Step v4
+소비 연결에서 추가 검증한다. 이 두 검증을 남은 integration 항목으로 유지한다.
