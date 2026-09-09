@@ -140,3 +140,19 @@ protection plus a positive reopen/requeue contract test. Stale input and foreign
 private job negatives remain. Diagnostics and process evidence are under
 `/home/jun/tmp/lina-pr7-re0-critical-01a08577`. This is one active-goal sweep;
 it does not declare the overall critical review complete.
+
+## Critical sweep: transitive batch premise replacement
+
+A real EngineStore probe built walking -> parks -> park.visits, then submitted
+one batch replacing parks and deriving trails from park.visits. Replacement-first
+committed an active but ineligible trails record; dependent-first failed at receipt
+validation and rolled back. The guard checked direct premises only. It now rejects
+batch targets anywhere in the ancestor walk before writes, using the existing
+batch validation error. Both proposal orders preserve prior records and revision;
+independent proposals still commit and remain searchable after reopening SQLite.
+
+Two regression cases failed before the guard and pass afterward. The five-case
+persistent-engine probe also confirms unchanged standalone/independent success.
+This is local synthetic-source evidence with actual persistence, not a live model
+call. Invalid batches retain the existing bounded invalid-output retry policy;
+there is no new retry, timeout, skip, or retrospective data repair.

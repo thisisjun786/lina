@@ -129,6 +129,7 @@ export function prepareConclusions(input: {
 	const walk = (id: string, target: string, visiting: Set<string>): void => {
 		if (id === target || visiting.has(id))
 			throw Error("conclusion premise cycle");
+		if (targets.has(id)) throw Error("conclusion batch replaces a premise");
 		const record = (input.resolveAncestor ?? input.resolve)(id);
 		if (!eligible(record)) throw Error("ineligible conclusion premise");
 		visiting.add(id);

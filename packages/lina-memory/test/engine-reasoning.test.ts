@@ -1175,3 +1175,68 @@ test("reordered identical premises preserve generation and descendants", () => {
 			.records.some((r) => r.id === child.id && r.status === "active"),
 	).toBe(true);
 });
+
+for (const replacementFirst of [false, true]) {
+	test(`a batch rejects transitive premise replacement before writes (${replacementFirst})`, () => {
+		const f = persistentFixture();
+		const { parent, child } = commitParksAndVisits(f);
+		const walking = current(f, "walking");
+		if (!walking) throw Error("missing walking");
+		const before = f.store.state();
+		const started = f.store.beginReasoning(
+			{ ...f.seed, trigger: "c".repeat(64) },
+			[walking.id, parent.id, child.id],
+		);
+		if (!started) throw Error("missing claim");
+		const replacement = {
+			...f.proposal,
+			text: "May enjoy parks a lot",
+			premises: [{ recordId: walking.id, revision: walking.revision }],
+		};
+		const dependent = {
+			...f.proposal,
+			key: "trails",
+			text: "May enjoy trails",
+			premises: [{ recordId: child.id, revision: child.revision }],
+		};
+		expect(() =>
+			f.store.applyConclusions({
+				requestId: started.claim.id,
+				expectedRevision: started.input.expectedRevision,
+				claim: started.claim,
+				proposals: replacementFirst
+					? [replacement, dependent]
+					: [dependent, replacement],
+			}),
+		).toThrow("conclusion batch replaces a premise");
+		// asOf is the read clock, not persisted state.
+		expect(f.store.state()).toEqual({ ...before, asOf: expect.any(Number) });
+		expect(
+			f.store.reasoningJobs().find((job) => job.id === started.claim.id)?.state,
+		).toBe("running");
+		// A batch with independent premises remains valid in either order.
+		const independent = { ...dependent, premises: replacement.premises };
+		const result = f.store.applyConclusions({
+			requestId: started.claim.id,
+			expectedRevision: started.input.expectedRevision,
+			claim: started.claim,
+			proposals: replacementFirst
+				? [replacement, independent]
+				: [independent, replacement],
+		});
+		expect(result.records.map((record) => record.key).sort()).toEqual([
+			"outdoors",
+			"parks",
+			"trails",
+			"walking",
+		]);
+		expect(current(f, "trails")?.status).toBe("active");
+		f.store.close();
+		expect(
+			f
+				.open()
+				.recall("trails")
+				.map((record) => record.key),
+		).toContain("trails");
+	});
+}
