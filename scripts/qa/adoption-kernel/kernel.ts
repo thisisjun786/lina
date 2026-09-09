@@ -38,6 +38,10 @@ export class AdoptionKernel {
 			!this.options.store.current(frame)
 		)
 			return { status: "rejected", decisionId, detail: "stale frame" };
+		this.options.store.recordJudgment(
+			decisionId,
+			proposal.judgment ?? { method: null, expectation: { kind: "none" } },
+		);
 		if (proposal.kind === "noop")
 			return { status: "noop", decisionId, detail: proposal.reason };
 		if (proposal.kind === "defer") {
@@ -48,12 +52,25 @@ export class AdoptionKernel {
 			this.options.beforeAdmit?.();
 			if (!this.options.store.current(frame))
 				return { status: "rejected", decisionId, detail: "stale final fence" };
+			const effectId = `${decisionId}:answer`;
+			this.options.store.dispatch(
+				effectId,
+				"@delivery",
+				{ bytes: proposal.text, audience: frame.purpose.audience },
+				decisionId,
+			);
 			this.options.delivery.admit(
-				`${decisionId}:answer`,
+				effectId,
 				proposal.text,
 				frame.purpose.audience,
 				decisionId,
 			);
+			const receipt = await this.options.delivery.reconcile(effectId);
+			if (!receipt || receipt.status === "unknown")
+				return { status: "unknown", decisionId };
+			if (receipt.effectId !== effectId)
+				throw Error("delivery receipt identity mismatch");
+			this.options.store.recordResult(receipt);
 			return { status: "answered", decisionId };
 		}
 		if (proposal.kind === "adopt") {
@@ -125,7 +142,9 @@ export class AdoptionKernel {
 		for (const effectId of this.options.store.pending()) {
 			const effect = this.options.store.pendingEffect(effectId);
 			if (!effect) throw Error("missing pending effect");
-			const owner = this.options.tools.get(effect.tool);
+			const owner = effectId.endsWith(":answer")
+				? this.options.delivery
+				: this.options.tools.get(effect.tool);
 			const receipt = await owner?.reconcile(effectId);
 			if (!receipt || receipt.status === "unknown") {
 				traces.push({ status: "unknown", decisionId: effect.decisionId });
@@ -134,7 +153,10 @@ export class AdoptionKernel {
 			if (receipt.effectId !== effectId)
 				throw Error("reconciliation receipt identity mismatch");
 			this.options.store.recordResult(receipt);
-			traces.push({ status: "dispatched", decisionId: effect.decisionId });
+			traces.push({
+				status: effectId.endsWith(":answer") ? "answered" : "dispatched",
+				decisionId: effect.decisionId,
+			});
 		}
 		return traces;
 	}

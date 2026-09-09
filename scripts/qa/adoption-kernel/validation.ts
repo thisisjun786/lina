@@ -81,7 +81,7 @@ export function parseQuality(value: unknown): Quality {
 		detail: string(value["detail"], "quality detail"),
 	};
 }
-export function parseProposal(value: unknown): Proposal {
+function parseAction(value: unknown): Proposal {
 	if (!isObject(value) || typeof value["kind"] !== "string")
 		throw Error("invalid proposal");
 	const purposeRevision = number(value["purposeRevision"], "purpose revision");
@@ -159,4 +159,33 @@ export function parseReceipt(value: unknown): ToolReceipt {
 		output: parseJson(value["output"]),
 		quality: parseQuality(value["quality"]),
 	};
+}
+
+export function parseJudgment(value: unknown): import("./types.ts").Judgment {
+	if (!isObject(value)) throw Error("invalid judgment");
+	only(value, ["method", "expectation"]);
+	const method =
+		value["method"] === null ? null : string(value["method"], "method");
+	const exp = value["expectation"];
+	if (!isObject(exp)) throw Error("invalid expectation");
+	if (exp["kind"] === "none") {
+		only(exp, ["kind"]);
+		return { method, expectation: { kind: "none" } };
+	}
+	if (exp["kind"] === "stated") {
+		only(exp, ["kind", "text"]);
+		return {
+			method,
+			expectation: { kind: "stated", text: string(exp["text"], "expectation") },
+		};
+	}
+	throw Error("invalid expectation kind");
+}
+export function parseProposal(value: unknown): Proposal {
+	if (!isObject(value)) throw Error("invalid proposal");
+	const { judgment, ...action } = value;
+	const parsed = parseAction(action);
+	return judgment === undefined
+		? parsed
+		: { ...parsed, judgment: parseJudgment(judgment) };
 }

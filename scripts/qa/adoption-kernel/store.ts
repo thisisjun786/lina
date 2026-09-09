@@ -10,7 +10,7 @@ import type {
 	ToolReceipt,
 	Visibility,
 } from "./types.ts";
-import { parseReceipt } from "./validation.ts";
+import { parseJudgment, parseReceipt } from "./validation.ts";
 
 const VERSION = 1;
 const parse = <T>(text: string): T => JSON.parse(text) as T;
@@ -114,13 +114,34 @@ export class KernelStore {
 					(other) => other.id === item.id && other.revision > item.revision,
 				),
 		);
-		return latest.filter(
-			(item) =>
-				item.subject === subject &&
-				item.active &&
-				(audience === "private" || item.visibility === "public"),
-		);
+		const candidates = new Map(latest.map((item) => [item.id, item]));
+		const allowed = new Set<string>();
+		const visiting = new Set<string>();
+		const eligible = (item: Evidence): boolean => {
+			if (allowed.has(item.id)) return true;
+			if (
+				visiting.has(item.id) ||
+				item.subject !== subject ||
+				!item.active ||
+				(audience === "public" && item.visibility !== "public")
+			)
+				return false;
+			visiting.add(item.id);
+			const valid = item.parents.every((ref) => {
+				const parent = candidates.get(ref.id);
+				return (
+					parent !== undefined &&
+					parent.revision === ref.revision &&
+					eligible(parent)
+				);
+			});
+			visiting.delete(item.id);
+			if (valid) allowed.add(item.id);
+			return valid;
+		};
+		return latest.filter(eligible);
 	}
+
 	private eligibleAdoptions(
 		subject: string,
 		audience: Visibility,
@@ -209,14 +230,44 @@ export class KernelStore {
 
 	prepare(purposeId: string, decisionId: string): Frame {
 		const frame = this.frame(purposeId);
-		this.db
-			.prepare("INSERT INTO kernel_decisions VALUES (?,?)")
-			.run(
-				decisionId,
-				JSON.stringify({ purposeId, frame, status: "prepared" }),
-			);
+		this.db.prepare("INSERT INTO kernel_decisions VALUES (?,?)").run(
+			decisionId,
+			JSON.stringify({
+				purposeId,
+				frame,
+				status: "prepared",
+				method: null,
+				expectation: { kind: "none" },
+				policyVersion: frame.purpose.policyVersion,
+			}),
+		);
 		return frame;
 	}
+	recordJudgment(id: string, input: import("./types.ts").Judgment): void {
+		const judgment = parseJudgment(input);
+		const row = this.db
+			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
+			.get(id);
+		if (!row) throw Error("unknown decision");
+		const data = parse<{
+			status: string;
+			judgmentRecorded?: boolean;
+			frame: Frame;
+		}>(String(row["data"]));
+		if (
+			data.status !== "prepared" ||
+			data.judgmentRecorded ||
+			!this.current(data.frame)
+		)
+			throw Error("judgment is already fixed or stale");
+		this.db
+			.prepare("UPDATE kernel_decisions SET data=? WHERE id=?")
+			.run(
+				JSON.stringify({ ...data, ...judgment, judgmentRecorded: true }),
+				id,
+			);
+	}
+
 	current(frame: Frame): boolean {
 		try {
 			return (

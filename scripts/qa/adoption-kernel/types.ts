@@ -64,7 +64,12 @@ export type JsonValue =
 	| string
 	| JsonValue[]
 	| { [key: string]: JsonValue };
-export type Proposal =
+export type Judgment = {
+	method: string | null;
+	expectation: { kind: "none" } | { kind: "stated"; text: string };
+};
+export type Proposal = ProposalAction & { judgment?: Judgment };
+export type ProposalAction =
 	| { kind: "answer"; purposeRevision: number; text: string }
 	| {
 			kind: "adopt";

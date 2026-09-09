@@ -583,7 +583,113 @@ test("adoption preserves the original decision snapshot", async () => {
 		expect(value.frame.purpose).toEqual(purpose);
 		expect(value.frame.evidence).toEqual([evidence]);
 		expect(value.status).toBe("adopted");
+		expect(value.expectation).toEqual({ kind: "none" });
+		expect(value.policyVersion).toBe(purpose.policyVersion);
+		expect(value.method).toBeNull();
 	} finally {
 		store.close();
+	}
+});
+
+test("derived evidence inherits ancestor withdrawal and privacy", () => {
+	const store = new KernelStore();
+	try {
+		store.setPurpose(purpose);
+		store.observe("owner", evidence);
+		store.observe("owner", {
+			...evidence,
+			id: "derived",
+			sourceId: "derived-source",
+			visibility: "public",
+			text: "derived secret",
+			parents: [{ id: "e", revision: 1 }],
+		});
+		expect(store.frame("p").evidence.map((x) => x.id)).toContain("derived");
+		store.setPurpose({ ...purpose, id: "public", audience: "public" });
+		expect(store.frame("public").evidence).toEqual([]);
+		store.retract("owner", { id: "e", revision: 2 });
+		expect(store.frame("p").evidence).toEqual([]);
+	} finally {
+		store.close();
+	}
+});
+
+test("explicit pre-action judgment survives adoption and cannot be rewritten afterward", async () => {
+	const { store, kernel } = fixture({
+		kind: "adopt",
+		purposeRevision: 1,
+		adoptionKind: "plan",
+		text: "compare",
+		refs: [{ id: "e", revision: 1 }],
+		condition: "current request",
+		judgment: {
+			method: "compare original rows",
+			expectation: { kind: "stated", text: "rows will agree" },
+		},
+	});
+	try {
+		const result = await kernel.step("p");
+		expect(result.status).toBe("adopted");
+		const row = store.db
+			.prepare("SELECT data FROM kernel_decisions WHERE id=?")
+			.get(result.decisionId);
+		const value = JSON.parse(String(row?.["data"]));
+		expect(value.method).toBe("compare original rows");
+		expect(value.expectation).toEqual({
+			kind: "stated",
+			text: "rows will agree",
+		});
+		expect(() =>
+			store.recordJudgment(result.decisionId, {
+				method: "changed",
+				expectation: { kind: "none" },
+			}),
+		).toThrow();
+	} finally {
+		store.close();
+	}
+});
+
+test("answer receipt is tracked and recovered after owner admission interruption", async () => {
+	const store = new KernelStore();
+	const owner = new DeliveryOwner();
+	let fail = true;
+	let admissions = 0;
+	const delivery = {
+		admit: (
+			id: string,
+			bytes: string,
+			audience: "private" | "public",
+			fence: string,
+		) => {
+			admissions++;
+			owner.admit(id, bytes, audience, fence);
+			if (fail) throw Error("after owner commit");
+		},
+		reconcile: (id: string) => owner.reconcile(id),
+	};
+	try {
+		store.setPurpose(purpose);
+		const kernel = new AdoptionKernel({
+			store,
+			delivery,
+			tools: new Map(),
+			model: {
+				propose: async () => ({
+					kind: "answer",
+					purposeRevision: 1,
+					text: "hello",
+				}),
+			},
+		});
+		await expect(kernel.step("p")).rejects.toThrow("after owner commit");
+		expect(store.pending()).toHaveLength(1);
+		fail = false;
+		expect((await kernel.resume())[0]?.status).toBe("answered");
+		expect(store.pending()).toEqual([]);
+		expect(admissions).toBe(1);
+	} finally {
+		store.close();
+		owner.close();
 	}
 });
