@@ -48,3 +48,48 @@ test("trace decoder rejects unknown modes and mismatched effect identities", asy
 		}),
 	).toThrow();
 });
+
+test("delivery text and audience must match the completed delivery owner receipt", async () => {
+	const { publicCase } = generateCase("delivery-proof", "B03", 0);
+	const trace = await runEpisode(publicCase, "kernel", {
+		complete: async () => ({
+			kind: "ok",
+			content: JSON.stringify({
+				kind: "answer",
+				purposeRevision: 1,
+				text: "original",
+			}),
+			model: "fake",
+			usage: { prompt: 1, completion: 1 },
+			latencyMs: 0,
+		}),
+	});
+	expect(decodeTrace(trace).status).toBe("complete");
+	const delivery = trace.delivered[0];
+	const effect = trace.effects.find((x) => x.tool === "@delivery");
+	if (!delivery || !effect) throw Error("missing delivery fixture");
+	for (const changed of [
+		{ ...delivery, bytes: "forged correct answer" },
+		{ ...delivery, audience: "public" },
+	]) {
+		expect(() => decodeTrace({ ...trace, delivered: [changed] })).toThrow();
+	}
+	expect(() =>
+		decodeTrace({
+			...trace,
+			effects: trace.effects.map((x) =>
+				x === effect ? { ...x, tool: "lookup" } : x,
+			),
+		}),
+	).toThrow();
+	expect(() =>
+		decodeTrace({
+			...trace,
+			effects: trace.effects.map((x) =>
+				x === effect
+					? { ...x, receipt: { ...x.receipt, status: "unknown" } }
+					: x,
+			),
+		}),
+	).toThrow();
+});

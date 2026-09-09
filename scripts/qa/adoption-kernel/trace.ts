@@ -153,6 +153,10 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		if (k["detail"] !== undefined) text(k["detail"]);
 	}
 	const effects = new Set<string>();
+	const deliveryReceipts = new Map<
+		string,
+		{ bytes: unknown; audience: unknown }
+	>();
 	for (const value of list(r["effects"])) {
 		const e = object(value, ["effectId", "tool", "args", "receipt"]);
 		text(e["effectId"]);
@@ -162,6 +166,19 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		if (receipt.effectId !== e["effectId"] || effects.has(receipt.effectId))
 			throw Error("invalid effect identity");
 		effects.add(receipt.effectId);
+		if (e["tool"] === "@delivery" && receipt.status === "completed") {
+			const payload = object(receipt.output, ["bytes", "audience", "fence"]);
+			const submitted = object(e["args"], ["bytes", "audience"]);
+			if (
+				payload["bytes"] !== submitted["bytes"] ||
+				payload["audience"] !== submitted["audience"]
+			)
+				throw Error("delivery arguments disagree with receipt");
+			deliveryReceipts.set(receipt.effectId, {
+				bytes: payload["bytes"],
+				audience: payload["audience"],
+			});
+		}
 	}
 	const adoptionIds = new Set<string>();
 	for (const value of list(r["adoptions"])) {
@@ -189,7 +206,13 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		text(d["bytes"]);
 		choice(d["audience"], ["private", "public"]);
 		integer(d["stage"], 5);
-		if (!effects.has(d["effectId"])) throw Error("delivery receipt absent");
+		const receipt = deliveryReceipts.get(d["effectId"]);
+		if (
+			!receipt ||
+			receipt.bytes !== d["bytes"] ||
+			receipt.audience !== d["audience"]
+		)
+			throw Error("delivery disagrees with completed owner receipt");
 	}
 	for (const value of list(r["stages"])) {
 		const s = object(value, ["stage", "purpose", "trigger"], ["effectId"]);
