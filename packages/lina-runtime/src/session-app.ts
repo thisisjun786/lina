@@ -14,10 +14,6 @@ import {
 	type BotBinding,
 	DurableStore,
 } from "../../lina-core/src/index.ts";
-import type {
-	HonchoClientOptions,
-	HonchoConfig,
-} from "../../lina-memory/src/honcho/index.ts";
 import { type ApprovalMode, parseApprovalMode } from "./approval-policy.ts";
 import { conservativeEstimator } from "./context/budget.ts";
 import { ContextChannel } from "./context/channel.ts";
@@ -25,7 +21,7 @@ import { CompanionMemory } from "./context/companion.ts";
 import { ContextCoordinator } from "./context/coordinator.ts";
 import { ExternalContext } from "./context/external.ts";
 import { installContextHooks } from "./context/hooks.ts";
-import { MemoryBridge } from "./context/memory.ts";
+import { InactiveMemory, type MemoryPort } from "./context/memory.ts";
 import { installMemoryQuery } from "./context/memory-query.ts";
 import type { EnginePolicySnapshot } from "./context/policy-settings.ts";
 import { defaultEnginePolicy } from "./context/policy-settings.ts";
@@ -44,7 +40,6 @@ import type { PersonalGrowthSource } from "./persona/growth-source.ts";
 import { installPersona } from "./persona/hooks.ts";
 import { NativePersonaGrowth } from "./persona/native-growth.ts";
 import { nativePreferences } from "./persona/native-preferences.ts";
-import { PersonaReflection } from "./persona/reflection.ts";
 import { installResponsePolicy } from "./policy/hooks.ts";
 import { ResponsePolicy } from "./policy/response.ts";
 import { DurableRuntime } from "./runtime.ts";
@@ -85,8 +80,6 @@ export type AppOptions = {
 	port: number;
 	botId?: string;
 	importSession?: string;
-	honcho?: HonchoConfig;
-	honchoClientOptions?: HonchoClientOptions;
 	createSession?: (options: SdkSessionOptions) => Promise<SessionPort>;
 };
 
@@ -120,9 +113,8 @@ export async function startPersistentApp(options: AppOptions) {
 	let unsubscribeExecution: (() => void) | undefined;
 	let contextStore: ContextStore | undefined,
 		context: ContextCoordinator | undefined;
-	let reflection: PersonaReflection | undefined;
 	let refreshPersona: ReturnType<typeof installPersona> | undefined;
-	let memory: MemoryBridge | CompanionMemory | undefined,
+	let memory: MemoryPort | undefined,
 		contextChannel: ContextChannel | undefined;
 	const startedAt = new Date().toISOString();
 	let lastAgentEndAt: string | undefined;
@@ -136,13 +128,11 @@ export async function startPersistentApp(options: AppOptions) {
 		stopping = (async () => {
 			await server?.stop();
 			await images?.close();
-			const reflectionClosing = reflection?.close();
 			if (runtime) await runtime.close();
 			else await native?.close();
 			// Failed native shutdown retains ownership. A retry may finish cleanup.
 			unsubscribeExecution?.();
 			contextChannel?.close();
-			await reflectionClosing;
 			releasePersonalSource?.();
 			releasePersonalSource = undefined;
 			await memory?.close();
@@ -232,12 +222,15 @@ export async function startPersistentApp(options: AppOptions) {
 			},
 		});
 		context = contextCoordinator;
-		const useNative =
-			(options.memoryBackend ?? (options.honcho ? "honcho" : "disabled")) ===
-			"native";
+		const backend = options.memoryBackend ?? "native";
+		const useNative = backend !== "honcho";
+		const learningEnabled = () =>
+			backend === "native" &&
+			(options.enginePolicy?.() ?? defaultEnginePolicy()).memory.enabled;
 		const memoryBridge = useNative
 			? new CompanionMemory({
 					path: join(lease.root, "mind.sqlite"),
+					learningEnabled,
 					characterReference: () => {
 						const p = options.persona?.agents.get(botId);
 						return p
@@ -257,18 +250,7 @@ export async function startPersistentApp(options: AppOptions) {
 					journal,
 					onChange: () => contextChannel?.changed(),
 				})
-			: new MemoryBridge({
-					path: join(lease.root, "honcho-outbox.sqlite"),
-					binding,
-					journal,
-					...(options.memoryBackend !== "disabled" && options.honcho
-						? { config: options.honcho }
-						: {}),
-					...(options.honchoClientOptions
-						? { clientOptions: options.honchoClientOptions }
-						: {}),
-					onChange: () => contextChannel?.changed(),
-				});
+			: new InactiveMemory("migration_required");
 		memory = memoryBridge;
 		if (memoryBridge instanceof CompanionMemory)
 			releasePersonalSource = options.persona?.registerPersonalSource?.({
@@ -419,29 +401,14 @@ export async function startPersistentApp(options: AppOptions) {
 							userContext: options.persona.userContext,
 							firstOrdinaryReply: () => !journal.hasNormalAssistantReply(),
 							authoredContext: options.persona.authoredContext,
-							memoryMode:
-								useNative || options.honcho ? "automatic" : "disabled",
+							memoryMode: learningEnabled() ? "automatic" : "disabled",
 							nativeDynamics: useNative,
-							allowNativeGrowth: () =>
-								(options.enginePolicy?.() ?? defaultEnginePolicy()).memory
-									.enabled,
+							allowNativeGrowth: learningEnabled,
 							...(memoryBridge instanceof CompanionMemory
 								? { nativeState: () => memoryBridge.mind.state() }
 								: {}),
 						},
 					);
-					if (!useNative)
-						reflection = new PersonaReflection({
-							agents: options.persona.agents,
-							agentId: options.persona.agentId,
-							...(options.persona.conversations
-								? { conversations: options.persona.conversations }
-								: {}),
-							journal,
-							services,
-							memory: memoryBridge,
-							preferencesOnly: useNative,
-						});
 				}
 				coordinator.configurePermissions(permissions);
 				installExecutionHooks(host, coordinator);
@@ -553,7 +520,6 @@ export async function startPersistentApp(options: AppOptions) {
 			if (event.type === "snapshot") {
 				coordinator.refresh();
 				if (event.snapshot.state === "idle") {
-					reflection?.settled();
 					void imageJobs?.flushNotices().catch(() => {
 						// The durable image job remains undelivered for recovery.
 					});
@@ -575,7 +541,6 @@ export async function startPersistentApp(options: AppOptions) {
 			context: channel,
 			contextStore: storedContext,
 			memory: memoryBridge,
-			reflection,
 			attachments: attached,
 			execution: coordinator,
 			images: imageJobs,

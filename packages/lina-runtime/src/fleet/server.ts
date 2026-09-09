@@ -291,8 +291,15 @@ export async function startFleetServer(
 						if (!(await fleet.initializeMemory(id, request.signal)))
 							return response(
 								{
+									code:
+										fleet.memoryBackend === "honcho"
+											? "MEMORY_MIGRATION_REQUIRED"
+											: "MEMORY_UNAVAILABLE",
+									migrationRequired: fleet.memoryBackend === "honcho",
 									error:
-										"Honcho 연결 설정과 에이전트 소유 범위 확인이 필요합니다.",
+										fleet.memoryBackend === "honcho"
+											? "기존 외부 기억은 아직 이전되지 않았습니다. 자체 기억 엔진으로 전환이 필요합니다."
+											: "기억 학습이 비활성화되어 있거나 준비되지 않았습니다.",
 								},
 								409,
 							);

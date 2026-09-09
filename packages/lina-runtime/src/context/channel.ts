@@ -3,13 +3,13 @@ import type { ContextStore } from "../../../lina-core/src/context/index.ts";
 import type { ContextSnapshot } from "../../../lina-core/src/context-wire.ts";
 import type { DurableRuntime } from "../runtime.ts";
 import type { ContextCoordinator } from "./coordinator.ts";
-import type { MemoryBridge } from "./memory.ts";
+import type { MemoryPort } from "./memory.ts";
 
 type Options = {
 	runtime: DurableRuntime;
 	coordinator: ContextCoordinator;
 	store: ContextStore;
-	memory: Pick<MemoryBridge, "status" | "refresh">;
+	memory: Pick<MemoryPort, "status" | "refresh">;
 };
 export class ContextChannel {
 	private readonly epoch = randomUUID();

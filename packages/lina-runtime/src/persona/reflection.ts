@@ -18,7 +18,7 @@ import {
 	journalSources,
 	requireEpisodeProofs,
 } from "../context/companion-provenance.ts";
-import type { MemoryBridge } from "../context/memory.ts";
+import type { MemoryPort } from "../context/memory.ts";
 import type { ContextServices } from "../context/port.ts";
 
 /** One event-triggered reflection after a completed conversation turn; no wakeups. */
@@ -34,7 +34,7 @@ export class PersonaReflection {
 			agentId: string;
 			journal: DurableStore;
 			services: ContextServices;
-			memory: Pick<MemoryBridge, "recall"> & {
+			memory: Pick<MemoryPort, "recall"> & {
 				recallSourceProofs?: (text: string) => SourceProof[] | undefined;
 			};
 			preferencesOnly?: boolean;
@@ -133,7 +133,7 @@ export class PersonaReflection {
 					role: e.role,
 					text: e.text.slice(0, 2000),
 				})),
-				honchoReference: qualifiedRecall,
+				memoryReference: qualifiedRecall,
 			};
 			const validatePrompt = () => {
 				this.controller.signal.throwIfAborted();

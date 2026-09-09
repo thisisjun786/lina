@@ -481,6 +481,9 @@ export class AgentFleet {
 		this.closed = true;
 		this.closing = false;
 	}
+	get memoryBackend() {
+		return this.options.memoryBackend ?? "native";
+	}
 	async initializeMemory(id: string, signal: AbortSignal): Promise<boolean> {
 		signal.throwIfAborted();
 		if (

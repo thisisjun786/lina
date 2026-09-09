@@ -1,10 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { CodexHost } from "../../lina-codex/src/host.ts";
 import { acquireSessionLease } from "../../lina-core/src/index.ts";
 import { appendContextEntry } from "../../lina-core/test/context-journal-fixture.ts";
+import { CompanionMemory } from "../src/context/companion.ts";
+import { defaultEnginePolicy } from "../src/context/policy-settings.ts";
 import {
 	initializeSessionFile,
 	type SdkSessionOptions,
@@ -49,7 +57,14 @@ test("restart binds the same native session and restores uncertain requests with
 });
 
 test("working capsule survives restart and manual compaction fences durable submission", async () => {
-	const config = options();
+	const config = {
+		...options(),
+		memoryBackend: "disabled" as const,
+		enginePolicy: () => {
+			const policy = defaultEnginePolicy();
+			return { ...policy, context: { ...policy.context, freshTailEntries: 0 } };
+		},
+	};
 	const pending = Promise.withResolvers<string>();
 	const summarizing = Promise.withResolvers<void>();
 	const create = config.createSession;
@@ -221,4 +236,52 @@ test("image tools register in the Codex app with isolated state and no provider 
 	expect(app.images?.list()).toEqual([]);
 	expect(existsSync(join(config.stateRoot, "images/jobs.json"))).toBe(true);
 	expect(requests).toBe(0);
+});
+
+for (const backend of [undefined, "disabled", "honcho"] as const) {
+	test(`session memory backend ${backend ?? "default"} uses the owned retirement contract`, async () => {
+		const config = options();
+		const app = await startPersistentApp({
+			...config,
+			...(backend ? { memoryBackend: backend } : {}),
+		});
+		cleanups.push(app.stop);
+		expect(app.memory instanceof CompanionMemory).toBe(backend !== "honcho");
+		if (backend === "honcho") {
+			expect(app.memory.status()).toMatchObject({
+				service: "unavailable",
+				migrationRequired: true,
+			});
+		} else if (backend === "disabled") {
+			await app.memory.refresh();
+			expect(app.memory.status().service).toBe("disabled");
+		}
+	});
+}
+
+test("legacy selection preserves existing outbox bytes through session restart", async () => {
+	const config = options();
+	const first = await startPersistentApp({
+		...config,
+		memoryBackend: "honcho",
+		imageEngine: false,
+	});
+	const legacy = join(
+		dirname(first.binding.sessionFile),
+		"honcho-outbox.sqlite",
+	);
+	await first.stop();
+	const bytes = Buffer.from("legacy outbox remains opaque to the owned engine");
+	writeFileSync(legacy, bytes);
+	const second = await startPersistentApp({
+		...config,
+		memoryBackend: "honcho",
+		imageEngine: false,
+	});
+	cleanups.push(second.stop);
+	await second.memory.refresh();
+	expect(await second.memory.recall("legacy")).toBe("");
+	expect(second.memory.status().migrationRequired).toBe(true);
+	await second.stop();
+	expect(readFileSync(legacy)).toEqual(bytes);
 });

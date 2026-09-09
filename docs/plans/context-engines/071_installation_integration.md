@@ -185,3 +185,22 @@ snapshot v2와 기존 input/step/native/publication 버전이 섞여 있던 설�
 activity 원자적 재시도 기록은 `resource_activity_operations(operation_id TEXT PRIMARY KEY,activity_id TEXT NOT NULL,revision INTEGER NOT NULL,fingerprint TEXT NOT NULL,result TEXT NOT NULL,UNIQUE(activity_id,revision)) STRICT`에 남긴다. 같은 operation id와 동일 입력은 저장된 결과를 반환하고 다른 입력은 conflict다. activity projection·revision·delivery와 operation receipt는 한 transaction에서 commit한다. 재개방은 각 activity의 연속 revision과 마지막 결과/projection, grant 철회 상태, delivery 참조를 대조한다. 원본 source는 원래 resource store에 남으며 activity owner가 별도 파일 경로를 모델에게 받지 않는다.
 
 A 최종 PASS의 정밀화: activity schema의 모든 필수 열과 복합 key에는 NOT NULL을 명시한다. resource_activities는 `(id TEXT PRIMARY KEY,resource_id TEXT NOT NULL,actor_agent_id TEXT NOT NULL,revision INTEGER NOT NULL,data TEXT NOT NULL) STRICT`로 고정하고 id/resource/actor/revision을 JSON과 대조한다. deliveries의 activity_id/activity_revision/world_id/grant_revision/state/data와 operations의 모든 필수 열도 NOT NULL이다. 별도 DB이므로 catalog에 대한 SQLite FK를 주장하지 않는다. host가 admission·read/delivery·reopen에서 resource/version 참조를 실제 catalog로 확인한다. 보정 supersedesRevision은 첫 revision만 null, 이후 revision-1이다. task의 기존 outcome 네 값과 resource의 recorded를 parser별로 구분한다.
+
+### 세션 기억 전환 구현 기록
+
+SessionApp의 기본 선택을 자체 CompanionMemory로 통일했다. disabled도 기존
+로컬 기억을 열되 자동 학습을 막고, legacy honcho는 파일·원격 기억을 읽지 않는
+migrationRequired 상태를 반환한다. Fleet 기억 초기화 API도 재연결 안내 대신
+명시적인 전환 오류를 반환한다. 기존 외부 전용 reflection 실행은 제거하고
+자체 관찰·페르소나 성장 경로를 사용한다.
+
+폐기된 외부 초기화·전송 계약의 테스트와 capture-scan은 제거했다. 대체 검증은
+session-app의 기본/disabled/legacy 선택 및 outbox 원본 보존, Fleet HTTP 전환
+오류, context-memory의 대화 상태 불변, companion-memory의 출처·정착·페이지·
+재시작·취소 검증이다. 온보딩의 출처 철회 검증은 외부 fixture 없이 유지했다.
+수동 압축 회귀는 freshTailEntries=0을 지정해 요약 경로를 실제로 실행한다.
+
+2026-09-09 로컬 임시 DB/가짜 세션 검증: 9개 파일 62개 테스트 통과,
+루트·브라우저 타입 검사 통과. 기록은 session evidence의
+integration-session-retirement-green.log 및 integration-retirement-types.log다.
+전체 071 완료나 라이브 모델 검증을 뜻하지 않는다.

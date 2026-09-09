@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { ConversationStore } from "../../lina-core/src/agents/conversation.ts";
 import { AgentStore } from "../../lina-core/src/agents/store.ts";
 import { DurableStore } from "../../lina-core/src/store.ts";
-import { MemoryBridge } from "../src/context/memory.ts";
+import { InactiveMemory } from "../src/context/memory.ts";
 import type { ContextServices } from "../src/context/port.ts";
 import { readPresets } from "../src/fleet/presets.ts";
 import { PersonaReflection } from "../src/persona/reflection.ts";
@@ -27,11 +27,7 @@ test("preference reset during reflection preserves reset and still applies chara
 	const seed = readPresets(process.cwd()).find((p) => p.id === "lina");
 	if (!seed) throw Error("missing seed");
 	agents.create(seed);
-	const memory = new MemoryBridge({
-		path: join(root, "memory.sqlite"),
-		binding,
-		journal,
-	});
+	const memory = new InactiveMemory();
 	let calls = 0;
 	const called = Promise.withResolvers<void>(),
 		release = Promise.withResolvers<string>();

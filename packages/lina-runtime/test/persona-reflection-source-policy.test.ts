@@ -370,7 +370,7 @@ test("qualified external recall ancestry is persisted and checked after provider
 	let proofs: SourceProof[] = [];
 	const f = fixture(
 		async (text) => {
-			expect(JSON.parse(text).honchoReference).toBe("qualified-reference");
+			expect(JSON.parse(text).memoryReference).toBe("qualified-reference");
 			started.resolve();
 			return release.promise;
 		},

@@ -2,41 +2,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captureSourceProofs } from "../../../lina-core/src/source-policy.ts";
-import { generationOwner } from "../../../lina-memory/src/honcho/qualification.ts";
-import type {
-	HonchoConfig,
-	QualifiedHonchoAdapter,
-} from "../../../lina-memory/src/honcho/types.ts";
-import type { HonchoHttpFixture } from "../../../lina-memory/test/honcho-http-fixture.ts";
-import { namespace } from "../../../lina-memory/test/honcho-v1-fixture.ts";
 import { AgentFleet } from "../../src/fleet/manager.ts";
 import { startFleetServer } from "../../src/fleet/server.ts";
 import type { AppOptions } from "../../src/session-app.ts";
-import { qualifyRequest } from "../context-honcho-fixture.ts";
 import { startTestApp } from "../fake-session-engine.ts";
 
 type FleetOptions = ConstructorParameters<typeof AgentFleet>[0];
-export function selectedConfig(baseUrl: string, botId: string): HonchoConfig {
-	return {
-		baseUrl,
-		workspaceId: "legacy",
-		sessionId: "legacy-session",
-		userPeerId: "legacy-user",
-		observerPeerId: "legacy-observer",
-		ordinaryNamespace: {
-			...namespace,
-			ownerBotId: botId,
-			workspaceId: `ordinary-${botId}`,
-		},
-	};
-}
-export async function fleetMemoryFixture(
-	options: Partial<FleetOptions> & {
-		honchoByAgent?: Record<string, HonchoConfig>;
-		qualifiedHonchoAdapter?: QualifiedHonchoAdapter;
-	} = {},
-	http?: HonchoHttpFixture,
-) {
+export async function fleetMemoryFixture(options: Partial<FleetOptions> = {}) {
 	const root =
 		options.stateRoot ?? mkdtempSync(join(tmpdir(), "fleet-work-memory-"));
 	const received = new Map<string, Omit<AppOptions, "engine">>();
@@ -48,13 +20,7 @@ export async function fleetMemoryFixture(
 		...options,
 		createApp: async (input) => {
 			received.set(input.botId ?? "lina", input);
-			const app = await startTestApp(input);
-			if (
-				http &&
-				input.honcho?.ordinaryNamespace?.ownerBotId === app.binding.botId
-			)
-				http.register(generationOwner(app.binding, input.honcho));
-			return app;
+			return startTestApp(input);
 		},
 	});
 	const seed = fleet.presets.find((p) => p.id === "kai");
@@ -102,7 +68,20 @@ export function ordinaryEpisode(
 		});
 	journal.createRequest(id, text);
 	journal.setRequest(id, "accepted", { entryId: userId });
-	qualifyRequest(journal, app.binding, id, [userId, assistantId]);
+	journal.registerRequestSource({
+		version: 1,
+		purpose: "conversation",
+		sessionId: app.binding.sessionId,
+		requestId: id,
+		nativeEpoch: 1,
+		scopeDigest: "a".repeat(64),
+		contextReceiptIds: [],
+	});
+	for (const entryId of [userId, assistantId]) {
+		const entry = journal.entry(entryId);
+		if (!entry) throw Error(`missing fixture entry ${entryId}`);
+		journal.appendSourceEntry(entry, id);
+	}
 	journal.setRequest(id, "settled");
 	const lookup = (entryId: string) => journal.sourceEntry(entryId);
 	return {
