@@ -163,3 +163,5 @@ C에서 POLICY.md, README.md, docs/ARCHITECTURE.md, PERSONA_CONTEXT.md, CODEX_RU
 | MODIFY | `packages/lina-runtime/src/life/model-port.ts` | 새 step의 동결 route로 model request 생성; 역사 request decoder와 분리 |
 
 현재 lifePlan fingerprint는 version1이다. 신규 tier 선택의 exact profile/effort/output cap은 step 생성 시에 고정하고 model request와 native plan에 연결한다. publication도 actor selector를 소비하므로 publication의 동결 시점과 요청 검사를 같은 계약으로 수정한다. 대화 모델·주기·금액을 selector 지원의 기본값으로 자동 채우지 않는다. source별 키/DDL와 version별 decoder의 구체 필드는 독립 A에서 현재 work persistence와 대조해 고정한 뒤 B로 넘어간다.
+
+A 기준선 검증: `bun test packages/lina-runtime/test/codex-fleet.test.ts packages/lina-runtime/test/memory-backend.test.ts packages/lina-runtime/test/checkpoint-barrier.test.ts` → exit0, 7 pass/0 fail, 20 assertions/3 files. 명령이 실제 세 경로를 읽음을 확인했다. 이 결과는 기존 상태 기준선이며 새 integration 구현의 완료 증거가 아니다. session evidence/integration-baseline.log에 저장했다.
