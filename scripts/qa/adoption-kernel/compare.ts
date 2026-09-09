@@ -49,23 +49,28 @@ export async function compareBatch(
 	const root = resolve(output);
 	mkdirSync(root, { recursive: true });
 	const sourceRoot = new URL(".", import.meta.url).pathname;
-	const sourceHasher = createHash("sha256");
-	for (const name of readdirSync(sourceRoot)
-		.filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
-		.sort())
-		sourceHasher.update(name).update(readFileSync(join(sourceRoot, name)));
+	const sourceHash = () => {
+		const hasher = createHash("sha256");
+		for (const name of readdirSync(sourceRoot)
+			.filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+			.sort())
+			hasher.update(name).update(readFileSync(join(sourceRoot, name)));
+		return hasher.digest("hex");
+	};
+	const originalSourceHash = sourceHash();
+	const manifestHash = () =>
+		createHash("sha256").update(readFileSync(manifestPath)).digest("hex");
+	const originalManifestHash = manifestHash();
 	writeFileSync(
 		join(root, "started.json"),
 		JSON.stringify({
-			sourceHash: sourceHasher.digest("hex"),
+			sourceHash: originalSourceHash,
 			model: env["OLLAMA_MODEL"],
 			baseUrl: env["OLLAMA_BASE_URL"],
 			temperature: 0,
 			maxOutputTokens: 4096,
 			maxRequests: 6,
-			manifestHash: createHash("sha256")
-				.update(readFileSync(manifestPath))
-				.digest("hex"),
+			manifestHash: originalManifestHash,
 			startedAt: new Date().toISOString(),
 		}),
 		{ flag: "wx" },
@@ -77,6 +82,28 @@ export async function compareBatch(
 		runs: [],
 		qualification: aggregateScores([], hosts),
 	};
+	const assertStable = () => {
+		try {
+			if (
+				sourceHash() !== originalSourceHash ||
+				manifestHash() !== originalManifestHash
+			)
+				throw Error("comparison source or manifest changed");
+			loadManifest(manifestPath);
+		} catch (error) {
+			report.qualification.qualified = false;
+			writeFileSync(join(root, "report.json"), JSON.stringify(report, null, 2));
+			writeFileSync(
+				join(root, "invalidated.json"),
+				JSON.stringify({
+					reason: "source, manifest or dataset changed or became unreadable",
+					at: new Date().toISOString(),
+					completedTrials: report.trials.length,
+				}),
+			);
+			throw error;
+		}
+	};
 	const modes: RunMode[] = ["baseline", "kernel", "ablation"];
 	for (const [index, episode] of manifest.episodes.entries()) {
 		for (let offset = 0; offset < 3; offset++) {
@@ -84,11 +111,13 @@ export async function compareBatch(
 			if (!mode) throw Error("invalid mode rotation");
 			const dir = join(root, episode.episodeId, mode);
 			mkdirSync(dir, { recursive: true });
+			assertStable();
 			const exitCode = await child(
 				["run", "--case", episode.publicPath, "--mode", mode, "--output", dir],
 				env,
 				join(dir, "run.log"),
 			);
+			assertStable();
 			const tracePath = join(dir, "trace.json"),
 				scorePath = join(dir, "score.json");
 			const scoreExitCode = await child(
@@ -104,6 +133,7 @@ export async function compareBatch(
 				env,
 				join(dir, "score.log"),
 			);
+			assertStable();
 			if (scoreExitCode !== 0) {
 				report.trials.push({
 					episodeId: episode.episodeId,
