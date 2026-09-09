@@ -198,3 +198,9 @@ GLM Flash 지정 대화로 과거 만남 여부·비개발 행사 업무·가격
 `data/app-system-prompt.md`에 근거 없는 수치·안전선·규격을 단정하지 않고, 예시 수치는 가정으로 표시하거나 정성 기준을 제시하도록 추가했다. 조립된 일반 대화 prompt에 이 규칙이 남는지 회귀는 수정 전 실패→수정 후 관련5 pass로 확인했다. 프롬프트 전달 증거와 실제 모델 준수는 구분하며 새 합성 대화 실행은 별도로 확인한다. 모델의 단기 통과를 장기 대화 품질 보장으로 바꾸지 않는다.
 
 0503bbe의 실제 일반 대화 재검증은 종료0이었다. 근거 없는80% 안전선이 사라졌고, 행사 비교의 정성 기준·가격 우선에 대한 이견·교통 우선 정정을 유지했다. 초기 과거 만남을 확언하지 않았다. 말투·오타에 대한 장기 사용자 평가는 별도이며 이 단기 검증으로 완벽한 응답 품질을 주장하지 않는다. 최종 독립 gap audit와0503bbe의 전체 suite를 실행 중이다.
+
+## 2026-09-09 최종 전체 검사 결과
+
+0503bbe의 전체 suite가3684 pass·47 skip·0 fail·20818 assertions·523파일·248.48초, 종료0으로 끝났다. 이후dc27ede까지 변경은 Markdown 두 파일뿐임을 diff로 확인했다. `final-full-receipt.json`에 checkedCommit/currentCommit/docs-only paths와 full-0503bbe.log를 연결했다. 기본 suite의47 skip을 실제 모델/네이티브 성공으로 계산하지 않는다. 앞선 별도 opt-in LIFE20·AUTHOR14 및 Ollama 합성 시나리오는 각각의 범위로 유지한다.
+
+별도 LIFE 작업트리는 cefaffc이고 dirty 없음으로 재확인했다. Git ancestor는 아니므로 전체 LIFE 브랜치를 merge했다고 주장하지 않는다. 적용한 경계·복구 port는 integration-world-port.patch/paths와 integration-final-review에 기록된 선택적 통합이며, 최종 독립 검토에서 현재 계약과 대조한다.
