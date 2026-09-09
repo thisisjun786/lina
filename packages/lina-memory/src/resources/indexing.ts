@@ -173,7 +173,14 @@ export class ResourceIndex {
 					generation,
 				};
 				const id = jobKey(seed);
-				if (readJob(this.db, id)) continue;
+				const existing = readJob(this.db, id);
+				if (existing) {
+					if (existing.complete !== source.complete) {
+						writeJob(this.db, { ...existing, complete: source.complete });
+						affected.add(r.id);
+					}
+					continue;
+				}
 				affected.add(r.id);
 				writeJob(this.db, {
 					...seed,
@@ -201,14 +208,17 @@ export class ResourceIndex {
 	}
 	list(scope: ResourceScope, id: string): ResourceJob[] {
 		const current = this.visible(scopeSchema.parse(scope), id),
-			digest = hash(this.sources(current).refs);
+			source = this.sources(current),
+			digest = hash(source.refs);
 		return this.db
 			.prepare("SELECT id FROM resource_jobs WHERE resource_id=? ORDER BY id")
 			.all(id)
 			.flatMap((row) => {
 				try {
 					const job = this.get(scope, String(row["id"]));
-					return job.sourceDigest === digest ? [job] : [];
+					return job.sourceDigest === digest
+						? [{ ...job, complete: source.complete }]
+						: [];
 				} catch {
 					return [];
 				}
@@ -277,6 +287,7 @@ export class ResourceIndex {
 			writeJob(this.db, {
 				...job,
 				state: "prepared",
+				complete: this.sources(this.visible(scope, job.resourceId)).complete,
 				token,
 				attempt: consumed + 1,
 				inputHash,
@@ -304,10 +315,13 @@ export class ResourceIndex {
 				});
 				return false;
 			}
+			const coverage = this.sources(
+				this.visible(scope, job.resourceId),
+			).complete;
 			const output = derivationSchema.parse({
 				jobId: job.id,
 				text,
-				complete: complete && job.complete,
+				complete: complete && coverage,
 			});
 			this.db
 				.prepare("INSERT INTO resource_derivations VALUES (?,?,?,?,?,?,?)")
@@ -328,6 +342,7 @@ export class ResourceIndex {
 			writeJob(this.db, {
 				...job,
 				state: "ready",
+				complete: coverage,
 				token: null,
 				error: null,
 				outputHash: hash(output),
@@ -415,7 +430,13 @@ export class ResourceIndex {
 			if (!this.valid(scope, job)) throw Error("stale resource input");
 			if (attempts(this.db, job) >= job.generation.maxAttempts)
 				throw Error("resource attempts exhausted");
-			writeJob(this.db, { ...job, state: "pending", token: null, error: null });
+			writeJob(this.db, {
+				...job,
+				state: "pending",
+				complete: this.sources(this.visible(scope, job.resourceId)).complete,
+				token: null,
+				error: null,
+			});
 		});
 	}
 	read(
@@ -447,8 +468,12 @@ export class ResourceIndex {
 				const output = decode(derivationSchema, row["data"]);
 				if (hash(output) !== job.outputHash)
 					throw Error("corrupt resource derivation");
-				if (this.valid(scope, job)) return { ...output, stale: false };
-				fallback ??= { ...output, stale: true };
+				const current = {
+					...output,
+					complete: output.complete && job.complete,
+				};
+				if (this.valid(scope, job)) return { ...current, stale: false };
+				fallback ??= { ...current, stale: true };
 			}
 		}
 		return fallback;

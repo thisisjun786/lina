@@ -181,3 +181,16 @@ in either output order; changed premises and source revocation still reject.
 Actual CompanionMemory search expansion, HTTP read and reopen show committed
 results with no extra synthetic calls after restart. Independent review passed
 33 focused reasoning tests. No external product model was called.
+
+The additional recovery cycle repairs cap-only completeness changes without
+changing job identity, resetting attempts or rewriting historical output receipts.
+Current traversal completeness is reconciled in job metadata and projected on
+reads; original output hashes are validated before masking completeness. Preparing,
+retrying and committing existing jobs capture current coverage. Overflow is
+incomplete, removal can restore an originally complete result, and a stored
+partial result is never assumed complete. Old untouched databases are handled by
+read-time projection. Six focused regressions and actual HTTP/cursor/fresh-process
+probes cover these branches. Crash and graceful cancellation combined with
+revocation, explicit pending recovery, replay and obsolete-token denial passed
+using isolated processes and synthetic providers. Final combined CI is recorded
+in the task report; no deployment or installed-user-data mutation is implied.
