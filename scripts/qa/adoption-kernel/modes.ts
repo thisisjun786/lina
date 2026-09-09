@@ -119,8 +119,8 @@ export class ModeSession {
 			}
 		}
 		if (index === 0) {
-			for (const prelude of this.input.prelude) {
-				const id = `prelude-${randomUUID()}`;
+			for (const [index, prelude] of this.input.prelude.entries()) {
+				const id = `${this.input.episodeId}:prelude:${index}`;
 				const tool = this.environment.tools().get(prelude.tool);
 				if (!tool) throw Error("unlisted prelude");
 				tool.admit(id, prelude.args, id);

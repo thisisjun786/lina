@@ -51,7 +51,8 @@ export function generateCase(
 		.digest();
 	let cursor = 0;
 	const number = () => 1 + (hash[cursor++ % hash.length] ?? 0);
-	const label = () => `item-${number()}-${number()}`;
+	let labelIndex = 0;
+	const label = () => `item-${number()}-${number()}-${++labelIndex}`;
 	const episodeId = randomUUID(),
 		subject = "agent",
 		sourceId = label(),
@@ -129,7 +130,7 @@ export function generateCase(
 	};
 	const expected = privateTruth.expected;
 	const add = (text: string, id?: string) => {
-		const e = fact(text, id);
+		const e = fact(text, id ?? label());
 		first.events.push({ kind: "observe", evidence: e });
 		return e;
 	};
@@ -251,8 +252,12 @@ export function generateCase(
 					`Inspect the prior submission receipt for task ${taskKey} with check. Repair omissions by resubmitting the complete required set without the faulty method, check again, and cite the passing verification ID.`,
 				);
 			} else {
+				publicCase.prelude.push({
+					tool: "check",
+					args: { submissionId: `${episodeId}:prelude:0` },
+				});
 				first.purpose = purpose(
-					"Check the prior submission. From the failed check, adopt a reusable conditional understanding citing its evidence ref. Do not answer until you have recorded the understanding.",
+					"From the prior failed check, adopt a reusable conditional understanding citing its evidence ref. Do not answer until you have recorded the understanding.",
 				);
 				first.advanceOn = "adopted";
 				const nextTask = label(),

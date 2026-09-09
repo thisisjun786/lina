@@ -78,6 +78,9 @@ export function scoreTrial(
 		e = truth.expected;
 	const result: TrialScore = {
 		episodeId: truth.episodeId,
+		seed: truth.seed,
+		variant: truth.variant,
+		subcase: truth.subcase,
 		row: truth.row,
 		mode: trace.mode,
 		quality: false,
@@ -339,20 +342,39 @@ export function aggregateScores(
 			missing.push(id);
 		scores.push(items.length === 1 && items[0]?.pass ? 100 : 0);
 	}
+	const batchSeeds = new Set(
+		trials.filter((t) => t.mode === "kernel").map((t) => t.seed),
+	);
+	if (batchSeeds.size !== 1) missing.push("batch-seed");
 	for (const id of BEHAVIOR_IDS) {
 		const items = trials.filter((t) => t.row === id && t.mode === "kernel");
-		if (
-			items.length < 4 ||
-			new Set(items.map((t) => t.episodeId)).size !== items.length ||
-			items.some((t) => t.incomplete)
-		)
-			missing.push(id);
-		scores.push(
-			items.length
-				? (100 * items.filter((t) => t.quality && t.uptake !== false).length) /
-						items.length
-				: 0,
-		);
+		const subcases = id === "B15" ? ["visible", "omitted"] : ["main"];
+		let valid =
+			items.length === 4 * subcases.length &&
+			new Set(items.map((t) => t.episodeId)).size === items.length;
+		let passing = 0;
+		for (let variant = 0; variant < 4; variant++) {
+			let pass = true;
+			for (const subcase of subcases) {
+				const selected = items.filter(
+					(t) => t.variant === variant && t.subcase === subcase,
+				);
+				if (selected.length !== 1 || selected[0]?.incomplete) {
+					valid = false;
+					pass = false;
+					continue;
+				}
+				const trial = selected[0];
+				if (!trial?.quality || trial.uptake === false) pass = false;
+				if (["B11", "B12", "B13"].includes(id) && trial?.uptake !== true) {
+					valid = false;
+					pass = false;
+				}
+			}
+			if (pass) passing++;
+		}
+		if (!valid) missing.push(id);
+		scores.push((100 * passing) / 4);
 	}
 	const categories = Array.from(
 		{ length: 6 },

@@ -25,3 +25,78 @@ test("seed repeats synthetic data but opaque episode IDs are fresh", () => {
 		a.privateTruth.expected,
 	);
 });
+
+import { createSession } from "./modes.ts";
+
+test("experience cases begin with a real failed check available to every mode", () => {
+	for (const row of ["B11", "B12"]) {
+		const { publicCase } = generateCase("prelude-proof", row, 0);
+		for (const mode of ["baseline", "kernel", "ablation"] as const) {
+			const session = createSession(mode, publicCase, {
+				complete: async () => {
+					throw Error("setup must not call model");
+				},
+			});
+			try {
+				session.applyStage(0);
+				expect(
+					session.trace.effects.some(
+						(e) => e.tool === "check" && e.receipt.quality.status === "fail",
+					),
+				).toBe(true);
+			} finally {
+				session.close();
+			}
+		}
+	}
+});
+test("long-input distractors have distinct source identities", () => {
+	const { publicCase } = generateCase("long-ids", "B15", 0, "omitted");
+	const sources = publicCase.stages.flatMap((s) =>
+		s.events.flatMap((e) =>
+			e.kind === "retract" ? [] : [e.evidence.sourceId],
+		),
+	);
+	expect(new Set(sources).size).toBe(sources.length);
+});
+
+test("B15 paired cases actually place the required source inside and outside the input cap", async () => {
+	for (const subcase of ["visible", "omitted"] as const) {
+		const { publicCase, privateTruth } = generateCase(
+			"cap-proof",
+			"B15",
+			0,
+			subcase,
+		);
+		const source = privateTruth.expected.sources[0];
+		if (!source) throw Error("missing truth source");
+		const session = createSession("kernel", publicCase, {
+			complete: async () => ({
+				kind: "ok",
+				content: JSON.stringify({
+					kind: "noop",
+					purposeRevision: 1,
+					reason: "observe cap",
+				}),
+				model: "fake",
+				usage: { prompt: 1, completion: 1 },
+				latencyMs: 0,
+			}),
+		});
+		try {
+			session.applyStage(0);
+			await session.step();
+			const request = session.trace.requests[0];
+			if (!request) throw Error("no request");
+			const raw = JSON.parse(request.input.messages[1]?.content ?? "").raw as {
+				sourceId: string;
+			}[];
+			expect(raw.some((item) => item.sourceId === source)).toBe(
+				subcase === "visible",
+			);
+			expect(request.input.omitted.rawIds.length).toBeGreaterThan(0);
+		} finally {
+			session.close();
+		}
+	}
+});

@@ -29,6 +29,9 @@ export type PrivateTruth = {
 };
 export type TrialScore = {
 	episodeId: string;
+	seed: string;
+	variant: number;
+	subcase: string;
 	row: string;
 	mode: string;
 	quality: boolean;

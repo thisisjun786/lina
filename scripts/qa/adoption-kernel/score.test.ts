@@ -86,6 +86,9 @@ test("copying one passing variant cannot fill a four-variant qualification row",
 	const trials = Array.from({ length: 15 }, (_, i) =>
 		Array.from({ length: 4 }, () => ({
 			episodeId: `same-${i}`,
+			seed: "batch",
+			variant: 0,
+			subcase: "main",
 			row: `B${String(i + 1).padStart(2, "0")}`,
 			mode: "kernel",
 			quality: true,
@@ -134,4 +137,55 @@ test("B10 requires the frozen structured defer answer, not only a kernel status"
 		],
 	};
 	expect(scoreTrial(input, fake).quality).toBe(false);
+});
+
+test("a B15 variant cannot pass with its omitted subcase missing", () => {
+	const trials = Array.from({ length: 15 }, (_, i) =>
+		Array.from({ length: 4 }, (_, variant) => ({
+			...scoreTrial(truth, trace),
+			episodeId: `${i}-${variant}`,
+			row: `B${String(i + 1).padStart(2, "0")}`,
+			variant,
+			subcase: i === 14 ? "visible" : "main",
+			seed: "batch",
+			quality: true,
+			uptake: null,
+		})),
+	).flat();
+	const hosts = Array.from({ length: 15 }, (_, i) => ({
+		id: `H${String(i + 1).padStart(2, "0")}`,
+		pass: true,
+		sourceHash: "source",
+		artifact: "proof",
+	}));
+	expect(aggregateScores(trials, hosts).qualified).toBe(false);
+});
+
+test("kernel experience rows require affirmative uptake evidence, not null", () => {
+	const trials = Array.from({ length: 15 }, (_, i) =>
+		Array.from({ length: 4 }, (_, variant) =>
+			(i === 14 ? ["visible", "omitted"] : ["main"]).map((subcase) => ({
+				...scoreTrial(truth, trace),
+				episodeId: `${i}-${variant}-${subcase}`,
+				row: `B${String(i + 1).padStart(2, "0")}`,
+				seed: "batch",
+				variant,
+				subcase,
+				quality: true,
+				uptake: null,
+			})),
+		),
+	).flat(2);
+	const hosts = Array.from({ length: 15 }, (_, i) => ({
+		id: `H${String(i + 1).padStart(2, "0")}`,
+		pass: true,
+		sourceHash: "source",
+		artifact: "proof",
+	}));
+	expect(aggregateScores(trials, hosts).qualified).toBe(false);
+	const withUptake = trials.map((t) => ({
+		...t,
+		uptake: ["B11", "B12", "B13"].includes(t.row) ? true : null,
+	}));
+	expect(aggregateScores(withUptake, hosts).qualified).toBe(true);
 });
