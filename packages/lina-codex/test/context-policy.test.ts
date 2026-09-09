@@ -209,6 +209,55 @@ async function finish(
 	await pending;
 }
 
+test("ordinary settled notLoaded threads resume once before the idle audit", async () => {
+	const f = setupNative();
+	const first = await createCodexSession(f.options);
+	await finish(first, f.rpc);
+	const threadId = first.threadId;
+	await first.close();
+	const rpc = contextRpc(f.root);
+	cleanup.push(() => rpc.close());
+	const thread = rpc.threads[0];
+	if (!thread) throw Error("Missing persisted fixture thread");
+	thread.status.type = "notLoaded";
+	rpc.hook((frame) => {
+		if (frame.method === "thread/resume") thread.status.type = "idle";
+		return undefined;
+	});
+	const resumed = await createCodexSession({ ...f.options, rpc: rpc.options });
+	cleanup.push(() => resumed.close());
+	expect(resumed.threadId).toBe(threadId);
+	expect(rpc.frames.filter((f) => f.method === "thread/resume")).toHaveLength(
+		1,
+	);
+	expect(rpc.frames.filter((f) => f.method === "thread/start")).toHaveLength(0);
+	await finish(resumed, rpc);
+	expect(rpc.frames.filter((f) => f.method === "turn/start")).toHaveLength(1);
+});
+
+for (const status of ["inProgress", "unknown"]) {
+	test(`ordinary notLoaded thread rejects ${status} history before resume`, async () => {
+		const f = setupNative();
+		const first = await createCodexSession(f.options);
+		await finish(first, f.rpc);
+		await first.close();
+		const rpc = contextRpc(f.root);
+		cleanup.push(() => rpc.close());
+		const thread = rpc.threads[0];
+		const turn = thread?.turns[0];
+		if (!thread || !turn) throw Error("Missing persisted fixture history");
+		thread.status.type = "notLoaded";
+		turn.status = status;
+		await expect(
+			createCodexSession({ ...f.options, rpc: rpc.options }),
+		).rejects.toThrow(/attention required/);
+		expect(rpc.frames.filter((f) => f.method === "thread/resume")).toHaveLength(
+			0,
+		);
+		expect(rpc.frames.filter((f) => f.method === "turn/start")).toHaveLength(0);
+	});
+}
+
 test("same-purpose rebind, revoke and unbind rotate only native epochs and fence old callbacks", async () => {
 	const f = setupNative();
 	const session = await createCodexSession(f.options);

@@ -691,7 +691,7 @@ async function startSession(
 		initial: ReturnType<typeof conversationTurn>,
 	): Promise<void> => {
 		author?.assert();
-		let authorResumed:
+		let resumedForAudit:
 			| { thread?: { id?: string; turns?: unknown; modelProvider?: string } }
 			| undefined;
 		let header = readCodexSessionHeader(identity.sessionFile, workspace);
@@ -712,7 +712,6 @@ async function startSession(
 				includeTurns: true,
 			});
 			if (
-				author &&
 				isRecord(prior.thread) &&
 				isRecord(prior.thread["status"]) &&
 				prior.thread["status"]["type"] === "notLoaded"
@@ -730,18 +729,22 @@ async function startSession(
 							),
 					)
 				)
-					throw Error("Old author native run is uncertain; attention required");
-				await author.preflight(rpc);
-				author.assert();
-				authorResumed = await rpc.request("thread/resume", {
+					throw Error("Old native run is uncertain; attention required");
+				await author?.preflight(rpc);
+				author?.assert();
+				resumedForAudit = await rpc.request("thread/resume", {
 					threadId: header.nativeThreadId,
-					...author.threadParams,
-					cwd: workspace,
-					model: initial.model,
-					modelProvider: initial.modelProvider,
-					historyMode: "legacy",
+					...(author
+						? {
+								...author.threadParams,
+								cwd: workspace,
+								model: initial.model,
+								modelProvider: initial.modelProvider,
+								historyMode: "legacy",
+							}
+						: {}),
 				});
-				author.verifyThread(authorResumed);
+				author?.verifyThread(resumedForAudit);
 				prior = await rpc.request("thread/read", {
 					threadId: header.nativeThreadId,
 					includeTurns: true,
@@ -799,7 +802,7 @@ async function startSession(
 		}
 		if (threadId) {
 			const resumed =
-				authorResumed ??
+				resumedForAudit ??
 				(await rpc.request<{
 					thread?: { id?: string; turns?: unknown; modelProvider?: string };
 				}>("thread/resume", {

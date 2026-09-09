@@ -116,3 +116,11 @@
 남은 승인 호출 22–24를 격리 설정의 실제 역할 경로로 사용했다. standard GLM 5.3 Flash 요약은 정정된 초록색·장소의 색상이라는 이유·미정 출시일을 보존했다. quick DeepSeek V4 Flash 관찰은 `OpenCodex request failed`로 실패했고 원인을 확정할 증거는 없다. deep DeepSeek V4 Pro 재검토는 근거 없는 입력에 유효한 `{"proposals":[]}`를 반환했다. 응답 성공 둘은 어댑터와 출력 확인이며 저장·일반 대화·LIFE 전체 성공으로 확대하지 않는다. intensive는 아직 실제 호출하지 않았다. 증거는 `ollama-routing/live-three-results.json`, `live-output-checks.json`, 누적 `live/calls.json`이다.
 
 승인된 총24회를 소진해 추가 호출을 멈췄다. 지정 Ollama 모델만 최대24회 추가 호출하는 질문을 남겼으며 답변 전에는 한도를 늘리지 않는다. 전체 목표와 실제 모델 인수 기준은 미완료 상태다. 설치본 코드 교체·푸시·머지는 하지 않았다.
+
+## 2026-09-09 Ollama 호출 승인 확대와 재시작 결함
+
+사용자가 “올라마는 무제한으로호출해도됨”이라고 승인했다. 위의 24회 제한과 승인 대기는 해제됐다. 지정한 Ollama 네 모델과 격리된 합성 데이터로 검증을 이어간다. 출력 제한 때문에 reasoning 응답이 잘리는 사례는 테스트 전용 출력 예산을 늘려 구분하며 제품 기본값 변경으로 취급하지 않는다.
+
+실제 일반 대화의 재시작에서 완료된 native thread의 `notLoaded` 상태를 거부하는 경로를 찾았다. 기존 작성 대화에만 있던 사전 resume을 일반 대화에도 적용했다. terminal history 확인과 resume 후 idle 감사를 유지한다. 회귀는 수정 전 1 fail, 수정 후 관련 33 pass·0 fail·160 assertions다. 타입 검사 종료0, 변경 파일 Biome 검사 오류0(기존 info 진단 존재). 전체 suite를 이번 변경 후 다시 통과했다고 주장하지 않는다.
+
+실제 GLM Flash 재검증은 재시작을 통과했지만 native epoch가 바뀐 뒤 앞선 색상 선택을 회상하지 못했다. 논리 세션 ID는 유지됐으며 이것만으로 대화 연속성을 입증할 수 없다. 짧은 대화의 compact도 요약을 만들지 않아 반복 압축 인수 증거가 아니다. `ollama-routing/native-context-live.json`에 실패를 남겼다. 원문 출처 검증·epoch 전환·이전 대화 전달 경로를 추가 조사해야 한다. 전체 인수는 계속 미완료이며 설치본 코드 교체·푸시·머지는 하지 않았다.
