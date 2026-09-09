@@ -102,3 +102,36 @@ test("copying one passing variant cannot fill a four-variant qualification row",
 	}));
 	expect(aggregateScores(trials, hosts).qualified).toBe(false);
 });
+
+test("B10 requires the frozen structured defer answer, not only a kernel status", () => {
+	const input = {
+		...truth,
+		row: "B10",
+		expected: { ...truth.expected, value: null },
+	};
+	const fake: EpisodeTrace = {
+		...trace,
+		delivered: [],
+		steps: [
+			{
+				stage: 0,
+				kernel: { status: "deferred", decisionId: "d" },
+				requestIndex: 0,
+			},
+		],
+		effects: [
+			{
+				effectId: "d:tool",
+				tool: "submit",
+				args: {},
+				receipt: {
+					effectId: "d:tool",
+					status: "unknown",
+					output: null,
+					quality: { status: "unverified", verifier: null, detail: "unknown" },
+				},
+			},
+		],
+	};
+	expect(scoreTrial(input, fake).quality).toBe(false);
+});

@@ -218,10 +218,8 @@ export function scoreTrial(
 		}
 		case "B10":
 			result.quality =
-				((a?.outcome === "defer" && a.value === null) ||
-					trace.steps.some(
-						(s) => s.stage === e.finalStage && s.kernel.status === "deferred",
-					)) &&
+				a?.outcome === "defer" &&
+				a.value === null &&
 				submits.length === 1 &&
 				submits[0]?.receipt.status === "unknown";
 			break;
