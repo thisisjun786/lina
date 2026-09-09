@@ -75,10 +75,23 @@ export async function resourceRoutes(
 	options: {
 		store: ResourceStore;
 		scope: () => ResourceScope;
+		basePath?: string;
 		search?: ResourceSearch;
+		onStored?: (
+			resource: import("../../../lina-memory/src/resources/types.ts").Resource,
+		) => void;
 	},
 ): Promise<Response | undefined> {
 	const url = new URL(request.url);
+	if (options.basePath) {
+		if (
+			url.pathname !== options.basePath &&
+			!url.pathname.startsWith(`${options.basePath}/`)
+		)
+			return;
+		url.pathname =
+			"/api/resources" + url.pathname.slice(options.basePath.length);
+	}
 	if (
 		url.pathname !== "/api/resources" &&
 		!url.pathname.startsWith("/api/resources/")
@@ -121,6 +134,7 @@ export async function resourceRoutes(
 					...(input.limit ? { limit: input.limit } : {}),
 				});
 				guard();
+
 				return reply(result);
 			}
 			if (request.method === "POST") {
@@ -141,6 +155,7 @@ export async function resourceRoutes(
 					}),
 				});
 				guard();
+				options.onStored?.(result);
 				return reply(result, 201);
 			}
 		}
@@ -185,6 +200,7 @@ export async function resourceRoutes(
 				)
 			)
 				throw Error("resource search changed");
+
 			return reply(result);
 		}
 		if (
@@ -240,6 +256,8 @@ export async function resourceRoutes(
 				}),
 			});
 			guard();
+
+			if (!result.deleted) options.onStored?.(result);
 			return reply(result);
 		}
 		if (
@@ -275,6 +293,7 @@ export async function resourceRoutes(
 				.parse(query);
 			const result = readResource(store, scope(), id, input);
 			guard();
+
 			return reply(result);
 		}
 		return reply({ error: "Unknown resource route" }, 404);

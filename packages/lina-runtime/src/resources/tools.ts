@@ -59,6 +59,9 @@ export function installResourceTools(
 		store: ResourceStore;
 		scope: () => ResourceScope;
 		search?: ResourceSearch;
+		onStored?: (
+			resource: import("../../../lina-memory/src/resources/types.ts").Resource,
+		) => void;
 	},
 ): void {
 	const { store, scope } = options;
@@ -322,6 +325,7 @@ export function installResourceTools(
 					...bytes,
 				});
 			}
+			if (!value.deleted) options.onStored?.(value);
 			return textResult(value, () => {
 				if (before !== canonical(scope()))
 					throw Error("resource scope changed");
@@ -355,6 +359,7 @@ export function installResourceTools(
 					.parse(raw),
 				before = canonical(scope()),
 				value = store.update(scope(), input);
+			if (!value.deleted) options.onStored?.(value);
 			return textResult(value, () => {
 				if (before !== canonical(scope()))
 					throw Error("resource scope changed");

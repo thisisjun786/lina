@@ -22,8 +22,7 @@ interface Options {
 export class ResourceEngine {
 	readonly store: ResourceStore;
 	readonly search: ResourceSearch;
-	private readonly worker: ResourceWorker;
-	private readonly memoryWorker: ResourceMemoryWorker;
+	private readonly inflight = new Set<Promise<unknown>>();
 	private readonly abort = new AbortController();
 	private busy = false;
 	private closed = false;
@@ -42,28 +41,111 @@ export class ResourceEngine {
 			services: options.services,
 			policy: options.policy,
 		};
-		this.search = new ResourceSearch(shared);
-		this.worker = new ResourceWorker(shared);
-		this.memoryWorker = new ResourceMemoryWorker(shared);
+		this.search = this.ownedSearch(
+			new ResourceSearch({
+				...shared,
+				scope: () => {
+					this.open();
+					return options.scope();
+				},
+			}),
+		);
+	}
+	execute<T>(
+		run: (signal: AbortSignal) => Promise<T>,
+		signal: AbortSignal,
+	): Promise<T> {
+		return this.track(run, signal);
+	}
+	private ownedSearch(search: ResourceSearch): ResourceSearch {
+		const execute = search.search.bind(search);
+		search.search = (input, signal) =>
+			this.track((combined) => execute(input, combined), signal);
+		return search;
+	}
+	private track<T>(
+		run: (signal: AbortSignal) => Promise<T>,
+		signal: AbortSignal,
+	): Promise<T> {
+		this.open();
+		const combined = AbortSignal.any([signal, this.abort.signal]);
+		const task = Promise.resolve().then(() => {
+			combined.throwIfAborted();
+			return run(combined);
+		});
+		this.inflight.add(task);
+		void task.then(
+			() => this.inflight.delete(task),
+			() => this.inflight.delete(task),
+		);
+		return task;
+	}
+	consumer(
+		scopeGetter: () => ResourceScope,
+		onStored?: (
+			resource: import("../../../lina-memory/src/resources/types.ts").Resource,
+		) => void,
+	) {
+		this.open();
+		const scope = () => {
+			this.open();
+			return scopeGetter();
+		};
+		const search = this.ownedSearch(
+			new ResourceSearch({
+				store: this.store,
+				scope,
+				services: this.options.services,
+				policy: this.options.policy,
+			}),
+		);
+		return {
+			scope,
+			search,
+			install: (host: LinaHost) => {
+				this.open();
+				installResourceTools(host, {
+					store: this.store,
+					scope,
+					search,
+					...(onStored ? { onStored } : {}),
+				});
+			},
+		};
 	}
 	install(host: LinaHost): void {
 		this.open();
 		installResourceTools(host, {
 			store: this.store,
-			scope: this.options.scope,
+			scope: () => {
+				this.open();
+				return this.options.scope();
+			},
 			search: this.search,
 		});
 	}
-	async runPending(resourceId: string, signal: AbortSignal) {
+	async runPending(
+		resourceId: string,
+		signal: AbortSignal,
+		scope: () => ResourceScope = this.options.scope,
+	) {
 		this.open();
 		if (this.busy) throw Error("resource worker busy");
 		this.busy = true;
 		this.drained = Promise.withResolvers<void>();
+		const shared = {
+			store: this.store,
+			scope,
+			services: this.options.services,
+			policy: this.options.policy,
+		};
+		const worker = new ResourceWorker(shared),
+			memoryWorker = new ResourceMemoryWorker(shared);
 		try {
 			this.store.indexing.refresh();
 			const order = { extract: 0, brief: 1, overview: 2 };
 			const jobs = this.store.indexing
-				.list(this.options.scope(), resourceId)
+				.list(scope(), resourceId)
 				.filter(
 					(job) =>
 						job.state === "pending" &&
@@ -81,9 +163,9 @@ export class ResourceEngine {
 			const combined = AbortSignal.any([signal, this.abort.signal]);
 			for (const job of jobs) {
 				combined.throwIfAborted();
-				results.push(await this.worker.run(job.id, combined));
+				results.push(await worker.run(job.id, combined));
 			}
-			const memory = await this.memoryWorker.run(resourceId, combined);
+			const memory = await memoryWorker.run(resourceId, combined);
 			if (
 				!(
 					memory.state === "unavailable" &&
@@ -108,14 +190,13 @@ export class ResourceEngine {
 		if (this.closing) return this.closing;
 		this.closed = true;
 		this.abort.abort(new Error("resource engine closed"));
-		if (!this.busy) {
+		this.closing = (async () => {
+			await Promise.allSettled([
+				...this.inflight,
+				...(this.busy && this.drained ? [this.drained.promise] : []),
+			]);
 			this.store.close();
-			this.closing = Promise.resolve();
-		} else
-			this.closing = (async () => {
-				await this.drained?.promise;
-				this.store.close();
-			})();
+		})();
 		return this.closing;
 	}
 	private open(): void {

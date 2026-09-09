@@ -1,4 +1,8 @@
 import { CompanionMemory } from "../context/companion.ts";
+import type {
+	EnginePolicyInput,
+	EnginePolicySettingsStore,
+} from "../context/policy-settings.ts";
 import { ModelRequestError } from "../models/errors.ts";
 import type { CatalogModel } from "../models/port.ts";
 import type {
@@ -289,6 +293,38 @@ export async function companionRoutes(
 					: "요청 내용을 확인해주세요.",
 			},
 			stale ? 409 : 400,
+		);
+	}
+}
+
+export async function enginePolicyRoutes(
+	request: Request,
+	store: EnginePolicySettingsStore,
+	json: () => Promise<Record<string, unknown>>,
+	managed?: () => import("../context/policy-settings.ts").EnginePolicySnapshot,
+): Promise<Response | undefined> {
+	if (new URL(request.url).pathname !== "/api/engines/policy") return;
+	if (request.method === "GET")
+		return reply(managed ? managed() : store.snapshot());
+	if (managed)
+		return reply({ error: "Engine policy is managed by the host" }, 409);
+	if (request.method !== "PATCH")
+		return reply({ error: "Method not allowed" }, 405);
+	try {
+		const body = await json();
+		fields(body, ["expectedRevision", "settings"]);
+		if (typeof body["expectedRevision"] !== "number")
+			throw Error("invalid revision");
+		return reply(
+			store.replace(
+				body["expectedRevision"],
+				body["settings"] as EnginePolicyInput,
+			),
+		);
+	} catch (error) {
+		return reply(
+			{ error: "Invalid or stale engine policy" },
+			error instanceof Error && error.message.includes("stale") ? 409 : 400,
 		);
 	}
 }

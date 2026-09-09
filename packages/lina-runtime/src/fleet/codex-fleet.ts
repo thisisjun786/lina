@@ -5,17 +5,18 @@ import { createWorldAuthorEngine } from "../../../lina-codex/src/author-capabili
 import type { createCodexLifeModel } from "../../../lina-codex/src/life-model.ts";
 import { type CodexRpc, createCodexRpc } from "../../../lina-codex/src/rpc.ts";
 import { createCodexEngine } from "../../../lina-codex/src/session.ts";
+import type { TaskDynamicTool } from "../../../lina-codex/src/task-rpc.ts";
 import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.ts";
 import { acquireInstallationLock } from "../../../lina-core/src/installation/lock.ts";
 import { parseHonchoEnv } from "../../../lina-memory/src/honcho/index.ts";
-import {
-	OpenVikingClient,
-	parseOpenVikingEnv,
-} from "../../../lina-memory/src/openviking/index.ts";
 import { OpenCodexHub } from "../../../lina-opencodex/src/index.ts";
 import { parseApprovalMode } from "../approval-policy.ts";
 import { codexAssistantPrompt } from "../codex-prompt.ts";
 import { parseMemoryBackend } from "../context/backend.ts";
+import {
+	defaultEnginePolicy,
+	EnginePolicySettingsStore,
+} from "../context/policy-settings.ts";
 import { Ima2Client } from "../images/client.ts";
 import type { ImageClient } from "../images/jobs.ts";
 import { createWorldAuthorSession } from "../life/author-session.ts";
@@ -25,13 +26,15 @@ import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import { resolveProfile } from "../models/selection.ts";
 import { type AppOptions, startPersistentApp } from "../session-app.ts";
 import { createCodexTaskTools } from "../tools/codex-tasks.ts";
-import { workTools } from "../tools/work-memory.ts";
 import { provisionCodexHome } from "./codex-home.ts";
+import { enginePolicyRoutes } from "./companion-routes.ts";
 import { hubRoutes } from "./hub-routes.ts";
 import { FleetLifeImages } from "./life-images.ts";
 import { createFleetLifeRuntime } from "./life-runtime.ts";
 import { FleetLifeTasks } from "./life-runtime-tasks.ts";
 import { AgentFleet, validAgentId } from "./manager.ts";
+import { resourceRoutes } from "./resource-routes.ts";
+import { FleetResources } from "./resource-runtime.ts";
 import { startFleetServer } from "./server.ts";
 import { createSharedCodexRpc } from "./shared-codex-rpc.ts";
 import { taskConnectionSpec } from "./task-connection.ts";
@@ -126,8 +129,13 @@ async function startUnlocked(
 	const approvalMode = parseApprovalMode(env["LINA_APPROVAL_MODE"]);
 	const hub = new OpenCodexHub({ env, homeDir: home });
 	await hub.refresh().catch(() => undefined);
-	const work = new OpenVikingClient(parseOpenVikingEnv(env));
-	const workbench = workTools(work);
+	const resourceTools: TaskDynamicTool[] = [];
+	let resources: FleetResources | undefined;
+	let enginePolicyStore: EnginePolicySettingsStore | undefined;
+	const getEnginePolicy = () =>
+		options.enginePolicy?.() ??
+		enginePolicyStore?.snapshot() ??
+		defaultEnginePolicy();
 	const taskSpec = taskConnectionSpec({
 		stateRoot,
 		homeDir: home,
@@ -161,30 +169,10 @@ async function startUnlocked(
 		{
 			path: join(stateRoot, "tasks.sqlite"),
 			rpc: transport,
-			dynamicTools: workbench.map((tool) => ({
-				type: "function",
-				name: tool.name,
-				description: tool.description,
-				inputSchema: tool.parameters,
-			})),
-			async executeTool(name, callId, args, signal) {
-				const tool = workbench.find((tool) => tool.name === name);
-				if (!tool || !args || typeof args !== "object" || Array.isArray(args))
-					throw Error("Invalid work memory tool input");
-				const result = await tool.execute(
-					callId,
-					args as Record<string, unknown>,
-					signal,
-				);
-				return {
-					contentItems: result.content.map((item) => ({
-						type: "inputText" as const,
-						text: item.text,
-					})),
-					success:
-						result.details["service"] !== "unavailable" &&
-						result.details["service"] !== "disabled",
-				};
+			dynamicTools: resourceTools,
+			executeTool(...args) {
+				if (!resources) throw Error("Resource owner unavailable");
+				return resources.executeTool(...args);
 			},
 		},
 		() => fleet.lifeForeground,
@@ -223,8 +211,11 @@ async function startUnlocked(
 	let fullyStopped = false;
 	const validOwner = (id: string) => validAgentId(id) && !!fleet.agents.get(id);
 	try {
+		enginePolicyStore = new EnginePolicySettingsStore(
+			join(stateRoot, "engine-policy.sqlite"),
+		);
 		fleet = new AgentFleet({
-			...(options.enginePolicy ? { enginePolicy: options.enginePolicy } : {}),
+			enginePolicy: getEnginePolicy,
 			workspace,
 			resourceRoot,
 			...(options.workspaceRoot
@@ -358,7 +349,7 @@ async function startUnlocked(
 								validOwner,
 							))
 								host.registerTool(tool);
-							for (const tool of workbench) host.registerTool(tool);
+							resources?.install(host, appOptions.botId ?? botId);
 						},
 					});
 					subscriptions.push(
@@ -373,7 +364,24 @@ async function startUnlocked(
 					return app;
 				}),
 		});
+		resources = new FleetResources({
+			root: join(stateRoot, "resources"),
+			limits: {
+				maxFileBytes: 64 * 1024 * 1024,
+				maxCatalogBytes: 64 * 1024 * 1024,
+				maxExtractionBytes: 2 * 1024 * 1024,
+			},
+			services: () => hub.createContextServices(getSettings),
+			policy: getEnginePolicy,
+			validAgent: validOwner,
+			assertInstallation: () => {
+				if (!ownsInstallation()) throw Error("Installation ownership required");
+			},
+		});
+		resourceTools.push(...resources.dynamicTools());
 	} catch (error) {
+		await resources?.close();
+		enginePolicyStore?.close();
 		await tasks.close();
 		await transport.close();
 		throw error;
@@ -398,20 +406,58 @@ async function startUnlocked(
 	try {
 		// Source reconciliation settles before a retained world's runtime can start.
 		await tasks.restore();
+		const resourceOwner = resources,
+			policyOwner = enginePolicyStore;
+		if (!resourceOwner || !policyOwner)
+			throw Error("Engine owners unavailable");
 		server = await startFleetServer(fleet, port, resourceRoot, botId, {
 			lazy: true,
 			lifeImages: images,
 			generatedAvatarAuthority: (authority) =>
 				images().allowed(authority.candidate),
 			generatedAvatarApplication: (candidate) => images().allowed(candidate),
-			route: async (request, json) =>
-				(await hubRoutes(request, hub, json)) ??
-				taskRoutes(request, tasks, validOwner, json),
+			route: async (request, json) => {
+				const policy = await enginePolicyRoutes(
+					request,
+					policyOwner,
+					json,
+					options.enginePolicy,
+				);
+				if (policy) return policy;
+				const path = new URL(request.url).pathname,
+					matched =
+						/^\/api\/agents\/([a-z][a-z0-9-]{0,47})\/resources(?:\/|$)/.exec(
+							path,
+						);
+				if (
+					path === "/api/resources" ||
+					path.startsWith("/api/resources/") ||
+					matched
+				) {
+					const id = matched?.[1] ?? null;
+					if (id && !validOwner(id))
+						return Response.json({ error: "Unknown agent" }, { status: 404 });
+					const client = resourceOwner.consumer(id);
+					return resourceRoutes(request, {
+						store: resourceOwner.engine.store,
+						scope: client.scope,
+						search: client.search,
+						...(id ? { basePath: `/api/agents/${id}/resources` } : {}),
+						onStored: (r) => resourceOwner.schedule(id, r.id),
+					});
+				}
+				return (
+					(await hubRoutes(request, hub, json)) ??
+					taskRoutes(request, tasks, validOwner, json)
+				);
+			},
 		});
 		fleet.resumeLife();
 	} catch (error) {
+		await resources?.close();
 		await server?.stop();
 		await fleet.close();
+		enginePolicyStore?.close();
 		await tasks.close();
 		await transport.close();
 		throw error;
@@ -427,11 +473,13 @@ async function startUnlocked(
 			stopped = true;
 			fleet.lifeForeground.set("shutdown", true);
 			for (const off of subscriptions.splice(0)) off();
+			await resources?.close();
 			await imageOwner?.close();
 			// LIFE drains and detaches its work bridge while the source journal is still open.
 			await server?.stop();
 			await tasks.close();
 			await transport.close();
+			enginePolicyStore?.close();
 			fullyStopped = true;
 		},
 	};
