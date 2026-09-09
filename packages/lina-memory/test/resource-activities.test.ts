@@ -529,3 +529,34 @@ test("delivery authority is checked again after acknowledgement and restriction"
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("acknowledged activity emits one restriction when its source changes", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-activity-ack-stale-"));
+	const { resources, activities } = open(root);
+	try {
+		const doc = seed(resources);
+		activities.create(a, recorded("activity", doc.id));
+		const source = activities.pending(a, "world-1")[0]?.source;
+		if (!source) throw Error("Missing source");
+		activities.ack(a, {
+			operationId: "ack",
+			deliveryId: source.deliveryId,
+			sourceDigest: source.sourceDigest,
+		});
+		resources.update(a, {
+			operationId: "rewrite",
+			id: doc.id,
+			expectedRevision: doc.revision,
+			bytes: text("Changed source"),
+		});
+		expect(activities.current(a, "world-1", source)).toBe(false);
+		const deliveries = activities.pending(a, "world-1");
+		expect(deliveries).toHaveLength(1);
+		expect(deliveries[0]?.source.operation).toBe("restrict");
+		expect(activities.pending(a, "world-1")).toEqual(deliveries);
+	} finally {
+		activities.close();
+		resources.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

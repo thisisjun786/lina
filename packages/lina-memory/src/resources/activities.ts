@@ -324,7 +324,7 @@ export class ResourceActivities {
 			},
 		);
 	}
-	/** Trusted consumer check; acknowledged delivery is not perpetual sharing authority. */
+	/** Caller-scoped authority check. May durably revoke stale evidence; call outside ledger transactions. */
 	current(
 		rawScope: ResourceScope,
 		worldId: string,
@@ -569,16 +569,6 @@ export class ResourceActivities {
 	private seal(scope: ResourceScope, activityId: string): void {
 		const latest = loadActivity(this.db, activityId);
 		if (latest.grant.revoked) return;
-		const pending = this.db
-			.prepare(
-				"SELECT * FROM resource_activity_deliveries WHERE activity_id=? AND world_id=? AND state='pending'",
-			)
-			.all(activityId, latest.grant.worldId);
-		if (!pending.length) return;
-		const upsert = pending
-			.map((row) => decodeActivityDelivery(row))
-			.find((item) => item.source.operation === "upsert");
-		if (!upsert) return;
 		const ownerScope: ResourceScope = {
 			principalId: latest.snapshot.ownerId,
 			agentId: latest.receipt.actorAgentId,
