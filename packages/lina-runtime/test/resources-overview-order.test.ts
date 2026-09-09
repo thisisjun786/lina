@@ -127,8 +127,10 @@ for (const unsupported of [false, true]) {
 			const texts = final?.sources.map((source) => source.text);
 			expect(texts).toContain("CHILD_0");
 			if (!unsupported) expect(texts).toContain("CHILD_1");
+			const secondDocument = docs[1];
+			if (!secondDocument) throw Error("missing second document");
 			const second = owner.engine.store.indexing
-				.list(owner.scope("a"), docs[1]!.id)
+				.list(owner.scope("a"), secondDocument.id)
 				.find((job) => job.kind === "extract");
 			expect(second?.state).toBe(unsupported ? "unavailable" : "ready");
 			expect(calls).toBe(unsupported ? 3 : 4);
