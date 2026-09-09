@@ -1377,3 +1377,189 @@ test("resume reports interrupted judgment without silently dropping or retrying 
 		delivery.close();
 	}
 });
+
+test("H02 cross-subject citation is rejected after actual model input projection", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	store.observe("owner", {
+		...evidence,
+		id: "other",
+		subject: "other-subject",
+		text: "OTHER_SUBJECT_CANARY",
+	});
+	let input = "";
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools: new Map(),
+		model: {
+			propose: async (frame) => {
+				input = JSON.stringify(frame);
+				return {
+					kind: "adopt",
+					purposeRevision: 1,
+					adoptionKind: "plan",
+					text: "foreign",
+					refs: [{ id: "other", revision: 1 }],
+					condition: "always",
+				};
+			},
+		},
+	});
+	try {
+		expect((await kernel.step("p")).status).toBe("rejected");
+		expect(input).not.toContain("OTHER_SUBJECT_CANARY");
+		expect(store.frame("p").adoptions).toEqual([]);
+		expect(store.pending()).toEqual([]);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("H03 private canary is absent from actual input and echo delivery", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose({ ...purpose, audience: "public" });
+	store.observe("owner", { ...evidence, text: "PRIVATE_SOURCE_CANARY" });
+	let input = "";
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools: new Map(),
+		model: {
+			propose: async (frame) => {
+				input = JSON.stringify(frame);
+				return { kind: "answer", purposeRevision: 1, text: input };
+			},
+		},
+	});
+	try {
+		const trace = await kernel.step("p");
+		expect(trace.status).toBe("answered");
+		expect(input).not.toContain("PRIVATE_SOURCE_CANARY");
+		expect(
+			JSON.stringify(await delivery.reconcile(`${trace.decisionId}:answer`)),
+		).not.toContain("PRIVATE_SOURCE_CANARY");
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});
+
+test("adopted dependency meaning survives SQLite reopen and later retraction", async () => {
+	const { mkdtempSync, rmSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { tmpdir } = await import("node:os");
+	const root = mkdtempSync(join(tmpdir(), "adoption-restore-"));
+	const path = join(root, "kernel.sqlite");
+	const owner = new DeliveryOwner();
+	const first = new KernelStore(path);
+	try {
+		first.setPurpose(purpose);
+		first.observe("owner", evidence);
+		const kernel = new AdoptionKernel({
+			store: first,
+			delivery: owner,
+			tools: new Map(),
+			model: {
+				propose: async () => ({
+					kind: "adopt",
+					purposeRevision: 1,
+					adoptionKind: "intention",
+					text: "use fact",
+					refs: [{ id: "e", revision: 1 }],
+					condition: "when needed",
+				}),
+			},
+		});
+		expect((await kernel.step("p", "adopt-request")).status).toBe("adopted");
+	} finally {
+		first.close();
+	}
+	const second = new KernelStore(path);
+	try {
+		expect(second.frame("p").adoptions[0]?.kind).toBe("intention");
+		second.retract("owner", { id: "e", revision: 2 });
+		expect(second.frame("p").adoptions).toEqual([]);
+	} finally {
+		second.close();
+		owner.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("H05 malformed proposals cannot reach delivery or tool owners", async () => {
+	const cases: unknown[] = [
+		null,
+		{ kind: "answer", purposeRevision: 1, text: "", unexpected: "field" },
+		{ kind: "answer", purposeRevision: -1, text: "invalid revision" },
+		{
+			kind: "tool",
+			purposeRevision: 1,
+			tool: "tool",
+			args: { value: Number.POSITIVE_INFINITY },
+		},
+		{
+			kind: "adopt",
+			purposeRevision: 1,
+			adoptionKind: "plan",
+			text: "bad ref",
+			refs: [{ id: "e", revision: "1" }],
+			condition: "always",
+		},
+		{
+			kind: "defer",
+			purposeRevision: 1,
+			condition: "",
+			reason: "invalid condition",
+		},
+		{
+			kind: "noop",
+			purposeRevision: 1,
+			reason: "x",
+			judgment: {
+				method: null,
+				expectation: { kind: "none", text: "retrofit" },
+			},
+		},
+	];
+	for (const proposal of cases) {
+		const store = new KernelStore();
+		const delivery = new DeliveryOwner();
+		store.setPurpose(purpose);
+		let admissions = 0;
+		const kernel = new AdoptionKernel({
+			store,
+			delivery: {
+				admit: () => {
+					admissions++;
+				},
+				reconcile: async () => null,
+			},
+			tools: new Map([
+				[
+					"tool",
+					{
+						admit: () => {
+							admissions++;
+						},
+						result: async () => null,
+						reconcile: async () => null,
+					},
+				],
+			]),
+			model: { propose: async () => proposal },
+		});
+		try {
+			expect((await kernel.step("p")).status).toBe("rejected");
+			expect(admissions).toBe(0);
+			expect(store.pending()).toEqual([]);
+			expect(store.frame("p").adoptions).toEqual([]);
+		} finally {
+			store.close();
+			delivery.close();
+		}
+	}
+});
