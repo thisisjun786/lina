@@ -73,7 +73,8 @@ No implementation is delegated; the conflict edits are tightly coupled and small
 
 Existing script definitions in `package.json` point typecheck to root/browser
 tsconfigs, lint to the repository, and CI validation/build to `scripts/ci`.
-These candidate checks are not yet run here and are not claimed as passing.
+These candidate checks had not run when the plan was written; their completed
+results are recorded below.
 Dependencies are installed locally from `bun.lock` with lifecycle scripts disabled.
 
 1. Run `git merge-base --is-ancestor` for each pinned source and current remote dev;
