@@ -1,9 +1,11 @@
 # Agent daily life and social feed ideas
 
+Implementation update,2026-09-08:010–070 engine/backend work is implemented and locally qualified;080 completes integrated acceptance and the [consumer handoff](../../LIFE_ENGINE.md). The ideas below retain the original product direction. Recurring production generation, the LIFE renderer and real-provider quality are not enabled or certified by this document.
+
 Date: 2026-09-07. Status: LIFE/SNS product direction clarified; no recurring generation scheduled. The foundational world state has a separate [minimal implementation](012_world_engine_mvp.md). The [social-simulation research and revised contract](013_life_engine_research.md) define the broader target.
 Related decision: [ima2-gen image engine](009_ima2_image_engine.md).
 
-The user subsequently requested a complete implementation plan, including suitable images and interactions. The [LIFE roadmap](../life/000_plan.md) now owns the dependency order and acceptance criteria; [publication](../life/060_publication.md), [images/avatars](../life/070_images_and_avatars.md) and [product surfaces](../life/080_surfaces_and_acceptance.md) retain these initial ideas. Replies, reactions, reshares and avatar history/pin/restore are explicit implementation proposals, not fixed product defaults. This expands the planned product scope without starting implementation or recurring generation.
+The user subsequently requested a complete implementation plan, including suitable images and interactions. The [LIFE roadmap](../life/000_plan.md) now owns the dependency order and acceptance criteria; [publication](../life/060_publication.md), [images/avatars](../life/070_images_and_avatars.md) and [product surfaces](../life/080_surfaces_and_acceptance.md) retain these initial ideas. Replies, reactions, reshares and avatar history/pin/restore are explicit implementation proposals, not fixed product defaults. This originally expanded the planned product scope; implementation status is recorded in the update above. No recurring production generation is scheduled here.
 
 World-engine direction added on 2026-09-07: [separate world engine with RisuAI reference mechanisms](011_world_engine_risuai.md).
 This provides the proposed shared scene/event foundation for the ideas below.

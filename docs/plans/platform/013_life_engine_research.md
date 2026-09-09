@@ -1,6 +1,8 @@
 # LIFE engine: source research and implementation direction
 
-Date: 2026-09-07. This records source inspection, isolated engine probes, and the revised product contract. The full LIFE feature described here is not implemented by the existing world-engine PR.
+Implementation update,2026-09-08: this is the historical research record, not the current feature-status ledger.010–070 are implemented and locally qualified;080 owns final integrated acceptance and the [consumer handoff](../../LIFE_ENGINE.md). Research probes are not substitutes for current source, renderer or live-provider proof.
+
+Date: 2026-09-07. This records source inspection, isolated engine probes, and the revised product contract. At the original research checkpoint the broader LIFE feature was still a proposal; current status is in the update above.
 
 The subsequent [LIFE implementation roadmap](../life/000_plan.md) owns the complete dependency order, file-level changes and acceptance scenarios. The implementation sequence below is the research recommendation; use the roadmap for execution. It includes SNS interactions, event images and periodic avatars while leaving world/cadence/budget/publication settings open.
 
