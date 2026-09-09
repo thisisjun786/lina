@@ -235,6 +235,31 @@ test("native context identities include originals already delivered in epoch zer
 	expect(seen[1]).toEqual(ids);
 });
 
+test("compaction stops claiming pre-compaction originals as resident while later turns deduplicate", async () => {
+	const f = setupNative();
+	const seen: Array<readonly string[] | undefined> = [];
+	const session = await createCodexSession({
+		...f.options,
+		register(host) {
+			host.on("context", (event) => {
+				seen.push(event.nativeEntryIds);
+			});
+		},
+	});
+	cleanup.push(() => session.close());
+	await finish(session, f.rpc);
+	await session.compact();
+	await finish(session, f.rpc);
+	expect(seen[1]).toEqual([]);
+	const laterIds = session
+		.history()
+		.slice(2)
+		.map((e) => (e as { id: string }).id);
+	await finish(session, f.rpc);
+	expect(laterIds.length).toBe(2);
+	expect(seen[2]).toEqual(laterIds);
+});
+
 test("ordinary settled notLoaded threads resume once before the idle audit", async () => {
 	const f = setupNative();
 	const first = await createCodexSession(f.options);

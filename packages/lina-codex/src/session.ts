@@ -186,6 +186,8 @@ async function startSession(
 	);
 	const listeners = new Set<(event: unknown) => void>();
 	const history: ProjectedEntry[] = [...journalEntries(identity.sessionFile)];
+	// Compaction does not prove which original messages remain resident.
+	let nativeHistoryFloor = 0;
 	const nativeItems = new Map<string, number>();
 	const ordinals = new Map<string, number>();
 	const remember = (entry: ProjectedEntry) => {
@@ -429,8 +431,10 @@ async function startSession(
 					isRecord(params) &&
 					isRecord(params["item"]) &&
 					params["item"]["type"] === "contextCompaction")
-			)
+			) {
 				deliveredInstructions = undefined;
+				nativeHistoryFloor = history.length;
+			}
 			for (const waiter of [...waiters]) {
 				if (waiter.match(method, params)) waiter.settle(undefined, params);
 			}
@@ -999,6 +1003,7 @@ async function startSession(
 					text,
 					admission.signal,
 					history
+						.slice(nativeHistoryFloor)
 						.filter((entry) => (entry.codex?.nativeEpoch ?? 0) === epoch)
 						.map((entry) => entry.id),
 				);

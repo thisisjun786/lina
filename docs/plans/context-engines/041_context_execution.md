@@ -112,3 +112,5 @@ A closure PASS: 추정기는 summary packing, ContextServices.estimateText/estim
 수정 계약: LINA가 현재 native epoch에 투영한 원문 ID를 별도 `nativeEntryIds` 메타데이터로 전달한다. 현재 질문의 content/토큰 계산과 분리한다. 새 epoch의 빈 목록은 알려진 빈 문맥이며, 메타데이터 미지원은 기존 opaque 거부를 유지한다. 이 메타데이터는 모델 요청 본문으로 직렬화하지 않는다. `session.ts`, `host.ts`, runtime host 계약, context hooks/coordinator/external이 변경 범위다. 최근 원문은 기존 적격 출처 검사·전달 직전 guard·예산·개수 제한을 모두 유지한다. 복구가 목적이며 출처 불명의 native turn을 신뢰하도록 바꾸지 않는다.
 
 인수: 실제 SessionApp 원문 전달, 현재 epoch ID 중복 제외, 빈 목록에서 복구, 메타데이터 미지원 거부, 출처 무효화 guard, epoch 교체 후 실제 GLM 회상. 반복 압축과 원문 확장 인수는 별도로 유지한다.
+
+압축 알림 뒤 같은 프로세스의 ID 목록에서는 압축 전 projection을 제외한다. native가 원문의 실제 보존 구간을 알려주지 않으므로, 보존을 추정해 필요한 tail을 지우지 않는다. 압축 뒤 새로 전달된 원문만 중복 제외한다. 제한된 최근 원문이 native 요약과 일부 겹칠 수 있으나 원문 출처와 예산은 유지된다. 이 경계는 프로세스 내 알림에 대한 것이며 재시작 시의 native residency 복원 계약을 새로 보증하지 않는다. 회귀는 compact→다음 turn의 빈 ID 목록과 이후 turn의 새 원문 ID만 포함되는 경우를 검사한다.

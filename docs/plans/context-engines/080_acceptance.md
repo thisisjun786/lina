@@ -144,3 +144,7 @@ summary 역할 요청에 소비자의 문자 상한을 명시하고, 보관 원�
 838b528의 프롬프트 보완 후 실제 GLM Flash native 검사가 종료0으로 끝났다. `/tmp/lina-live-e2e-O1iOtd`의 격리 Fleet에서 요약 체크포인트 두 번, 재시작 두 번, 초록 회상, 노랑/초록 정정 회상, `lina_context_expand` 실제 도구 호출과 원문 초록 복원을 확인했다. 논리 세션 ID·메시지 중복 없음·recoveryNeeded=false도 확인했다. 테스트 전용 freshTailEntries=1, 요약 출력8192 조건의 증거이며 기본 예산이나 장기 대화 품질을 보증하지 않는다. `native-context-live.json`의 archive-tool/restored-compaction/teardown과 종료0이 근거다.
 
 독립 reviewer 01a084ed는807a33b에 한정해 PASS, 51 focused tests 통과를 보고했다. metadata 모델 비노출, ordinary 적격 출처·guard·예산 유지 확인. 지적한 epoch0 ID 누락은 두 번째 실제 turn의 nativeEntryIds를 검사하는 실패→통과 회귀로 수정했다. native compaction 후 projection ID가 실제 resident 원문과 같다는 보장은 아직 없다. 이 한계와 요약 프롬프트 변경의 독립 검토는 전체 완료 전 남은 항목이다.
+
+동일 프로세스의 native 압축 알림 뒤에는 압축 전 원문을 resident ID 목록에서 제외하도록 보완했다. 압축 이후 새 turn은 계속 중복 제외한다. compact→turn→turn 회귀는 수정 전 실패, 수정 후 통과했으며 관련47개 검사와 타입 검사를 통과했다. 전체 재시작 native 원문 residency를 증명하는 변경은 아니다.
+
+독립 조사01a084ea는 native compaction의 내부 turn에 managed source mapping이 없어 reopen 시 provenance 검사가 새 epoch를 만들 가능성을 가장 좁은 원인으로 제시했다. raw thread/read의 해당 turn ID·shape는 수집하지 못했으므로 직접 확인한 원인으로 단정하지 않는다. 미등록 turn을 임의 허용하지 않으며 출처 fail-closed 계약은 유지한다. 요약 거부의 실제 공개 응답은 이후 main이 별도 수집해 장문 출력과 보관 응답 표식 실행을 확인했다.
