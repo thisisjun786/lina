@@ -287,7 +287,23 @@ test("synthetic full qualification traverses 30 rows and three fresh saved batch
 				(batch) => batch.trials.length === 192 && batch.scores.macro === 100,
 			),
 		).toBe(true);
+		const originalHost = readFileSync(hosts[0]?.artifact ?? "", "utf8");
 		writeFileSync(hosts[0]?.artifact ?? "", "tampered");
+		await expect(qualify(indexPath)).rejects.toThrow();
+		writeFileSync(hosts[0]?.artifact ?? "", originalHost);
+		const history = new RunRegistry(registryPath);
+		try {
+			history.begin({
+				output: join(root, "pending-fourth"),
+				seed: "new-pending-seed",
+				purpose: "qualification",
+				manifestPath: join(root, "not-generated.json"),
+				manifestHash: "a".repeat(64),
+				sourceHash: digests.sourceHash,
+			});
+		} finally {
+			history.close();
+		}
 		await expect(qualify(indexPath)).rejects.toThrow();
 	} finally {
 		rmSync(root, { recursive: true, force: true });
