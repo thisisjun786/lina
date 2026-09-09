@@ -161,10 +161,6 @@ export class MemoryConsolidation {
 		const epoch = this.epoch;
 		const all = this.mind.reasoningCandidates(),
 			direct = all.filter((r) => !r.reasoning);
-		if (!direct.length) {
-			this.totalPages = 0;
-			return;
-		}
 		const trigger = hash({
 			algorithm: 1,
 			policy,
@@ -181,6 +177,10 @@ export class MemoryConsolidation {
 		this.error = null;
 		this.coverageIncomplete = false;
 		this.mind.supersedeReasoning(trigger);
+		if (!direct.length) {
+			this.totalPages = 0;
+			return;
+		}
 		const pages: EngineRecord[][] = [];
 		let page: EngineRecord[] = [],
 			chars = 0;
