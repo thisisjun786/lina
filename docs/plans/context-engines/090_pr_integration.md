@@ -93,7 +93,9 @@ Dependencies are installed locally from `bun.lock` with lifecycle scripts disabl
    these existing tests use native subprocesses with synthetic providers. No live
    account call is permitted. Run the remaining full package suite through hosted CI.
 4. Run `bun run typecheck`, `bun run lint`, `bun run ci:validate`, `bun run ci:build`.
-   Do not weaken assertions, add skips, increase timeouts or suppress checks to pass.
+   Do not weaken assertions, add skips or suppress checks to pass. A timeout change
+   needs a test-purpose justification and an existing integration convention;
+   passing under a larger bound does not establish improved runtime performance.
    If integration causes a real failure, retain the failing evidence before repairing.
 5. Re-read live source heads and base, publish the consolidated PR with both source
    links and current evidence, wait for hosted `dev-gate`, then close #3/#6 without
@@ -128,3 +130,28 @@ This unit establishes one preserved integration candidate. It does not complete
 the owner's deferred detailed feature review, installed-data rollout, live-model
 qualification or renderer acceptance. Historical acceptance records keep their
 original source and evidence boundaries.
+
+## Integration test budget clarification
+
+Hosted runs `34328922004` and `34330867112` each completed with 3,499 passing
+package tests, 47 skipped and one timeout. The same Fleet image-event test reached
+the inherited Bun default of 5 seconds at 5,017ms and 5,027ms; an isolated local run
+completed all 16 assertions in 2,968ms. This does not establish the performance
+cause of the hosted slowdown.
+
+The owner questioned why the CI criterion was this strict. The test declares no
+duration and no five-second product latency requirement was found. It includes
+Fleet setup, event acceptance, publication, image persistence, HTTP/proxy reads,
+cold restart and revocation. The adjacent `life-e2e.test.ts` explicitly gives its
+multi-owner integration scenario 30 seconds. Applying that existing convention
+to this one test is a test-budget correction, not a runtime performance fix.
+
+The final candidate therefore differs from #6's tests only in this explicit
+30-second limit and its explanatory comment. All 16 assertions, production code,
+other tests, global Bun defaults and CI job limits are retained. The initial
+merge's byte-equivalence evidence above remains scoped to commit `6970941`.
+Updated focused and hosted results are recorded in the consolidated PR.
+
+The original PRs were closed once the consolidated Draft preserved both heads,
+while CI remained failed. This differs from the plan's initial closure ordering;
+no branch or commit was deleted, and no `dev` merge occurred.

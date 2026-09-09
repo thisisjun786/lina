@@ -216,4 +216,5 @@ test("accepted event becomes one permitted post image through Fleet and fixed we
 		await f.close();
 		await imageServer?.stop(true);
 	}
-});
+	// Full Fleet setup and cold restart share the LIFE integration test budget.
+}, 30_000);
