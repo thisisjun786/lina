@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { completedLifeModelText } from "../src/world/autonomy-model-text.ts";
 import type {
 	LifeStep,
 	PreparedLifeModelRequest,
@@ -358,6 +359,105 @@ test("configuration change releases only proven undispatched reservations and re
 		expect(
 			f.store.lifeStatus(step.worldId, f.clock()).usage.reservedInputTokens,
 		).toBe(0);
+	} finally {
+		f.close();
+	}
+});
+
+test("frozen step owns exact request selection and restores its reservation", () => {
+	const f = autonomyStoreFixture(false);
+	try {
+		const resolve = (lane: "director" | "actor") => {
+			const route = f.source.config.models?.[lane];
+			if (!route) return null;
+			const selected = {
+				profileId: `world-${lane}`,
+				...route,
+				reasoning: "low" as const,
+				maxOutputTokens: 100,
+				settingsRevision: 1,
+			};
+			return { ...selected, routeFingerprint: lifeDigest(selected) };
+		};
+		const resolvedModels = {
+			director: resolve("director"),
+			actor: resolve("actor"),
+		};
+		const step = f.store.prepareLifeStep(
+			{ ...f.request, resolvedModels },
+			() => 42,
+		);
+		const base = request(step);
+		const selection = resolvedModels.director;
+		if (!selection) throw Error("Missing fixture director");
+		const frozen = { ...base.request, version: 3 as const, selection };
+		const prepared = {
+			...base,
+			request: frozen,
+			inputDigest: lifeDigest(frozen),
+		};
+		expect(() =>
+			f.store.prepareLifeModel(step.lease, step.id, base, f.clock()),
+		).toThrow();
+		const { routeFingerprint: _hash, ...chosen } = selection;
+		const changed = { ...chosen, reasoning: "high" as const };
+		const drift = {
+			...frozen,
+			selection: { ...changed, routeFingerprint: lifeDigest(changed) },
+		};
+		expect(() =>
+			f.store.prepareLifeModel(
+				step.lease,
+				step.id,
+				{ ...base, request: drift, inputDigest: lifeDigest(drift) },
+				f.clock(),
+			),
+		).toThrow();
+		const saved = f.store.prepareLifeModel(
+			step.lease,
+			step.id,
+			prepared,
+			f.clock(),
+		);
+		expect(saved.prepared).toEqual(prepared);
+		f.store.dispatchLifeModel(step.lease, step.id, frozen.id, f.clock());
+		f.store.assertLifeModelOutbound(frozen);
+		f.store.finishLifeModel(
+			step.worldId,
+			step.id,
+			frozen.id,
+			{
+				status: "completed",
+				result: {
+					version: 1,
+					requestId: frozen.id,
+					inputDigest: prepared.inputDigest,
+					capabilityFingerprint: prepared.capabilityFingerprint,
+					nativeReference: prepared.nativeReference,
+					provider: frozen.provider,
+					model: frozen.model,
+					threadId: "synthetic",
+					turnId: "synthetic",
+					text: "Frozen opportunity",
+					usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+					upstreamAttempts: 1,
+				},
+			},
+			f.clock(),
+		);
+		const finished = f.store.lifeStep(step.worldId, step.id);
+		expect(completedLifeModelText(finished, "director", frozen.agentId)).toBe(
+			"Frozen opportunity",
+		);
+		f.store.close();
+		const reopened = new WorldStore(f.path, f.clock);
+		try {
+			expect(reopened.lifeStep(step.worldId, step.id).models[0]).toEqual(
+				finished.models[0],
+			);
+		} finally {
+			reopened.close();
+		}
 	} finally {
 		f.close();
 	}

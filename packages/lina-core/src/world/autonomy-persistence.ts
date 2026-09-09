@@ -688,7 +688,20 @@ export class AutonomyPersistence {
 		prepared: PreparedLifeModelRequest,
 	): void {
 		const r = prepared.request;
-		if (r.version !== 1) throw Error("Invalid step model request owner");
+		if (r.lane === "publication")
+			throw Error("Invalid step model request owner");
+		if (step.version === 4) {
+			if (r.version !== 3)
+				throw Error("Frozen step requires selected model request");
+			same(
+				r.selection,
+				step.source.resolvedModels?.[
+					r.lane === "director" ? "director" : "actor"
+				],
+				"Frozen step model selection mismatch",
+			);
+		} else if (r.version !== 1)
+			throw Error("Legacy step requires legacy model request");
 		const route =
 			step.source.config.models?.[r.lane === "director" ? "director" : "actor"];
 		if (
@@ -719,7 +732,8 @@ export class AutonomyPersistence {
 		const step = this.guard(lease, stepId),
 			prepared = parsePreparedLifeModel(value),
 			r = prepared.request;
-		if (r.version !== 1) throw Error("Invalid step model request owner");
+		if (r.lane === "publication")
+			throw Error("Invalid step model request owner");
 		this.assertModel(step, prepared);
 		const existing = step.models.find((x) => x.prepared.request.id === r.id);
 		if (!existing) this.assertUsage(step);
@@ -749,7 +763,8 @@ export class AutonomyPersistence {
 	assertModelOutbound(
 		request: import("./autonomy-types.ts").LifeModelRequest,
 	): void {
-		if (request.version !== 1) throw Error("Invalid step model request owner");
+		if (request.lane === "publication")
+			throw Error("Invalid step model request owner");
 		const saved = this.steps.get(request.worldId, request.stepId);
 		const step = this.guard(saved.lease, saved.id);
 		this.models.assertOutbound(request, step.source.config);
