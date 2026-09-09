@@ -176,3 +176,5 @@ LIFE 실패 원인을 합성 localhost 직결 진단으로 좁혔다. 실제 nat
 `life-publication-live.json`: frozen public material→실제 격리 GLM Flash→WorldStore model receipt→publication job published→viewer grant 피드1건→DB 재열기 뒤 동일 피드→native journal 재생까지 종료0으로 확인했다. 피드의 post ID가 published job과 같고, claim 문장이 허용된 사건의 canonical text인지 별도 assertion으로 확인했다. 공개된 사실과 imaginative segment는 분리된다. 임시 world/native root는 성공 후 삭제했다. 이는 실제 core 저장·조회 경로이며 Fleet HTTP scheduling/재시작까지 검증했다고 확대하지 않는다.
 
 `LINA_LIFE_NATIVE_TEST=1`로 life-model-native/isolation/restart/lifecycle을 실행해20 pass·0 fail·125 assertions,20.82초를 확인했다. 실제 restricted Codex+합성 localhost provider 검사이며 configured provider 호출과 구분한다. 기본 실행에서 이 경로를 skip한19 pass·15 skip 결과를 이 결과로 보완했다. 로그는 life-native-enabled.log이다.
+
+독립 reviewer01a08506 PASS: 원본 catalog 불변, source digest/fingerprint 무효화 유지, on-disk metadata 검사 일치, gateway/native action 차단 유지 확인. Reviewer의 전체 codex 범위227 pass·40 skip과 main의 opt-in20 pass·실제 LIFE 호출/저장 성공을 구분한다. 남은 적용 지점: AUTHOR 작성 경로도 원본 tool_mode를 그대로 쓰므로 동일 GLM에서 가용성 문제가 예상된다. 허용 목록 확대 없이 같은 host 소유권 원칙을 적용할 후속 항목으로 기록한다. 현재 LIFE 수정의 미해결 blocker는 없으나 전체 인수는 열려 있다.
