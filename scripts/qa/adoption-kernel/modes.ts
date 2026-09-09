@@ -30,6 +30,10 @@ export class ModeSession {
 	private readonly environment: Environment;
 	private readonly kernel: AdoptionKernel;
 	private readonly raw: RawItem[] = [];
+	private readonly scopes = new Map<
+		string,
+		{ subject: string; visibility: Evidence["visibility"] }
+	>();
 	private readonly sequence = new Map<string, number>();
 	private readonly bridges = new Map<string, Bridge>();
 	private stage = 0;
@@ -94,6 +98,12 @@ export class ModeSession {
 						revision: event.revision,
 					});
 				const prior = this.raw.find((item) => item.ref.id === event.id);
+				if (prior) {
+					const scope = this.scopes.get(
+						`${prior.ref.id}:${prior.ref.revision}`,
+					);
+					if (scope) this.scopes.set(`${event.id}:${event.revision}`, scope);
+				}
 				if (this.mode === "baseline" && prior)
 					this.raw.push({
 						...prior,
@@ -104,6 +114,10 @@ export class ModeSession {
 					});
 			} else {
 				const evidence = event.evidence;
+				this.scopes.set(`${evidence.id}:${evidence.revision}`, {
+					subject: evidence.subject,
+					visibility: evidence.visibility,
+				});
 				if (this.mode !== "baseline")
 					this.store.observe(evidence.sourceOwner, evidence);
 				this.sequence.set(
@@ -144,7 +158,16 @@ export class ModeSession {
 		this.captured = structuredClone(frame);
 		const raw =
 			this.mode === "baseline"
-				? this.raw
+				? this.raw.filter((item) => {
+						const scope = this.scopes.get(
+							`${item.ref.id}:${item.ref.revision}`,
+						);
+						return (
+							scope?.subject === this.purpose.subject &&
+							(this.purpose.audience === "private" ||
+								scope.visibility === "public")
+						);
+					})
 				: frame.evidence.map((e) =>
 						this.rawItem(e, this.sequence.get(e.id) ?? 0),
 					);
@@ -232,6 +255,10 @@ export class ModeSession {
 			if (this.mode !== "baseline")
 				this.store.observe(evidence.sourceOwner, evidence);
 			this.sequence.set(id, this.sequence.get(id) ?? ++this.seq);
+			this.scopes.set(`${id}:${revision}`, {
+				subject: evidence.subject,
+				visibility: evidence.visibility,
+			});
 			this.raw.push(this.rawItem(evidence, this.sequence.get(id) ?? 0));
 			this.bridges.set(event.effectId, {
 				id,

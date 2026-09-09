@@ -136,3 +136,133 @@ test("matched raw event histories serialize identically before mode effects dive
 	expect(outputs[1]).toBe(outputs[0]);
 	expect(outputs[2]).toBe(outputs[0]);
 });
+
+test("baseline history reprojects privacy when a later purpose becomes public", async () => {
+	const first = publicCase.stages[0];
+	if (!first) throw Error("missing fixture");
+	const input: PublicCase = {
+		...publicCase,
+		stages: [
+			{
+				...first,
+				events: [
+					{
+						kind: "observe",
+						evidence: {
+							id: "private-e",
+							revision: 1,
+							subject: "s",
+							domain: "real",
+							visibility: "private",
+							text: "PRIVATE_HISTORY_CANARY",
+							active: true,
+							sourceOwner: "user",
+							sourceId: "secret",
+							parents: [],
+							participantRole: "recipient",
+							quality: {
+								status: "unverified",
+								verifier: null,
+								detail: "source",
+							},
+						},
+					},
+				],
+			},
+			{
+				purpose: { ...first.purpose, revision: 2, audience: "public" },
+				events: [],
+				advanceOn: "noop",
+			},
+		],
+	};
+	for (const mode of ["baseline", "kernel", "ablation"] as const) {
+		const session = createSession(mode, input, {
+			complete: async (messages) => {
+				const data = JSON.parse(messages[1]?.content ?? "");
+				return {
+					kind: "ok",
+					content: JSON.stringify({
+						kind: "noop",
+						purposeRevision: data.purpose.revision,
+						reason: "ok",
+					}),
+					model: "fake",
+					usage: { prompt: 1, completion: 1 },
+					latencyMs: 0,
+				};
+			},
+		});
+		try {
+			session.applyStage(0);
+			await session.step();
+			session.applyStage(1);
+			await session.step();
+			expect(
+				session.trace.requests[1]?.input.messages[1]?.content,
+			).not.toContain("PRIVATE_HISTORY_CANARY");
+		} finally {
+			session.close();
+		}
+	}
+});
+
+test("baseline retains explicit retraction history while current kernel excludes source", async () => {
+	const first = publicCase.stages[0];
+	if (!first) throw Error("missing fixture");
+	const evidence = {
+		id: "raw-e",
+		revision: 1,
+		subject: "s",
+		domain: "real" as const,
+		visibility: "private" as const,
+		text: "obsolete fact",
+		active: true,
+		sourceOwner: "user",
+		sourceId: "raw-source",
+		parents: [],
+		participantRole: "recipient" as const,
+		quality: {
+			status: "unverified" as const,
+			verifier: null,
+			detail: "source",
+		},
+	};
+	const input: PublicCase = {
+		...publicCase,
+		stages: [
+			{ ...first, events: [{ kind: "observe", evidence }] },
+			{
+				purpose: { ...first.purpose, revision: 2 },
+				events: [
+					{ kind: "retract", actor: "user", id: evidence.id, revision: 2 },
+				],
+				advanceOn: "noop",
+			},
+		],
+	};
+	for (const mode of ["baseline", "kernel"] as const) {
+		const session = createSession(mode, input, {
+			complete: async () => ({
+				kind: "ok",
+				content: '{"kind":"noop","purposeRevision":2,"reason":"ok"}',
+				model: "fake",
+				usage: { prompt: 1, completion: 1 },
+				latencyMs: 0,
+			}),
+		});
+		try {
+			session.applyStage(0);
+			session.applyStage(1);
+			await session.step();
+			const raw = JSON.parse(
+				session.trace.requests[0]?.input.messages[1]?.content ?? "",
+			).raw as { kind: string }[];
+			expect(raw.some((x) => x.kind === "retraction")).toBe(
+				mode === "baseline",
+			);
+		} finally {
+			session.close();
+		}
+	}
+});
