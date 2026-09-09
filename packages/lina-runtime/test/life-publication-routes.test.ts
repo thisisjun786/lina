@@ -13,8 +13,25 @@ import {
 } from "../../lina-core/test/life-publication-prepared-fixture.ts";
 import { worldDefinition } from "../../lina-core/test/world-fixture.ts";
 import { lifePublicationRoutes } from "../src/fleet/life-publication-routes.ts";
+import { ModelRequestError } from "../src/models/errors.ts";
 
 const base = "/api/life/worlds/test-world";
+test("publication reports a repairable model configuration error", async () => {
+	const f = fixture();
+	f.services.run.mockImplementation(async () => {
+		throw new ModelRequestError("private routing diagnostic", "not_configured");
+	});
+	const response = await f.api("/publication/run", "POST", {
+		requestKey: "missing-model",
+		expectedConfigRevision: 1,
+		expectedSettingsRevision: 1,
+	});
+	expect(response.status).toBe(409);
+	expect(await jsonObject(response)).toEqual({
+		error: "공통 모델 등급 설정을 확인해주세요.",
+		code: "MODEL_NOT_CONFIGURED",
+	});
+});
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();

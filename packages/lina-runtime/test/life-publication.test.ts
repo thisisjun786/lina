@@ -42,6 +42,7 @@ import {
 	type LifeRunnerOptions,
 } from "../src/life/runner.ts";
 import { createEnsembleSocialEngine } from "../src/life/social/ensemble.ts";
+import { ModelRequestError } from "../src/models/errors.ts";
 import {
 	deferred,
 	RuntimeClock,
@@ -52,6 +53,24 @@ import { runtimeStoreFixture } from "./life-runtime-store-fixture.ts";
 
 const worldId = "test-world";
 const signal = () => new AbortController().signal;
+test("missing shared model configuration preserves a publication job for configuration repair", async () => {
+	const f = fixture();
+	if (!f.options.publication) throw Error("Missing publication fixture");
+	f.options.publication.resolveModel = () => {
+		throw new ModelRequestError(
+			"LIFE requires a shared tier",
+			"not_configured",
+		);
+	};
+	await expect(
+		f.runner.publish(worldId, f.input(), signal()),
+	).rejects.toMatchObject({ code: "not_configured" });
+	const run = f.store.pendingPublicationRuns(worldId)[0];
+	const item = run?.batch[0];
+	if (!item) throw Error("Missing recoverable batch");
+	expect(f.store.publicationJob(worldId, item.jobId).status).toBe("pending");
+	expect(f.model.requests).toHaveLength(0);
+});
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
 	for (const close of cleanups.splice(0).reverse()) await close();

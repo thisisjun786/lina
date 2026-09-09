@@ -106,3 +106,5 @@
 검사: OpenCodex 125개, 웹 설정 21개, LIFE/라우팅 통합 52개가 각 범위에서 통과했다. 이 숫자를 합쳐 중복 없는 총 개수로 표기하지 않는다. 실제 Chromium에서 합성 HTTP 설정으로 컴포넌트를 열고 에이전트→전역 범위 변경, 내부 입력 비활성, 대화 입력 활성, GLM Flash 표시, 콘솔 오류0을 확인했다. 이미지 browser.png를 직접 읽었다. 테스트 서버는 종료했다. 설치본 전체 화면이나 실제 Ollama 추론 성공 증거는 아니다.
 
 최종 범위 재검사: 20개 파일의 관련 테스트 194 pass·0 fail·940 assertions, 타입 검사·lint·CI validate·build 종료0. 전체 검사는 3671 pass·46 skip·3 fail였으며, 세 실패는 구형 무등급 자료 fixture 두 곳과 폐지된 내부 모델 dropdown 기대 한 곳이었다. 모두 새 계약으로 수정해 관련 194개 검사에서 통과했다. 전체 suite의 최종 수정 후 재실행 성공으로 표기하지 않는다. 네 등급 누락, 에이전트별 예전 profile/effort, 직접 내부 override, LIFE 혼합 설정, 다른 세계 타이머에 의한 재시도까지 부정 사례로 확인했다. 자동 재시도 억제는 명시적 wake까지 모델 lane에만 적용하고 이미지 방문은 유지한다.
+
+독립 검토 후 게시 복구도 보완했다. `publication.ts`는 모델 등급 미구성 오류를 작업의 영구 실패로 기록하지 않고 호출자에게 돌려준다. 대기 작업을 보존하는 회귀는 실패→통과를 확인했으며 게시 처리 33개, 게시 HTTP 30개가 통과했다. HTTP는 409 `MODEL_NOT_CONFIGURED`로 설정 수정을 안내하고 내부 진단을 노출하지 않는다. 등급 작성 경로가 없다는 검토 의견은 `companion-routes.ts`의 PATCH `/api/models/settings`→`ModelSettingsStore.replace`와 실제 HTTP 저장 회귀를 근거로 반박했다. 신규 등급 편집 UI는 별도 범위이고 기존 API로 네 등급 설정을 저장할 수 있다.

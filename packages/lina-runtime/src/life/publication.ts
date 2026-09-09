@@ -19,6 +19,7 @@ import type {
 } from "../../../lina-core/src/world/publication-types.ts";
 import type { WorldStore } from "../../../lina-core/src/world/store.ts";
 import { MAX_WORLD_BYTES } from "../../../lina-core/src/world/validation.ts";
+import { ModelRequestError } from "../models/errors.ts";
 import { LifeExecutionError } from "./actor.ts";
 import type { LifeModelPort } from "./model-port.ts";
 import type { LifeClock } from "./scheduler.ts";
@@ -355,6 +356,8 @@ export async function runLifePublication(
 			}
 		} catch (error) {
 			// A config change can also revoke the lease during an await. Preserve recovery work.
+			if (error instanceof ModelRequestError && error.code === "not_configured")
+				throw error;
 			if (!publicationAuthorized(context)) break;
 			try {
 				job = store.publicationJob(worldId, job.id);

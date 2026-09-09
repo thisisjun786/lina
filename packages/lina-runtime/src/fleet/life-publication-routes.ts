@@ -18,6 +18,7 @@ import {
 	text,
 } from "../../../lina-core/src/world/validation.ts";
 import { assertWorkSourceCurrent } from "../life/work-source.ts";
+import { ModelRequestError } from "../models/errors.ts";
 
 export interface PublicationRouteServices {
 	/** Resolve current installation ownership without starting a runner/scheduler. */
@@ -351,6 +352,14 @@ function read(
 }
 
 function errorResponse(error: unknown): Response {
+	if (error instanceof ModelRequestError && error.code === "not_configured")
+		return reply(
+			{
+				error: "공통 모델 등급 설정을 확인해주세요.",
+				code: "MODEL_NOT_CONFIGURED",
+			},
+			409,
+		);
 	// Core currently throws Error, not typed HTTP errors. Never serialize its message.
 	const message = error instanceof Error ? error.message : "";
 	if (
