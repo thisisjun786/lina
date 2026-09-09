@@ -162,6 +162,7 @@ export function decodeTrace(value: unknown): EpisodeTrace {
 		const k = object(s["kernel"], ["status", "decisionId"], ["detail"]);
 		choice(k["status"], statuses);
 		text(k["decisionId"]);
+		if (decisions.has(k["decisionId"])) throw Error("duplicate step decision");
 		decisions.add(k["decisionId"]);
 		if (k["status"] === "adopted") {
 			if (

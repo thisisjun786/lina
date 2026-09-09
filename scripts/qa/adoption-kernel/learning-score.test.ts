@@ -123,6 +123,15 @@ for (const row of ["B11", "B12"]) {
 		expect(result.quality).toBe(true);
 		expect(result.uptake).toBe(true);
 		expect(decodeTrace(trace).status).toBe("complete");
+		const crossStatus = structuredClone(trace);
+		const sourceStep = crossStatus.steps[0];
+		if (!sourceStep) throw Error("missing step");
+		crossStatus.steps.push({
+			...sourceStep,
+			kernel: { status: "noop", decisionId: sourceStep.kernel.decisionId },
+		});
+		expect(() => decodeTrace(crossStatus)).toThrow();
+
 		const duplicated = structuredClone(trace);
 		const originalAdoption = duplicated.adoptions[0];
 		if (!originalAdoption) throw Error("missing original adoption");

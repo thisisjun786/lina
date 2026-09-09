@@ -31,11 +31,23 @@ export async function main(argv: string[]): Promise<void> {
 	const command = argv[0];
 	if (command === "--help" || command === "help") {
 		process.stdout.write(
-			"Independent adoption experiment\nexport --seed VALUE --output DIRECTORY\nrun --case PUBLIC_JSON --mode baseline|kernel|ablation --output DIRECTORY\nscore --truth PRIVATE_JSON --trace TRACE_JSON --output SCORE_JSON\ncompare --manifest BATCH_MANIFEST --output DIRECTORY\nrun requires OLLAMA_BASE_URL (ending /v1), OLLAMA_MODEL, OLLAMA_API_KEY. Six calls, 4096 output tokens per call.\n",
+			"Independent adoption experiment\nexport --seed VALUE --output DIRECTORY\nrun --case PUBLIC_JSON --mode baseline|kernel|ablation --output DIRECTORY\nscore --truth PRIVATE_JSON --trace TRACE_JSON --output SCORE_JSON\ncompare --manifest BATCH_MANIFEST --output DIRECTORY\nqualify --index INDEX_JSON --output NEW_REPORT_JSON\nrun requires OLLAMA_BASE_URL (ending /v1), OLLAMA_MODEL, OLLAMA_API_KEY. Six calls, 4096 output tokens per call.\n",
 		);
 		return;
 	}
 	const args = options(argv.slice(1));
+	if (command === "qualify") {
+		const { qualify } = await import("./qualification.ts");
+		const result = qualify(required(args, "--index"));
+		writeFileSync(
+			required(args, "--output"),
+			`${JSON.stringify(result, null, 2)}\n`,
+			{ flag: "wx" },
+		);
+		process.stdout.write(`${result.qualified ? "pass" : "fail"}\n`);
+		if (!result.qualified) process.exitCode = 2;
+		return;
+	}
 	if (command === "compare") {
 		const { compareBatch } = await import("./compare.ts");
 		const report = await compareBatch(

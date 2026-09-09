@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { candidateDigests } from "./candidate.ts";
 import type { RunMode } from "./harness-types.ts";
 import { loadManifest } from "./manifest.ts";
 import { RunRegistry } from "./run-registry.ts";
@@ -60,6 +61,7 @@ export async function compareBatch(
 		return hasher.digest("hex");
 	};
 	const originalSourceHash = sourceHash();
+	const provenance = candidateDigests();
 	const manifestHash = () =>
 		createHash("sha256").update(readFileSync(manifestPath)).digest("hex");
 	const originalManifestHash = manifestHash();
@@ -80,7 +82,7 @@ export async function compareBatch(
 		writeFileSync(
 			join(root, "started.json"),
 			JSON.stringify({
-				sourceHash: originalSourceHash,
+				...provenance,
 				registryPath: resolve(registryPath),
 				model: env["OLLAMA_MODEL"],
 				baseUrl: env["OLLAMA_BASE_URL"],
@@ -103,6 +105,7 @@ export async function compareBatch(
 			try {
 				if (
 					sourceHash() !== originalSourceHash ||
+					JSON.stringify(candidateDigests()) !== JSON.stringify(provenance) ||
 					manifestHash() !== originalManifestHash
 				)
 					throw Error("comparison source or manifest changed");
