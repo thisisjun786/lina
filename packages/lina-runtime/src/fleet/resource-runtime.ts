@@ -34,6 +34,7 @@ interface Options {
 	policy: () => EnginePolicySnapshot;
 	validAgent: (id: string) => boolean;
 	assertInstallation: () => void;
+	isWorldParticipant?: (worldId: string, agentId: string) => boolean;
 }
 /** Validate recovery and migrations on copies; SQLite must not recover rejected originals. */
 function validateStoredResources(
@@ -122,6 +123,11 @@ function validateStoredResources(
 /** One installation catalog, immutable consumer scopes, and serialized durable jobs. */
 export class FleetResources {
 	readonly engine: ResourceEngine;
+	private readonly activityLedger: ResourceActivities;
+	get activities(): ResourceActivities {
+		this.open();
+		return this.activityLedger;
+	}
 	private closed = false;
 	private lastFailure: "RESOURCE_PROCESSING_FAILED" | null = null;
 	status() {
@@ -148,6 +154,19 @@ export class FleetResources {
 		});
 		try {
 			this.engine.recover();
+			this.activityLedger = new ResourceActivities(
+				options.root,
+				this.engine.store,
+				{
+					isWorldParticipant: (worldId, agentId) => {
+						this.open();
+						return (
+							options.validAgent(agentId) &&
+							(options.isWorldParticipant?.(worldId, agentId) ?? false)
+						);
+					},
+				},
+			);
 		} catch (error) {
 			// Construction has not exposed consumers or started asynchronous jobs.
 			this.engine.store.close();
@@ -263,6 +282,7 @@ export class FleetResources {
 		this.stopping = (async () => {
 			await this.engine.close();
 			await Promise.allSettled([this.tail, ...this.tasks]);
+			this.activityLedger.close();
 			this.clients.clear();
 		})();
 		return this.stopping;

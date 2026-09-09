@@ -556,3 +556,26 @@ test("rejected activity WAL preserves both resource databases and sidecars", asy
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("installation owns activity ledger lifecycle", async () => {
+	const { FleetResources } = await import("../src/fleet/resource-runtime.ts");
+	const root = mkdtempSync(join(tmpdir(), "lina-owned-activities-"));
+	const owner = new FleetResources({
+		root,
+		limits,
+		services,
+		policy: defaultEnginePolicy,
+		validAgent: () => true,
+		assertInstallation: () => {},
+	});
+	try {
+		const activity = owner.activities;
+		expect(activity.pending(owner.scope(null))).toEqual([]);
+		await owner.close();
+		expect(() => owner.activities).toThrow(/closed/);
+		expect(() => activity.pending(scope("a"))).toThrow();
+	} finally {
+		await owner.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
