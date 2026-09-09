@@ -141,3 +141,5 @@ ResourceActivitySource는 `{kind:'resource_activity',version:1,deliveryId,operat
 null/shared-only 소비자는 공통 자료를 읽고 쓸 수 있으나 LIFE activity를 originate하지 못한다. LIFE에 보낼 actorAgentId는 host가 확인한 실제 에이전트이며 world participant여야 하고 participantAgentIds에 포함되어야 한다. 기존 task known/unknown 귀속 규칙을 완화하지 않는다. 외부 소비자의 자료를 확인된 에이전트가 나중에 명시적으로 공유할 수 있으나 원래 소비자가 그 에이전트였다고 표기하지 않는다.
 
 resource activity outcome은 `recorded | verified_result | failed`다. 공통 work rule enum에 recorded를 추가하되 기존 rule 값을 바꾸지 않는다. 단순 기록은 recorded이며 자료를 저장했다고 verified_result가 되지 않는다. verified_result는 host가 받은 명시적 결과 확인과 읽을 수 있는 비어 있지 않은 산출물 인용을 요구한다. evidenceDigest는 실제 admission 시 읽은 `{resourceId,resourceRevision,versionId,blobHash,quote,quoteHash,memoryId}` 목록에서 계산한다. 모델이 제공한 digest나 ID만으로 검증하지 않는다. quote가 빈 목록 또는 실제 원문/허용 추출에서 찾을 수 없으면 verified_result를 거부한다.
+
+활동 보정 체인은 revision1이면 supersedesRevision=null, 그 뒤에는 반드시 revision-1이다. task receipt outcome parser는 기존 네 값(turn_ended/verified_result/failed/interrupted)만 허용한다. 공통 rule은 recorded를 선택할 수 있으나 task receipt 자체에 recorded를 허용하지 않는다.
