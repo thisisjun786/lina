@@ -165,3 +165,19 @@ C에서 POLICY.md, README.md, docs/ARCHITECTURE.md, PERSONA_CONTEXT.md, CODEX_RU
 현재 lifePlan fingerprint는 version1이다. 신규 tier 선택의 exact profile/effort/output cap은 step 생성 시에 고정하고 model request와 native plan에 연결한다. publication도 actor selector를 소비하므로 publication의 동결 시점과 요청 검사를 같은 계약으로 수정한다. 대화 모델·주기·금액을 selector 지원의 기본값으로 자동 채우지 않는다. source별 키/DDL와 version별 decoder의 구체 필드는 독립 A에서 현재 work persistence와 대조해 고정한 뒤 B로 넘어간다.
 
 A 기준선 검증: `bun test packages/lina-runtime/test/codex-fleet.test.ts packages/lina-runtime/test/memory-backend.test.ts packages/lina-runtime/test/checkpoint-barrier.test.ts` → exit0, 7 pass/0 fail, 20 assertions/3 files. 명령이 실제 세 경로를 읽음을 확인했다. 이 결과는 기존 상태 기준선이며 새 integration 구현의 완료 증거가 아니다. session evidence/integration-baseline.log에 저장했다.
+
+## 독립 A 1차 수용
+
+snapshot v2와 기존 input/step/native/publication 버전이 섞여 있던 설명을 004의 독립 discriminator 계약으로 고정했다. mixed records는 snapshot v2의 origin union이며 역사 v1은 그대로 읽는다. 최초 전환을 world history upgrade 행과 같은 transaction으로 기록한다. TaskToolContext의 null-agent는 자료 사용만 가능하고 LIFE activity 생성은 금지한다. 기존 task attribution 규칙은 그대로 두며, 자료 활동의 actor는 host가 확인한 world participant다. 자료 revision/version/memory/grant를 별도 staleness 기준으로 정하고 verified_result의 실제 원문 인용 검사를 명시했다.
+
+| 작업 | 경로 | 책임 |
+| --- | --- | --- |
+| MODIFY | `packages/lina-runtime/src/resources/services.ts` | store ownership과 모든 worker/search/tool 실행 join, wrapper만으로 close를 가정하지 않음 |
+| MODIFY | `packages/lina-opencodex/src/prompts.ts` | live prompt의 Honcho 명칭을 자체 기억 의미로 교체, 도구·근거 규칙 유지 |
+| MODIFY | `THIRD_PARTY_NOTICES.md` | 제거한 디렉터리와 남긴 흡수 코드/라이선스의 실제 출처 정합 |
+| MODIFY | `packages/lina-core/src/world/work-experience.ts` | task/resource origin별 경험 provenance, recorded는 업무 성공으로 해석하지 않음 |
+| NEW | `packages/lina-memory/src/resources/activities.ts` | resource activity/grant revision·전달 outbox, 원문과 기억 scope 검증 |
+
+자료 활동 owner는 설치 resources 하위 별도 activities.sqlite(schema1)다. 기존 resource catalog schema2를 다시 의미 변경하지 않는다. `resource_activities(id PRIMARY KEY, revision INTEGER, data TEXT)`와 `resource_activity_deliveries(activity_id,activity_revision,world_id,grant_revision,state,data,PRIMARY KEY(activity_id,activity_revision,world_id,grant_revision))` STRICT 테이블을 사용한다. data에는 004 receipt와 실제 source snapshot, grant의 actor/world/허용 fields/revision을 저장하며 열과 strict JSON을 재개방에서 대조한다. 호출자의 activity id/revision CAS와 operation receipt로 중복을 막는다. grant는 모델 출력에서 생성하지 않고 host의 확인된 source owner 요청에서만 만든다. 철회는 revision 증가+restrict delivery를 같은 transaction으로 기록한다. 원문 변경은 현재성 검사에서 즉시 차단하며 미실행 LIFE 입력에 restrict를 전달한다. 체크포인트는 이 DB도 같은 설치 lock 범위로 포함한다.
+
+지적 수용 상태: schema versioning·null attribution 두 blocker와 services.ts/prompts.ts/notices 누락 세 항목 모두 명시했다. 독립 재검토가 끝나기 전 B로 넘어가지 않는다.

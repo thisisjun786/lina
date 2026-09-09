@@ -122,3 +122,22 @@ job kind는 `capture` 하나다. data는 claim token/attempt/state, input snapsh
 모델 입력은 공통 URI/ref와 기억의 id/kind/text/quote/stale/complete/activityKind로 제한한다. 해시·generation·claim·완료 receipt는 host ledger에 보관한다. 현재 ready generation이 없으면 source와 권한이 유효한 최신 과거 결과를 stale로 읽는다. 메타데이터만 바뀐 경우도 중간 operation 전체에 원문 bytes·visibility·deriveMemory·activityKind·deleted 변경이 없을 때만 허용한다. 현재 resource 및 역사 version의 권한 검사는 생략하지 않는다. 생성 시도 한도는 계속 원문 digest별 누적이며 metadata/정책 변경으로 초기화하지 않는다.
 
 job에는 completedToken과 inputComplete를 저장한다. 완료 출력 hash는 completedToken+순서 있는 kind/text/quote 목록에서 재계산하고 memoryIds와 정확히 대조한다. evidence의 source는 blobHash/extractionId/textHash/complete로 원문 또는 기존 extraction을 식별하며, inputComplete는 실제 모델에 제공한 입력이 전체 추출을 포함하는지 따로 표시한다. 기억 state는 active, revision은1인 불변 결과이며, 현재 조회 자격과 stale는 저장 상태를 바꾸지 않고 계산한다.
+
+### 071 통합: 서로 독립인 버전과 자료 활동 귀속
+
+다음 버전은 서로 독립된 discriminator다. 번호가 같다고 같은 형식으로 해석하지 않는다.
+
+- WorkEvidenceSnapshot v1은 기존 exact parser와 기존 records를 그대로 읽는다. 신규 v2는 snapshot 자체의 version=2이며 records가 `{origin:'codex-task',inputId,source:WorkInputSource}` 또는 `{origin:'resource-activity',inputId,source:ResourceActivitySource}`의 union이다. task source의 기존 receipt는 필드를 추가하지 않고 그대로 보존한다.
+- 새 resource activity 입력은 LifeInput v4에만 들어간다. v1/v2 task 및 v3 publication 입력은 각 기존 decoder를 유지한다. 기존 입력에 resource origin을 끼워 넣지 않는다.
+- 새 LifeStep v4는 work snapshot v2와 resolvedModels를 저장한다. step v1/v2/v3는 당시 source 필드·digest 검사를 유지한다. v4의 resolvedModels는 director/actor 각각 `{profileId,provider,model,reasoning,maxOutputTokens,settingsRevision,routeFingerprint}`다. null lane은 모델이 필요 없는 step의 기존 규칙만 따른다.
+- native lifePlan fingerprint v2는 해당 resolvedModels와 실제 managed-file fingerprint를 포함한다. 이미 저장된 fingerprint v1은 v1의 입력·파일 계약으로 복원하고 v2로 다시 계산하지 않는다. Publication의 새 준비 결과도 actor의 resolved selection을 동결하며, 기존 publication 요청 v2와 구분되는 요청 v3를 쓴다. 일반 step model request는 신규 v3에서 selection을 운반한다.
+
+work history는 원래 v1 상태에서 시작한다. 최초 v2 입력 전에 `event.kind='upgrade',version=2`인 명시적 history 행을 한 번 추가한다. previous_digest는 원래 v1 snapshot, next_digest는 task records를 origin wrapper로 감싼 v2 snapshot의 digest다. 과거 history/input 행은 업데이트하지 않는다. 이후 records는 두 origin이 섞여도 v2 parser가 읽는다. upgrade와 첫 admission은 같은 world transaction에서 commit하며 실패하면 둘 다 rollback한다. 역사 revision 조회는 upgrade 이전이면 v1, 이후면 v2를 돌려준다.
+
+WorkSourceRef는 기존 무버전 `{operation,inputId,sourceDigest,workConfigDigest}`와 신규 `{version:2,origin,operation,inputId,sourceDigest,workConfigDigest}`의 union이다. 새 ancestry는 명시적 origin을 보존하고, 과거 ancestry는 누락 origin을 저장 데이터에 주입하지 않고 기존 task 경로로 검증한다. sourceDigest는 신규 origin과 그 형식 version을 포함해 계산한다.
+
+ResourceActivitySource는 `{kind:'resource_activity',version:1,deliveryId,operation,sourceDigest,policyRevision,receipt,fields}`다. receipt는 `{activityId,activityRevision,supersedesRevision,resourceId,resourceRevision,versionId,memoryId,actorAgentId,participantAgentIds,activityKind,outcome,evidenceDigest,grantId,grantRevision,correction}`다. memoryId/correction은 null을 허용하고 나머지 참조·revision은 strict 검증한다. taskId/turnId/taskRevision은 이 형식에 존재하지 않는다. staleness 기준은 resourceRevision+versionId, 선택한 memoryId의 현재 source/권한, activityRevision과 grantRevision이다.
+
+null/shared-only 소비자는 공통 자료를 읽고 쓸 수 있으나 LIFE activity를 originate하지 못한다. LIFE에 보낼 actorAgentId는 host가 확인한 실제 에이전트이며 world participant여야 하고 participantAgentIds에 포함되어야 한다. 기존 task known/unknown 귀속 규칙을 완화하지 않는다. 외부 소비자의 자료를 확인된 에이전트가 나중에 명시적으로 공유할 수 있으나 원래 소비자가 그 에이전트였다고 표기하지 않는다.
+
+resource activity outcome은 `recorded | verified_result | failed`다. 공통 work rule enum에 recorded를 추가하되 기존 rule 값을 바꾸지 않는다. 단순 기록은 recorded이며 자료를 저장했다고 verified_result가 되지 않는다. verified_result는 host가 받은 명시적 결과 확인과 읽을 수 있는 비어 있지 않은 산출물 인용을 요구한다. evidenceDigest는 실제 admission 시 읽은 `{resourceId,resourceRevision,versionId,blobHash,quote,quoteHash,memoryId}` 목록에서 계산한다. 모델이 제공한 digest나 ID만으로 검증하지 않는다. quote가 빈 목록 또는 실제 원문/허용 추출에서 찾을 수 없으면 verified_result를 거부한다.
