@@ -432,7 +432,11 @@ async function startUnlocked(
 					return Response.json(
 						{
 							resources: resourceRejected
-								? { state: "rejected", code: "RESOURCE_STORAGE_UNAVAILABLE" }
+								? {
+										state: "rejected",
+										code: "RESOURCE_STORAGE_UNAVAILABLE",
+										reason: resourceFailure,
+									}
 								: (resourceOwner?.status() ?? { state: "unavailable" }),
 						},
 						{ headers: { "Cache-Control": "no-store" } },
