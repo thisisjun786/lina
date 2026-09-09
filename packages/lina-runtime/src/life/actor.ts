@@ -55,6 +55,15 @@ export function buildLifeRequest(
 			"unavailable",
 			"LIFE model or usage configuration missing",
 		);
+	const selection =
+		step.version === 4
+			? step.source.resolvedModels?.[lane === "director" ? "director" : "actor"]
+			: undefined;
+	if (step.version === 4 && !selection)
+		throw new LifeExecutionError(
+			"unavailable",
+			"Missing frozen LIFE model selection",
+		);
 	const calls = step.decision.maxModelCalls - step.models.length;
 	const inputTokens = Math.floor(
 		(config.usage.maxInputTokens -
@@ -87,7 +96,9 @@ export function buildLifeRequest(
 			"LIFE scoped input exceeds byte admission limit",
 		);
 	return {
-		version: 1,
+		...(selection
+			? { version: 3 as const, selection }
+			: { version: 1 as const }),
 		id: lifeLaneId(step.id, lane, agentId),
 		worldId: step.worldId,
 		stepId: step.id,
@@ -98,7 +109,10 @@ export function buildLifeRequest(
 		...prompt,
 		limits: {
 			maxInputTokens: inputTokens,
-			maxOutputTokens: outputTokens,
+			maxOutputTokens: Math.min(
+				outputTokens,
+				selection?.maxOutputTokens ?? outputTokens,
+			),
 			maxInputBytes: MAX_MODEL_BYTES,
 			maxOutputBytes: MAX_MODEL_BYTES,
 			timeoutMs: MODEL_TIMEOUT_MS,

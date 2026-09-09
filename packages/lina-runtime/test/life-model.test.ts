@@ -312,3 +312,40 @@ test("real SQLite retains unknown and over-reservation usage across a later wind
 		}
 	}
 });
+
+test("frozen step requests carry lane selection and respect its output cap", async () => {
+	const { lifeDigest } = await import("../../lina-core/src/world/life-json.ts");
+	const f = invocationFixture();
+	const step = f.step;
+	step.version = 4;
+	const resolve = (lane: "director" | "actor") => {
+		const route = step.source.config.models?.[lane];
+		if (!route) throw Error("Missing fixture route");
+		const fields = {
+			profileId: lane,
+			...route,
+			reasoning: "high" as const,
+			maxOutputTokens: 23,
+			settingsRevision: step.source.modelSettingsRevision,
+		};
+		return { ...fields, routeFingerprint: lifeDigest(fields) };
+	};
+	step.source.resolvedModels = {
+		director: resolve("director"),
+		actor: resolve("actor"),
+	};
+	const usage = f.context.store.lifeStatus(step.worldId, 0).usage;
+	for (const lane of ["director", "actor", "target", "reflection"] as const) {
+		const request = buildLifeRequest(step, lane, "lina", usage, prompt());
+		expect(request.version).toBe(3);
+		expect(request).toMatchObject({
+			selection:
+				step.source.resolvedModels[lane === "director" ? "director" : "actor"],
+		});
+		expect(request.limits.maxOutputTokens).toBe(23);
+	}
+	step.source.resolvedModels.actor = null;
+	expect(() =>
+		buildLifeRequest(step, "actor", "lina", usage, prompt()),
+	).toThrow();
+});
