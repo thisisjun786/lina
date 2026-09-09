@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,10 +8,13 @@ import { exportBatch } from "./scenario-export.ts";
 
 test("comparison runs separate mode and scorer processes retaining each result", async () => {
 	const root = mkdtempSync(join(tmpdir(), "compare-"));
+	const requests: string[] = [];
+	const canary = "PRIVATE_TRUTH_CANARY_never_model_input";
 	const server = Bun.serve({
 		port: 0,
-		fetch: () =>
-			Response.json({
+		fetch: async (request) => {
+			requests.push(await request.text());
+			return Response.json({
 				model: "fixture",
 				usage: { prompt_tokens: 1, completion_tokens: 1 },
 				choices: [
@@ -30,13 +34,21 @@ test("comparison runs separate mode and scorer processes retaining each result",
 						},
 					},
 				],
-			}),
+			});
+		},
 	});
 	try {
 		const manifest = exportBatch("compare-dev", join(root, "cases"));
 		manifest.episodes = manifest.episodes.filter(
 			(e) => e.row === "B03" && e.variant === 0,
 		);
+		const episode = manifest.episodes[0];
+		if (!episode) throw Error("missing private fixture");
+		const truth = JSON.parse(readFileSync(episode.truthPath, "utf8"));
+		truth.expected.value = canary;
+		const privateText = JSON.stringify(truth);
+		writeFileSync(episode.truthPath, privateText);
+		episode.truthHash = createHash("sha256").update(privateText).digest("hex");
 		const path = join(root, "subset.json");
 		writeFileSync(path, JSON.stringify(manifest));
 		const report = await compareBatch(path, join(root, "result"), {
@@ -52,6 +64,14 @@ test("comparison runs separate mode and scorer processes retaining each result",
 		expect(started.model).toBe("fixture");
 		expect(JSON.stringify(started)).not.toContain("synthetic");
 		expect(report.trials).toHaveLength(3);
+		expect(requests).toHaveLength(3);
+		for (const request of requests) {
+			expect(request).not.toContain(canary);
+			expect(request).not.toContain(episode.truthPath);
+			expect(request).not.toContain("learningRequired");
+			expect(request).not.toContain("privateTruth");
+			expect(request).toContain("messages");
+		}
 		expect(report.trials.every((t) => t.quality)).toBe(true);
 		expect(report.qualification.qualified).toBe(false);
 		expect(
