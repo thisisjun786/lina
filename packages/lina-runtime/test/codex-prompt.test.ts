@@ -62,3 +62,11 @@ test("runtime resource guidance names registered Lina tools without an external 
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("ordinary runtime instructions keep numeric examples separate from verified standards", () => {
+	const prompt = codexAssistantPrompt(
+		readFileSync("data/app-system-prompt.md", "utf8"),
+	);
+	expect(prompt).toContain("Do not invent numerical thresholds");
+	expect(prompt).toContain("label it as an assumption");
+});
