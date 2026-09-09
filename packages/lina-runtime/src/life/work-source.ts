@@ -1,6 +1,13 @@
 import type { TaskManager } from "../../../lina-codex/src/tasks.ts";
-import type { WorkEvidenceSnapshot } from "../../../lina-core/src/world/work-types.ts";
+import type {
+	ResourceActivitySource,
+	WorkEvidenceSnapshot,
+} from "../../../lina-core/src/world/work-types.ts";
 import { LifeExecutionError } from "./actor.ts";
+
+export interface ResourceActivityAuthority {
+	current(worldId: string, source: ResourceActivitySource): boolean;
+}
 
 /** A delayed/failed restriction delivery cannot extend source-side sharing authority. */
 export function assertWorkSourceCurrent(
@@ -8,14 +15,18 @@ export function assertWorkSourceCurrent(
 		| Pick<TaskManager, "workDeliveryCurrent" | "workProofCurrent">
 		| undefined,
 	snapshot: WorkEvidenceSnapshot | undefined,
+	activities?: ResourceActivityAuthority,
 ) {
 	if (!snapshot) return;
 	for (const { source: record } of snapshot.records) {
-		if (record.kind === "resource_activity")
-			throw new LifeExecutionError(
-				"stale",
-				"Resource activity source owner is not connected",
-			);
+		if (record.kind === "resource_activity") {
+			if (!activities?.current(snapshot.worldId, record))
+				throw new LifeExecutionError(
+					"stale",
+					"Resource activity source authority changed",
+				);
+			continue;
+		}
 		if (
 			!source?.workDeliveryCurrent(record.deliveryId, record.sourceDigest) ||
 			(record.operation === "upsert" &&
