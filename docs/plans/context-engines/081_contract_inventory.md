@@ -30,7 +30,7 @@
 ## 1. 공통 모델 라우트
 
 - 대화 응답: 지정 conversation 프로필. `resolveModelRoute`는 conversation에 `request.tier`를 거부한다.
-- 기억·페르소나·월드·자료 처리: `quick|standard|deep|intensive` 네 등급. 설정 `routes.tiers`가 profileId·reasoning·maxOutputTokens를 가리킨다. LIFE director/actor는 `{provider,model}` 또는 `{tier}` 하나다. 등급 이름을 provider/model로 보내지 않는다.
+- 기억·페르소나·월드·자료 처리: `quick|standard|deep|intensive` 네 등급. 설정 `routes.tiers`가 profileId·reasoning·maxOutputTokens를 가리킨다. LIFE director/actor는 공통 등급 활성 상태에서 `{tier}`를 선택한다. 기존 `{provider,model}` 저장 행은 보존하지만 등급 활성 후 실행하려면 등급으로 갱신해야 한다. 등급 이름을 provider/model로 보내지 않는다.
 - 읽기: `GET /api/models` → catalog·settings revision·적용값.
 - 쓰기: `PATCH /api/models/settings` `{revision, settings}`. stale는 409 「설정이 바뀌었습니다」.
 - 시험: `POST /api/models/test` `{profileId, prompt}`. 진행 중 409, 실패 502. 12초 제한.

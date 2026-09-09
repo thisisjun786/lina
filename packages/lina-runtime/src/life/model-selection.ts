@@ -28,6 +28,10 @@ export function resolveLifeModelProfile(
 		if (!route) throw Error("LIFE model tier is not configured");
 		return structuredClone(route.profile);
 	}
+	if (settings.routes)
+		throw Error(
+			"LIFE model selection requires a shared tier; update the legacy model selector",
+		);
 	const matching = settings.profiles.filter(
 		(profile) =>
 			profile.provider === selector.provider &&

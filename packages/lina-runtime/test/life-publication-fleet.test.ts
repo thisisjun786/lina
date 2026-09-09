@@ -119,7 +119,7 @@ for (const tier of [false, true])
 							version: 2 as const,
 							work: null,
 							models: {
-								director: config.models?.director ?? null,
+								director: { tier: "deep" as const },
 								actor: { tier: "intensive" as const },
 							},
 						}

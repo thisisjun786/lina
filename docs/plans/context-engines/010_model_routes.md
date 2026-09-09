@@ -1,5 +1,8 @@
 # 010 — 공통 처리 등급과 실제 모델 요청
 
+> 2026-09-09 계약 정정: 사용자가 공통 등급을 기존 내부 역할별 모델 선택의 대체로 재확인했다. 아래 과거 구현 기록의 agent/role profile override 우선 정책은 더 이상 목표가 아니다. 현재 보완 범위와 증거는 [080 인수 보완](080_acceptance.md#2026-09-09-등급-선택-전환-보완)을 따른다. 일반 대화는 지정 모델을 유지한다.
+
+
 상태: routing D 완료. 관련 357개 테스트·타입·린트·빌드·HTTP/브라우저 QA 통과. 전체 검사에서 발견한 기존 LIFE 이미지 시간 초과는 integration/acceptance에서 해결할 열린 항목이다. 선행: 전체 roadmap 잠금. 분류 C4(settings persistence/consumer contract).
 
 ## 목적

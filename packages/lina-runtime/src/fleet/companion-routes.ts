@@ -138,7 +138,8 @@ function referencedBindingsValid(
 	const maps = [settings.roles, ...Object.values(settings.agentRoles)];
 	for (const map of maps)
 		for (const [role, id] of Object.entries(map))
-			if (id !== undefined) bindings.push([role as ModelRole, id]);
+			if (id !== undefined && (!settings.routes || role === "conversation"))
+				bindings.push([role as ModelRole, id]);
 	if (
 		!bindings.every(([role, id]) =>
 			referencedBindingOk(settings, catalog, id, role),

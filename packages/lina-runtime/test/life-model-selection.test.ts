@@ -55,6 +55,8 @@ test("LIFE resolves all four explicit tiers including effort and output cap", ()
 });
 test("LIFE exact selection preserves ambiguity rejection and never chooses conversation fallback", () => {
 	const saved = settings();
+	const routes = saved.routes;
+	delete saved.routes;
 	const selected = resolveLifeModelProfile(saved, {
 		provider: "fixture",
 		model: "world",
@@ -74,6 +76,17 @@ test("LIFE exact selection preserves ambiguity rejection and never chooses conve
 	expect(() =>
 		resolveLifeModelProfile(saved, { provider: "fixture", model: "world" }),
 	).toThrow("unambiguous");
+	if (routes) saved.routes = routes;
+	expect(resolveLifeModelProfile(saved, { tier: "deep" }).id).toBe("life");
+});
+test("LIFE cannot bypass activated shared tiers with a legacy exact model", () => {
+	const saved = settings();
+	expect(() =>
+		resolveLifeModelProfile(saved, {
+			provider: "fixture",
+			model: "world",
+		}),
+	).toThrow("shared tier");
 	expect(resolveLifeModelProfile(saved, { tier: "deep" }).id).toBe("life");
 });
 test("LIFE rejects missing tier configuration instead of falling back", () => {

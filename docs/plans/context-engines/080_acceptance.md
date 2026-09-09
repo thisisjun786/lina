@@ -88,3 +88,15 @@
 - 실제 회상: 엔진이 만든 현재 active records로 보리차 선호·카페인 이유·출처를 답하고 없는 출시일은 unknown으로 표시. 별도 일반 대화 UI/native turn 품질 검증은 아니다.
 
 증거는 session evidence/live의 calls.json, context-recovery.json, persona.json, memory.json, consolidation-13.json(실패), consolidation-recheck.json, recall.json과 실행 스크립트다. 합성 데이터만 기록하고 임시 DB는 정리했다. 설정된 대화 모델의 일반 대화, 네 등급별 실행, 자료 탐색·공유 기억 및 LIFE 공개 게시의 실제 모델 품질은 아직 미검증이다. 이 부분 검증으로 acceptance criterion을 충족 처리하지 않는다.
+
+## 2026-09-09 등급 선택 전환 보완
+
+사용자가 공통 등급을 기존 역할별 모델 선택의 대체 경로로 재확인했다. 현재 `routes.ts`는 agentRoles가 있으면 roleTiers를 건너뛰며, LIFE는 등급 활성 상태에서도 직접 provider/model을 선택할 수 있었다. 인수에서 발견한 요구 누락으로 수정한다. 기존 저장 데이터는 보존하되 활성 등급의 우회를 허용하지 않고, 빠진 등급 연결은 미구성 오류로 드러낸다. 일반 대화는 지정 선택을 유지하며 사용자가 GLM 5.3 Flash로 변경했다.
+
+변경 범위는 models/routes 및 해당 회귀·서비스 요청 테스트, LIFE model-selection과 테스트다. 기존 우회 성공 테스트는 새 요구에 맞춰 거부/공통 등급 선택을 검증하도록 변경하며 기존 데이터 읽기 증거는 유지한다. 자료·개인 기억·요약·페르소나의 최종 요청과 재시작 후 선택을 확인한다. UI의 기존 역할 편집이 새 계약과 불일치하는지도 인수 대상으로 남긴다. 배포되지 않은 개발 브랜치와 실행 중인 설치본을 구분한다.
+
+사용자 지정 테스트 배정: quick=`ollama-cloud/deepseek-v4-flash:0731`, standard=`ollama-cloud/glm-5.3-flash`, deep=`ollama-cloud/deepseek-v4-pro:0813`, intensive=`ollama-cloud/glm-5.3`. 7979 catalog에서 네 ID의 인증 상태를 확인했다. 이 카탈로그는 reasoning=false를 보고하므로 에포트를 보내지 않는다. 실제 지원 능력을 카탈로그만으로 입증했다고 주장하지 않는다. 역할의 시작 등급은 관찰 quick, 요약·회상·이미지 이해 standard, 재검토 deep로 명시하며, 명시적 심층 작업은 intensive를 요청할 수 있다. 이 배정은 이번 테스트 설정이며 영구 제품 기본값이 아니다.
+
+실행 중인 7979는 routes를 모르는 이전 코드라 전체 설정 PATCH가 400으로 거부됐다. 서비스 교체 없이 지원되는 대화·기본 모델만 변경했고 GET에서 revision3와 GLM Flash active를 확인했다. 네 등급 전체 설정은 격리된 개발 상태에 준비한다. 이전 역할 모델을 유지한 채 등급 전환이 완료됐다고 주장하지 않는다. 설정 스냅샷과 요청·읽기 결과는 session evidence/ollama-routing에 보관했다. 현재 소스 수정은 설치본 배포나 새 응답 생성 증거가 아니다.
+
+설치본 비용 전환도 이어서 처리했다. 이전 코드가 지원하는 역할별 바인딩에 이번 테스트 등급과 같은 Ollama 모델을 저장해 revision4로 읽기 검증했다. 관찰 quick, 요약·회상·이미지 standard, 재검토 deep이며 일반 대화·기본은 GLM Flash다. 이 호환 설정은 설치본의 GPT 모델 사용을 피하기 위한 현재 배정이며, 설치본이 공통 등급 코드를 실행한다는 뜻은 아니다. intensive도 등록됐지만 기존 역할에는 대응 슬롯이 없으므로 개발 엔진의 명시적 등급 경로에서 검증한다. 기존 프로필은 삭제하지 않았다.
