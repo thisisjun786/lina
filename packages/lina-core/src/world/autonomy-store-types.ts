@@ -50,6 +50,7 @@ export interface WorldAutonomyPort {
 	): void;
 	prepareLifeStep(request: LifePrepareRequest, entropy: () => number): LifeStep;
 	lifeStep(worldId: string, stepId: string): LifeStep;
+	lifeStepByKey(worldId: string, key: string): LifeStep | null;
 	renewLifeLease(lease: LifeLease, nowMs: number, leaseMs: number): LifeLease;
 	releaseLifeLease(lease: LifeLease, nowMs: number): void;
 	prepareLifeModel(

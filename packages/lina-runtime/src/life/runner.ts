@@ -38,6 +38,9 @@ export interface LifeRunnerOptions {
 		profiles: AgentProfile[];
 		modelSettingsRevision: number;
 	};
+	resolveModels?(
+		worldId: string,
+	): import("../../../lina-core/src/world/model-selection.ts").LifeResolvedModels;
 	clock: LifeClock;
 	entropy?: () => number;
 	owner?: string;
@@ -178,6 +181,13 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 		const status = options.store.lifeStatus(worldId, options.clock.now());
 		if (status.status === "paused" || status.status === "not_configured")
 			throw new LifeRunnerUnavailable(status.status, status.missing);
+		const prior = options.resolveModels
+			? options.store.lifeStepByKey(worldId, key)
+			: null;
+		const resolvedModels =
+			options.resolveModels && (!prior || prior.version === 4)
+				? options.resolveModels(worldId)
+				: undefined;
 		const prepared = options.store.prepareLifeStep(
 			{
 				worldId,
@@ -187,6 +197,7 @@ export function createLifeRunner(options: LifeRunnerOptions): LifeRunner {
 				nowMs: options.clock.now(),
 				leaseMs,
 				...identity,
+				...(resolvedModels ? { resolvedModels } : {}),
 			},
 			entropy,
 		);

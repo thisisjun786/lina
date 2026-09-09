@@ -238,6 +238,8 @@ export class WorldStore
 		request,
 		entropy,
 	) => this.transaction(() => this.autonomy.prepare(request, entropy));
+	readonly lifeStepByKey: WorldAutonomyPort["lifeStepByKey"] = (worldId, key) =>
+		this.transaction(() => this.autonomy.byKey(worldId, key), false);
 	readonly lifeStep: WorldAutonomyPort["lifeStep"] = (worldId, stepId) =>
 		this.transaction(() => this.autonomy.get(worldId, stepId), false);
 	readonly renewLifeLease: WorldAutonomyPort["renewLifeLease"] = (

@@ -464,6 +464,10 @@ export class AutonomyPersistence {
 			"Corrupt autonomous configuration source",
 		);
 	}
+	byKey(worldId: string, key: string): LifeStep | null {
+		const step = this.steps.byKey(worldId, key);
+		return step ? this.get(worldId, step.id) : null;
+	}
 	get(worldId: string, stepId: string, currentPublication = false): LifeStep {
 		const step = this.steps.get(worldId, stepId);
 		this.assertSource(
