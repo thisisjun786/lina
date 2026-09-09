@@ -60,7 +60,7 @@ export interface WorkEvidenceSnapshotV1 {
 	workConfigDigest: string;
 	records: WorkEvidenceRecordV1[];
 }
-export interface WorkSourceRef {
+export interface WorkSourceRefV1 {
 	operation: "upsert" | "restrict";
 	inputId: string;
 	sourceDigest: string;
@@ -143,3 +143,10 @@ export type WorkEvidenceSnapshot =
 	| WorkEvidenceSnapshotV2;
 
 export type WorkEvidenceRecord = WorkEvidenceRecordV1 | WorkEvidenceRecordV2;
+
+export type WorkSourceRef =
+	| WorkSourceRefV1
+	| (WorkSourceRefV1 & {
+			version: 2;
+			origin: "codex-task" | "resource-activity";
+	  });

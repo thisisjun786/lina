@@ -96,6 +96,9 @@ test("work evidence v2 preserves distinct task and resource origins without chan
 		],
 	};
 	expect(parseWorkEvidence(mixed)).toMatchObject(mixed);
+	expect(
+		parseWorkEvidence({ ...mixed, records: [...mixed.records].reverse() }),
+	).toMatchObject(mixed);
 	expect(() =>
 		parseWorkEvidence({ ...legacy, records: mixed.records }),
 	).toThrow();
@@ -105,4 +108,119 @@ test("work evidence v2 preserves distinct task and resource origins without chan
 			records: [{ ...mixed.records[0], origin: "resource-activity" }],
 		}),
 	).toThrow();
+});
+
+test("taskless recorded activity contributes only through its receipt actor and shared fields", async () => {
+	const { matchingWork, projectWorkObservations, workExperienceId } =
+		await import("../src/world/work-selection.ts");
+	const { autonomyStoreFixture } = await import(
+		"./life-autonomy-store-fixture.ts"
+	);
+	const f = autonomyStoreFixture();
+	try {
+		const rule = {
+			id: "recorded",
+			familyId: "research",
+			categoryId: "research",
+			outcomes: ["recorded" as const],
+			attribution: "owner" as const,
+			weight: 2,
+			requiredMatch: false,
+		};
+		const activity = parseResourceActivitySource(source());
+		const work = parseWorkEvidence({
+			version: 2,
+			worldId: f.request.worldId,
+			revision: 1,
+			permissionRevision: 1,
+			workConfigDigest: lifeDigest(null),
+			records: [
+				{
+					origin: "resource-activity",
+					inputId: activity.deliveryId,
+					source: activity,
+				},
+			],
+		});
+		const configured = {
+			work,
+			config: {
+				...f.source.config,
+				version: 2 as const,
+				work: { rules: [rule] },
+			},
+		};
+		expect(matchingWork(configured, rule, "lina")).toHaveLength(1);
+		expect(matchingWork(configured, rule, "other")).toEqual([]);
+		expect(projectWorkObservations(configured, "lina")).toEqual([
+			{
+				categoryId: "research",
+				outcome: "recorded",
+				participantAgentIds: ["lina"],
+				summary: "Searched source material",
+				corrected: false,
+			},
+		]);
+		const task = workInput(f.request.worldId).source;
+		const sameId = {
+			...task,
+			receipt: { ...task.receipt, receiptId: activity.receipt.activityId },
+		};
+		expect(
+			workExperienceId(
+				f.request.worldId,
+				{ inputId: "delivery", origin: "resource-activity", source: activity },
+				"lina",
+			),
+		).not.toBe(
+			workExperienceId(
+				f.request.worldId,
+				{ inputId: "task-delivery", source: sameId },
+				"lina",
+			),
+		);
+	} finally {
+		f.close();
+	}
+});
+
+test("work v2 ancestry binds origin so resource and task references cannot alias", async () => {
+	const { workRef, workRefsCurrent, parseWorkAncestry } = await import(
+		"../src/world/work-ancestry.ts"
+	);
+	const resource = parseResourceActivitySource(source());
+	const snapshot = parseWorkEvidenceV2({
+		version: 2,
+		worldId: "world",
+		revision: 1,
+		permissionRevision: 1,
+		workConfigDigest: lifeDigest(null),
+		records: [
+			{
+				origin: "resource-activity",
+				inputId: resource.deliveryId,
+				source: resource,
+			},
+		],
+	});
+	const record = snapshot.records[0];
+	if (!record) throw Error("missing record");
+	const ref = workRef(snapshot, record);
+	expect(ref).toMatchObject({
+		version: 2,
+		origin: "resource-activity",
+		sourceDigest: lifeDigest({
+			version: 2,
+			origin: "resource-activity",
+			source: resource,
+		}),
+	});
+	expect(workRefsCurrent(snapshot, [ref])).toBe(true);
+	const ancestry = [
+		{ subject: { kind: "goal", id: "goal" }, lifeRevision: 1, refs: [ref] },
+	];
+	expect(parseWorkAncestry(ancestry)).toMatchObject(ancestry);
+	expect(
+		workRefsCurrent(snapshot, [{ ...ref, version: 2, origin: "codex-task" }]),
+	).toBe(false);
 });

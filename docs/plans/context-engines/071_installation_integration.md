@@ -298,3 +298,10 @@ work-activity-validation.ts에서 구조 검증한다. 이 검사는 실제 blob
 않는다. 기존 WorkPersistence는 아직 v1 이력을 쓰며, legacy step은 v2 source를
 거부한다. 다음 연결은 원자적 upgrade history와 첫 자료 입력 admission이다.
 관련 6개 파일 24개 테스트·120개 단언, 루트·브라우저 타입 검사 통과.
+
+새 ancestry 참조는 version2/origin을 갖고 전체 source를 포함한 digest로 검증한다.
+옛 참조는 기존 digest를 유지하며 자료 활동에 재사용할 수 없다. v2 records의
+순서는 origin과 receipt/activity ID로 고정해 입력 순서가 달라도 같은 snapshot을
+만든다. 역순 입력 회귀를 먼저 실패시킨 뒤 정렬을 적용했다. 자료 활동의 선택·
+공유 필드 투영과 작업 ID와의 경험 충돌 방지도 테스트했다. 관련 14개 테스트가
+통과했다. actual world history의 upgrade transaction은 아직 다음 작업이다.

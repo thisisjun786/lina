@@ -43,18 +43,33 @@ export function parseWorkAncestry(value: unknown): WorkAncestryRecord[] {
 						: identifier(raw.subject.id),
 			};
 			const refs = keyed(
-				array(raw.refs, (r) => {
+				array(raw.refs, (r): WorkSourceRef => {
+					const versioned =
+						r !== null &&
+						typeof r === "object" &&
+						"version" in r &&
+						r.version === 2;
 					fields(r, [
+						...(versioned ? ["version", "origin"] : []),
 						"inputId",
 						"sourceDigest",
 						"workConfigDigest",
 						"operation",
 					]);
 					return {
-						operation: enumeration(r.operation, ["upsert", "restrict"]),
-						inputId: identifier(r.inputId),
-						sourceDigest: digest(r.sourceDigest),
-						workConfigDigest: digest(r.workConfigDigest),
+						...(versioned
+							? {
+									version: 2 as const,
+									origin: enumeration(r["origin"], [
+										"codex-task",
+										"resource-activity",
+									]),
+								}
+							: {}),
+						operation: enumeration(r["operation"], ["upsert", "restrict"]),
+						inputId: identifier(r["inputId"]),
+						sourceDigest: digest(r["sourceDigest"]),
+						workConfigDigest: digest(r["workConfigDigest"]),
 					};
 				}),
 				(r) => r.inputId,
@@ -65,14 +80,31 @@ export function parseWorkAncestry(value: unknown): WorkAncestryRecord[] {
 		(r) => `${r.subject.kind}:${r.subject.id}`,
 	);
 }
+function recordOrigin(
+	record: WorkEvidenceRecord,
+): "codex-task" | "resource-activity" {
+	return record.source.kind === "work" ? "codex-task" : "resource-activity";
+}
+function recordDigest(record: WorkEvidenceRecord, versioned: boolean): string {
+	return versioned
+		? lifeDigest({
+				version: 2,
+				origin: recordOrigin(record),
+				source: record.source,
+			})
+		: record.source.sourceDigest;
+}
 export function workRef(
 	current: WorkEvidenceSnapshot,
 	record: WorkEvidenceRecord,
 ): WorkSourceRef {
 	return {
+		...(current.version === 2
+			? { version: 2 as const, origin: recordOrigin(record) }
+			: {}),
 		operation: record.source.operation,
 		inputId: record.inputId,
-		sourceDigest: record.source.sourceDigest,
+		sourceDigest: recordDigest(record, current.version === 2),
 		workConfigDigest: current.workConfigDigest,
 	};
 }
@@ -87,7 +119,9 @@ export function workRefsCurrent(
 			current.records.some(
 				(record) =>
 					record.inputId === ref.inputId &&
-					record.source.sourceDigest === ref.sourceDigest &&
+					recordOrigin(record) ===
+						("version" in ref ? ref.origin : "codex-task") &&
+					recordDigest(record, "version" in ref) === ref.sourceDigest &&
 					record.source.operation === ref.operation,
 			),
 	);

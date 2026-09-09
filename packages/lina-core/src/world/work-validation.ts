@@ -312,6 +312,20 @@ export function parseWorkEvidenceV2(value: unknown): WorkEvidenceSnapshotV2 {
 		deliveries.add(inputId);
 		return record;
 	});
+	records.sort((a, b) => {
+		const aId =
+			a.origin === "codex-task"
+				? a.source.receipt.receiptId
+				: a.source.receipt.activityId;
+		const bId =
+			b.origin === "codex-task"
+				? b.source.receipt.receiptId
+				: b.source.receipt.activityId;
+		const aKey = `${a.origin}:${aId}`,
+			bKey = `${b.origin}:${bId}`;
+		return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
+	});
+
 	const current = revision(value.revision),
 		permissionRevision = revision(value.permissionRevision);
 	if (permissionRevision > current)
