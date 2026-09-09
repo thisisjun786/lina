@@ -125,6 +125,9 @@ export function generateCase(
 			role: null,
 			domain: null,
 			sourceEvidenceId: null,
+			learnedRule: null,
+			learningRequired: [],
+			taskCondition: null,
 			finalStage: 0,
 		},
 	};
@@ -256,6 +259,8 @@ export function generateCase(
 					tool: "check",
 					args: { submissionId: `${episodeId}:prelude:0` },
 				});
+				expected.learnedRule = { method, when: condition };
+				expected.learningRequired = [...required];
 				first.purpose = purpose(
 					"From the prior failed check, adopt a reusable conditional understanding citing its evidence ref. Do not answer until you have recorded the understanding.",
 				);
@@ -263,6 +268,7 @@ export function generateCase(
 				const nextTask = label(),
 					nextRequired = [label(), label(), label()],
 					nextCondition = row === "B11" ? condition : label();
+				expected.taskCondition = nextCondition;
 				publicCase.environment.tasks[nextTask] = {
 					required: nextRequired,
 					condition: nextCondition,

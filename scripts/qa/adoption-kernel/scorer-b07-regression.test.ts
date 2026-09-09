@@ -21,6 +21,9 @@ const truth: PrivateTruth = {
 		role: null,
 		domain: null,
 		sourceEvidenceId: null,
+		learnedRule: null,
+		learningRequired: [],
+		taskCondition: null,
 		finalStage: 0,
 	},
 };

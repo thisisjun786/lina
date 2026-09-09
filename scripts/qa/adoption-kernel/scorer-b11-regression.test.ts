@@ -21,6 +21,9 @@ const truth: PrivateTruth = {
 		role: null,
 		domain: null,
 		sourceEvidenceId: null,
+		learnedRule: { method: "M", when: "C" },
+		learningRequired: [],
+		taskCondition: "C",
 		finalStage: 1,
 	},
 };
@@ -135,7 +138,7 @@ const trace = {
 		},
 	],
 };
-test("B11 rejects wrong final value despite valid uptake and tool repair", () => {
+test("B11 rejects wrong final value in the historical reviewer fixture", () => {
 	const r = scoreTrial(truth, trace as unknown as EpisodeTrace);
-	expect([r.quality, r.uptake]).toEqual([false, true]);
+	expect([r.quality, r.uptake]).toEqual([false, false]);
 });

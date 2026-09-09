@@ -25,3 +25,22 @@ For B11/B13 report common task-quality predicate for all three modes and kernel-
 H01-H15 are deterministic real-store/process checks specified by 001/010/030. All require no skipped subcases and explicit observed boundary effect. H03 includes derived/receipt/public delivery; H10 includes final pre-admit race; H12 includes null reconcile; H13 includes owner-completed/kernel-unsaved crash. Failure of any required subcase fails row.
 
 Negative control policies: always-defer fails B01/04/06/07/09/11; always-submit fails B02/03/05/10; stale-copy fails B04/13. Run against independent scorer before qualification. Wrong numeric values, missing lookup/check receipts, forged verification IDs and mismatched claims must all fail. Fixed cases and developer-visible variants are not held-out. Blinded natural-language reviews are supplemental per-instance observations, outside numeric qualification.
+
+### Method-condition encoding clarification (harness audit repair)
+
+B11/B12 represent the existing learned method M / condition C relation in the
+adoption's condition string as strict JSON `{"method":"M","when":"C"}`: exactly
+these two nonempty string fields, no coercion or extras. This shared protocol is
+shown to every mode; randomized M/C values come from the original public task.
+Private `learnedRule` records that original pair, `learningRequired` its complete
+required set, and `taskCondition` the later task condition. Other rows use null,
+empty array, null respectively. The original failed check must identify exactly
+one missing required item and no extras, with matching original submission ID.
+The same active understanding must be adopted before the final stage and supplied
+in its model input. B11 requires matching condition and B12 nonmatching condition;
+common task behavior is still scored separately from structural uptake.
+
+This is an explicit method-condition family, not a claim about arbitrary
+natural-language predicates. Thresholds and all 30 rows are unchanged. Historical
+private datasets missing these fields remain preserved as development evidence;
+they are not silently upgraded into valid qualification datasets.

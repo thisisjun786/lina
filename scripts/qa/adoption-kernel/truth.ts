@@ -24,6 +24,9 @@ export type PrivateTruth = {
 		role: "performer" | "observer" | "recipient" | null;
 		domain: "real" | "fiction" | null;
 		sourceEvidenceId: string | null;
+		learnedRule: { method: string; when: string } | null;
+		learningRequired: string[];
+		taskCondition: string | null;
 		finalStage: number;
 	};
 };
@@ -86,6 +89,9 @@ export function decodeTruth(value: unknown): PrivateTruth {
 			"role",
 			"domain",
 			"sourceEvidenceId",
+			"learnedRule",
+			"learningRequired",
+			"taskCondition",
 			"finalStage",
 		])
 	)
@@ -101,9 +107,33 @@ export function decodeTruth(value: unknown): PrivateTruth {
 		(typeof e.sourceEvidenceId !== "string" || !e.sourceEvidenceId)
 	)
 		throw Error("invalid expected source");
+	if (
+		e.learnedRule !== null &&
+		(typeof e.learnedRule !== "object" ||
+			Array.isArray(e.learnedRule) ||
+			!exact(e.learnedRule, ["method", "when"]) ||
+			typeof e.learnedRule.method !== "string" ||
+			!e.learnedRule.method ||
+			typeof e.learnedRule.when !== "string" ||
+			!e.learnedRule.when)
+	)
+		throw Error("invalid learned rule");
+	if (
+		e.taskCondition !== null &&
+		(typeof e.taskCondition !== "string" || !e.taskCondition)
+	)
+		throw Error("invalid task condition");
+	if (["B11", "B12"].includes(row.row) && (!e.learnedRule || !e.taskCondition))
+		throw Error("missing learning truth");
 	if (e.value !== null && typeof e.value !== "string")
 		throw Error("invalid expected value");
-	for (const items of [e.missing, e.sources, e.required, e.lookupKeys])
+	for (const items of [
+		e.missing,
+		e.sources,
+		e.required,
+		e.lookupKeys,
+		e.learningRequired,
+	])
 		if (!Array.isArray(items) || !items.every((x) => typeof x === "string"))
 			throw Error("invalid expected list");
 	if (

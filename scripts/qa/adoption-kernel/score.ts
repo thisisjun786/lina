@@ -313,26 +313,85 @@ export function scoreTrial(
 			break;
 	}
 	if (["B11", "B12"].includes(truth.row) && trace.mode !== "baseline") {
-		result.uptake = trace.adoptions.some(
-			(adoption) =>
-				adoption.kind === "understanding" &&
-				adoption.refs.some((ref) =>
-					trace.bridges.some(
-						(b) =>
-							b.evidenceId === ref.id &&
-							b.owner === "check" &&
-							effects.some(
-								(x) =>
-									x.effectId === b.effectId &&
-									x.receipt.quality.status === "fail",
+		const originalId = `${truth.episodeId}:prelude:0`;
+		const checkId = `${truth.episodeId}:prelude:1`;
+		const original = effects.find(
+			(x) =>
+				x.effectId === originalId &&
+				x.tool === "submit" &&
+				x.receipt.status === "completed",
+		);
+		const check = effects.find(
+			(x) =>
+				x.effectId === checkId &&
+				x.tool === "check" &&
+				x.receipt.status === "completed",
+		);
+		const items = original ? output(original)["items"] : null;
+		const missing = Array.isArray(items)
+			? e.learningRequired.filter((item) => !items.includes(item))
+			: [];
+		const grounded =
+			original &&
+			check &&
+			e.learnedRule &&
+			args(original)["method"] === e.learnedRule.method &&
+			Array.isArray(args(original)["items"]) &&
+			same(args(original)["items"] as unknown[], e.learningRequired) &&
+			missing.length === 1 &&
+			Array.isArray(items) &&
+			items.every((item) => e.learningRequired.includes(String(item))) &&
+			args(check)["submissionId"] === originalId &&
+			output(check)["submissionId"] === originalId &&
+			output(check)["pass"] === false &&
+			check.receipt.quality.status === "fail" &&
+			Array.isArray(output(check)["missing"]) &&
+			same(output(check)["missing"] as unknown[], missing) &&
+			Array.isArray(output(check)["extra"]) &&
+			(output(check)["extra"] as unknown[]).length === 0;
+		const relation =
+			e.learnedRule &&
+			(truth.row === "B11"
+				? e.taskCondition === e.learnedRule.when
+				: e.taskCondition !== e.learnedRule.when);
+		result.uptake = Boolean(
+			grounded &&
+				relation &&
+				trace.adoptions.some((adoption) => {
+					let rule: Record<string, unknown>;
+					try {
+						rule = object(JSON.parse(adoption.condition));
+					} catch {
+						return false;
+					}
+					return (
+						adoption.kind === "understanding" &&
+						adoption.status === "active" &&
+						Object.keys(rule).length === 2 &&
+						rule["method"] === e.learnedRule?.method &&
+						rule["when"] === e.learnedRule?.when &&
+						trace.steps.some(
+							(step) =>
+								step.stage < e.finalStage &&
+								step.kernel.status === "adopted" &&
+								step.kernel.decisionId === adoption.sourceDecisionId,
+						) &&
+						adoption.refs.some((ref) =>
+							trace.bridges.some(
+								(bridge) =>
+									bridge.evidenceId === ref.id &&
+									bridge.revision === ref.revision &&
+									bridge.owner === "check" &&
+									bridge.effectId === checkId,
 							),
-					),
-				) &&
-				trace.requests.some(
-					(r) =>
-						r.stage === e.finalStage &&
-						r.input.adoptionIds.includes(adoption.id),
-				),
+						) &&
+						trace.requests.some(
+							(request) =>
+								request.stage === e.finalStage &&
+								request.input.adoptionIds.includes(adoption.id),
+						)
+					);
+				}),
 		);
 	}
 	if (truth.row === "B13" && trace.mode !== "baseline") {
