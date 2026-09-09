@@ -51,7 +51,7 @@
 | MODIFY | `packages/lina-runtime/src/fleet/resource-routes.ts` | 실제 서버 owner·요청 scope·작업 상태 접점, 기존 stream/body/loopback guard 유지 |
 | MODIFY | `packages/lina-runtime/src/fleet/server.ts` | 자료/정책 route 등록 및 owner 준비/거부 상태 노출 |
 | MODIFY | `packages/lina-runtime/src/fleet/companion-routes.ts` | engine policy GET/PATCH와 expectedRevision CAS, host getter 반영 |
-| MODIFY | `packages/lina-runtime/src/tools/work-memory.ts` | lina_work_*는 지원되는 안정 참조만 자체 자료 경로에 연결하거나 명시적 retired 오류; task 생성 없음 |
+| MODIFY | `packages/lina-runtime/src/tools/work-memory.ts` | 직접 호환 호출은 retired 오류. Fleet의 새 도구 목록에는 제외하며 이전 native 호출은 TaskManager의 success:false/tool is unavailable로 실행 전에 거부한다. 새 자료 도구를 지침에 안내하고 원격 URI를 변환하거나 task를 생성하지 않는다. |
 | MODIFY | `packages/lina-runtime/src/codex-prompt.ts` | 실제 도구와 개발/비개발 업무 의미에 맞는 지침 |
 | MODIFY | `packages/lina-memory/src/index.ts` | 외부 export 제거, 자체 엔진 export 연결 |
 | MODIFY | `packages/lina-runtime/src/checkpoint-cli.ts` | 로컬 자료/기억 포함 범위와 원격 과거 데이터 미포함 명시 |

@@ -49,6 +49,59 @@ function waitForResponse(rpc: FakeCodexRpc, id: string): Promise<void> {
 	return done.promise;
 }
 
+test("unadvertised retired tools return unavailable without invoking an execution callback", async () => {
+	const f = fixture();
+	const rpc = new FakeCodexRpc();
+	let calls = 0;
+	const manager = new TaskManager({
+		path: f.path,
+		rpc,
+		dynamicTools: [],
+		executeTool: async () => {
+			calls++;
+			return secretResult();
+		},
+	});
+	try {
+		const created = await manager.create({
+			ownerAgentId: "kai",
+			title: "legacy",
+			cwd: f.cwd,
+			prompt: "read",
+			requestId: "legacy",
+		});
+		if (!created.threadId) throw Error("missing thread");
+		for (const name of [
+			"lina_work_read",
+			"lina_work_write",
+			"lina_work_list",
+			"lina_work_search",
+		]) {
+			const responded = waitForResponse(rpc, name);
+			rpc.emitRequest({
+				id: name,
+				method: "item/tool/call",
+				params: {
+					threadId: created.threadId,
+					turnId: "turn-1",
+					callId: name,
+					tool: name,
+					arguments: { uri: "viking://resources/old" },
+				},
+			});
+			await responded;
+			expect(rpc.responses.find((item) => item.id === name)?.result).toEqual({
+				contentItems: [{ type: "inputText", text: "tool is unavailable" }],
+				success: false,
+			});
+		}
+		expect(calls).toBe(0);
+	} finally {
+		await manager.close();
+		f.close();
+	}
+});
+
 test("handover during tool await fails without leaking the private payload", async () => {
 	const f = fixture();
 	const rpc = new FakeCodexRpc();

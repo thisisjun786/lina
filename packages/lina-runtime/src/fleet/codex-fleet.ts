@@ -26,7 +26,6 @@ import { assertWorkSourceCurrent } from "../life/work-source.ts";
 import { resolveProfile } from "../models/selection.ts";
 import { type AppOptions, startPersistentApp } from "../session-app.ts";
 import { createCodexTaskTools } from "../tools/codex-tasks.ts";
-import { workTools } from "../tools/work-memory.ts";
 import { provisionCodexHome } from "./codex-home.ts";
 import { enginePolicyRoutes } from "./companion-routes.ts";
 import { hubRoutes } from "./hub-routes.ts";
@@ -129,8 +128,7 @@ async function startUnlocked(
 	const approvalMode = parseApprovalMode(env["LINA_APPROVAL_MODE"]);
 	const hub = new OpenCodexHub({ env, homeDir: home });
 	await hub.refresh().catch(() => undefined);
-	const legacyTools = workTools();
-	// Retain explicit rejection for historical calls without offering retired tools to new tasks.
+	// Stale calls to unadvertised names are rejected by TaskManager before execution.
 	const resourceTools: TaskDynamicTool[] = [];
 	let resources: FleetResources | undefined;
 	let resourceRejected = false;
@@ -175,8 +173,6 @@ async function startUnlocked(
 			rpc: transport,
 			dynamicTools: resourceTools,
 			executeTool(...args) {
-				const legacy = legacyTools.find((t) => t.name === args[0]);
-				if (legacy) legacy.execute(args[1], {}, args[3]);
 				if (!resources) throw Error("Resource owner unavailable");
 				return resources.executeTool(...args);
 			},

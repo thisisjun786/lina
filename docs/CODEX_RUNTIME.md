@@ -118,7 +118,7 @@ LIFE 상태는 세계 DB에 저장한다. 일반 대화는 선택한 세계의 �
 
 공유 자료 공간은 비코드 원문과 논리적 컬렉션, 안정 ID, 버전, 파생 요약·검색·기억을 관리한다. 에이전트와 Codex 소비자는 같은 설치의 자료 owner를 사용하며, 개인 자료 접근 범위는 호출자가 검증한 에이전트 ID에 묶인다. 모델이 입력한 ID로 다른 에이전트의 권한을 얻을 수 없다. 저장 완료와 검색·기억 처리 완료는 별도 상태다.
 
-`lina_resource_list/read/search/put`과 `lina_resource_memory_read`가 현재 자료 계약이다. 과거 `lina_work_*` 이름은 퇴역 오류를 반환하며 원격 URI를 로컬 ID로 재해석하지 않는다. OpenViking URL·토큰은 이 엔진을 활성화하는 설정이 아니다. 비개발 활동은 task ID 없이 기록할 수 있고, LIFE에 전달하려면 명시적 공유 허용과 현재 근거가 필요하다. 도구/API와 철회 계약은 [자체 엔진 상태 계약](plans/context-engines/004_contracts.md)에 있다.
+`lina_resource_list/read/search/put`과 `lina_resource_memory_read`가 현재 자료 계약이다. 과거 `lina_work_*`는 새 도구 목록에서 제외하며 이전 Codex 작업이 호출해도 `success:false`, `tool is unavailable`로 실행 전에 거부한다. 원격 URI를 로컬 ID로 재해석하지 않는다. OpenViking URL·토큰은 이 엔진을 활성화하는 설정이 아니다. 비개발 활동은 task ID 없이 기록할 수 있고, LIFE에 전달하려면 명시적 공유 허용과 현재 근거가 필요하다. 도구/API와 철회 계약은 [자체 엔진 상태 계약](plans/context-engines/004_contracts.md)에 있다.
 
 내부 기억·요약·자료 처리에는 공통 quick/standard/deep/intensive 라우트를 사용한다. 모델·추론 수준·출력 한도의 실제 적용값을 검증하며 일반 대화의 지정 모델은 유지한다. LIFE step은 해석된 모델 선택을 저장한다. 게시물의 동일 연결은 현재 통합 단계에서 마무리 중이며 전체 인수와 실제 모델 품질 검증은 아직 완료하지 않았다.
 
