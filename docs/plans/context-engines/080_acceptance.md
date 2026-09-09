@@ -124,3 +124,5 @@
 실제 일반 대화의 재시작에서 완료된 native thread의 `notLoaded` 상태를 거부하는 경로를 찾았다. 기존 작성 대화에만 있던 사전 resume을 일반 대화에도 적용했다. terminal history 확인과 resume 후 idle 감사를 유지한다. 회귀는 수정 전 1 fail, 수정 후 관련 33 pass·0 fail·160 assertions다. 타입 검사 종료0, 변경 파일 Biome 검사 오류0(기존 info 진단 존재). 전체 suite를 이번 변경 후 다시 통과했다고 주장하지 않는다.
 
 실제 GLM Flash 재검증은 재시작을 통과했지만 native epoch가 바뀐 뒤 앞선 색상 선택을 회상하지 못했다. 논리 세션 ID는 유지됐으며 이것만으로 대화 연속성을 입증할 수 없다. 짧은 대화의 compact도 요약을 만들지 않아 반복 압축 인수 증거가 아니다. `ollama-routing/native-context-live.json`에 실패를 남겼다. 원문 출처 검증·epoch 전환·이전 대화 전달 경로를 추가 조사해야 한다. 전체 인수는 계속 미완료이며 설치본 코드 교체·푸시·머지는 하지 않았다.
+
+추가 실제 기억 검사: 테스트 전용 memory 출력 예산 32768로 관찰·통합 모델을 호출했다. `memory.json`은 초기 선호와 보리차로의 정정을 저장하고, 통합 committed 2·failed 0 및 DB 재열기 후 중복 provider 호출0을 기록한다. 누적 직접 어댑터 호출 기록은45이며 native Codex 대화 호출은 별도로 집계한다. 이 성공은 합성 trusted journal과 임시 SQLite 범위다. 일반 대화 연속성 실패나 장기 대화 품질까지 통과한 것은 아니다.
