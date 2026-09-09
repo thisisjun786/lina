@@ -204,3 +204,5 @@ GLM Flash 지정 대화로 과거 만남 여부·비개발 행사 업무·가격
 0503bbe의 전체 suite가3684 pass·47 skip·0 fail·20818 assertions·523파일·248.48초, 종료0으로 끝났다. 이후dc27ede까지 변경은 Markdown 두 파일뿐임을 diff로 확인했다. `final-full-receipt.json`에 checkedCommit/currentCommit/docs-only paths와 full-0503bbe.log를 연결했다. 기본 suite의47 skip을 실제 모델/네이티브 성공으로 계산하지 않는다. 앞선 별도 opt-in LIFE20·AUTHOR14 및 Ollama 합성 시나리오는 각각의 범위로 유지한다.
 
 별도 LIFE 작업트리는 cefaffc이고 dirty 없음으로 재확인했다. Git ancestor는 아니므로 전체 LIFE 브랜치를 merge했다고 주장하지 않는다. 적용한 경계·복구 port는 integration-world-port.patch/paths와 integration-final-review에 기록된 선택적 통합이며, 최종 독립 검토에서 현재 계약과 대조한다.
+
+현재 LIFE port 대조: integration-world-port-paths의47개 중37개가 cefaffc와 byte-identical이다. 차이가 있는10개는 agents/world store, autonomy persistence, Fleet 연결 및 통합 fixture이며, d0221de→현재 diff는 모두 비어 있다. 따라서 이10개는 integration-final-review.md의 기존 독립 PASS 이후 변경되지 않았다. `world-port-current-comparison.json`에 head와 파일 목록을 남겼다. 이 근거는 검토된 선택적 통합 경계이며 전체 upstream ancestry나 원격 PR 상태 증거가 아니다.
