@@ -124,12 +124,7 @@ export class ModeSession {
 					evidence.id,
 					this.sequence.get(evidence.id) ?? ++this.seq,
 				);
-				if (
-					evidence.subject === this.purpose.subject &&
-					(this.purpose.audience === "private" ||
-						evidence.visibility === "public")
-				)
-					this.raw.push(this.rawItem(evidence, ++this.seq));
+				this.raw.push(this.rawItem(evidence, ++this.seq));
 			}
 		}
 		if (index === 0) {

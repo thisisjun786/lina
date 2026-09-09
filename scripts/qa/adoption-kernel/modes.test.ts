@@ -266,3 +266,126 @@ test("baseline retains explicit retraction history while current kernel excludes
 		}
 	}
 });
+
+test("later private purpose can access a raw source hidden during an earlier public purpose", async () => {
+	const first = publicCase.stages[0];
+	if (!first) throw Error("missing fixture");
+	const input: PublicCase = {
+		...publicCase,
+		stages: [
+			{
+				...first,
+				purpose: { ...first.purpose, audience: "public" },
+				events: [
+					{
+						kind: "observe",
+						evidence: {
+							id: "private-later",
+							revision: 1,
+							subject: "s",
+							domain: "real",
+							visibility: "private",
+							text: "LATER_PRIVATE_DATA",
+							active: true,
+							sourceOwner: "user",
+							sourceId: "private-source",
+							parents: [],
+							participantRole: "recipient",
+							quality: { status: "unverified", verifier: null, detail: "raw" },
+						},
+					},
+				],
+			},
+			{
+				purpose: { ...first.purpose, revision: 2, audience: "private" },
+				events: [],
+				advanceOn: "noop",
+			},
+		],
+	};
+	for (const mode of ["baseline", "kernel", "ablation"] as const) {
+		const session = createSession(mode, input, {
+			complete: async (messages) => ({
+				kind: "ok",
+				content: JSON.stringify({
+					kind: "noop",
+					purposeRevision: JSON.parse(messages[1]?.content ?? "").purpose
+						.revision,
+					reason: "ok",
+				}),
+				model: "fake",
+				usage: { prompt: 1, completion: 1 },
+				latencyMs: 0,
+			}),
+		});
+		try {
+			session.applyStage(0);
+			await session.step();
+			session.applyStage(1);
+			await session.step();
+			expect(
+				session.trace.requests[0]?.input.messages[1]?.content,
+			).not.toContain("LATER_PRIVATE_DATA");
+			expect(session.trace.requests[1]?.input.messages[1]?.content).toContain(
+				"LATER_PRIVATE_DATA",
+			);
+		} finally {
+			session.close();
+		}
+	}
+});
+
+test("receipt and delivery histories match across modes after normalizing host IDs", async () => {
+	const first = publicCase.stages[0];
+	if (!first) throw Error("missing fixture");
+	const input: PublicCase = {
+		...publicCase,
+		stages: [
+			first,
+			{
+				purpose: { ...first.purpose, revision: 2, text: "acknowledge history" },
+				events: [],
+				advanceOn: "noop",
+			},
+		],
+	};
+	const outputs: string[] = [];
+	for (const mode of ["baseline", "kernel", "ablation"] as const) {
+		let calls = 0;
+		const session = createSession(mode, input, {
+			complete: async () => ({
+				kind: "ok",
+				content: JSON.stringify(
+					++calls === 1
+						? {
+								kind: "tool",
+								purposeRevision: 1,
+								tool: "lookup",
+								args: { key: "a" },
+							}
+						: calls === 2
+							? { kind: "answer", purposeRevision: 1, text: "value seven" }
+							: { kind: "noop", purposeRevision: 2, reason: "done" },
+				),
+				model: "fake",
+				usage: { prompt: 1, completion: 1 },
+				latencyMs: 0,
+			}),
+		});
+		try {
+			session.applyStage(0);
+			await session.step();
+			await session.step();
+			session.applyStage(1);
+			await session.step();
+			const request = session.trace.requests[2];
+			if (!request) throw Error("no final input");
+			outputs.push(stripHostMetadata(request.input));
+		} finally {
+			session.close();
+		}
+	}
+	expect(outputs[1]).toBe(outputs[0]);
+	expect(outputs[2]).toBe(outputs[0]);
+	expect(outputs[0]).toContain("value seven");
+});

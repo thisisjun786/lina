@@ -84,3 +84,34 @@ test("removing derived metadata preserves identical raw serialization", () => {
 	expect(stripHostMetadata(kernel)).toBe(stripHostMetadata(baseline));
 	expect(kernel.adoptionIds).toEqual(["a"]);
 });
+
+test("host ID normalization cannot erase different tool outputs", () => {
+	const input = {
+		...modeInput,
+		raw: [
+			{
+				seq: 1,
+				sourceId: "d:tool",
+				owner: "tool:lookup",
+				kind: "receipt" as const,
+				text: JSON.stringify({
+					effectId: "d:tool",
+					receipt: { output: { value: 7 } },
+				}),
+				domain: "real" as const,
+				role: "performer" as const,
+				ref: { id: "r", revision: 1 },
+			},
+		],
+	};
+	const other = structuredClone(input);
+	const item = other.raw[0];
+	if (!item) throw Error("missing fixture");
+	item.text = JSON.stringify({
+		effectId: "d:tool",
+		receipt: { output: { value: 8 } },
+	});
+	expect(stripHostMetadata(serializeInput(input))).not.toBe(
+		stripHostMetadata(serializeInput(other)),
+	);
+});

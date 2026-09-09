@@ -62,8 +62,56 @@ export function stripHostMetadata(input: SerializedInput): string {
 	>;
 	delete body["derived"];
 	const raw = body["raw"] as Record<string, unknown>[];
+	const aliases = new Map<string, string>();
+	for (const item of raw) {
+		if (
+			typeof item["owner"] === "string" &&
+			item["owner"].startsWith("tool:") &&
+			typeof item["sourceId"] === "string"
+		) {
+			const id = item["sourceId"];
+			if (!aliases.has(id)) {
+				const alias = `effect-${aliases.size}`;
+				aliases.set(id, alias);
+				if (id.endsWith(":tool") || id.endsWith(":answer"))
+					aliases.set(id.slice(0, id.lastIndexOf(":")), `${alias}-decision`);
+			}
+		}
+	}
+	function normalize(value: unknown, key = ""): unknown {
+		if (typeof value === "string") {
+			if (
+				[
+					"effectId",
+					"sourceId",
+					"submissionId",
+					"verifier",
+					"fence",
+					"verificationIds",
+				].includes(key)
+			)
+				return aliases.get(value) ?? value;
+			if (key === "text" || key === "bytes") {
+				try {
+					return JSON.stringify(normalize(JSON.parse(value)));
+				} catch {
+					return value;
+				}
+			}
+			return value;
+		}
+		if (Array.isArray(value)) return value.map((v) => normalize(v, key));
+		if (value && typeof value === "object")
+			return Object.fromEntries(
+				Object.entries(value).map(([k, v]) => [k, normalize(v, k)]),
+			);
+		return value;
+	}
 	body["raw"] = raw.map(({ seq: _seq, ref: _ref, ...item }) => item);
 	const omitted = body["omitted"] as Record<string, unknown>;
 	delete omitted["derivedIds"];
-	return JSON.stringify({ system: input.messages[0]?.content, body });
+	return JSON.stringify({
+		system: input.messages[0]?.content,
+		body: normalize(body),
+	});
 }
