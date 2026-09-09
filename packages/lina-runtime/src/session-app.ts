@@ -401,7 +401,7 @@ export async function startPersistentApp(options: AppOptions) {
 							userContext: options.persona.userContext,
 							firstOrdinaryReply: () => !journal.hasNormalAssistantReply(),
 							authoredContext: options.persona.authoredContext,
-							memoryMode: learningEnabled() ? "automatic" : "disabled",
+							memoryMode: () => (learningEnabled() ? "automatic" : "disabled"),
 							nativeDynamics: useNative,
 							allowNativeGrowth: learningEnabled,
 							...(memoryBridge instanceof CompanionMemory

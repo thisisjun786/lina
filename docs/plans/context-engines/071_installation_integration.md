@@ -212,3 +212,15 @@ retired 오류를 반환하며, deploy/honcho는 과거 설치 참고 자료로 
 기존 라이선스 검토 기록은 보존했다. 이 변경 뒤 lina-memory 전체 129개
 테스트, 루트·브라우저 타입 검사, 전체 lint가 통과했다. lint에는 기존
 warning/info가 남아 있으며 라이브 원격 데이터의 이전·삭제는 실행하지 않았다.
+
+독립 리뷰의 실행 중 정책 변경 지적을 반영했다. memoryMode는 대화마다 현재
+정책을 읽으며, 준비한 프롬프트 이후 정책이 바뀌면 전송을 거부한다. 비활성
+상태에서는 자동 저장 안내도 넣지 않는다. 실제 SessionApp에서 settled 원문을
+넣고 observer 호출 수를 검증했다: native는 정책을 켜야 호출하고, disabled는
+정책 값이 켜져도 호출하지 않는다. 관련 15개 테스트 통과.
+
+031의 `engine_disabled/honcho이면 native owner를 만들지 않는다`는 초기
+lifecycle 설명 중 disabled 처리만 이 단위에서 구체화한다. 명시적으로 세션을
+여는 경우 disabled는 기존 로컬 기억을 읽을 수 있도록 자체 owner를 사용하지만
+자동 학습과 성장 투영은 비활성화한다. inactive agent의 출처를 조회하려고 새
+세션을 시작하지 않는 031의 규칙과 honcho 자동 전환 금지는 그대로 적용한다.

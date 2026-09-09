@@ -285,3 +285,47 @@ test("legacy selection preserves existing outbox bytes through session restart",
 	await second.stop();
 	expect(readFileSync(legacy)).toEqual(bytes);
 });
+
+for (const backend of ["native", "disabled"] as const) {
+	test(`${backend} session enforces learning policy before observation`, async () => {
+		const config = options();
+		let enabled = false,
+			calls = 0;
+		const app = await startPersistentApp({
+			...config,
+			memoryBackend: backend,
+			imageEngine: false,
+			enginePolicy: () => {
+				const policy = defaultEnginePolicy();
+				return { ...policy, memory: { ...policy.memory, enabled } };
+			},
+		});
+		cleanups.push(app.stop);
+		if (!(app.memory instanceof CompanionMemory))
+			throw Error("missing native owner");
+		app.memory.configure(async () => {
+			calls++;
+			return JSON.stringify({ observations: [], communicationPreferences: [] });
+		});
+		const append = (id: string) =>
+			appendContextEntry(app.runtime.store, app.binding.sessionId, {
+				entryId: id,
+				role: "user",
+				text: "I prefer tea",
+				timestamp: "2026-09-09T00:00:00Z",
+				raw: {},
+			});
+		append("before-enable");
+		await app.memory.refresh();
+		expect(calls).toBe(0);
+		expect(app.memory.mind.state().records).toEqual([]);
+		enabled = true;
+		await app.memory.refresh();
+		expect(calls).toBe(backend === "native" ? 1 : 0);
+		enabled = false;
+		append("after-disable");
+		await app.memory.refresh();
+		expect(calls).toBe(backend === "native" ? 1 : 0);
+		expect(app.memory.mind.state().records).toEqual([]);
+	});
+}

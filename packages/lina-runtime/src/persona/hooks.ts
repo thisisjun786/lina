@@ -33,7 +33,7 @@ export function installPersona(
 		firstOrdinaryReply?: (() => boolean) | undefined;
 		authoredContext?: (() => string) | undefined;
 		conversations?: ConversationStore | undefined;
-		memoryMode?: "automatic" | "disabled";
+		memoryMode?: "automatic" | "disabled" | (() => "automatic" | "disabled");
 		nativeDynamics?: boolean;
 		allowNativeGrowth?: () => boolean;
 		nativeState?: () => EngineState;
@@ -43,7 +43,12 @@ export function installPersona(
 	} = {},
 ) {
 	const lookup: SourceLookup = options.sourceLookup ?? (() => undefined);
+	const memoryMode = () =>
+		typeof options.memoryMode === "function"
+			? options.memoryMode()
+			: (options.memoryMode ?? "disabled");
 	const snapshot = () => {
+		const mode = memoryMode();
 		const profile = agents.get(agentId);
 		if (!profile) throw Error("Agent persona missing");
 		const configured = options.conversations?.get(agentId);
@@ -71,7 +76,7 @@ export function installPersona(
 				authoredContext,
 				sharedGrowth: shared,
 				currentPersona,
-				memoryMode: options.memoryMode ?? "disabled",
+				memoryMode: mode,
 			},
 		);
 		const preferences = permittedPreferences?.items ?? [];
@@ -84,7 +89,7 @@ export function installPersona(
 			(options.firstOrdinaryReply?.()
 				? firstOrdinaryReplyInstructions({ userContext })
 				: "") +
-			(options.nativeDynamics
+			(options.nativeDynamics && mode === "automatic"
 				? "\n\n[네이티브 기억 처리]\n대화가 끝난 뒤 별도 엔진이 사용자의 명시적 대화 선호, 근거 있는 관찰, 정정과 기억 철회를 검증하여 저장한다. 기억 조회 도구가 읽기 전용이라는 이유로 저장이나 철회 기능이 없다고 말하지 않는다. 아직 처리 결과를 확인하지 않았다면 저장 또는 철회가 이미 완료됐다고 주장하지 않는다. 철회는 해당 기억의 사용 중지이며 대화 원문 삭제가 아니다. 사용자에게 구현 설명은 필요한 경우에만 한다."
 				: "");
 		services.systemTokens = services.estimateText(systemPrompt);
@@ -100,6 +105,8 @@ export function installPersona(
 		return {
 			systemPrompt,
 			beforeDeliver: () => {
+				if (memoryMode() !== mode)
+					throw Error("Memory policy changed before dispatch");
 				if (
 					options.nativeDynamics &&
 					((options.allowNativeGrowth?.() ?? true)
