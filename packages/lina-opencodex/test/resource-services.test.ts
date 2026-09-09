@@ -165,7 +165,9 @@ test("archive summary and conversation trial stay on their existing prompts", as
 	const profile = getter().profiles[0];
 	if (!profile) throw Error("missing profile");
 	await control.test(profile, "ping", new AbortController().signal);
-	expect(posts[0]?.["instructions"]).toBe(SUMMARY_PROMPT);
+	expect(posts[0]?.["instructions"]).toBe(
+		`${SUMMARY_PROMPT} Use at most 64 characters in the visible summary.`,
+	);
 	expect(posts[1]?.["instructions"]).toBe(TEST_PROMPT);
 	expect(posts[0]?.["instructions"]).not.toBe(RESOURCE_SUMMARY_PROMPT);
 });

@@ -184,3 +184,9 @@ LIFE 실패 원인을 합성 localhost 직결 진단으로 좁혔다. 실제 nat
 독립 LIFE 검토가 지적한 AUTHOR 경로를 실제 native 회귀로 재현했다. 제공자 metadata에 code_mode_only를 넣으면 작성 격리 자격 검사가 실패한다. AUTHOR 전용 metadata 사본에서 tool_mode만 제거했고, 원본 connection catalog·능력 필드·현재 selection 검사·금지 도구 검사는 유지했다. 저장된 models.json이 원래 metadata 전체와 동일한지(제외한 tool_mode만 차이) 확인한다.
 
 회귀는 native 자격 검사 실패→수정 후 통과를 확인했다. 처음 수정 후에는 테스트의 파일 경로가 home으로 잘못돼 ENOENT가 있었고, 실제 경로 codex-home으로 고쳤다. `LINA_AUTHOR_NATIVE_TEST=1` author-capabilities/fingerprint/managed-policy 결과14 pass·0 fail·69 assertions, 타입 종료0. 모두 합성 provider이며 실제 사용자 설정이나 세계 초안을 변경하지 않았다.
+
+## 2026-09-09 전체 회귀 결과와 intensive 확인
+
+깨끗한acaa6b4 전체 검사:3682 pass·47 skip·1 fail·20814 assertions·523파일·250.17초. 실패는 resource-services의 요약 프롬프트 기대값에 새 문자 상한 문장이 빠진 경우였다. 역할별 prompt 구분을 유지한 정확한 기대값으로 고쳤고 opencodex 패키지125 pass·0 fail·565 assertions로 확인했다. 전체 suite를 수정 후 재통과했다고 표현하지 않는다. lint 종료0(26 warnings·3360 infos), ci:validate/build 종료0.
+
+Intensive GLM 5.3도 실제 완료 응답을 확인했다. 첫 자유형 관찰 입력은 통신·선택 확인만 인정한다. 이어 CompanionMemory가 사용했던 합성 관찰 입력에 대한 실제 응답을 production parseObservations로 검증해 관찰1건이 유효했다. 최초 검사 스크립트가 observations wrapper만 기대해 배열 응답을 잘못 거부했으며, 생산 코드처럼 배열/래퍼를 둘 다 받도록 수정한 뒤 저장 응답만 재검사했다. 이 수정에는 추가 provider 호출이 없다. 저장 검증을 대신하지 않는다.
