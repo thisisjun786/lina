@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 import type { LifeConfig, WorldPack } from "./authoring-types.ts";
 import { LifeModelReceipts } from "./autonomy-model-receipts.ts";
 import {
@@ -112,11 +113,18 @@ type StateRow = {
 };
 const TERMINAL = new Set<LifeStep["status"]>(["accepted", "failed", "stale"]);
 function same(a: unknown, b: unknown, message: string): void {
+	if (isDeepStrictEqual(a, b)) return;
 	if (lifeDigest(a) !== lifeDigest(b)) throw Error(message);
 }
 
 /** WorldStore owns the surrounding immediate transaction. Provider work never runs here. */
 export class AutonomyPersistence {
+	// Reuse only the pure derivation, keyed by every input. Persistent rows and
+	// current source/permission checks are still read and validated on every call.
+	private lastOutcome: {
+		input: string;
+		value: ReturnType<typeof buildAutonomyOutcome>;
+	} | null = null;
 	readonly schedules: LifeSchedulePersistence;
 	private readonly models: LifeModelReceipts;
 	private readonly steps: LifeStepRecords;
@@ -835,7 +843,14 @@ export class AutonomyPersistence {
 			throw Error("LIFE step is not ready for commit");
 		same(identity, step.source.identity, "Autonomous identity mismatch");
 		this.assertUsage(step);
-		const expected = buildAutonomyOutcome(step, this.social(step));
+		const social = this.social(step);
+		const input = canonicalLifeJson([step, social]);
+		let expected =
+			this.lastOutcome?.input === input ? this.lastOutcome.value : null;
+		if (!expected) {
+			expected = buildAutonomyOutcome(step, social);
+			this.lastOutcome = { input, value: expected };
+		}
 		same(
 			commit,
 			expected.commit,

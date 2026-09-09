@@ -9,6 +9,59 @@ import {
 	imageStoreFixture as fixture,
 	imageAvatarPolicy as policy,
 } from "./life-image-store-fixture.ts";
+import { worldDefinition } from "./world-fixture.ts";
+
+test("an unprepared legacy world cannot freeze a step-clock portrait as a wall-clock exception", () => {
+	const store = new WorldStore(":memory:", () => 1000);
+	try {
+		store.create(worldDefinition());
+		const { worldId, revision, ...empty } = store.lifeConfig("test-world");
+		store.setLifeConfig(worldId, revision, {
+			...empty,
+			avatars: { mode: "automatic", intervalMs: null, maxPerWindow: 1 },
+			usage: {
+				windowMs: 1000,
+				maxInputTokens: 0,
+				maxOutputTokens: 0,
+				maxImages: 1,
+			},
+		});
+		store.setImageSettings(worldId, 0, {
+			version: 1,
+			worldVersion: null,
+			route: { provider: "synthetic", model: "image" },
+			eventRules: [],
+			avatarEventRules: [],
+			perAuthorCooldownSteps: 0,
+			attachMode: "manual",
+			maxJobsPerVisit: 1,
+			storage: {
+				maxActiveJobs: 1,
+				maxArchivedJobs: 1,
+				maxAssets: 1,
+				maxTotalBytes: 10000000,
+			},
+		});
+		const resolved = store.resolveImageAvatarPolicy(worldId, "lina", 1, {
+			...policy,
+			schedule: { kind: "steps", epochRevision: 0, intervalSteps: 1 },
+		});
+		const source = avatarPeriodicSource(resolved, 1000, 0);
+		if (!source) throw Error("Missing step-clock fixture slot");
+		expect(source.kind).toBe("avatar_steps");
+		expect(() =>
+			store.freezeImageIntent({
+				worldId,
+				agentId: "lina",
+				source,
+				visuals: [],
+				requestKey: null,
+			}),
+		).toThrow("Unknown LIFE revision");
+	} finally {
+		store.close();
+	}
+});
 
 test("resolved avatar policy preserves original config and cadence through settings edits and file reopen", () => {
 	const f = fixture();

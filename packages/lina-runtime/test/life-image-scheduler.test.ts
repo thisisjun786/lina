@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { ImageArchiveRecord } from "../../lina-core/src/world/image-accounting-types.ts";
 import type { LifeImageAttempt } from "../../lina-core/src/world/image-attempt-types.ts";
 import type { LifeImageIntent } from "../../lina-core/src/world/image-types.ts";
 import type { ImageJob } from "../src/images/contracts.ts";
@@ -16,8 +17,10 @@ function fixture() {
 		clock,
 		foreground: () => false,
 		store: {
+			imageIntentAllowed: () => true,
 			imageAttempts: () => attempts,
 			imageIntent: (_world: string, id: string) => intents.get(id) ?? null,
+			imageAttemptCount: () => null,
 		},
 		discovery: {
 			preview: () => ({
@@ -37,15 +40,25 @@ function fixture() {
 			read: () => ({ state: "completed" }) as ImageJob,
 			async run(_world: string, id: string) {
 				calls.push(`run:${id}`);
-				return { state: "completed" } as ImageJob;
+				return {
+					state: "completed",
+					delivery: { kind: "life", receiptId: "receipt" },
+				} as ImageJob;
 			},
 			async resume(_world: string, id: string) {
 				calls.push(`resume:${id}`);
-				return { state: "uncertain" } as ImageJob;
+				return {
+					state: "uncertain",
+					delivery: { kind: "pending" },
+				} as ImageJob;
 			},
 			async reconcile(_world: string, id: string) {
 				calls.push(`reconcile:${id}`);
 				return { state: "completed" } as ImageJob;
+			},
+			archive(_world: string, attemptId: string) {
+				calls.push(`archive:${attemptId}`);
+				return { acknowledged: true } as ImageArchiveRecord;
 			},
 		},
 		completed: (job: ImageJob) => {

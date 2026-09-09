@@ -1,6 +1,5 @@
 import type { AgentStore } from "../../../lina-core/src/agents/store.ts";
 import type { AvatarApplyInput } from "../../../lina-core/src/agents/visual.ts";
-import { discoverEventImageCandidates } from "../../../lina-core/src/world/image-discovery.ts";
 import { avatarPeriodicSource } from "../../../lina-core/src/world/image-policy.ts";
 import type { LifeImageSettingsInput } from "../../../lina-core/src/world/image-types.ts";
 import {
@@ -308,6 +307,12 @@ export async function lifeImageRoutes(
 		});
 	try {
 		if (url.hash) throw Error("invalid query");
+		if (
+			request.method !== "GET" &&
+			request.headers.get("content-type")?.split(";")[0]?.trim() !==
+				"application/json"
+		)
+			throw Error("invalid body type");
 		const body = request.method === "GET" ? null : await json();
 		const store = services.store();
 		if (matched.action === "settings") {
@@ -376,9 +381,8 @@ export async function lifeImageRoutes(
 			if (settings.revision !== revision(input.expectedSettingsRevision))
 				throw Error("stale settings revision");
 			let frozenSource: Parameters<
-					WorldStore["freezeImageIntent"]
-				>[0]["source"],
-				visualAgentIds: string[];
+				WorldStore["freezeImageIntent"]
+			>[0]["source"];
 			if (selected.kind === "event_post") {
 				const material = store.publishedImageMaterial(
 					matched.worldId,
@@ -387,20 +391,7 @@ export async function lifeImageRoutes(
 					selected.recipientId,
 				);
 				if (!material) throw Error("image publication source unavailable");
-				const candidate = discoverEventImageCandidates({
-					settings,
-					posts: store.imageDiscoveryPosts(matched.worldId),
-					acceptedSteps: store.imageDiscoveryAcceptedSteps(matched.worldId),
-					existingIntents: store.imageIntents(matched.worldId),
-				}).candidates.find(
-					(value) =>
-						value.agentId === agentId &&
-						value.source.publicationId === selected.postId &&
-						value.source.recipientId === selected.recipientId,
-				);
-				if (!candidate) throw Error("image source has no current rule");
 				frozenSource = material.source;
-				visualAgentIds = candidate.visualAgentIds;
 			} else {
 				const visual = services.agents.visual(agentId);
 				if (!visual.avatarPolicy)
@@ -420,15 +411,14 @@ export async function lifeImageRoutes(
 				);
 				if (!due) throw Error("avatar cadence is not due");
 				frozenSource = due;
-				visualAgentIds = [agentId];
 			}
 			const intent = store.freezeImageIntent({
 				worldId: matched.worldId,
 				agentId,
 				source: frozenSource,
-				visuals: visualAgentIds.map((id) =>
+				visuals: [
 					services.agents.freezeVisualIdentity(
-						id,
+						agentId,
 						frozenSource.kind === "event_post"
 							? {
 									kind: "life",
@@ -437,7 +427,7 @@ export async function lifeImageRoutes(
 								}
 							: { kind: "avatar" },
 					),
-				),
+				],
 				requestKey: key,
 			});
 			services.changed();

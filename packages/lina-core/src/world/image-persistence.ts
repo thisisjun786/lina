@@ -11,7 +11,6 @@ import {
 	lifeDigest,
 	revision,
 } from "./life-json.ts";
-import type { LifeDefinition } from "./life-types.ts";
 
 type SettingsRow = {
 	world_id: string;
@@ -25,7 +24,7 @@ export class ImagePersistence {
 	constructor(
 		private readonly db: DatabaseSync,
 		private readonly source: {
-			definition(worldId: string): LifeDefinition;
+			assertWorld(worldId: string): void;
 			pack(worldId: string, version?: number): WorldPack | null;
 		},
 	) {}
@@ -116,7 +115,7 @@ export class ImagePersistence {
 	): LifeImageSettings {
 		identifier(worldId);
 		revision(expectedRevision);
-		this.source.definition(worldId);
+		this.source.assertWorld(worldId);
 		const value = parseLifeImageSettings(input);
 		this.references(worldId, value, false);
 		const current = this.settings(worldId);

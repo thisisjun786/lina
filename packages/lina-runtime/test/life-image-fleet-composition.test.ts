@@ -1,14 +1,16 @@
 import { expect, test } from "bun:test";
 import { dirname } from "node:path";
+import { hash } from "../../lina-core/src/attachments/validation.ts";
 import { avatarPeriodicSource } from "../../lina-core/src/world/image-policy.ts";
 import { imageAvatarPolicy } from "../../lina-core/test/life-image-store-fixture.ts";
 import { FleetLifeImages } from "../src/fleet/life-images.ts";
 import { Ima2Client } from "../src/images/client.ts";
+import { lifeAvatarReservationId } from "../src/images/life-authority.ts";
 import { catalog, png } from "./ima2-client-fixture.ts";
 import { lifeImagePermissionsFixture } from "./life-image-permissions-fixture.ts";
 import { RuntimeForeground } from "./life-runtime-fixture.ts";
 
-test.each(["manual", "automatic"] as const)(
+test.each(["manual", "automatic", "paused-before-copy"] as const)(
 	"installation image composition retains %s origins, paused recovery never applies an avatar",
 	async (origin) => {
 		const f = lifeImagePermissionsFixture();
@@ -54,6 +56,12 @@ test.each(["manual", "automatic"] as const)(
 		});
 		let clients = 0,
 			posts = 0;
+		let pausedRevision: number | null = null;
+		const {
+			worldId: _resumeWorld,
+			revision: _resumeRevision,
+			...resumeConfig
+		} = world.lifeConfig(worldId);
 		const composition = new FleetLifeImages({
 			...f.services,
 			root: dirname(f.path),
@@ -65,7 +73,21 @@ test.each(["manual", "automatic"] as const)(
 				},
 			},
 			assertInstallation() {},
-			changed() {},
+			changed() {
+				if (
+					origin !== "paused-before-copy" ||
+					pausedRevision !== null ||
+					!world
+						.imageAttempts(worldId)
+						.some((attempt) => attempt.observation?.state === "completed")
+				)
+					return;
+				pausedRevision = world.setLifeConfig(
+					worldId,
+					world.lifeConfig(worldId).revision,
+					{ ...resumeConfig, run: { mode: "paused" } },
+				).revision;
+			},
 			createClient() {
 				clients++;
 				return new Ima2Client({
@@ -94,6 +116,30 @@ test.each(["manual", "automatic"] as const)(
 		});
 		try {
 			expect(clients).toBe(0);
+			if (origin === "paused-before-copy") {
+				const attempt = world.prepareImageAttempt(
+					worldId,
+					intent.intentId,
+					"scheduled-before-pause",
+				);
+				await composition.visit(worldId, new AbortController().signal);
+				expect(posts).toBe(1);
+				expect(f.agents.get("lina")?.avatarId).toBeNull();
+				expect(f.agents.avatarHistory("lina")).toHaveLength(0);
+				expect(
+					f.agents.avatarCapacityReservation(
+						lifeAvatarReservationId(worldId, attempt.attemptId),
+					)?.state,
+				).toBe("released");
+				expect(world.imageUsage(worldId).count.consumed).toBe(1);
+				if (pausedRevision === null)
+					throw Error("Completion did not pause the world");
+				world.setLifeConfig(worldId, pausedRevision, resumeConfig);
+				await composition.visit(worldId, new AbortController().signal);
+				expect(f.agents.get("lina")?.avatarId).toBe(hash(png));
+				expect(posts).toBe(1);
+				return;
+			}
 			const result = await composition.run(
 				worldId,
 				intent.intentId,

@@ -157,6 +157,7 @@ function readDraft(row: DraftRow): WorldDraft {
 
 /** Internal author SQL owner; WorldStore supplies the single transaction and management/grant boundary. */
 export class AuthoringPersistence {
+	private lastPack: { input: string; pack: WorldPack } | null = null;
 	constructor(
 		private readonly db: DatabaseSync,
 		private readonly world: AuthorWorldAccess,
@@ -363,6 +364,9 @@ export class AuthoringPersistence {
 		return row ? this.decodePack(row) : null;
 	}
 	private decodePack(row: PackRow): WorldPack {
+		const input = JSON.stringify(row);
+		if (this.lastPack?.input === input)
+			return structuredClone(this.lastPack.pack);
 		integer(row.effective_revision, "pack effective revision");
 		const pack = parseWorldPack(JSON.parse(row.pack_json));
 		if (
@@ -371,6 +375,7 @@ export class AuthoringPersistence {
 			lifeDigest(pack) !== row.digest
 		)
 			throw Error("Corrupt world pack provenance");
+		this.lastPack = { input, pack: structuredClone(pack) };
 		return pack;
 	}
 	worldPack(

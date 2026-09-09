@@ -8,19 +8,26 @@ import { fleetLifeFixture } from "./life-runtime-fleet-fixture.ts";
 
 test("accepted event becomes one permitted post image through Fleet and fixed web proxy, survives restart and hides on revocation", async () => {
 	let posts = 0;
+	let imageServer: ReturnType<typeof Bun.serve> | undefined;
 	const f = await fleetLifeFixture({
-		createImageClient: () =>
-			new Ima2Client({
-				baseUrl: "http://127.0.0.1:43127",
-				fetch: async (url, init) => {
-					const path = new URL(url).pathname;
+		createImageClient: () => {
+			imageServer ??= Bun.serve({
+				hostname: "127.0.0.1",
+				port: 0,
+				fetch: async (request) => {
+					const path = new URL(request.url).pathname;
 					if (path === "/api/health")
 						return Response.json({ ok: true, version: "3.14.0" });
 					if (path === "/api/models") return Response.json(catalog);
 					if (path === "/api/generate") {
+						const body: unknown = await request.json();
+						if (!body || typeof body !== "object" || Array.isArray(body))
+							return new Response("Expected image request object", {
+								status: 400,
+							});
 						posts++;
 						return Response.json({
-							...JSON.parse(String(init.body)),
+							...body,
 							filename: "scene.png",
 							idempotentReplay: true,
 						});
@@ -31,7 +38,9 @@ test("accepted event becomes one permitted post image through Fleet and fixed we
 						});
 					throw Error("Unexpected image request");
 				},
-			}),
+			});
+			return new Ima2Client({ baseUrl: imageServer.url.origin });
+		},
 	});
 	let web: ReturnType<typeof startWebServer> | undefined;
 	try {
@@ -203,5 +212,6 @@ test("accepted event becomes one permitted post image through Fleet and fixed we
 	} finally {
 		await web?.stop(true);
 		await f.close();
+		await imageServer?.stop(true);
 	}
 });

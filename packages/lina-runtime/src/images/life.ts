@@ -20,6 +20,7 @@ import {
 	lifeImageJobInput,
 } from "./life-authority.ts";
 import {
+	assertLifeImageAuthority,
 	assertLifeImageHistory,
 	type LifeImageAuthorityServices,
 } from "./life-permissions.ts";
@@ -256,6 +257,70 @@ export class LifeImages {
 			return;
 		this.options.agents.releaseAvatarCapacity(reservationId);
 	}
+	/** Unused destination copies free only the AgentStore hold; world generation remains charged. */
+	private releaseUnusedAvatarDestination(
+		intent: LifeImageIntent,
+		attempt: LifeImageAttempt,
+		job: ImageJob,
+		withheld = false,
+	): void {
+		if (
+			intent.source.kind === "event_post" ||
+			job.state !== "completed" ||
+			!job.artifact
+		)
+			return;
+		const current = this.options.world.imageAttempt(
+			intent.owner.worldId,
+			attempt.attemptId,
+		);
+		const count = this.options.world.imageAttemptCount(
+			intent.owner.worldId,
+			attempt.attemptId,
+		);
+		if (
+			!current ||
+			current.jobId !== job.id ||
+			!current.observation?.artifact ||
+			count?.terminal !== "result"
+		)
+			return;
+		if (!withheld) {
+			try {
+				assertLifeImageAuthority(
+					this.options,
+					intent.owner.worldId,
+					intent.intentId,
+					"destination",
+				);
+				return;
+			} catch {
+				// Destination copy cannot apply; retain the world artifact and count.
+			}
+		}
+		const reservationId = lifeAvatarReservationId(
+			intent.owner.worldId,
+			attempt.attemptId,
+		);
+		const reservation =
+			this.options.agents.avatarCapacityReservation(reservationId);
+		if (
+			reservation?.state !== "reserved" ||
+			reservation.owner.kind !== "generated" ||
+			reservation.owner.agentId !== intent.owner.agentId ||
+			reservation.owner.worldId !== intent.owner.worldId ||
+			reservation.owner.intentId !== intent.intentId ||
+			reservation.owner.attemptId !== attempt.attemptId
+		)
+			return;
+		this.options.agents.releaseAvatarCapacity(reservationId);
+	}
+	/** Called by the Fleet effect path when pause/foreground holds delivery before copying. */
+	withholdAvatarDestination(job: ImageJob): void {
+		const { intent, attempt } = assertLifeImageJob(this.options, job);
+		this.releaseUnusedAvatarDestination(intent, attempt, job, true);
+	}
+
 	async run(
 		worldId: string,
 		intentId: string,
@@ -265,6 +330,8 @@ export class LifeImages {
 	): Promise<ImageJob> {
 		signal.throwIfAborted();
 		this.assertRunnable();
+		if (!this.options.world.imageAttemptRequest(worldId, requestKey))
+			assertLifeImageAuthority(this.options, worldId, intentId, "provider");
 		const attempt = this.options.world.prepareImageAttempt(
 			worldId,
 			intentId,
@@ -281,6 +348,8 @@ export class LifeImages {
 	): Promise<ImageJob> {
 		signal.throwIfAborted();
 		this.assertRunnable();
+		if (!this.options.world.imageAttemptRequest(worldId, requestKey))
+			assertLifeImageAuthority(this.options, worldId, intentId, "provider");
 		const attempt = this.options.world.retryImageAttempt(
 			worldId,
 			intentId,
@@ -343,6 +412,7 @@ export class LifeImages {
 		await handle.jobs.flushNotices();
 		const current = handle.jobs.get(result.id);
 		this.releaseAvatarWithoutResult(intent, attempt, current);
+		this.releaseUnusedAvatarDestination(intent, attempt, current);
 		return current;
 	}
 	async reconcile(
@@ -356,12 +426,32 @@ export class LifeImages {
 		const handle = this.owner(intent, attempt);
 		const job = handle.jobs.get(attempt.jobId);
 		assertLifeImageJob(this.options, job);
+		const count = this.options.world.imageAttemptCount(worldId, attemptId);
+		if (
+			job.state === "prepared" &&
+			job.endpoint === null &&
+			(count === null || count.dispatchAtMs === null)
+		) {
+			try {
+				assertLifeImageAuthority(
+					this.options,
+					worldId,
+					intent.intentId,
+					"provider",
+				);
+			} catch {
+				// Both owners prove that no request was sent. Settle only this
+				// obsolete local preparation; unknown provider work is never cancelled here.
+				return this.cancel(worldId, attemptId);
+			}
+		}
 		const result =
 			job.state === "failed" && job.resultFilename
 				? handle.jobs.recoverArtifact(job.id, signal)
 				: handle.jobs.reconcile(job.id, signal);
 		return result.then((current) => {
 			this.releaseAvatarWithoutResult(intent, attempt, current);
+			this.releaseUnusedAvatarDestination(intent, attempt, current);
 			return current;
 		});
 	}
@@ -370,6 +460,7 @@ export class LifeImages {
 		if (!attempt.jobId) throw Error("Image attempt is not linked");
 		const job = await this.owner(intent, attempt).jobs.cancel(attempt.jobId);
 		this.releaseAvatarWithoutResult(intent, attempt, job);
+		this.releaseUnusedAvatarDestination(intent, attempt, job);
 		return job;
 	}
 	/** Archive only a terminal LIFE receipt after core verifies its original observation and current capacity. */

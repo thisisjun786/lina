@@ -552,7 +552,9 @@ export class WorldStore
 			(worldId, version) => this.author.worldPack(worldId, version),
 		);
 		this.images = new ImagePersistence(this.db, {
-			definition: (worldId) => this.life.definition(worldId),
+			assertWorld: (worldId) => {
+				this.snapshot(worldId);
+			},
 			pack: (worldId, version) =>
 				version === undefined
 					? this.author.currentPack(worldId)
@@ -563,7 +565,7 @@ export class WorldStore
 			settingsAt: (worldId, at) => this.images.settingsAt(worldId, at),
 			participants: (worldId, worldVersion) =>
 				worldVersion === null
-					? this.life.definition(worldId).participants
+					? this.rebuild(this.snapshot(worldId).definition, 0).definition.agents
 					: this.author.worldPack(worldId, worldVersion).life.participants,
 		});
 		this.imageIntentRecords = new ImageIntents(this.db, {
@@ -1353,8 +1355,8 @@ export class WorldStore
 				settings.revision !== intent.settingsRevision ||
 				settings.worldVersion !== (pack?.version ?? null) ||
 				config.revision !== intent.configRevision ||
-				!config.run ||
-				config.run.mode === "paused" ||
+				(!config.run && source.kind !== "avatar_wall") ||
+				config.run?.mode === "paused" ||
 				(source.kind === "event_post" ? !config.images : !config.avatars))
 		)
 			return false;
@@ -1618,7 +1620,9 @@ export class WorldStore
 				settingsRevision: settings.revision,
 				configRevision: config.revision,
 				createdAtMs: revision(this.now()),
-				createdLifeRevision: this.life.snapshot(input.worldId).revision,
+				createdLifeRevision: this.life.prepared(input.worldId)
+					? this.life.snapshot(input.worldId).revision
+					: 0,
 			};
 			const publication = this.historicalImageSource(provenance);
 			if (source.kind === "event_post") {
@@ -1671,7 +1675,13 @@ export class WorldStore
 	/** Rebuilds immutable provenance; current permission checks intentionally remain uncached. */
 	private resolveHistoricalImageSource(input: ImageIntentSource) {
 		const { worldId, agentId, source } = input;
-		this.life.snapshotAt(worldId, input.createdLifeRevision);
+		const legacyPortrait =
+			source.kind === "avatar_wall" &&
+			input.createdLifeRevision === 0 &&
+			this.images.settingsAt(worldId, input.settingsRevision).worldVersion ===
+				null;
+		if (!legacyPortrait)
+			this.life.snapshotAt(worldId, input.createdLifeRevision);
 		if (source.kind === "event_post") {
 			const post = this.publicationPosts.at(
 				worldId,
@@ -1816,8 +1826,10 @@ export class WorldStore
 		);
 	}
 	private currentPublicationAgents(worldId: string): string[] {
-		const definition = this.life.definition(worldId);
 		const pack = this.author.currentPack(worldId);
+		if (!pack && !this.life.prepared(worldId))
+			return [...this.snapshot(worldId).definition.agents];
+		const definition = this.life.definition(worldId);
 		return definition.participants.filter(
 			(agentId) =>
 				!pack ||
@@ -2808,15 +2820,18 @@ export class WorldStore
 		this.assertOpen();
 		this.historicalImageSources.clear();
 		this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
+		this.life.setReplayScope(true, write);
 		try {
 			const result = action();
 			this.db.exec("COMMIT");
 			return result;
 		} catch (error) {
+			this.life.setReplayScope(false);
 			this.rollback();
 			throw error;
 		} finally {
 			this.historicalImageSources.clear();
+			this.life.setReplayScope(false, write);
 		}
 	}
 	private rollback(): void {
