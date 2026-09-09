@@ -1,12 +1,12 @@
 # 071 — 자체 엔진 설치 연결과 외부 어댑터 퇴역
 
-상태: P. 060은 121060d에서 종료했고 561개 테스트·타입·린트·문서·CI·빌드와 독립 검토를 통과했다. 현재 부족한 것은 엔진 자체보다 실제 Fleet의 조립 경로다. 이 단위는 LINA/Codex가 같은 자료 owner를 사용하고, 개인 기억·페르소나·세션 컨텍스트·LIFE가 각자의 출처와 권한을 유지하도록 연결한다.
+상태: B 진행 중. 2026-09-09 재점검 기준 커밋은 5182522다. 자체 기억의 기본 활성화, 외부 어댑터 퇴역, 설치당 공유 자료 owner, 비개발 활동의 도구/API와 LIFE 연결, 새 LIFE step의 등급별 모델 선택까지 구현했다. 게시 모델 선택의 저장·실행 연결과 전체 통합 검증은 남아 있다. 아래 계획 당시의 관찰과 누적 검증 기록은 각각 해당 시점의 증거다.
 
 유형 satisfy-spec. 계기는 전체 자체 엔진 완성 요청과 070 실행이다. 목표는 외부 Honcho/OpenViking 없이 신규 설치가 동작하고 기존 설정에는 전환 필요 상태가 명시되는 것이다. 범위 밖은 사용자 설치·원격 데이터 변경, 라이브 provider 호출, UI, 푸시·PR 머지·배포다. 검증은 임시 stateRoot/가짜 RPC·fetch의 실제 Fleet HTTP/도구·종료·재시작·checkpoint 경로와 전체 관련 게이트다. 성공하면 080으로 진행하며, 라이브 자격 검증은 별도 허가가 필요하다. 기록은 070/071 및 session evidence/integration-*다. 새 시간·토큰 예산은 정하지 않는다. 저장 형식·복구·출처 문제가 남으면 B/C에서 수정하며 사용자 제품 결정이 필요한 세계·주기·금액은 미정 상태를 유지한다. 실행자 둘이 같은 패킷에 실패하면 주 에이전트가 회수한다.
 
-## 현재 코드와 선행 순서
+## 계획 당시 코드와 선행 순서
 
-codex-fleet.ts는 아직 OpenVikingClient/workTools를 만들고 task executeTool의 네 인자만 사용한다. session-app.ts는 CompanionMemory 또는 Honcho MemoryBridge를 선택하고 직접 시작의 기본은 disabled다. manager.ts에는 Honcho namespace qualification/초기화·삭제 흐름이 남았다. 자체 EnginePolicyStore와 ResourceEngine은 존재하지만 Fleet 저장·HTTP·checkpoint에 연결되지 않았다. 기존 resourceRoot는 정적 asset 경로이므로 자료 DB 경로로 재사용하지 않는다.
+계획 시작 당시 codex-fleet.ts는 OpenVikingClient/workTools를 만들고 task executeTool의 네 인자만 사용했다. session-app.ts는 CompanionMemory 또는 Honcho MemoryBridge를 선택했으며 직접 시작의 기본은 disabled였다. manager.ts에는 Honcho namespace qualification/초기화·삭제 흐름이 남았다. 이 경로들은 B에서 교체됐다. 기존 resourceRoot는 정적 asset 경로이므로 자료 DB 경로로 재사용하지 않는다.
 
 구현 순서는 PR #3의 필요한 안정화 변경 확인 → own memory port와 외부 어댑터 제거 → 공유 자료/정책 owner 설치 → LIFE tier/비개발 활동 경계 → checkpoint/전체 통합 검증이다. 각 순서는 같은 integration 단위 안에서 검증되는 의존 관계이며 별도 제품 기능을 축소하는 구분이 아니다.
 

@@ -4,6 +4,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
 	LifeModelRequest,
+	LifeModelResult,
 	PreparedLifeModelRequest,
 } from "../../lina-core/src/world/autonomy-types.ts";
 import { lifeDigest } from "../../lina-core/src/world/life-json.ts";
@@ -270,6 +271,68 @@ test("old v1 dispatch/failure records retain their exact unknown usage", async (
 	);
 	expect(f.captures).toHaveLength(0);
 });
+
+for (const version of [1, 2] as const) {
+	test(`historical v${version} completed journal replays after provider removal without recalculating its fingerprint`, async () => {
+		const f = fixture();
+		const { prepared, journal } = saved(f.root, requestFor(version));
+		journal.write("dispatch", {
+			version: 1,
+			requestId: prepared.request.id,
+			inputDigest: prepared.inputDigest,
+			pid: process.pid,
+		});
+		journal.write("outbound", {
+			version: 1,
+			requestId: prepared.request.id,
+			inputDigest: prepared.inputDigest,
+			upstreamAttempts: 1,
+		});
+		const usage = { inputTokens: 31, outputTokens: 7, totalTokens: 38 };
+		journal.write("binding", {
+			threadId: "historical-thread",
+			pid: process.pid,
+		});
+		journal.write("usage", usage);
+		const result: LifeModelResult = {
+			version: 1,
+			requestId: prepared.request.id,
+			inputDigest: prepared.inputDigest,
+			capabilityFingerprint: prepared.capabilityFingerprint,
+			nativeReference: prepared.nativeReference,
+			provider: prepared.request.provider,
+			model: prepared.request.model,
+			threadId: "historical-thread",
+			turnId: "historical-turn",
+			text: "saved historical result",
+			usage,
+			upstreamAttempts: 1,
+		};
+		journal.write("result", result);
+		const initial = readFileSync(join(journal.directory, "initial.json"));
+		let selections = 0;
+		const options = {
+			...f.options,
+			selection() {
+				selections++;
+				throw Error("Historical provider is no longer installed");
+			},
+		};
+		const first = model(options);
+		expect(await first.reconcile(prepared)).toEqual({
+			status: "completed",
+			result,
+		});
+		await first.close();
+		const reopened = model(options);
+		expect(await reopened.complete(prepared, signal())).toEqual(result);
+		expect(readFileSync(join(journal.directory, "initial.json"))).toEqual(
+			initial,
+		);
+		expect(selections).toBe(0);
+		expect(f.captures).toHaveLength(0);
+	});
+}
 
 for (const marker of ["preflight", "dispatch"] as const) {
 	test(`interrupted ${marker} remains unknown across reopen and cannot run again`, async () => {
