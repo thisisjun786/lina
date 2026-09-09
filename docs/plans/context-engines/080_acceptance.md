@@ -57,7 +57,7 @@
 
 ## 실제 모델 검증 승인 패킷
 
-아직 실행하지 않았다. 승인 대상은 사용자 데이터 없는 임시 설치에서 현재 지정 대화 모델과 공통 엔진 라우트로 아래 합성 사례를 한 차례 확인하는 것이다. 모델이나 라우트가 없으면 임의 모델로 대체하지 않고 미구성 결과를 기록한다. API 키·원문 사용자 대화·기존 기억은 결과에 복사하지 않는다. 실행용 인증은 기존 제공자 경로만 사용하며 새 유료 fallback은 허용하지 않는다.
+아래는 검증 승인 범위다. 2026-09-09 사용자의 “계속진행” 이후 역할별 모델 검증을 시작했으며, 결과는 다음 절에 구분한다. 승인 대상은 사용자 데이터 없는 임시 설치에서 현재 지정 대화 모델과 공통 엔진 라우트로 아래 합성 사례를 한 차례 확인하는 것이다. 모델이나 라우트가 없으면 임의 모델로 대체하지 않고 미구성 결과를 기록한다. API 키·원문 사용자 대화·기존 기억은 결과에 복사하지 않는다. 실행용 인증은 기존 제공자 경로만 사용하며 새 유료 fallback은 허용하지 않는다.
 
 | 합성 사례 | 호출 경계와 관찰 |
 | --- | --- |
@@ -75,3 +75,16 @@
 공통 등급은 기존 settings PATCH API로 활성/해제한다. 현재 UI는 저장된 등급의 보존·표시와 에이전트별 모델/추론 override만 제공한다. 이것을 새 tier 편집 UI 구현으로 표시하지 않는다.
 
 이전 routing 단계의 이미지 timeout 기록은 역사적 결과다. 통합 후 동일한 제한의 해당 시나리오와 전체 검사를 통과했으며 d0221de의 integration-test-receipt.json(3,666 pass·46 skip·0 fail)을 현재 근거로 사용한다. 별도로 발견한 게시 mock의 v2 한정 조건은 272b2f4에서 새 v3 계약으로 맞췄다. 이 mock 불일치를 과거 timeout의 원인으로 단정하지 않는다. 46개 skip은 실제 모델 검증으로 계산하지 않으며, 실제 모델 자격 검증은 별도 승인 범위다.
+
+## 2026-09-09 실제 모델 부분 검증
+
+운영 `/api/models` 읽기에서 대화 profile-1/gpt-6-astra, 기억·요약·재검토·회상 profile-2/gpt-5.6-terra(low)를 확인했다. 운영 설정은 수정하지 않았다. 네 등급 `routes`는 없어 자료 기억 호출이 모델 dispatch 전 `No model routes are configured`로 거부됐다. 임시 등급 바인딩 선택을 사용자에게 질문했으며 답변 전에는 생성하지 않는다.
+
+현재까지 제공자 요청은 21/24회이며 모두 gpt-5.6-terra, low다. 첫 요청의 출력 상한은512이고 모든 요청은1024 이하로 제한했다. 요청 전 카운터를 저장해 실패도 횟수에 포함한다. 실제 청구 비용과 모든 응답의 토큰 사용량은 별도로 수집하지 않았으므로 비용·총 사용 토큰을 추정 완료로 기록하지 않는다.
+
+- 실제 요약: 정정된 색상과 이유·미정 항목 보존. ContextStore 원문→모델 요약→SQLite 다시 열기→같은 summary id, 재호출0. 전체 native 세션 재시작 증거와는 구분한다.
+- 실제 페르소나 해석: 합성 원문 근거에서 NativePersonaGrowth가 성향 값을 저장. 작성 identity 동일, DB 다시 열기 뒤 추가 호출0. 원문 근거 철회 후 개인 행동 projection 제거.
+- 실제 기억: CompanionMemory 관찰→연역/귀납 재검토→다시 열기→사용자 정정의 전체 흐름. 처음에는 모델이 reasoningKind=explicit을 반환해 invalid_output으로 거부됐다. prompts.ts에 deduction/induction과 evidence 구분을 명시한 뒤 같은 실패 입력이 유효한 proposals:[]를 반환했다. 전체 흐름 재검사에서 accepted2, consolidation committed2, failed0, 재시작 재호출0. 호스트 파서는 완화하지 않았다.
+- 실제 회상: 엔진이 만든 현재 active records로 보리차 선호·카페인 이유·출처를 답하고 없는 출시일은 unknown으로 표시. 별도 일반 대화 UI/native turn 품질 검증은 아니다.
+
+증거는 session evidence/live의 calls.json, context-recovery.json, persona.json, memory.json, consolidation-13.json(실패), consolidation-recheck.json, recall.json과 실행 스크립트다. 합성 데이터만 기록하고 임시 DB는 정리했다. 설정된 대화 모델의 일반 대화, 네 등급별 실행, 자료 탐색·공유 기억 및 LIFE 공개 게시의 실제 모델 품질은 아직 미검증이다. 이 부분 검증으로 acceptance criterion을 충족 처리하지 않는다.
