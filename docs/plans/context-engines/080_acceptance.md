@@ -108,3 +108,11 @@
 최종 범위 재검사: 20개 파일의 관련 테스트 194 pass·0 fail·940 assertions, 타입 검사·lint·CI validate·build 종료0. 전체 검사는 3671 pass·46 skip·3 fail였으며, 세 실패는 구형 무등급 자료 fixture 두 곳과 폐지된 내부 모델 dropdown 기대 한 곳이었다. 모두 새 계약으로 수정해 관련 194개 검사에서 통과했다. 전체 suite의 최종 수정 후 재실행 성공으로 표기하지 않는다. 네 등급 누락, 에이전트별 예전 profile/effort, 직접 내부 override, LIFE 혼합 설정, 다른 세계 타이머에 의한 재시도까지 부정 사례로 확인했다. 자동 재시도 억제는 명시적 wake까지 모델 lane에만 적용하고 이미지 방문은 유지한다.
 
 독립 검토 후 게시 복구도 보완했다. `publication.ts`는 모델 등급 미구성 오류를 작업의 영구 실패로 기록하지 않고 호출자에게 돌려준다. 대기 작업을 보존하는 회귀는 실패→통과를 확인했으며 게시 처리 33개, 게시 HTTP 30개가 통과했다. HTTP는 409 `MODEL_NOT_CONFIGURED`로 설정 수정을 안내하고 내부 진단을 노출하지 않는다. 등급 작성 경로가 없다는 검토 의견은 `companion-routes.ts`의 PATCH `/api/models/settings`→`ModelSettingsStore.replace`와 실제 HTTP 저장 회귀를 근거로 반박했다. 신규 등급 편집 UI는 별도 범위이고 기존 API로 네 등급 설정을 저장할 수 있다.
+
+## 2026-09-09 최종 로컬 재검사와 Ollama 호출
+
+476a9d8의 깨끗한 소스에서 전체 테스트를 다시 실행했다. `bun test` 결과 3677 pass·46 skip·0 fail, 523개 파일·20791 assertions·249.99초이며 `ollama-routing/full-test-receipt.json`이 소스와 종료0을 기록한다. 앞선 3개 실패 기록은 수정 전 결과로 남기며 이번 결과가 최종 로컬 근거다.
+
+남은 승인 호출 22–24를 격리 설정의 실제 역할 경로로 사용했다. standard GLM 5.3 Flash 요약은 정정된 초록색·장소의 색상이라는 이유·미정 출시일을 보존했다. quick DeepSeek V4 Flash 관찰은 `OpenCodex request failed`로 실패했고 원인을 확정할 증거는 없다. deep DeepSeek V4 Pro 재검토는 근거 없는 입력에 유효한 `{"proposals":[]}`를 반환했다. 응답 성공 둘은 어댑터와 출력 확인이며 저장·일반 대화·LIFE 전체 성공으로 확대하지 않는다. intensive는 아직 실제 호출하지 않았다. 증거는 `ollama-routing/live-three-results.json`, `live-output-checks.json`, 누적 `live/calls.json`이다.
+
+승인된 총24회를 소진해 추가 호출을 멈췄다. 지정 Ollama 모델만 최대24회 추가 호출하는 질문을 남겼으며 답변 전에는 한도를 늘리지 않는다. 전체 목표와 실제 모델 인수 기준은 미완료 상태다. 설치본 코드 교체·푸시·머지는 하지 않았다.
