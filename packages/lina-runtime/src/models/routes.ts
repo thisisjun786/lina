@@ -34,39 +34,39 @@ export function resolveModelRoute(
 			"Conversation cannot use model tiers",
 			"invalid_input",
 		);
-	const legacy = resolveProfile(
-		settings,
-		role,
-		agentId,
-		request?.overrideProfileId,
-	);
-	if (request?.overrideProfileId !== undefined)
-		return legacy
+	if (role === "conversation") {
+		const profile = resolveProfile(
+			settings,
+			role,
+			agentId,
+			request?.overrideProfileId,
+		);
+		return profile
 			? {
-					mode: "override",
+					mode:
+						request?.overrideProfileId === undefined ? "legacy" : "override",
 					settingsRevision: settings.revision,
-					profile: legacy,
+					profile,
 				}
 			: null;
-	const agentBound =
-		agentId !== undefined &&
-		Object.hasOwn(settings.agentRoles, agentId) &&
-		Object.hasOwn(settings.agentRoles[agentId] ?? {}, role);
-	const tier =
-		request?.tier ??
-		(role !== "conversation" && !agentBound
-			? settings.routes?.roleTiers[role]
-			: undefined);
-	if (tier === undefined)
-		return legacy
-			? { mode: "legacy", settingsRevision: settings.revision, profile: legacy }
-			: null;
-	validModelTier(tier);
+	}
+	if (request?.overrideProfileId !== undefined)
+		throw new ModelRequestError(
+			"Internal engine models must use a shared tier",
+			"invalid_input",
+		);
 	if (!settings.routes)
 		throw new ModelRequestError(
 			"No model routes are configured",
 			"not_configured",
 		);
+	const tier = request?.tier ?? settings.routes.roleTiers[role];
+	if (tier === undefined)
+		throw new ModelRequestError(
+			"No model tier is configured for the " + role + " role",
+			"not_configured",
+		);
+	validModelTier(tier);
 	const binding = settings.routes.tiers[tier];
 	const selected = settings.profiles.find(
 		(profile) => profile.id === binding.profileId,
@@ -75,19 +75,6 @@ export function resolveModelRoute(
 		throw new ModelRequestError("Unknown tier profile", "not_configured");
 	const profile = { ...selected };
 	if (binding.reasoning !== undefined) profile.reasoning = binding.reasoning;
-	const agentReasoning =
-		agentId !== undefined &&
-		settings.agentRoleReasoning &&
-		Object.hasOwn(settings.agentRoleReasoning, agentId)
-			? settings.agentRoleReasoning[agentId]
-			: undefined;
-	if (
-		request?.tier === undefined &&
-		agentReasoning &&
-		Object.hasOwn(agentReasoning, role) &&
-		agentReasoning[role] !== undefined
-	)
-		profile.reasoning = agentReasoning[role];
 	if (binding.maxOutputTokens !== undefined)
 		profile.maxOutputTokens = binding.maxOutputTokens;
 	return { mode: "tier", settingsRevision: settings.revision, tier, profile };

@@ -8,6 +8,7 @@ import type {
 import { pureStep } from "../../lina-core/test/life-autonomy-pure-fixture.ts";
 import { createLifeRunner } from "../src/life/runner.ts";
 import { createLifeScheduler } from "../src/life/scheduler.ts";
+import { ModelRequestError } from "../src/models/errors.ts";
 import {
 	deferred,
 	RuntimeClock,
@@ -18,6 +19,31 @@ import {
 import { runtimeStoreFixture } from "./life-runtime-store-fixture.ts";
 
 const schedulers: ReturnType<typeof createLifeScheduler>[] = [];
+test("unconfigured model routing waits for a configuration wake instead of interval retries", async () => {
+	const f = setup();
+	const failed = deferred<void>();
+	let attempts = 0;
+	const scheduler = createLifeScheduler({
+		...f.options,
+		runner: {
+			...f.options.runner,
+			async run() {
+				attempts++;
+				throw new ModelRequestError("Choose shared tiers", "not_configured");
+			},
+		},
+		onError() {
+			failed.resolve();
+		},
+	});
+	schedulers.push(scheduler);
+	scheduler.start();
+	await f.clock.waitingAt(100);
+	f.clock.advance(100);
+	await failed.promise;
+	expect(attempts).toBe(1);
+	expect(f.clock.pending).toBe(0);
+});
 const realStores: ReturnType<typeof runtimeStoreFixture>[] = [];
 afterEach(async () => {
 	for (const scheduler of schedulers.splice(0)) await scheduler.close();
@@ -597,4 +623,30 @@ test("real SQLite schedule skips missed time and two runners produce one accepte
 		await second.close();
 		await secondRunner.close();
 	}
+});
+
+test("another world's timer does not retry an unconfigured model lane", async () => {
+	const f = setup();
+	let attempts = 0;
+	f.setPending(pureStep());
+	const scheduler = createLifeScheduler({
+		...f.options,
+		imageWorldIds: () => ["other"],
+		visitImages: async (world) =>
+			world === "other" ? (f.clock.now() < 200 ? 200 : 300) : null,
+		runner: {
+			...f.options.runner,
+			async run() {
+				attempts++;
+				throw new ModelRequestError("Choose shared tiers", "not_configured");
+			},
+		},
+	});
+	schedulers.push(scheduler);
+	scheduler.start();
+	await f.clock.waitingAt(200);
+	expect(attempts).toBe(1);
+	f.clock.advance(200);
+	await f.clock.waitingAt(300);
+	expect(attempts).toBe(1);
 });

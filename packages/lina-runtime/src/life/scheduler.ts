@@ -6,6 +6,7 @@ import type {
 	LifeStep,
 } from "../../../lina-core/src/world/autonomy-types.ts";
 import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
+import { ModelRequestError } from "../models/errors.ts";
 import type { LifeForeground, LifeRunner } from "./runner.ts";
 
 export interface LifeClock {
@@ -61,11 +62,13 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 	let waiting: AbortController | null = null;
 	let running: Promise<void> | null = null;
 	let worldRunning: string | null = null;
+	const unconfiguredModels = new Set<string>();
 	const armed = new Map<
 		string,
 		{ due: number; generation: number; revision: number }
 	>();
 	const wake = () => {
+		unconfiguredModels.clear();
 		wakeVersion++;
 		waiting?.abort();
 	};
@@ -323,6 +326,13 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 				for (const worldId of [...worlds].sort()) {
 					if (stop.signal.aborted) break;
 					try {
+						if (unconfiguredModels.has(worldId)) {
+							const images = await visitOutput(worldId, options.visitImages);
+							if (images !== null)
+								deadline =
+									deadline === null ? images : Math.min(deadline, images);
+							continue;
+						}
 						let publication: number | null = null;
 						let images: number | null = null;
 						const publish =
@@ -365,6 +375,13 @@ export function createLifeScheduler(options: LifeSchedulerOptions) {
 						armed.delete(worldId);
 						if (stop.signal.aborted) break;
 						options.onError(worldId, error);
+						if (
+							error instanceof ModelRequestError &&
+							error.code === "not_configured"
+						) {
+							unconfiguredModels.add(worldId);
+							continue;
+						}
 						const interval = options.config(worldId).clock?.intervalMs;
 						if (interval) {
 							const retry = safeTime(options.clock.now() + interval);

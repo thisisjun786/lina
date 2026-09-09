@@ -62,6 +62,16 @@ test("resource owner runs persisted extraction and actual adapter summary reques
 			defaultProfileId: "test",
 			roles: { summary: "test" },
 			agentRoles: {},
+			routes: {
+				version: 1,
+				tiers: {
+					quick: { profileId: "test" },
+					standard: { profileId: "test" },
+					deep: { profileId: "test" },
+					intensive: { profileId: "test" },
+				},
+				roleTiers: { summary: "standard" },
+			},
 		}),
 	);
 	const engine = new ResourceEngine({
@@ -136,6 +146,16 @@ test("orderly owner close drains the claimed job before closing its database", a
 			defaultProfileId: "test",
 			roles: { summary: "test" },
 			agentRoles: {},
+			routes: {
+				version: 1,
+				tiers: {
+					quick: { profileId: "test" },
+					standard: { profileId: "test" },
+					deep: { profileId: "test" },
+					intensive: { profileId: "test" },
+				},
+				roleTiers: { summary: "standard" },
+			},
 		}),
 	);
 	const engine = new ResourceEngine({

@@ -66,7 +66,7 @@ function settings(): ModelSettings {
 					maxOutputTokens: 1024,
 				},
 			},
-			roleTiers: { summary: "deep", recall: "quick" },
+			roleTiers: { summary: "deep", recall: "quick", vision: "standard" },
 		},
 	};
 }

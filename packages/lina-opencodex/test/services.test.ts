@@ -44,6 +44,22 @@ function settings(model = "gpt-5.6-sol"): ModelSettings {
 		defaultProfileId: "main",
 		roles: {},
 		agentRoles: {},
+		routes: {
+			version: 1,
+			tiers: {
+				quick: { profileId: "main" },
+				standard: { profileId: "main" },
+				deep: { profileId: "main" },
+				intensive: { profileId: "main" },
+			},
+			roleTiers: {
+				summary: "standard",
+				observation: "quick",
+				reflection: "deep",
+				recall: "standard",
+				vision: "standard",
+			},
+		},
 	};
 }
 
@@ -844,4 +860,45 @@ test("context services expose one conservative estimator for text messages and s
 			).length / 2,
 		),
 	);
+});
+
+test("shared tiers own engine request models despite saved legacy agent profiles", async () => {
+	const { hub, posts } = await connectedHub();
+	const saved = settings();
+	saved.profiles.push({
+		id: "legacy",
+		provider: "opencodex",
+		model: "cursor/composer-2.5-fast",
+		reasoning: "off",
+	});
+	saved.roles = {
+		summary: "legacy",
+		observation: "legacy",
+		reflection: "legacy",
+		recall: "legacy",
+	};
+	saved.agentRoles = { lina: { ...saved.roles } };
+	const services = hub.createContextServices(() => saved, "lina");
+	const signal = new AbortController().signal;
+	if (
+		!services.observe ||
+		!services.consolidate ||
+		!services.interpretPersona ||
+		!services.reasonMemory
+	)
+		throw Error("Missing engine services");
+	await services.summarize("synthetic source", 32, signal);
+	await services.observe("synthetic source", signal);
+	await services.consolidate("synthetic source", signal);
+	await services.interpretPersona("synthetic source", signal);
+	await services.reasonMemory("synthetic source", signal);
+	expect(posts).toHaveLength(5);
+	expect(posts.map((post) => post.body["model"])).toEqual(
+		Array(5).fill("gpt-5.6-sol"),
+	);
+	delete saved.routes;
+	await expect(
+		services.observe("synthetic source", signal),
+	).rejects.toMatchObject({ code: "not_configured" });
+	expect(posts).toHaveLength(5);
 });

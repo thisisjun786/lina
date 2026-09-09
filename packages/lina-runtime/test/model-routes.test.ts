@@ -64,25 +64,25 @@ it("rejects direct unconfigured or conflicting routes and conversation tiers", (
 		}),
 	).toThrow();
 });
-it("preserves explicit agent choices while activating global tiers", () => {
+it("uses shared tiers despite legacy agent choices and rejects internal profile overrides", () => {
 	const saved = settings();
 	expect(resolveModelRoute(saved, "summary")?.profile).toMatchObject({
 		id: "tier",
 		reasoning: "medium",
 	});
 	saved.agentRoles["lina"] = { summary: "agent" };
-	expect(resolveModelRoute(saved, "summary", "lina")?.profile.id).toBe("agent");
-	expect(
+	expect(resolveModelRoute(saved, "summary", "lina")?.profile.id).toBe("tier");
+	expect(() =>
 		resolveModelRoute(saved, "summary", "lina", {
 			overrideProfileId: "override",
-		})?.profile.id,
-	).toBe("override");
+		}),
+	).toThrow("tier");
 	expect(
 		resolveModelRoute(saved, "summary", "lina", { tier: "intensive" })?.profile
 			.reasoning,
 	).toBe("high");
 	expect(resolveModelRoute(saved, "conversation")?.profile.id).toBe("global");
-	expect(resolveModelRoute(saved, "vision")?.profile.id).toBe("global");
+	expect(() => resolveModelRoute(saved, "vision")).toThrow("tier");
 });
 it("validates stored routes strictly and preserves legacy absence", () => {
 	const saved = settings();
@@ -179,13 +179,13 @@ it("rejects malformed tier bindings without mutating the input", () => {
 	expect(input).toEqual(baseline);
 });
 
-it("preserves agent effort overrides on global tiers without replacing the tier model", () => {
+it("shared tier effort is not overridden by dormant agent role settings", () => {
 	const saved = settings();
 	saved.agentRoleReasoning = { lina: { summary: "high" } };
 	expect(resolveModelRoute(saved, "summary", "lina")).toMatchObject({
 		mode: "tier",
 		tier: "deep",
-		profile: { id: "tier", reasoning: "high" },
+		profile: { id: "tier", reasoning: "medium" },
 	});
 	expect(resolveModelRoute(saved, "summary", "other")?.profile.reasoning).toBe(
 		"medium",
@@ -194,4 +194,15 @@ it("preserves agent effort overrides on global tiers without replacing the tier 
 		resolveModelRoute(saved, "summary", "lina", { tier: "quick" })?.profile
 			.reasoning,
 	).toBe("off");
+});
+
+it("legacy settings remain readable but internal inference needs tier configuration", () => {
+	const saved = settings();
+	delete saved.routes;
+	expect(() => resolveModelRoute(saved, "summary", "lina")).toThrow(
+		"configured",
+	);
+	expect(resolveModelRoute(saved, "conversation", "lina")?.profile.id).toBe(
+		"global",
+	);
 });

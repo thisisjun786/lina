@@ -110,6 +110,15 @@ for (const tier of [false, true])
 				});
 			}
 			const { worldId, revision, ...config } = store.lifeConfig("test-world");
+			if (tier) {
+				expect(f.app.fleet.lifeRuntime.status(worldId)).toMatchObject({
+					status: "not_configured",
+					missing: expect.arrayContaining([
+						"models.director.tier",
+						"models.actor.tier",
+					]),
+				});
+			}
 			store.setLifeConfig(worldId, revision, {
 				...config,
 				version: 2,

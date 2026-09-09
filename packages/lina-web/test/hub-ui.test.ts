@@ -378,8 +378,10 @@ test("role dropdowns hide unsupported catalog models and refresh keeps the draft
 	await conversation.fire("keydown", "Escape");
 	const summary = f.find("model-summary-input");
 	await summary.fire("focus");
-	expect(f.find("model-summary-list").textContent).toContain("Summary Only");
-	expect(f.find("model-summary-list").textContent).toContain("GLM Flash");
+	expect(summary.disabled).toBe(true);
+	expect(f.find("model-summary-hint").textContent).toContain(
+		"공통 처리 등급 설정이 필요",
+	);
 	await summary.fire("keydown", "Escape");
 	const def = f.find("model-default-input");
 	await def.fire("focus");

@@ -40,6 +40,22 @@ export function dispatchFixture(endpoint: CompletionEndpoint = "responses") {
 		defaultProfileId: "fixture",
 		roles: {},
 		agentRoles: {},
+		routes: {
+			version: 1,
+			tiers: {
+				quick: { profileId: "fixture" },
+				standard: { profileId: "fixture" },
+				deep: { profileId: "fixture" },
+				intensive: { profileId: "fixture" },
+			},
+			roleTiers: {
+				summary: "standard",
+				observation: "quick",
+				reflection: "deep",
+				recall: "standard",
+				vision: "standard",
+			},
+		},
 	};
 	const runtime = {
 		origin: () => server.url.origin,

@@ -442,14 +442,32 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 			await options.images?.close();
 			await runtime.close();
 		},
-		status: (worldId: string) => ({
-			...runtime.status(worldId),
-			activityDeliveryError: activityFailures.has(worldId)
-				? "activity_delivery_failed"
-				: null,
-			schedulerError:
-				failures.get(worldId) ?? failures.get("scheduler") ?? null,
-		}),
+		status: (worldId: string) => {
+			const status = runtime.status(worldId);
+			const config = store.lifeConfig(worldId);
+			const missing = modelSettings.snapshot().routes
+				? (["director", "actor"] as const)
+						.filter((lane) => {
+							const selected = config.models?.[lane];
+							return selected && !("tier" in selected);
+						})
+						.map((lane) => `models.${lane}.tier`)
+				: [];
+			return {
+				...status,
+				...(missing.length
+					? {
+							status: "not_configured" as const,
+							missing: [...status.missing, ...missing],
+						}
+					: {}),
+				activityDeliveryError: activityFailures.has(worldId)
+					? "activity_delivery_failed"
+					: null,
+				schedulerError:
+					failures.get(worldId) ?? failures.get("scheduler") ?? null,
+			};
+		},
 		step: (worldId: string, stepId: string) => store.lifeStep(worldId, stepId),
 		changed(worldId?: string) {
 			if (worldId) {

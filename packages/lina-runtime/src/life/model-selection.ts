@@ -3,6 +3,7 @@ import {
 	type LifeModelSelection,
 	parseLifeModelSelection,
 } from "../../../lina-core/src/world/model-selection.ts";
+import { ModelRequestError } from "../models/errors.ts";
 import { resolveModelRoute } from "../models/routes.ts";
 import type {
 	ModelProfile,
@@ -29,8 +30,9 @@ export function resolveLifeModelProfile(
 		return structuredClone(route.profile);
 	}
 	if (settings.routes)
-		throw Error(
+		throw new ModelRequestError(
 			"LIFE model selection requires a shared tier; update the legacy model selector",
+			"not_configured",
 		);
 	const matching = settings.profiles.filter(
 		(profile) =>

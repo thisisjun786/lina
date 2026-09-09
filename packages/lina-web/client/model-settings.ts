@@ -151,7 +151,7 @@ export function installModelSettings(
 	const hint = doc.createElement("p");
 	hint.className = "agent-hint model-availability-hint";
 	hint.textContent =
-		"연결된 제공자의 모델을 검색해 바로 선택하세요. 추론 수준은 역할별로 정할 수 있습니다.";
+		"대화 모델은 직접 선택하고, 내부 엔진의 모델과 추론 수준은 공통 처리 등급에서 정합니다.";
 	const rowsRoot = doc.createElement("div");
 	rowsRoot.className = "model-rows";
 	const effective = doc.createElement("div");
@@ -214,7 +214,7 @@ export function installModelSettings(
 			settings.defaultProfileId = id || null;
 			return;
 		}
-		if (!scope.value && routeOf(settings, role, "")?.mode === "tier") return;
+		if (role !== "conversation") return;
 		if (scope.value) settings.agentRoles[scope.value] ??= {};
 		const bindings = scope.value
 			? settings.agentRoles[scope.value]
@@ -261,11 +261,7 @@ export function installModelSettings(
 		test.disabled = loading || testing || !trialId;
 		for (const [role, row] of rows)
 			row.combo.disable(
-				loading ||
-					(role !== "default" &&
-						!scope.value &&
-						!!model.draft &&
-						routeOf(model.draft, role)?.mode === "tier"),
+				loading || (role !== "default" && role !== "conversation"),
 			);
 	};
 	const changed = () => {
@@ -286,12 +282,7 @@ export function installModelSettings(
 			`${label} 모델`,
 			(value) => {
 				if (loading || !model.draft) return;
-				if (
-					role !== "default" &&
-					!scope.value &&
-					routeOf(model.draft, role)?.mode === "tier"
-				)
-					return;
+				if (role !== "default" && role !== "conversation") return;
 				if (!value) {
 					const draft = model.draft;
 					const bound =
@@ -407,7 +398,7 @@ export function installModelSettings(
 				}));
 			if (role !== "default")
 				choices.unshift({ value: "", label: inheritLabel, inherited: true });
-			const shadowedByTier = route?.mode === "tier" && !scope.value;
+			const shadowedByTier = role !== "default" && role !== "conversation";
 			row.combo.set(
 				choices,
 				inherited || shadowedByTier
@@ -428,15 +419,12 @@ export function installModelSettings(
 				item && !item.reasoning ? "off" : desiredReason(draft, role);
 			row.reason.disabled = loading || !item?.reasoning || shadowedByTier;
 			row.hint.textContent =
-				shadowedByTier && route.tier
+				shadowedByTier && route?.tier
 					? `실제 사용 모델은 ${TIER_LABELS[route.tier]} 등급 설정입니다.`
-					: role === "default"
-						? "전체 에이전트에 공통으로 적용됩니다."
-						: role === "vision"
-							? "대화 모델이 이미지를 읽지 못할 때 사용합니다." +
-								(item?.imageInput
-									? ""
-									: " 이미지 입력을 지원하는 모델을 선택하세요.")
+					: shadowedByTier
+						? "공통 처리 등급 설정이 필요합니다."
+						: role === "default"
+							? "전체 에이전트에 공통으로 적용됩니다."
 							: item && !item.reasoning
 								? "이 모델은 추론 수준을 지원하지 않습니다."
 								: "";
