@@ -127,3 +127,29 @@ test("new and historical LIFE journals reopen without rewriting saved requests",
 		await f.close();
 	}
 });
+
+test("LIFE does not inherit a provider code-mode tool policy into its isolated catalog", async () => {
+	const f = lifeFixture();
+	try {
+		const sourceCatalog = f.selection.connection.catalogJson;
+		if (!sourceCatalog) throw Error("Missing fixture catalog");
+		const catalog = JSON.parse(sourceCatalog);
+		catalog.models[0].tool_mode = "code_mode_only";
+		f.selection.connection.catalogJson = JSON.stringify(catalog);
+		const plan = lifePlan(
+			{
+				...f.options,
+				command: process.execPath,
+				wrapperCommand: process.execPath,
+			},
+			lifeRequest(),
+		);
+		expect(plan.metadata).not.toHaveProperty("tool_mode");
+		expect(
+			JSON.parse(f.selection.connection.catalogJson).models[0].tool_mode,
+		).toBe("code_mode_only");
+		expect(plan.metadata["context_window"]).toBe(32000);
+	} finally {
+		await f.close();
+	}
+});

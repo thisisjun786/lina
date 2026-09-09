@@ -73,7 +73,10 @@ export function lifePlan(
 			throw Error("LIFE frozen selection changed before native preparation");
 	}
 
-	const metadata = authorSelection(selection);
+	const metadata = { ...authorSelection(selection) };
+	// Tool exposure belongs to the isolated LIFE host, not provider metadata.
+	// Preserve model capabilities; the synthetic catalog gate still qualifies output.
+	delete metadata["tool_mode"];
 	if (
 		typeof metadata["context_window"] !== "number" ||
 		!Number.isSafeInteger(metadata["context_window"]) ||

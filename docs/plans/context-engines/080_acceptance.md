@@ -164,3 +164,9 @@ LIFE 공개 재료를 freeze한 뒤 createCodexLifeModel.prepare를 실제 격�
 LIFE 실패 원인을 합성 localhost 직결 진단으로 좁혔다. 실제 native가 `exec` custom tool과 `wait` function tool을 광고한다. `inspectLifeCatalog`는 빈 목록 또는 제한된 skills namespace만 허용하므로 이 목록을 거부한다. 직결 진단의 합성 응답은 LIFE_SYNTHETIC_OK·usage23/5/28로 정상 완료됐고, configured provider 호출은0이었다. 이 진단은 보호 gateway를 통과한 인수로 간주하지 않는다.
 
 생성된 native config의 code_mode=false·code_mode_host=false와 verifyAuthorNative 통과를 확인했지만 도구 목록에는 exec/wait가 남았다. 현재 실행파일의 기능 목록에도 code_mode_host가 있다. 따라서 설정 파일 존재만으로 도구 비노출을 주장하지 않는다. `life-wire-diagnostic.json`에 합성 body와 결과를 기록했다. 허용 catalog를 확대하거나 검사를 우회하지 않았으며, 현재 native 버전에서 도구 노출을 끄는 계약 확인이 남았다.
+
+## 2026-09-09 LIFE 모델 카탈로그 소유권 수정
+
+정확한 원인은 제공자 GLM Flash metadata의 `tool_mode: code_mode_only`였다. LIFE 전용 metadata 사본에서 이 UI/tool 정책만 제거한 합성 localhost 검사는 exec/wait 없이 기존 skills namespace만 광고했다. 원래 connection catalog와 context_window 등 모델 능력은 보존한다. `life-model-policy.ts`에 같은 처리를 적용했으며 금지 catalog 검사·네 가지 synthetic qualification·네이티브 요청 거부는 유지한다. 변경 파일 digest가 capability fingerprint에 포함돼 과거 자격 기록을 재사용하지 않는다.
+
+회귀는 원본 catalog 보존·LIFE catalog의 tool_mode 제외·context_window 보존을 검사한다. 수정 전1 fail→관련14 pass. 실제 `life-native-live.ts`가 전체 격리 자격 검사 후 GLM Flash 게시 JSON을 받고 네이티브 journal 다시 열기/reconcile/complete 재생의 동일 결과를 확인해 종료0이었다. 허용 claim ID와 imaginative segment를 반환했다. 이 결과는 frozen permitted material→native model→native receipt 재생 범위이며 Fleet 게시 저장·피드 접근 인수를 대신하지 않는다. 작업 root는 성공 종료 시 삭제했다. 독립 검토 진행 중이다.
