@@ -126,3 +126,11 @@
 실제 GLM Flash 재검증은 재시작을 통과했지만 native epoch가 바뀐 뒤 앞선 색상 선택을 회상하지 못했다. 논리 세션 ID는 유지됐으며 이것만으로 대화 연속성을 입증할 수 없다. 짧은 대화의 compact도 요약을 만들지 않아 반복 압축 인수 증거가 아니다. `ollama-routing/native-context-live.json`에 실패를 남겼다. 원문 출처 검증·epoch 전환·이전 대화 전달 경로를 추가 조사해야 한다. 전체 인수는 계속 미완료이며 설치본 코드 교체·푸시·머지는 하지 않았다.
 
 추가 실제 기억 검사: 테스트 전용 memory 출력 예산 32768로 관찰·통합 모델을 호출했다. `memory.json`은 초기 선호와 보리차로의 정정을 저장하고, 통합 committed 2·failed 0 및 DB 재열기 후 중복 provider 호출0을 기록한다. 누적 직접 어댑터 호출 기록은45이며 native Codex 대화 호출은 별도로 집계한다. 이 성공은 합성 trusted journal과 임시 SQLite 범위다. 일반 대화 연속성 실패나 장기 대화 품질까지 통과한 것은 아니다.
+
+## 2026-09-09 최근 원문 전달과 공유 자료 실제 인수
+
+컨텍스트 훅의 현재 질문을 native history로 오인해 raw tail이 항상 생략되던 경로를 수정했다. 현재 native epoch의 원문 ID를 별도 메타데이터로 전달하며, 알려진 빈 목록에서 적격 이전 원문을 복구한다. 메타데이터 없는 opaque 문맥은 계속 거부한다. SessionApp→turn/start에서 최근 원문이 빠지는 실패를 먼저 확인했고 수정 후 관련 4파일 45 pass·0 fail·217 assertions, 타입 종료0, 변경 파일 lint 오류0을 확인했다. 독립 검토는 진행 중이다.
+
+실제 GLM Flash는 재시작 후 초록을 회상했고 노랑으로 정정하는 대화까지 진행했다. 두 번째 압축은 `Conversation summary model unavailable; previous checkpoint and original messages retained`로 실패해 반복 압축 인수는 미완료다. 실행 상태는 `/tmp/lina-live-e2e-49HfNW`에 격리했고 fleet 종료 기록이 있다.
+
+`resources-live.json`은 실제 모델의 비코드 자료 기억 생성과 semantic search, DB 재열기 후 provider 재호출0, task ID 없는 공유 consumer 읽기, 비공개 자료 검색 제외, 공유 자료를 비공개로 바꾼 뒤 기존 frame guard와 외부 consumer의 접근 거부를 통과했다. 합성 문서와 임시 저장소만 사용했고 종료 시 삭제했다. 테스트 전용 resource 출력 예산8192를 사용했으며 제품 기본 예산은 변경하지 않았다.

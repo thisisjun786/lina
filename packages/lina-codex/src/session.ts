@@ -995,7 +995,13 @@ async function startSession(
 					: conversationTurn(options, catalog, boundModelProvider);
 				const epoch = contextPolicy.nativeEpoch;
 				const threadId = boundThreadId;
-				const prepared = await host.beforeTurn(text, admission.signal);
+				const prepared = await host.beforeTurn(
+					text,
+					admission.signal,
+					history
+						.filter((entry) => entry.codex?.nativeEpoch === epoch)
+						.map((entry) => entry.id),
+				);
 				const checkPrepared = responseDeliveryCheck(prepared);
 				const beforeDeliver = (): void => {
 					if (

@@ -342,6 +342,16 @@ test("fresh tail is source guarded and omitted when native message identity is u
 		"tail_dedup_unavailable",
 	);
 	expect(external.tail([{ entryId: "tail" }]).text).toBe("");
+	// The current prompt is not a native-history identity list.
+	expect(external.tail([{ content: "current question" }], []).text).toContain(
+		"Fresh promise UNSEEN",
+	);
+	expect(external.tail([{ content: "current question" }], ["tail"]).text).toBe(
+		"",
+	);
+	expect(external.tail([], ["unknown-native-entry"]).reason).toBe(
+		"tail_dedup_unavailable",
+	);
 	external.close();
 });
 

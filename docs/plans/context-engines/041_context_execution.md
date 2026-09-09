@@ -104,3 +104,11 @@ A closure PASS: 추정기는 summary packing, ContextServices.estimateText/estim
 실제 SessionApp의 재시작 회상 테스트에서 expansionTokens=1024를 주입에도 재사용하면 기존 기억이 제외되는 회귀를 확인했다. 새 `injectionTokens`(기본2048, 허용128~8192)는 working/recall/external/tail을 합친 전체 맥락의 한도다. `expansionTokens`는 개별 원문 도구 페이지 한도로 유지한다. 실제 모델 창의 남은 공간도 동시에 적용한다. 필드를 저장만 하고 기존2048 상수로 무시하지 않는다. 아직 설치/게시하지 않은 context policy 계약의 필드이며 구버전 memory-only 정책은 보존한다.
 
 회귀 결과: 기존 기억이 실제 RPC 요청으로 돌아왔고, 별도 테스트에서 external summary도 전체 injection 한도를 넘으면 제외된다. 기억 문자열의4096자 경계에서 이모지를 나누지 않도록 발췌와 dispatch 재검사를 같은 함수로 맞췄다. 관련 원문과 이전 checkpoint는 삭제하지 않는다.
+
+### 실제 native 재시작 인수에서 발견한 tail 전달 누락 (2026-09-09)
+
+`CodexHost.beforeTurn`의 `event.messages`는 현재 질문 한 개이며 native history 목록이 아니다. 이를 stable-ID 중복 검사 입력으로 사용해 최근 원문이 항상 생략됐다. `context-session-budget.test.ts`에서 실제 SessionApp→Codex `turn/start.additionalContext`에 최근 원문이 포함된다는 단언을 추가하자 실패했다.
+
+수정 계약: Codex가 알고 있는 현재 native epoch의 원문 ID를 별도 `nativeEntryIds` 메타데이터로 전달한다. 현재 질문의 content/토큰 계산과 분리한다. 새 epoch의 빈 목록은 알려진 빈 문맥이며, 메타데이터 미지원은 기존 opaque 거부를 유지한다. 이 메타데이터는 모델 요청 본문으로 직렬화하지 않는다. `session.ts`, `host.ts`, runtime host 계약, context hooks/coordinator/external이 변경 범위다. 최근 원문은 기존 적격 출처 검사·전달 직전 guard·예산·개수 제한을 모두 유지한다. 복구가 목적이며 출처 불명의 native turn을 신뢰하도록 바꾸지 않는다.
+
+인수: 실제 SessionApp 원문 전달, 현재 epoch ID 중복 제외, 빈 목록에서 복구, 메타데이터 미지원 거부, 출처 무효화 guard, epoch 교체 후 실제 GLM 회상. 반복 압축과 원문 확장 인수는 별도로 유지한다.

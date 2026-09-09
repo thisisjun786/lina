@@ -115,7 +115,10 @@ export class ContextCoordinator {
 		this.changed();
 	}
 
-	readInjection(messages: readonly unknown[]) {
+	readInjection(
+		messages: readonly unknown[],
+		nativeEntryIds?: readonly string[],
+	) {
 		const policyDigest = contextPolicyDigest(
 			(this.options.policy ?? defaultEnginePolicy)(),
 		);
@@ -127,7 +130,7 @@ export class ContextCoordinator {
 			? this.options.store.readActive()
 			: undefined;
 		const currentRecall = this.currentRecall;
-		const content = this.injection(messages),
+		const content = this.injection(messages, nativeEntryIds),
 			recall = this.recall;
 		const tailGuard = this.tailGuard;
 		return {
@@ -149,7 +152,10 @@ export class ContextCoordinator {
 			},
 		};
 	}
-	injection(messages: readonly unknown[]): string {
+	injection(
+		messages: readonly unknown[],
+		nativeEntryIds?: readonly string[],
+	): string {
 		if (!this.services || this.closed) return "";
 		const used = this.options.nativeTokens?.() ?? 0;
 		const services = this.options.external
@@ -195,7 +201,7 @@ export class ContextCoordinator {
 				this.lastInjection.omittedParts.push("external");
 			}
 		}
-		const tail = this.options.external?.tail(messages);
+		const tail = this.options.external?.tail(messages, nativeEntryIds);
 		this.tailGuard = tail?.beforeDeliver ?? (() => {});
 		this.tailReason = tail?.reason ?? null;
 		if (tail?.text) {

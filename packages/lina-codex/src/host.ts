@@ -120,6 +120,7 @@ export class CodexHost {
 	async beforeTurn(
 		prompt: string,
 		signal: AbortSignal,
+		nativeEntryIds?: readonly string[],
 	): Promise<{
 		systemPrompt?: string;
 		context?: string;
@@ -144,6 +145,7 @@ export class CodexHost {
 			{
 				type: "context",
 				messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+				...(nativeEntryIds ? { nativeEntryIds } : {}),
 			},
 			signal,
 		);

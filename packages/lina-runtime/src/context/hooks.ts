@@ -26,6 +26,7 @@ export function installContextHooks(
 	host.on("context", (event) => {
 		const { content, beforeDeliver } = coordinator.readInjection(
 			event.messages,
+			event.nativeEntryIds,
 		);
 		if (!content) return;
 		return {

@@ -69,7 +69,7 @@ export type LinaContextHookResult = {
 };
 export type LinaEvents = {
 	before_agent_start: { prompt: string; systemPrompt?: string };
-	context: { messages: readonly unknown[] };
+	context: { messages: readonly unknown[]; nativeEntryIds?: readonly string[] };
 	agent_start: Record<string, unknown>;
 	agent_end: Record<string, unknown>;
 	agent_settled: Record<string, unknown>;

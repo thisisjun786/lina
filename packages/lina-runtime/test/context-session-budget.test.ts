@@ -72,6 +72,7 @@ test("SessionApp forwards its saved context policy to actual summary and ordinar
 		app.runtime.submit("budget-turn", "hello");
 		const frame = await rpc.next("turn/start");
 		expect(JSON.stringify(frame)).toContain("ARCHIVE_DECISION_B");
+		expect(JSON.stringify(frame)).toContain("Recent original promise.");
 		expect(caps.length).toBeGreaterThan(0);
 		expect(caps.every((cap) => cap <= 80)).toBe(true);
 		expect(caps).toContain(40);
