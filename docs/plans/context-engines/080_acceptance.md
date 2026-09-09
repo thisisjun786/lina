@@ -160,3 +160,7 @@ summary 역할 요청에 소비자의 문자 상한을 명시하고, 보관 원�
 LIFE 공개 재료를 freeze한 뒤 createCodexLifeModel.prepare를 실제 격리 native로 실행했다. `LIFE synthetic native qualification failed`로 막혀 실제 게시 제공자 호출과 게시 저장까지 진행하지 않았다. 실패 기록은 `ollama-routing/life-native-live.json`, 임시 상태는 `/tmp/lina-life-native-live-5zAZtZ`에 보존했다. 첫 실패 실행의 임시 상태는 스크립트가 삭제했으며 재현 실행은 보존하도록 수정했다.
 
 별도 무추론 검사에서 실제 wrapper의 config/read·verifyAuthorNative·model/list·thread/start·verifyAuthorThread를 통과했다. 따라서 OS 격리나 설정 검증 실패로 단정하지 않으며, 이후 합성 provider/응답 처리 단계가 조사 범위다. 모델 설정은 GLM Flash reasoning=off지만 nativeEffort가 실제 catalog 기본값 medium을 반환했다. `life-native-preflight.json`에 적용값을 기록했다. 이 경로를 추론 off로 실행됐다고 주장하지 않는다. 일반 대화와 LIFE 모두 요청/적용 추론값 계약을 최종 인수에서 대조해야 한다.
+
+LIFE 실패 원인을 합성 localhost 직결 진단으로 좁혔다. 실제 native가 `exec` custom tool과 `wait` function tool을 광고한다. `inspectLifeCatalog`는 빈 목록 또는 제한된 skills namespace만 허용하므로 이 목록을 거부한다. 직결 진단의 합성 응답은 LIFE_SYNTHETIC_OK·usage23/5/28로 정상 완료됐고, configured provider 호출은0이었다. 이 진단은 보호 gateway를 통과한 인수로 간주하지 않는다.
+
+생성된 native config의 code_mode=false·code_mode_host=false와 verifyAuthorNative 통과를 확인했지만 도구 목록에는 exec/wait가 남았다. 현재 실행파일의 기능 목록에도 code_mode_host가 있다. 따라서 설정 파일 존재만으로 도구 비노출을 주장하지 않는다. `life-wire-diagnostic.json`에 합성 body와 결과를 기록했다. 허용 catalog를 확대하거나 검사를 우회하지 않았으며, 현재 native 버전에서 도구 노출을 끄는 계약 확인이 남았다.
