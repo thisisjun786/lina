@@ -156,3 +156,18 @@ persistent-engine probe also confirms unchanged standalone/independent success.
 This is local synthetic-source evidence with actual persistence, not a live model
 call. Invalid batches retain the existing bounded invalid-output retry policy;
 there is no new retry, timeout, skip, or retrospective data repair.
+
+## Additional engine quality cycles
+
+The additional roadmap and per-cycle evidence live in [re0-extra](re0-extra/000_plan.md).
+A collection mutation now builds one transient ordered adjacency rather than
+repeatedly scanning unrelated catalog entries for each root. Scope predicates,
+private content-version filtering and cap-sensitive ordering remain at traversal.
+The old full-catalog algorithm is the independent test oracle; exactly64 and65
+qualifying nodes compare completeness separately from reference digest.
+
+This is structural work reduction, not a production latency/SLO claim. Read paths
+still have repeated snapshot/validation queries. A separate confirmed cap-boundary
+false-completion issue is retained for the recovery cycle: a65th unselected member
+can leave an old ready derivation marked complete across a fresh process. The
+optimization does not claim to fix that issue; the overall additional loop is open.

@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { hash } from "../src/resources/codec.ts";
+import { allResources, version } from "../src/resources/records.ts";
 import { ResourceStore } from "../src/resources/store.ts";
+import type { Resource, ResourceVersionRef } from "../src/resources/types.ts";
 
 const scope = {
 	principalId: "agent:a",
@@ -476,6 +479,225 @@ test("collection jobs reuse one catalog snapshot and keep membership visibility"
 		expect(afterRewrite.refs.some((ref) => ref.resourceId === hidden.id)).toBe(
 			true,
 		);
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("an unrelated collection mutation does not compare every catalog relation per root", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-collection-work-"));
+	const store = new ResourceStore(root, limits);
+	type Sources = (
+		r: Resource,
+		catalog?: Resource[],
+		edges?: Map<string, Resource[]>,
+	) => { refs: ResourceVersionRef[]; complete: boolean };
+	const sourceView = store.indexing as unknown as { sources: Sources };
+	let relationReads = 0;
+	const observed = new WeakSet<Resource[]>();
+	try {
+		for (let i = 0; i < 32; i++)
+			store.create(scope, {
+				operationId: `f${i}`,
+				kind: "collection",
+				title: `folder${i}`,
+				visibility: "private",
+			});
+		const target = store.create(scope, {
+			operationId: "target",
+			kind: "document",
+			title: "target",
+			visibility: "private",
+			mediaType: "text/plain",
+			bytes: new Uint8Array(),
+		});
+		const original = sourceView.sources;
+		const spy = spyOn(sourceView, "sources").mockImplementation(
+			(...args: Parameters<Sources>) => {
+				const catalog = args[1];
+				if (catalog && !observed.has(catalog)) {
+					observed.add(catalog);
+					for (const item of catalog)
+						for (const key of ["parentId", "collectionIds"] as const) {
+							const value = item[key];
+							Object.defineProperty(item, key, {
+								configurable: true,
+								enumerable: true,
+								get() {
+									relationReads++;
+									return value;
+								},
+							});
+						}
+				}
+				return original.apply(store.indexing, args);
+			},
+		);
+		try {
+			store.update(scope, {
+				operationId: "edit",
+				id: target.id,
+				expectedRevision: target.revision,
+				title: "updated",
+			});
+			// Counts traversal after snapshot construction, not setup or wall-clock time.
+			expect(relationReads).toBeLessThanOrEqual(2 * 33);
+		} finally {
+			spy.mockRestore();
+		}
+	} finally {
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("indexed traversal preserves graph ordering, authority and the exact64 cap", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-collection-oracle-"));
+	const store = new ResourceStore(root, limits);
+	type Sources = (
+		r: Resource,
+		catalog?: Resource[],
+	) => { refs: ResourceVersionRef[]; complete: boolean };
+	const sources = (
+		store.indexing as unknown as { sources: Sources }
+	).sources.bind(store.indexing);
+	try {
+		const folder = store.create(scope, {
+			operationId: "root",
+			kind: "collection",
+			title: "root",
+			visibility: "shared",
+		});
+		const nested = store.create(scope, {
+			operationId: "nested",
+			kind: "collection",
+			title: "nested",
+			visibility: "shared",
+			parentId: folder.id,
+		});
+		expect(() =>
+			store.update(scope, {
+				operationId: "cycle",
+				id: folder.id,
+				expectedRevision: 1,
+				parentId: nested.id,
+			}),
+		).toThrow("resource cycle");
+		const doc = (
+			id: string,
+			visibility: "private" | "shared" = "shared",
+			actor = scope,
+			parentId = folder.id,
+		) =>
+			store.create(actor, {
+				operationId: id,
+				kind: "document",
+				title: id,
+				visibility,
+				parentId,
+				mediaType: "text/plain",
+				bytes: new Uint8Array(),
+			});
+		const docs = [];
+		for (let i = 0; i < 61; i++)
+			docs.push(
+				doc(`d${i}`, "shared", scope, i % 2 === 0 ? folder.id : nested.id),
+			);
+		const first = docs[0];
+		if (!first) throw Error("missing doc");
+		store.update(scope, {
+			operationId: "multiple",
+			id: first.id,
+			expectedRevision: 1,
+			collectionIds: [folder.id, nested.id],
+		});
+		doc("at-cap");
+		const privateDoc = doc("private-real", "private");
+		const other = { ...scope, principalId: "agent:b", agentId: "b" };
+		const foreign = doc("foreign", "private", other);
+		const shell = doc("shell", "private");
+		store.update(scope, {
+			operationId: "share-shell",
+			id: shell.id,
+			expectedRevision: 1,
+			visibility: "shared",
+		});
+		const deleted = doc("deleted");
+		store.update(scope, {
+			operationId: "delete",
+			id: deleted.id,
+			expectedRevision: 1,
+			deleted: true,
+		});
+		const check = (expectedComplete: boolean) => {
+			const db = new DatabaseSync(join(root, "catalog.sqlite"), {
+				readOnly: true,
+			});
+			try {
+				const catalog = allResources(db),
+					current = store.get(scope, folder.id);
+				// Reference: the previous full-catalog BFS, independent of adjacency construction.
+				const all = catalog.filter(
+					(v) =>
+						!v.deleted &&
+						(v.ownerId === current.ownerId || v.visibility === "shared") &&
+						(current.visibility !== "shared" || v.visibility === "shared"),
+				);
+				const found = new Map([[current.id, current]]),
+					pending = [current.id];
+				let complete = true;
+				while (pending.length) {
+					const id = pending.shift();
+					for (const item of all) {
+						if (item.parentId !== id && !item.collectionIds.includes(id ?? ""))
+							continue;
+						if (found.has(item.id)) continue;
+						if (
+							item.currentVersion &&
+							current.visibility === "shared" &&
+							version(db, item.currentVersion)?.visibility !== "shared"
+						)
+							continue;
+						if (found.size >= 64) {
+							complete = false;
+							continue;
+						}
+						found.set(item.id, item);
+						if (item.kind === "collection") pending.push(item.id);
+					}
+				}
+				const refs = [...found.values()]
+					.sort((a, b) => (a.id < b.id ? -1 : 1))
+					.map((v) => ({
+						resourceId: v.id,
+						resourceRevision: v.revision,
+						versionId: v.currentVersion,
+					}));
+				expect(complete).toBe(expectedComplete);
+				const actual = sources(current, catalog);
+				expect(actual).toEqual({ refs, complete });
+				expect(actual.refs).toHaveLength(64);
+				expect(
+					actual.refs.some(
+						(v) =>
+							v.resourceId === privateDoc.id ||
+							v.resourceId === foreign.id ||
+							v.resourceId === shell.id ||
+							v.resourceId === deleted.id,
+					),
+				).toBe(false);
+				const job = store.indexing.list(scope, folder.id)[0];
+				expect(job?.sourceDigest).toBe(hash(refs));
+				expect(job?.refs).toEqual(refs);
+			} finally {
+				db.close();
+			}
+		};
+		// root + nested +61 originals +the shared at-cap doc =64.
+		check(true);
+		doc("overflow");
+		check(false);
 	} finally {
 		store.close();
 		rmSync(root, { recursive: true, force: true });

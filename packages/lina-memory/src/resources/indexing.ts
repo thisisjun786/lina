@@ -20,6 +20,19 @@ import {
 import { allResources, permitted, resource, version } from "./records.ts";
 import type { Resource, ResourceScope, ResourceVersionRef } from "./types.ts";
 
+function collectionEdges(catalog: Resource[]): Map<string, Resource[]> {
+	const edges = new Map<string, Resource[]>();
+	for (const item of catalog) {
+		for (const parent of new Set([item.parentId, ...item.collectionIds])) {
+			if (parent === null) continue;
+			const children = edges.get(parent);
+			if (children) children.push(item);
+			else edges.set(parent, [item]);
+		}
+	}
+	return edges;
+}
+
 export class ResourceIndex {
 	constructor(
 		private readonly db: DatabaseSync,
@@ -48,6 +61,7 @@ export class ResourceIndex {
 	private sources(
 		r: Resource,
 		catalog?: Resource[],
+		edges?: Map<string, Resource[]>,
 	): {
 		refs: ResourceVersionRef[];
 		complete: boolean;
@@ -68,19 +82,19 @@ export class ResourceIndex {
 			agentId: r.ownerId,
 			allowedVisibilities: ["private", "shared"],
 		};
-		const all = (catalog ?? allResources(this.db)).filter(
-			(v) =>
-				!v.deleted &&
-				permitted(scope, v) &&
-				(r.visibility !== "shared" || v.visibility === "shared"),
-		);
+		const children = edges ?? collectionEdges(catalog ?? allResources(this.db));
 		const found = new Map<string, Resource>([[r.id, r]]),
 			pending = [r.id];
 		let complete = true;
 		while (pending.length) {
 			const id = pending.shift();
-			for (const v of all) {
-				if (v.parentId !== id && !v.collectionIds.includes(id ?? "")) continue;
+			for (const v of children.get(id ?? "") ?? []) {
+				if (
+					v.deleted ||
+					!permitted(scope, v) ||
+					(r.visibility === "shared" && v.visibility !== "shared")
+				)
+					continue;
 				if (found.has(v.id)) continue;
 				// A shared metadata shell must not publish an older private content version.
 				if (
@@ -143,10 +157,11 @@ export class ResourceIndex {
 		if (!this.db.isTransaction)
 			throw Error("resource indexing needs writer transaction");
 		const catalog = allResources(this.db);
+		const edges = collectionEdges(catalog);
 		const affected = new Set<string>();
 		for (const r of catalog) {
 			if (r.deleted) continue;
-			const source = this.sources(r, catalog);
+			const source = this.sources(r, catalog, edges);
 			for (const kind of r.kind === "collection"
 				? (["overview"] as const)
 				: (["extract", "brief"] as const)) {
