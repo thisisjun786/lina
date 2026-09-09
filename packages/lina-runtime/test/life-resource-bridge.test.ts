@@ -110,12 +110,34 @@ test("resource delivery replays world admission after acknowledgement failure an
 			revision: rev,
 			...current
 		} = world.lifeConfig(worldId);
+		activities.create(scope, {
+			operationId: "blocked-create",
+			activityId: "a-blocked",
+			worldId,
+			actorAgentId: "lina",
+			participantAgentIds: ["lina"],
+			activityKind: "research",
+			outcome: "recorded",
+			resourceId: doc.id,
+			versionId: null,
+			memoryId: null,
+			quotes: [],
+			hostConfirmed: false,
+			fields: {
+				categoryId: "research",
+				outcome: "recorded",
+				participantAgentIds: ["lina"],
+				summary: "Research result",
+			},
+			policyRevision: 1,
+		});
 		world.setLifeConfig(worldId, rev, { ...current, version: 2, work: null });
-		expect(bridge.poll(worldId)).toEqual({ delivered: 1, replayed: 0 });
+		expect(() => bridge.poll(worldId)).toThrow(/not configured/);
 		expect(world.workEvidence(worldId).records[0]?.source.operation).toBe(
 			"restrict",
 		);
-		expect(bridge.poll(worldId)).toEqual({ delivered: 0, replayed: 0 });
+		expect(() => bridge.poll(worldId)).toThrow(/not configured/);
+		expect(activities.pending(scope, worldId)).toHaveLength(1);
 	} finally {
 		world.close();
 		activities.close();
