@@ -8,7 +8,6 @@ import { createCodexEngine } from "../../../lina-codex/src/session.ts";
 import type { TaskDynamicTool } from "../../../lina-codex/src/task-rpc.ts";
 import { checkedDirectory } from "../../../lina-core/src/attachments/filesystem.ts";
 import { acquireInstallationLock } from "../../../lina-core/src/installation/lock.ts";
-import { parseHonchoEnv } from "../../../lina-memory/src/honcho/index.ts";
 import { OpenCodexHub } from "../../../lina-opencodex/src/index.ts";
 import { parseApprovalMode } from "../approval-policy.ts";
 import { codexAssistantPrompt } from "../codex-prompt.ts";
@@ -125,7 +124,6 @@ async function startUnlocked(
 			"Codex mode does not import senpi transcripts. Use a new Lina state directory.",
 		);
 	const memoryBackend = parseMemoryBackend(env["LINA_MEMORY_BACKEND"]);
-	const honcho = memoryBackend === "honcho" ? parseHonchoEnv(env) : undefined;
 	const approvalMode = parseApprovalMode(env["LINA_APPROVAL_MODE"]);
 	const hub = new OpenCodexHub({ env, homeDir: home });
 	await hub.refresh().catch(() => undefined);
@@ -258,7 +256,6 @@ async function startUnlocked(
 						? { command: env["LINA_CODEX_COMMAND"] }
 						: {}),
 				}),
-			...(honcho ? { honcho } : {}),
 			async createWorldAuthor(authorOptions) {
 				const currentSelection = () => {
 					authorOptions.service.assertScope({

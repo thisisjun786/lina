@@ -940,3 +940,55 @@ function createRuntimeFixture() {
 	trustNativeFixture(f.store, f.runtime.binding);
 	return f;
 }
+
+test("learning policy stops automatic observation and rejects output after disabling", async () => {
+	const f = createRuntimeFixture();
+	let enabled = false,
+		calls = 0;
+	const memory = new CompanionMemory({
+		path: join(f.root, "policy.sqlite"),
+		binding: f.runtime.binding,
+		journal: f.store,
+		learningEnabled: () => enabled,
+	});
+	memory.configure(async () => {
+		calls++;
+		enabled = false;
+		return JSON.stringify({
+			observations: [
+				{
+					subject: "user",
+					kind: "preference",
+					key: "drink",
+					text: "Prefers tea",
+					evidence: "explicit",
+					sources: [{ entryId: "u-policy", quote: "tea" }],
+				},
+			],
+			communicationPreferences: [],
+		});
+	});
+	try {
+		f.store.createRequest("r-policy", "tea");
+		f.store.appendEntry({
+			entryId: "u-policy",
+			role: "user",
+			text: "tea",
+			timestamp: new Date().toISOString(),
+			raw: {},
+		});
+		f.store.setRequest("r-policy", "accepted", { entryId: "u-policy" });
+		f.store.setRequest("r-policy", "settled");
+		await memory.refresh();
+		expect(calls).toBe(0);
+		expect(memory.status().pending).toBe(0);
+		enabled = true;
+		await memory.refresh();
+		expect(calls).toBe(1);
+		expect(memory.mind.state().records).toEqual([]);
+		expect(memory.status().service).toBe("disabled");
+	} finally {
+		await memory.close();
+		await f.close();
+	}
+});

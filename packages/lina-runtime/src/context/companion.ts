@@ -98,6 +98,7 @@ export class CompanionMemory {
 			now?: () => number;
 			schedule?: Schedule;
 			allowCharacterGrowth?: () => boolean;
+			learningEnabled?: () => boolean;
 			characterReference?: () => string;
 		},
 	) {
@@ -163,11 +164,12 @@ export class CompanionMemory {
 			this.recallText = "";
 		return {
 			...this.queue.counts(),
-			service: !this.observer
-				? "disabled"
-				: this.error || this.queue.latestError()
-					? "unavailable"
-					: "ready",
+			service:
+				!this.observer || this.options.learningEnabled?.() === false
+					? "disabled"
+					: this.error || this.queue.latestError()
+						? "unavailable"
+						: "ready",
 			freshness: "unknown",
 			recallText: this.recallText,
 			consolidation: this.consolidation.status(),
@@ -292,7 +294,11 @@ export class CompanionMemory {
 		return page.length === SCAN_BATCH;
 	}
 	refresh(): Promise<void> {
-		if (this.closed) return Promise.resolve();
+		if (this.closed || this.options.learningEnabled?.() === false) {
+			this.cancelWake?.();
+			this.cancelWake = undefined;
+			return Promise.resolve();
+		}
 		if (this.inflight) {
 			this.rerun = true;
 			return this.inflight;
@@ -308,6 +314,7 @@ export class CompanionMemory {
 		return this.inflight;
 	}
 	private async run(): Promise<void> {
+		if (this.options.learningEnabled?.() === false) return;
 		let more = false;
 		this.rerun = false;
 		this.error = null;
@@ -321,9 +328,10 @@ export class CompanionMemory {
 			const observe = this.observer;
 			if (observe)
 				for (const job of this.queue.pending()) {
-					if (this.closed) break;
+					if (this.closed || this.options.learningEnabled?.() === false) break;
 					await this.process(job, observe);
 				}
+			if (this.options.learningEnabled?.() === false) return;
 			await this.consolidation.run(
 				this.controller.signal,
 				this.options.allowCharacterGrowth ?? (() => true),
@@ -558,13 +566,17 @@ export class CompanionMemory {
 			if (this.controller.signal.aborted) abort();
 			const validateDispatch = () => {
 				controller.signal.throwIfAborted();
+				if (this.options.learningEnabled?.() === false)
+					throw Error("memory learning disabled");
 				beforeDispatch?.();
 			};
 			validateDispatch();
-			return await Promise.race([
+			const result = await Promise.race([
 				observer(prompt, controller.signal, validateDispatch),
 				cancelled,
 			]);
+			validateDispatch();
+			return result;
 		} finally {
 			cancelTimeout();
 			this.controller.signal.removeEventListener("abort", abort);
