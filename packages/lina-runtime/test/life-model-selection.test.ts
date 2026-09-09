@@ -83,3 +83,15 @@ test("LIFE rejects missing tier configuration instead of falling back", () => {
 		"configured",
 	);
 });
+
+test("explicit LIFE tiers are independent of reflection role defaults", () => {
+	const saved = settings();
+	const original = resolveLifeModelProfile(saved, { tier: "deep" });
+	saved.roles.reflection = "conversation";
+	saved.roleReasoning = { reflection: "off" };
+	saved.agentRoles = { lina: { reflection: "conversation" } };
+	saved.agentRoleReasoning = { lina: { reflection: "high" } };
+	if (!saved.routes) throw Error("missing routes");
+	saved.routes.roleTiers.reflection = "quick";
+	expect(resolveLifeModelProfile(saved, { tier: "deep" })).toEqual(original);
+});

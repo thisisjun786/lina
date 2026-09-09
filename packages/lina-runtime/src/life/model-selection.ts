@@ -15,6 +15,8 @@ export function resolveLifeModelProfile(
 	selector: LifeModelSelector,
 ): ModelProfile {
 	if ("tier" in selector) {
+		// An explicit tier bypasses role defaults and role reasoning overrides;
+		// no agent scope is supplied. The role is only the non-conversation API gate.
 		const route = resolveModelRoute(settings, "reflection", undefined, {
 			tier: selector.tier,
 		});
