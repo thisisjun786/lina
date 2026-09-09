@@ -230,3 +230,45 @@ test("Fleet serves persistent engine policy and local shared resources with no e
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("a rejected resource catalog leaves Fleet chat settings and tasks available", async () => {
+	const { ResourceStore } = await import(
+			"../../lina-memory/src/resources/store.ts"
+		),
+		{ DatabaseSync } = await import("node:sqlite"),
+		{ startCodexFleet } = await import("../src/fleet/codex-fleet.ts"),
+		{ resolve } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "lina-resource-rejected-"));
+	const store = new ResourceStore(join(root, "resources"), limits);
+	store.create(scope("a"), {
+		operationId: "d",
+		kind: "document",
+		title: "Notes",
+		visibility: "shared",
+		mediaType: "text/plain",
+		bytes: new TextEncoder().encode("data"),
+	});
+	store.close();
+	const db = new DatabaseSync(join(root, "resources", "catalog.sqlite"));
+	db.exec("PRAGMA foreign_keys=OFF; DELETE FROM resource_versions");
+	db.close();
+	const app = await startCodexFleet({
+		workspace: resolve(import.meta.dir, "../../.."),
+		stateRoot: root,
+		port: 0,
+		homeDir: root,
+		env: {},
+	});
+	try {
+		const base = `http://127.0.0.1:${app.port}`;
+		expect((await fetch(`${base}/api/tasks`)).status).toBe(200);
+		expect((await fetch(`${base}/api/models`)).status).toBe(200);
+		expect((await fetch(`${base}/api/resources`)).status).toBe(503);
+		expect(
+			await (await fetch(`${base}/api/engines/status`)).json(),
+		).toMatchObject({ resources: { state: "rejected" } });
+	} finally {
+		await app.stop();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

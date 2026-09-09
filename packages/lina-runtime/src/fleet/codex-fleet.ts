@@ -131,6 +131,7 @@ async function startUnlocked(
 	await hub.refresh().catch(() => undefined);
 	const resourceTools: TaskDynamicTool[] = [];
 	let resources: FleetResources | undefined;
+	let resourceRejected = false;
 	let enginePolicyStore: EnginePolicySettingsStore | undefined;
 	const getEnginePolicy = () =>
 		options.enginePolicy?.() ??
@@ -364,21 +365,26 @@ async function startUnlocked(
 					return app;
 				}),
 		});
-		resources = new FleetResources({
-			root: join(stateRoot, "resources"),
-			limits: {
-				maxFileBytes: 64 * 1024 * 1024,
-				maxCatalogBytes: 64 * 1024 * 1024,
-				maxExtractionBytes: 2 * 1024 * 1024,
-			},
-			services: () => hub.createContextServices(getSettings),
-			policy: getEnginePolicy,
-			validAgent: validOwner,
-			assertInstallation: () => {
-				if (!ownsInstallation()) throw Error("Installation ownership required");
-			},
-		});
-		resourceTools.push(...resources.dynamicTools());
+		try {
+			resources = new FleetResources({
+				root: join(stateRoot, "resources"),
+				limits: {
+					maxFileBytes: 64 * 1024 * 1024,
+					maxCatalogBytes: 64 * 1024 * 1024,
+					maxExtractionBytes: 2 * 1024 * 1024,
+				},
+				services: () => hub.createContextServices(getSettings),
+				policy: getEnginePolicy,
+				validAgent: validOwner,
+				assertInstallation: () => {
+					if (!ownsInstallation())
+						throw Error("Installation ownership required");
+				},
+			});
+		} catch {
+			resourceRejected = true;
+		}
+		if (resources) resourceTools.push(...resources.dynamicTools());
 	} catch (error) {
 		await resources?.close();
 		enginePolicyStore?.close();
@@ -408,8 +414,7 @@ async function startUnlocked(
 		await tasks.restore();
 		const resourceOwner = resources,
 			policyOwner = enginePolicyStore;
-		if (!resourceOwner || !policyOwner)
-			throw Error("Engine owners unavailable");
+		if (!policyOwner) throw Error("Engine owners unavailable");
 		server = await startFleetServer(fleet, port, resourceRoot, botId, {
 			lazy: true,
 			lifeImages: images,
@@ -417,6 +422,15 @@ async function startUnlocked(
 				images().allowed(authority.candidate),
 			generatedAvatarApplication: (candidate) => images().allowed(candidate),
 			route: async (request, json) => {
+				if (new URL(request.url).pathname === "/api/engines/status")
+					return Response.json(
+						{
+							resources: resourceRejected
+								? { state: "rejected", code: "RESOURCE_STORAGE_UNAVAILABLE" }
+								: { state: "open" },
+						},
+						{ headers: { "Cache-Control": "no-store" } },
+					);
 				const policy = await enginePolicyRoutes(
 					request,
 					policyOwner,
@@ -437,6 +451,11 @@ async function startUnlocked(
 					const id = matched?.[1] ?? null;
 					if (id && !validOwner(id))
 						return Response.json({ error: "Unknown agent" }, { status: 404 });
+					if (!resourceOwner)
+						return Response.json(
+							{ error: "RESOURCE_STORAGE_UNAVAILABLE" },
+							{ status: 503 },
+						);
 					const client = resourceOwner.consumer(id);
 					return resourceRoutes(request, {
 						store: resourceOwner.engine.store,
