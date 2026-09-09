@@ -154,3 +154,9 @@ summary 역할 요청에 소비자의 문자 상한을 명시하고, 보관 원�
 지정 Ollama 해석 모델로 NativePersonaGrowth가 비어 있지 않은 성향 값을 저장했다. AgentStore를 다시 열어도 추가 모델 호출0, 작성 정체성 동일을 확인했고, 근거 episode 철회 뒤 personalBehavior=null을 확인했다. `ollama-routing/persona.json`의 결과를 별도 assertion으로 재검사했다. 합성 proven episode·임시 DB·테스트 전용 memory 출력32768 범위이며, 일반 대화에서 성장한 성격의 표현 품질을 대신하지 않는다.
 
 깨끗한9a94e7f에서 `bun scripts/qa/context-engines.ts`를 실행해22파일176 pass·0 fail·1126 assertions, 종료0을 확인했다. `/tmp/lina-context-qualification-1kVMGc/result.json`이 source commit·dirty=false·실행 목록을 기록한다. 이 runner의 실제 모델 검증은 not_run이며 위 Ollama 개별 검증과 구분한다. 전체 suite 재검사·일반 대화/LIFE 실제 통합·기본 예산 안정성·최종 요구 대조는 남아 있다.
+
+## 2026-09-09 LIFE native 합성 자격 검사 진단
+
+LIFE 공개 재료를 freeze한 뒤 createCodexLifeModel.prepare를 실제 격리 native로 실행했다. `LIFE synthetic native qualification failed`로 막혀 실제 게시 제공자 호출과 게시 저장까지 진행하지 않았다. 실패 기록은 `ollama-routing/life-native-live.json`, 임시 상태는 `/tmp/lina-life-native-live-5zAZtZ`에 보존했다. 첫 실패 실행의 임시 상태는 스크립트가 삭제했으며 재현 실행은 보존하도록 수정했다.
+
+별도 무추론 검사에서 실제 wrapper의 config/read·verifyAuthorNative·model/list·thread/start·verifyAuthorThread를 통과했다. 따라서 OS 격리나 설정 검증 실패로 단정하지 않으며, 이후 합성 provider/응답 처리 단계가 조사 범위다. 모델 설정은 GLM Flash reasoning=off지만 nativeEffort가 실제 catalog 기본값 medium을 반환했다. `life-native-preflight.json`에 적용값을 기록했다. 이 경로를 추론 off로 실행됐다고 주장하지 않는다. 일반 대화와 LIFE 모두 요청/적용 추론값 계약을 최종 인수에서 대조해야 한다.
