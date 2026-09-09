@@ -324,6 +324,47 @@ export class ResourceActivities {
 			},
 		);
 	}
+	/** Trusted consumer check; acknowledged delivery is not perpetual sharing authority. */
+	current(
+		rawScope: ResourceScope,
+		worldId: string,
+		rawSource: ResourceActivitySource,
+	): boolean {
+		const scope = scopeSchema.parse(rawScope);
+		const source = parseResourceActivitySource(rawSource);
+		identity.parse(worldId);
+		return this.transaction(() => {
+			const found = findActivityDelivery(this.db, source.deliveryId);
+			if (
+				!found ||
+				found.world_id !== worldId ||
+				lifeDigest(found.data.source) !== lifeDigest(source)
+			)
+				return false;
+			this.seal(scope, source.receipt.activityId);
+			const delivery = findActivityDelivery(this.db, source.deliveryId);
+			if (
+				!delivery ||
+				delivery.state === "withheld" ||
+				lifeDigest(delivery.data.source) !== lifeDigest(source)
+			)
+				return false;
+			const latest = loadActivity(this.db, source.receipt.activityId);
+			if (
+				latest.grant.worldId !== worldId ||
+				latest.receipt.activityRevision !== source.receipt.activityRevision ||
+				latest.grant.grantRevision !== source.receipt.grantRevision ||
+				latest.grant.policyRevision !== source.policyRevision
+			)
+				return false;
+			if (source.operation === "restrict") return latest.grant.revoked;
+			return (
+				!latest.grant.revoked &&
+				this.host.isWorldParticipant(worldId, source.receipt.actorAgentId) &&
+				activitySourceCurrent(this.resources, scope, latest.snapshot)
+			);
+		});
+	}
 	pending(
 		rawScope: ResourceScope,
 		worldId?: string,

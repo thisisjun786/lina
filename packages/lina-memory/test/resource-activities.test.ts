@@ -489,3 +489,43 @@ test("verified_result can bind a current resource memory and rejects it after so
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("delivery authority is checked again after acknowledgement and restriction", () => {
+	const root = mkdtempSync(join(tmpdir(), "lina-activity-current-"));
+	const { resources, activities } = open(root);
+	try {
+		const doc = seed(resources);
+		activities.create(a, recorded("act-1", doc.id));
+		const source = activities.pending(a, "world-1")[0]?.source;
+		if (!source) throw Error("Missing delivery");
+		expect(activities.current(a, "world-1", source)).toBe(true);
+		expect(activities.current(a, "other-world", source)).toBe(false);
+		expect(
+			activities.current(a, "world-1", {
+				...source,
+				fields: { ...fields, summary: "forged" },
+			}),
+		).toBe(false);
+		activities.ack(a, {
+			operationId: "ack-1",
+			deliveryId: source.deliveryId,
+			sourceDigest: source.sourceDigest,
+		});
+		expect(activities.current(a, "world-1", source)).toBe(true);
+		activities.restrict(a, {
+			operationId: "restrict-1",
+			activityId: "act-1",
+			expectedRevision: 1,
+			worldId: "world-1",
+			policyRevision: 2,
+		});
+		expect(activities.current(a, "world-1", source)).toBe(false);
+		const restricted = activities.pending(a, "world-1")[0]?.source;
+		if (!restricted) throw Error("Missing restriction");
+		expect(activities.current(a, "world-1", restricted)).toBe(true);
+	} finally {
+		activities.close();
+		resources.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
