@@ -186,6 +186,7 @@ export function parseWorkConfig(value: unknown): WorkConfig {
 						"verified_result",
 						"failed",
 						"interrupted",
+						"recorded",
 					]),
 				);
 				if (new Set(outcomes).size !== outcomes.length)

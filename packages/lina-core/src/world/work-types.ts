@@ -4,11 +4,12 @@ export type WorkOutcome =
 	| "verified_result"
 	| "failed"
 	| "interrupted";
+export type WorkRuleOutcome = WorkOutcome | "recorded";
 export interface WorkInfluenceRule {
 	id: string;
 	familyId: string;
 	categoryId: string;
-	outcomes: WorkOutcome[];
+	outcomes: WorkRuleOutcome[];
 	attribution: "owner" | "participant";
 	weight: number;
 	requiredMatch: boolean;

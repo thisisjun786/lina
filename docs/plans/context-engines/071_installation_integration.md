@@ -276,3 +276,11 @@ owner를 구현할 때 이 임시 거부 경계를 제거해야 한다. 요청 �
 LIFE tier 활성화 완료로 주장하지 않는다. 과거 native fingerprint의 전체 호환성도
 별도 수용 검증 대상이다. 4개 파일 18개 테스트·85개 단언 통과에는 실제 임시
 journal의 v1/v3 재개방과 initial.json 바이트 보존이 포함된다. provider 호출은 0이다.
+
+공통 WorkRuleOutcome에는 자료 활동의 recorded를 추가하되 task receipt의
+WorkOutcome 네 값은 유지했다. recorded 규칙 허용과 task receipt 거부를 함께
+검증했으며 기존 설정·입력 회귀 포함 8개 테스트·35개 단언이 통과했다.
+또한 LINA_LIFE_NATIVE_TEST=1로 로컬 가짜 provider를 사용하는 실제 Codex 부모
+재시작/경쟁 프로세스 시험을 실행했다. 준비·결과 journal 복원 및 한 번 전송을
+확인했다(1개 테스트·17개 단언). 이는 같은 코드 버전의 네이티브 프로세스 증거이며
+실제 모델 품질이나 과거 코드 버전의 fingerprint 호환성을 증명하지는 않는다.
