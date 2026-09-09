@@ -54,6 +54,11 @@ export class ResourceStore {
 	private readonly db: DatabaseSync;
 	private readonly content: ResourceContent;
 	private closed = false;
+	private readonly mutationEffects = new WeakMap<Resource, readonly string[]>();
+	/** Effects are restored from the operation receipt, not exposed as resource metadata. */
+	affectedResources(result: Resource): readonly string[] {
+		return this.mutationEffects.get(result) ?? [result.id];
+	}
 	constructor(
 		root: string,
 		readonly limits: ResourceContentLimits,
@@ -228,6 +233,8 @@ export class ResourceStore {
 			(current.deleted && !result.resource.deleted)
 		)
 			throw Error("resource unavailable");
+		if (result.affectedResourceIds)
+			this.mutationEffects.set(result.resource, result.affectedResourceIds);
 		return result.resource;
 	}
 	private record(
@@ -237,6 +244,9 @@ export class ResourceStore {
 		v: ResourceVersion | null,
 	): Resource {
 		const value = input as { operationId: string };
+		const affectedResourceIds = [
+			...new Set([r.id, ...this.indexing.changed()]),
+		];
 		this.db
 			.prepare("INSERT INTO resource_operations VALUES (?,?,?,?,?,?,?)")
 			.run(
@@ -246,9 +256,9 @@ export class ResourceStore {
 				r.revision,
 				hash(input),
 				canonical(input),
-				canonical({ resource: r, version: v }),
+				canonical({ resource: r, version: v, affectedResourceIds }),
 			);
-		this.indexing.changed();
+		this.mutationEffects.set(r, affectedResourceIds);
 		this.memories.changed(
 			scope,
 			input as {

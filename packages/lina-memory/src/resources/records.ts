@@ -98,6 +98,7 @@ export function validateGraph(records: Resource[]): void {
 export const resultSchema = z.strictObject({
 	resource: resourceSchema,
 	version: versionSchema.nullable(),
+	affectedResourceIds: z.array(z.uuid()).optional(),
 });
 export function writeResource(db: DatabaseSync, r: Resource): void {
 	db.prepare(

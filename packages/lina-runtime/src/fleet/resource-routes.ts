@@ -251,7 +251,9 @@ export async function resourceRoutes(
 				.regex(/^[a-f0-9]{64}$/)
 				.parse(path[1]);
 			store.indexing.retry(scope(), id);
-			return reply(store.indexing.get(scope(), id));
+			const job = store.indexing.get(scope(), id);
+			options.onStored?.(store.get(scope(), job.resourceId));
+			return reply(job);
 		}
 		const id = z.uuid().parse(path[0]);
 		if (path.length === 1 && request.method === "DELETE") {
@@ -263,7 +265,9 @@ export async function resourceRoutes(
 				})
 				.parse(await json(request, 1024));
 			guard();
-			return reply(store.update(scope(), { id, ...input, deleted: true }));
+			const result = store.update(scope(), { id, ...input, deleted: true });
+			options.onStored?.(result);
+			return reply(result);
 		}
 		if (path.length === 1 && request.method === "GET") {
 			if (url.search) throw Error("unexpected query");
@@ -291,7 +295,7 @@ export async function resourceRoutes(
 			});
 			guard();
 
-			if (!result.deleted) options.onStored?.(result);
+			options.onStored?.(result);
 			return reply(result);
 		}
 		if (

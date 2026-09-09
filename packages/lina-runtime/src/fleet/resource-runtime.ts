@@ -24,7 +24,10 @@ import type { ResourceActivitySource } from "../../../lina-core/src/world/work-t
 import { ResourceActivities } from "../../../lina-memory/src/resources/activities.ts";
 import type { ResourceContentLimits } from "../../../lina-memory/src/resources/content.ts";
 import { ResourceStore } from "../../../lina-memory/src/resources/store.ts";
-import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts";
+import type {
+	Resource,
+	ResourceScope,
+} from "../../../lina-memory/src/resources/types.ts";
 import type { EnginePolicySnapshot } from "../context/policy-settings.ts";
 import type { ContextServices } from "../context/port.ts";
 import type { LinaHost } from "../host.ts";
@@ -172,6 +175,7 @@ export class FleetResources {
 		};
 	}
 	private tail: Promise<void> = Promise.resolve();
+	private readonly scheduled = new Map<string | null, Set<string>>();
 	private tasks = new Set<Promise<unknown>>();
 	private clients = new Map<string, ReturnType<ResourceEngine["consumer"]>>();
 	private readonly taskSearches = new Map<TaskSearchKey, TaskSearchSession>();
@@ -231,7 +235,7 @@ export class FleetResources {
 		if (!client) {
 			client = this.engine.consumer(
 				() => this.scope(id),
-				(r) => this.schedule(id, r.id),
+				(r) => this.scheduleStored(id, r),
 			);
 			this.clients.set(key, client);
 		}
@@ -264,10 +268,37 @@ export class FleetResources {
 			inputSchema: t.parameters,
 		}));
 	}
+	scheduleStored(id: string | null, result: Resource) {
+		const scope = this.scope(id);
+		for (const resourceId of this.engine.store.affectedResources(result)) {
+			try {
+				this.engine.store.get(scope, resourceId);
+			} catch (error) {
+				if (
+					!(error instanceof Error) ||
+					error.message !== "resource unavailable"
+				)
+					throw error;
+				// Deleted or inaccessible effects must not borrow another owner's authority.
+				continue;
+			}
+			this.schedule(id, resourceId);
+		}
+	}
 	schedule(id: string | null, resourceId: string) {
 		this.open();
 		const scope = this.scope(id);
+		let pending = this.scheduled.get(id);
+		if (!pending) {
+			pending = new Set();
+			this.scheduled.set(id, pending);
+		}
+		if (pending.has(resourceId)) return;
+		pending.add(resourceId);
+		const queued = pending;
 		const run = this.tail.then(async () => {
+			queued.delete(resourceId);
+			if (queued.size === 0) this.scheduled.delete(id);
 			if (this.closed) return;
 			const results = await this.engine.runPending(
 				resourceId,
@@ -307,7 +338,7 @@ export class FleetResources {
 				call.context?.assertCurrent();
 				return this.scope(id);
 			},
-			(r) => this.schedule(id, r.id),
+			(r) => this.scheduleStored(id, r),
 		);
 		const remove = () => {
 			if (this.taskSearches.get(key) === session) this.taskSearches.delete(key);

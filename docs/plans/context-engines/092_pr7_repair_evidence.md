@@ -64,3 +64,33 @@ Do not merge current GitHub PR7: its head still contains the original defects. A
 - No task-owned server is intentionally retained. Diagnostic files and baseline/fix worktrees are retained for review. Reviewer probe files were moved from `/tmp` into the repair evidence directory.
 
 Remaining limits: no external model quality/compatibility qualification, deployment or browser UI proof; bounded search sessions can evict cursors; deep memory provenance refresh is per reasoning round; collection-dominated graphs still incur traversal cost. These are not claims of newly demonstrated cross-owner leakage or additional merge blockers in the local repair.
+
+## Resource dispatch repair after engine-state verification
+
+The next re0 lap reproduced two dispatch omissions on329b6cb through actual
+loopback Fleet HTTP: retry returned pending without queueing the resource, and
+child mutations created collection overview jobs without queueing the affected
+collections. Both probes failed after awaiting the production queue drain;
+explicit scheduling advanced them to the expected unavailable state with the
+model unconfigured. No external provider calls were made.
+
+Retry now notifies the existing execution owner after the validated transition.
+Operation receipts persist newly created indexing-job resource IDs in an optional
+result field, preserving reads of legacy receipts. A store-owned WeakMap exposes
+those effects for both fresh and replayed results; HTTP and tools forward the
+exact results, including deletion. The
+Fleet filters affected resources with the initiating scope and coalesces queued
+work per agent/resource. A mutation during execution can queue a subsequent pass.
+The changed resource is queued before its collections so extraction precedes
+collection processing. Existing completed source digests remain reusable.
+
+The original HTTP probes pass after repair. Regression coverage includes nested
+and secondary collections, moves, deletion with a surviving child, queued
+coalescing, in-flight follow-up scheduling, inaccessible effects, and replay
+after reopening the catalog. Local diagnostics and red/green logs are
+under `/home/jun/tmp/lina-pr7-dispatch-fix-01a08577`; the original negative corpus
+is under `/home/jun/tmp/lina-pr7-re0-engine-01a08577`.
+
+This repair does not claim to resolve the separately measured collection-heavy
+catalog scan cost, provider quality, or process-crash delivery of in-memory queued
+work. It adds no timer, provider fallback, test skip, or timeout extension.

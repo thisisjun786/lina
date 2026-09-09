@@ -139,10 +139,11 @@ export class ResourceIndex {
 		}
 		return result;
 	}
-	changed(): void {
+	changed(): string[] {
 		if (!this.db.isTransaction)
 			throw Error("resource indexing needs writer transaction");
 		const catalog = allResources(this.db);
+		const affected = new Set<string>();
 		for (const r of catalog) {
 			if (r.deleted) continue;
 			const source = this.sources(r, catalog);
@@ -158,6 +159,7 @@ export class ResourceIndex {
 				};
 				const id = jobKey(seed);
 				if (readJob(this.db, id)) continue;
+				affected.add(r.id);
 				writeJob(this.db, {
 					...seed,
 					id,
@@ -173,6 +175,7 @@ export class ResourceIndex {
 				});
 			}
 		}
+		return [...affected];
 	}
 	get(rawScope: ResourceScope, id: string): ResourceJob {
 		const scope = scopeSchema.parse(rawScope),

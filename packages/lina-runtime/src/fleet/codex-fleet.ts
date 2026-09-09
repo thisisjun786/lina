@@ -498,7 +498,7 @@ async function startUnlocked(
 						scope: client.scope,
 						search: client.search,
 						...(id ? { basePath: `/api/agents/${id}/resources` } : {}),
-						onStored: (r) => resourceOwner.schedule(id, r.id),
+						onStored: (r) => resourceOwner.scheduleStored(id, r),
 					});
 				}
 				return (
