@@ -1563,3 +1563,56 @@ test("H05 malformed proposals cannot reach delivery or tool owners", async () =>
 		}
 	}
 });
+
+test("durable unadmitted cancellation recovers before request finalization", async () => {
+	const store = new KernelStore();
+	const delivery = new DeliveryOwner();
+	store.setPurpose(purpose);
+	let ownerQueries = 0;
+	const kernel = new AdoptionKernel({
+		store,
+		delivery,
+		tools: new Map([
+			[
+				"tool",
+				{
+					admit: () => {
+						throw Error("forbidden admission");
+					},
+					result: async () => null,
+					reconcile: async () => {
+						ownerQueries++;
+						return null;
+					},
+				},
+			],
+		]),
+		model: {
+			propose: async () => ({
+				kind: "tool",
+				purposeRevision: 1,
+				tool: "tool",
+				args: {},
+			}),
+		},
+		beforeAdmit: () => store.setPurpose({ ...purpose, revision: 2 }),
+	});
+	const cancel = store.cancelUnadmitted.bind(store);
+	try {
+		store.cancelUnadmitted = (id) => {
+			cancel(id);
+			throw Error("after cancellation");
+		};
+		await expect(kernel.step("p", "cancel-request")).rejects.toThrow(
+			"after cancellation",
+		);
+		store.cancelUnadmitted = cancel;
+		expect((await kernel.resume())[0]?.status).toBe("rejected");
+		expect(ownerQueries).toBe(0);
+		expect((await kernel.step("p", "cancel-request")).status).toBe("rejected");
+		expect(store.pending()).toEqual([]);
+	} finally {
+		store.close();
+		delivery.close();
+	}
+});

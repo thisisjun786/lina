@@ -199,6 +199,16 @@ export class AdoptionKernel {
 		for (const effectId of this.options.store.pending()) {
 			const effect = this.options.store.pendingEffect(effectId);
 			if (!effect) throw Error("missing pending effect");
+			if (effect.cancelled) {
+				traces.push(
+					this.runs.finish({
+						status: "rejected",
+						decisionId: effect.decisionId,
+						detail: "cancelled before admission",
+					}),
+				);
+				continue;
+			}
 			const owner = effectId.endsWith(":answer")
 				? this.options.delivery
 				: this.options.tools.get(effect.tool);

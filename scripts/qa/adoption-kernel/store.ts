@@ -422,13 +422,19 @@ export class KernelStore {
 			.prepare("UPDATE kernel_effects SET data=? WHERE id=?")
 			.run(JSON.stringify({ ...effect, status: "cancelled" }), effectId);
 	}
-	pendingEffect(effectId: string): { tool: string; decisionId: string } | null {
+	pendingEffect(
+		effectId: string,
+	): { tool: string; decisionId: string; cancelled: boolean } | null {
 		const row = this.db
 			.prepare("SELECT data FROM kernel_effects WHERE id=?")
 			.get(effectId);
 		if (!row) return null;
 		const data = this.effect(effectId, row["data"]);
-		return { tool: data.tool, decisionId: data.fence };
+		return {
+			tool: data.tool,
+			decisionId: data.fence,
+			cancelled: data.status === "cancelled",
+		};
 	}
 
 	pending(): string[] {
