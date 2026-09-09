@@ -1,0 +1,84 @@
+# 071 — 자체 엔진 설치 연결과 외부 어댑터 퇴역
+
+상태: P. 060은 121060d에서 종료했고 561개 테스트·타입·린트·문서·CI·빌드와 독립 검토를 통과했다. 현재 부족한 것은 엔진 자체보다 실제 Fleet의 조립 경로다. 이 단위는 LINA/Codex가 같은 자료 owner를 사용하고, 개인 기억·페르소나·세션 컨텍스트·LIFE가 각자의 출처와 권한을 유지하도록 연결한다.
+
+유형 satisfy-spec. 계기는 전체 자체 엔진 완성 요청과 070 실행이다. 목표는 외부 Honcho/OpenViking 없이 신규 설치가 동작하고 기존 설정에는 전환 필요 상태가 명시되는 것이다. 범위 밖은 사용자 설치·원격 데이터 변경, 라이브 provider 호출, UI, 푸시·PR 머지·배포다. 검증은 임시 stateRoot/가짜 RPC·fetch의 실제 Fleet HTTP/도구·종료·재시작·checkpoint 경로와 전체 관련 게이트다. 성공하면 080으로 진행하며, 라이브 자격 검증은 별도 허가가 필요하다. 기록은 070/071 및 session evidence/integration-*다. 새 시간·토큰 예산은 정하지 않는다. 저장 형식·복구·출처 문제가 남으면 B/C에서 수정하며 사용자 제품 결정이 필요한 세계·주기·금액은 미정 상태를 유지한다. 실행자 둘이 같은 패킷에 실패하면 주 에이전트가 회수한다.
+
+## 현재 코드와 선행 순서
+
+codex-fleet.ts는 아직 OpenVikingClient/workTools를 만들고 task executeTool의 네 인자만 사용한다. session-app.ts는 CompanionMemory 또는 Honcho MemoryBridge를 선택하고 직접 시작의 기본은 disabled다. manager.ts에는 Honcho namespace qualification/초기화·삭제 흐름이 남았다. 자체 EnginePolicyStore와 ResourceEngine은 존재하지만 Fleet 저장·HTTP·checkpoint에 연결되지 않았다. 기존 resourceRoot는 정적 asset 경로이므로 자료 DB 경로로 재사용하지 않는다.
+
+구현 순서는 PR #3의 필요한 안정화 변경 확인 → own memory port와 외부 어댑터 제거 → 공유 자료/정책 owner 설치 → LIFE tier/비개발 활동 경계 → checkpoint/전체 통합 검증이다. 각 순서는 같은 integration 단위 안에서 검증되는 의존 관계이며 별도 제품 기능을 축소하는 구분이 아니다.
+
+## PR #3 기준점
+
+2026-09-08 GitHub 원본과 gh 조회로 [PR #3](https://github.com/thisisjun786/lina/pull/3)의 OPEN/Draft, head cefaffcbb4d767848ace6bc0151b9271bf336bf2, base dev, mergeCommit null을 다시 확인했다. 이 브랜치와 공통 조상은 0b68b2f40b8f4368a78111ad1228626886a43797이다. PR 본문의 전체·hosted 테스트는 상류 증거이며 결합 증거가 아니다. 다른 worktree의 dirty 파일은 읽어 옮기지 않는다. 원격 PR을 머지하지 않고 필요한 커밋의 소스 diff를 검토해 이 브랜치 변경과 결합한다.
+
+특히 life-json canonical 호환·replay 재사용·손상 LIFE owner 격리 변경과 원래 제한에서 통과한 이미지 timeout 수정을 확인한다. agents/store.ts와 world/store.ts, manager.ts는 이 브랜치도 수정했으므로 파일 전체 교체하지 않는다. .gitattributes의 upstream verbatim 경로와 출처 고지를 보존한다. 결합 후 기존 원래 timeout으로 테스트하고 timeout 상향/skip으로 통과시키지 않는다.
+
+## 변경 지도
+
+| 작업 | 경로 | 책임 |
+| --- | --- | --- |
+| MODIFY | `packages/lina-runtime/src/context/memory.ts` | 외부 delivery 구현 → Lina-owned memory status/port 및 비활성·legacy 전환 진단; 원격 호출 없음 |
+| MODIFY | `packages/lina-runtime/src/context/backend.ts` | native/disabled 유지, legacy honcho는 migration-required로 구분하고 자동 native로 바꾸지 않음 |
+| MODIFY | `packages/lina-runtime/src/context/channel.ts` | MemoryBridge 클래스 의존 대신 자체 port 사용 |
+| MODIFY | `packages/lina-runtime/src/context/companion.ts` | 자체 port/status 타입, disabled 자동 학습 차단과 기존 기억 읽기 보존 |
+| MODIFY | `packages/lina-runtime/src/persona/reflection.ts` | 자체 recall port로 연결, 개인 출처/비밀 필터 유지 |
+| MODIFY | `packages/lina-runtime/src/session-app.ts` | 외부 옵션·MemoryBridge 제거, 기본 자체 기억·정책·정리·성장 lifecycle 조립 |
+| MODIFY | `packages/lina-runtime/src/fleet/manager.ts` | 외부 qualification/namespace 삭제 경로 제거, 자체 상태·legacy 진단·초기화 실패 보존 |
+| MODIFY | `packages/lina-runtime/src/fleet/codex-fleet.ts` | 공유 자료·EnginePolicyStore owner 초기화, host task context, 설치 lock 내 종료 순서 |
+| NEW | `packages/lina-runtime/src/fleet/resource-runtime.ts` | 설치당 단일 ResourceStore, scope별 worker/search/tool consumer, 처리 중 요청 추적·취소·close |
+| MODIFY | `packages/lina-runtime/src/resources/tools.ts` | 저장 완료 이벤트를 owner에 전달해 허용된 pending 작업 실행, scope는 host 전용 |
+| MODIFY | `packages/lina-runtime/src/resources/task-consumer.ts` | 설치 owner의 실제 consumer와 동적 도구 명세 재사용 |
+| MODIFY | `packages/lina-runtime/src/fleet/resource-routes.ts` | 실제 서버 owner·요청 scope·작업 상태 접점, 기존 stream/body/loopback guard 유지 |
+| MODIFY | `packages/lina-runtime/src/fleet/server.ts` | 자료/정책 route 등록 및 owner 준비/거부 상태 노출 |
+| MODIFY | `packages/lina-runtime/src/fleet/companion-routes.ts` | engine policy GET/PATCH와 expectedRevision CAS, host getter 반영 |
+| MODIFY | `packages/lina-runtime/src/tools/work-memory.ts` | lina_work_*는 지원되는 안정 참조만 자체 자료 경로에 연결하거나 명시적 retired 오류; task 생성 없음 |
+| MODIFY | `packages/lina-runtime/src/codex-prompt.ts` | 실제 도구와 개발/비개발 업무 의미에 맞는 지침 |
+| MODIFY | `packages/lina-memory/src/index.ts` | 외부 export 제거, 자체 엔진 export 연결 |
+| MODIFY | `packages/lina-runtime/src/checkpoint-cli.ts` | 로컬 자료/기억 포함 범위와 원격 과거 데이터 미포함 명시 |
+| MODIFY | `packages/lina-runtime/src/checkpoint-barrier.ts` | 자료 owner가 기존 installation lock 종료 장벽을 준수하는 계약 |
+| MODIFY | `packages/lina-core/src/world/authoring-types.ts` | exact 모델 또는 tier selector의 명시적 union |
+| MODIFY | `packages/lina-core/src/world/authoring-request-validation.ts` | selector 입력 strict 검사 |
+| MODIFY | `packages/lina-core/src/world/autonomy-persistence.ts` | 구버전 exact 해석 보존, 새 tier의 해석 결과를 step에 고정 |
+| MODIFY | `packages/lina-core/src/world/autonomy-step-records.ts` | 저장 당시 selector/출처 형식별 replay 및 원래 fingerprint 유지 |
+| MODIFY | `packages/lina-runtime/src/fleet/life-runtime.ts` | tier를 exact profile/effort/cap/settings revision으로 해석, outbound 현재성 검사 |
+| MODIFY | `packages/lina-codex/src/life-model-policy.ts` | 동결된 요청과 실제 provider 선택 일치 검사 |
+| MODIFY | `packages/lina-core/src/world/work-validation.ts` | codex-task/resource-activity origin union과 역사 v1 읽기 |
+| MODIFY | `packages/lina-core/src/world/autonomy-source.ts` | origin별 현재 근거·grant·revision 확인 |
+| MODIFY | `packages/lina-core/src/world/store.ts` | resource activity admission과 반복 방지·철회 |
+| MODIFY | `packages/lina-runtime/src/life/work-source.ts` | 자료 version/memory 근거와 명시 grant 연결 |
+| MODIFY | `packages/lina-runtime/src/life/work-bridge.ts` | task 없는 활동 기록의 admit/revoke, 기존 task receipt 보존 |
+| MODIFY | `data/app-system-prompt.md` | 업무는 개발·조사·검색·글쓰기·정리 모두 포함, 원문/추론/개인 경험을 구분 |
+| NEW | `packages/lina-runtime/test/engine-integration.test.ts` | 실제 Fleet HTTP/도구/정책/legacy/start-stop-restart |
+| NEW | `packages/lina-runtime/test/resource-checkpoint.test.ts` | 설치 owner 종료·checkpoint·새 root 복원·원문과 기억 검증 |
+| NEW | `packages/lina-runtime/test/life-resource-activity.test.ts` | task 없는 활동→명시 grant→LIFE 입력, 철회·중복·재시작 |
+
+외부 production adapter 디렉터리 honcho/openviking 및 capture-scan.ts는 모든 import/exports/test/QA 소비자 전환 후 제거한다. 외부 adapter 전용 테스트는 성공 동작 유지 테스트로 남기지 않고 legacy 진단·무호출·원본 보존 검증으로 대체한다. deploy/honcho 및 원격 QA 경로는 필수 실행 경로에서 제외하고 retired 설명을 남긴다. 사용자의 원격 namespace나 설치 파일을 삭제하지 않는다.
+
+## 설치 owner·권한·처리 흐름
+
+자료 DB/blobs는 stateRoot 하위 전용 디렉터리, 엔진 정책은 별도 SQLite owner로 둔다. 설치당 자료 store 하나를 공유하고, agent별 principal/allowedVisibilities를 고정한 consumer를 만든다. 비동기 호출 사이에 전역 mutable scope를 바꿔 쓰지 않는다. TaskToolContext.agentId가 검증되지 않으면 null/shared-only이며 모델 JSON은 owner가 될 수 없다. 공유 자료 모델 서비스는 설치의 공통 routes를 사용하고 일반 대화의 지정 모델은 바꾸지 않는다.
+
+저장은 기존 transaction에서 durable pending job을 만든 뒤 owner에게 알린다. 실행은 범위별 큐에서 신호 기반으로 이어가고 과거 prepared/unknown은 자동 재호출하지 않는다. 단순 읽기·검색은 capture나 task를 생성하지 않는다. worker/search/tool 요청을 모두 추적하여 stop에서 신규 진입 차단→abort→요청 join→store close→installation lock 해제 순서를 지킨다. 다른 agent의 작업 취소가 전체 store를 닫지 않는다. 초기화 실패도 이미 연 owner를 역순 정리한다.
+
+신규 설치는 외부 URL 없이 native 기억/자료를 사용한다. disabled는 자동 학습 중지이며 원문·이전 기억 삭제가 아니다. legacy honcho 선택은 원격 요청을 하지 않고 migrationRequired 진단을 반환한다. 기존 honcho-outbox/원격 기억을 mind.sqlite에 이전했다고 주장하지 않는다. 실제 원격 export 가져오기는 이 실행의 권한 밖이다. 자체 DB 손상은 원본을 보존하고 실패 owner를 명시하며 일반 대화/작업이 계속되는 기존 LIFE 격리 계약과 일치시킨다.
+
+## 필드의 전체 경로와 LIFE 계약
+
+정책 snapshot3 입력 → EnginePolicyStore CAS/SQLite → strict read → session/worker/LIFE getters와 HTTP 응답. callback은 host-only이며 JSON 권한으로 직렬화하지 않는다. legacy 진단은 backend parser → App/Fleet status → API에서 노출하며 enum 누락/default 성공 처리를 금지한다.
+
+모델 selector exact|tier는 authoring 입력·validation → config/step serialization → version별 decoder → runtime 선택·Codex policy로 전달한다. tier가 없거나 binding 미설정이면 not_configured로 step 생성을 거부한다. 새 step만 당시 exact model/effort/output cap/revision/fingerprint를 동결하며 과거 step은 새 설정으로 다시 해석하지 않는다.
+
+resource-activity는 별도 origin, resource/version 또는 memory id, actor, activityKind, factual evidence, grant/revision을 가진다. 단순 자료 저장을 업무 완료나 개인 경험으로 바꾸지 않는다. 실제 산출물과 명시적 LIFE 공유 허용이 있어야 admit한다. 기존 task 기반 v1은 당시 decoder로 보존하고 신규 v2에 origin별 증거를 기록한다. source 변경/철회는 아직 실행하지 않은 LIFE 입력과 성장 projection에 반영하며 같은 activity id/revision은 중복 반영하지 않는다.
+
+## 검증과 문서 동기화
+
+P에서 확인한 실제 기준선은 060의 561테스트 및 타입/린트/CI/빌드 exit0다. 이는 integration 증거가 아니다. 새 테스트 경로는 B에서 직접 bun test로 실패부터 확인하며 존재하지 않는 테스트가 통과했다고 주장하지 않는다. 기존 Fleet/SessionApp/LIFE/checkpoint 테스트도 직접 포함하고, C에서 전체 타입·린트·관련 테스트·문서 구조·CI·빌드를 실행한다. 현재 문서 검사기는 번호·경로·의존성만 검사하고 의미 완전성은 독립 감사가 맡는다.
+
+필수 발동 시나리오: 외부 host 없는 신규 start; legacy honcho의 provider 호출0 및 원본 보존; 실패 중간 owner 정리 후 재시작; A 저장→B/작업 없는 Codex 읽기; TaskManager 인계 중 비공개 응답 차단; 정책 stale CAS409; active owner checkpoint 거부와 종료 후 복원; resource activity grant 철회 중 provider await 결과 반영 금지; tier 변경 중 준비 step stale 및 완료 step 미재실행; LIFE 손상 후 일반 대화 유지; PR #3 이미지 시험의 기존 timeout 통과.
+
+C에서 POLICY.md, README.md, docs/ARCHITECTURE.md, PERSONA_CONTEXT.md, CODEX_RUNTIME.md, PLANNING.md 및 000/004/070/071을 최종 소스 계약으로 맞춘다. 외부 adapter의 역사 문서·원격 데이터 미이전 경계는 명시한다. enforcement의 최종층은 host 권한 검사와 저장 감사이며 임의 로컬 코드/DB 수정은 우회 가능하다. 이를 적대적 로컬 관리자 방어라고 부르지 않는다.
+
+위임: 주 에이전트는 PR source 결합·자료 owner/정책/Fleet·LIFE source/routing과 통합을 맡는다. A 후 executor는 독립 가능한 memory port/session-app/context/channel/persona/reflection 및 외부 adapter-only 소비자 퇴역을 맡되 manager/codex-fleet/world 파일은 수정하지 않는다. 초기 upstream 안정화 결합을 먼저 끝내 충돌 경계를 고정한다. 모든 범위와 검증은 시작 전 명시하고 독립 reviewer가 계획과 최종 구현을 검토한다.
