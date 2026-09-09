@@ -56,7 +56,7 @@ export async function main(argv: string[]): Promise<void> {
 	}
 	if (command === "qualify") {
 		const { qualify } = await import("./qualification.ts");
-		const result = qualify(required(args, "--index"));
+		const result = await qualify(required(args, "--index"));
 		writeFileSync(
 			required(args, "--output"),
 			`${JSON.stringify(result, null, 2)}\n`,
@@ -126,6 +126,14 @@ export async function main(argv: string[]): Promise<void> {
 		const trace = decodeTrace(
 			JSON.parse(readFileSync(required(args, "--trace"), "utf8")),
 			JSON.parse(readFileSync(required(args, "--case"), "utf8")),
+		);
+		const { verifyReplay } = await import("./replay.ts");
+		const { decodePublicCase } = await import("./public-case.ts");
+		await verifyReplay(
+			decodePublicCase(
+				JSON.parse(readFileSync(required(args, "--case"), "utf8")),
+			),
+			trace,
 		);
 		const score = scoreTrial(truth, trace);
 		writeFileSync(

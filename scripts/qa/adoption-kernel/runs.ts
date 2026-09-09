@@ -41,7 +41,10 @@ function restoredTrace(
 
 /** Durable invocation identity; unresolved calls never become implicit retries. */
 export class RunReservations {
-	constructor(private readonly db: DatabaseSync) {
+	constructor(
+		private readonly db: DatabaseSync,
+		private readonly decisionId: () => string = randomUUID,
+	) {
 		db.exec(
 			"CREATE TABLE IF NOT EXISTS kernel_runs (request_id TEXT PRIMARY KEY, purpose_id TEXT NOT NULL, decision_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('running','unknown','done')), trace TEXT) STRICT; CREATE UNIQUE INDEX IF NOT EXISTS kernel_busy_purpose ON kernel_runs(purpose_id) WHERE status IN ('running','unknown')",
 		);
@@ -84,7 +87,7 @@ export class RunReservations {
 					},
 				};
 			}
-			const decisionId = randomUUID();
+			const decisionId = this.decisionId();
 			this.db
 				.prepare("INSERT INTO kernel_runs VALUES (?,?,?,'running',NULL)")
 				.run(requestId, purposeId, decisionId);

@@ -73,3 +73,19 @@ Architect returned ALIGNED for D1-D13 with eight text gaps; main accepts and clo
 8. `cli.ts` dynamically imports per subcommand (or uses separate entry modules). The run subprocess loads no truth/scorer module and never receives its path. Dependency graph and private-canary checks enforce the intended boundary in the harness.
 
 Unknown receipt observations come from `environment.events()`, since the kernel can return unknown before saving a receipt; source frame capture still belongs to the same sequential step. Reconciled receipts in the later recovery unit must traverse the same bridge before the next request. No scored rows are waived by this note.
+
+## Whole-input replay amendment
+
+Repeated trace audit found that per-field joins cannot establish complete input
+provenance. Add `replay.ts`: replay the public scenario with recorded transport
+responses in isolated memory stores, compare every full model-message pair and
+then the complete trace. No provider call and no private truth are available to
+this verifier. Keep independent scoring for task correctness; replay only proves
+consistency with the actual protocol implementation.
+
+The minimal internal dependency injection passes an optional decision-ID factory
+through RunReservations, KernelOptions, ModeSession and runEpisode. Default stays
+randomUUID; CLI exposes no override. Replaying original decision IDs avoids
+normalizing away meaningful source references. Score/rescore/qualify must await
+this verifier. This supersedes the initial no-kernel-edit assumption only for
+internal ID creation, without changing default adoption/effect behavior.

@@ -45,6 +45,7 @@ export class ModeSession {
 		private readonly input: PublicCase,
 		private readonly transport: ModelTransport,
 		root?: string,
+		private readonly decisionId: () => string = randomUUID,
 	) {
 		const first = input.stages[0];
 		if (!first) throw Error("missing stage");
@@ -74,6 +75,7 @@ export class ModeSession {
 		};
 		this.kernel = new AdoptionKernel({
 			store: this.store,
+			decisionId: this.decisionId,
 			delivery: this.owner,
 			tools: this.environment.tools(),
 			model: { propose: (frame) => this.propose(frame) },
@@ -276,7 +278,7 @@ export class ModeSession {
 		];
 	}
 	private async baselineStep(): Promise<KernelTrace> {
-		const decisionId = randomUUID();
+		const decisionId = this.decisionId();
 		let proposal: Proposal;
 		try {
 			const response = await this.propose({
@@ -369,6 +371,7 @@ export function createSession(
 	input: PublicCase,
 	transport: ModelTransport,
 	root?: string,
+	decisionId?: () => string,
 ): ModeSession {
-	return new ModeSession(mode, input, transport, root);
+	return new ModeSession(mode, input, transport, root, decisionId);
 }

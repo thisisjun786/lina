@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunMode } from "./harness-types.ts";
 import { loadManifest } from "./manifest.ts";
+import { decodePublicCase } from "./public-case.ts";
+import { verifyReplay } from "./replay.ts";
 import { scoreTrial } from "./score.ts";
 import { decodeTrace } from "./trace.ts";
 import { decodeTruth, type TrialScore } from "./truth.ts";
@@ -13,11 +15,11 @@ function read(path: string): Record<string, unknown> {
 		throw Error("invalid saved artifact");
 	return value as Record<string, unknown>;
 }
-export function rescoreBatch(
+export async function rescoreBatch(
 	manifestPath: string,
 	root: string,
 	sourceHash: string,
-): {
+): Promise<{
 	trials: TrialScore[];
 	usage: Record<
 		RunMode,
@@ -25,7 +27,7 @@ export function rescoreBatch(
 	>;
 	model: string;
 	baseUrl: string;
-} {
+}> {
 	const manifest = loadManifest(manifestPath);
 	const started = read(join(root, "started.json"));
 	const hash = createHash("sha256")
@@ -64,6 +66,7 @@ export function rescoreBatch(
 				read(join(dir, "trace.json")),
 				read(episode.publicPath),
 			);
+			await verifyReplay(decodePublicCase(read(episode.publicPath)), trace);
 			if (
 				trace.episodeId !== episode.episodeId ||
 				trace.mode !== mode ||

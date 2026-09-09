@@ -17,12 +17,13 @@ export type KernelOptions = {
 	tools: ReadonlyMap<string, ToolPort>;
 	delivery: DeliveryPort;
 	beforeAdmit?: () => void;
+	decisionId?: () => string;
 };
 
 export class AdoptionKernel {
 	private readonly runs: RunReservations;
 	constructor(private readonly options: KernelOptions) {
-		this.runs = new RunReservations(options.store.db);
+		this.runs = new RunReservations(options.store.db, options.decisionId);
 	}
 	async step(
 		purposeId: string,

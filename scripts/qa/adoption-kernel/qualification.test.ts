@@ -7,7 +7,7 @@ import { createFreeze, readFreeze } from "./freshness.ts";
 import { qualify } from "./qualification.ts";
 import { RunRegistry } from "./run-registry.ts";
 
-test("qualification rejects absent history and missing host proofs", () => {
+test("qualification rejects absent history and missing host proofs", async () => {
 	const root = mkdtempSync(join(tmpdir(), "qualification-"));
 	try {
 		const registry = new RunRegistry(join(root, "registry.sqlite"));
@@ -26,9 +26,9 @@ test("qualification rejects absent history and missing host proofs", () => {
 				hosts: [],
 			}),
 		);
-		expect(() => qualify(path)).toThrow();
+		await expect(qualify(path)).rejects.toThrow();
 		writeFileSync(path, JSON.stringify({ version: 1, approved: true }));
-		expect(() => qualify(path)).toThrow();
+		await expect(qualify(path)).rejects.toThrow();
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

@@ -81,7 +81,7 @@ test("comparison runs separate mode and scorer processes retaining each result",
 			expect(request).toContain("messages");
 		}
 		expect(report.trials.every((t) => t.quality)).toBe(true);
-		const rescored = rescoreBatch(
+		const rescored = await rescoreBatch(
 			path,
 			join(root, "result"),
 			started.sourceHash,
@@ -98,9 +98,9 @@ test("comparison runs separate mode and scorer processes retaining each result",
 		const modifiedTrace = JSON.parse(originalTrace);
 		modifiedTrace.requests[0].transport.model = "different-model";
 		writeFileSync(tracePath, JSON.stringify(modifiedTrace));
-		expect(() =>
+		await expect(
 			rescoreBatch(path, join(root, "result"), started.sourceHash),
-		).toThrow();
+		).rejects.toThrow();
 		writeFileSync(tracePath, originalTrace);
 
 		writeFileSync(
@@ -108,11 +108,12 @@ test("comparison runs separate mode and scorer processes retaining each result",
 			JSON.stringify({ trials: [], qualification: { qualified: true } }),
 		);
 		expect(
-			rescoreBatch(path, join(root, "result"), started.sourceHash).trials,
+			(await rescoreBatch(path, join(root, "result"), started.sourceHash))
+				.trials,
 		).toEqual(report.trials);
-		expect(() =>
+		await expect(
 			rescoreBatch(path, join(root, "result"), "f".repeat(64)),
-		).toThrow();
+		).rejects.toThrow();
 		writeFileSync(join(root, "result", "report.json"), JSON.stringify(report));
 
 		expect(report.qualification.qualified).toBe(false);

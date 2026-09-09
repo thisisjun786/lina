@@ -28,7 +28,7 @@ function commonScore(trials: TrialScore[], mode: string): number {
 		}, 0) / 15
 	);
 }
-export function qualify(indexPath: string) {
+export async function qualify(indexPath: string) {
 	const value: unknown = JSON.parse(readFileSync(indexPath, "utf8"));
 	if (!value || typeof value !== "object" || Array.isArray(value))
 		throw Error("invalid qualification index");
@@ -69,7 +69,8 @@ export function qualify(indexPath: string) {
 		);
 		const hosts = validateHostEvidence(index["hosts"], digests.sourceHash);
 		let configuration: string | null = null;
-		const batches = candidates.map((entry) => {
+		const batches = [];
+		for (const entry of candidates) {
 			const manifest = loadManifest(entry.manifestPath);
 			const generation = registry.generation(entry.seed);
 			if (
@@ -101,7 +102,7 @@ export function qualify(indexPath: string) {
 			for (const [key, hash] of Object.entries(digests))
 				if (started[key] !== hash)
 					throw Error("batch candidate provenance mismatch");
-			const rescored = rescoreBatch(
+			const rescored = await rescoreBatch(
 				entry.manifestPath,
 				entry.output,
 				digests.sourceHash,
@@ -118,7 +119,7 @@ export function qualify(indexPath: string) {
 				kernel: commonScore(rescored.trials, "kernel"),
 				ablation: commonScore(rescored.trials, "ablation"),
 			};
-			return {
+			batches.push({
 				seed: entry.seed,
 				output: entry.output,
 				scores: aggregateScores(rescored.trials, hosts),
@@ -126,8 +127,8 @@ export function qualify(indexPath: string) {
 				kernelMinusBaseline: common.kernel - common.baseline,
 				kernelMinusAblation: common.kernel - common.ablation,
 				...rescored,
-			};
-		});
+			});
+		}
 		return {
 			version: 1,
 			qualified: batches.every((b) => b.scores.qualified),

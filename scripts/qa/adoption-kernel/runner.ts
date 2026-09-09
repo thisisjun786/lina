@@ -14,10 +14,11 @@ export async function runEpisode(
 	mode: RunMode,
 	transport: ModelTransport,
 	root?: string,
+	decisionId?: () => string,
 ): Promise<EpisodeTrace> {
 	const input = decodePublicCase(value);
 	if (root) mkdirSync(root, { recursive: true });
-	const session = createSession(mode, input, transport, root);
+	const session = createSession(mode, input, transport, root, decisionId);
 	try {
 		let index = 0;
 		session.applyStage(index);
