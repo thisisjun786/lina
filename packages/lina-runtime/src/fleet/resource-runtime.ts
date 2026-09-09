@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
 	existsSync,
 	lstatSync,
@@ -41,6 +42,17 @@ interface Options {
 	isWorldParticipant?: (worldId: string, agentId: string) => boolean;
 	onActivityChanged?: (worldId: string) => void;
 }
+type TaskSearchSession = {
+	client: ReturnType<ResourceEngine["consumer"]>;
+	dispose(): void;
+};
+type TaskSearchKey = string | AbortSignal;
+type TaskSearchCall = {
+	key: TaskSearchKey;
+	context: TaskToolContext | undefined;
+	signal: AbortSignal;
+};
+const MAX_TASK_SEARCHES = 64;
 /** Validate recovery and migrations on copies; SQLite must not recover rejected originals. */
 function validateStoredResources(
 	root: string,
@@ -162,6 +174,8 @@ export class FleetResources {
 	private tail: Promise<void> = Promise.resolve();
 	private tasks = new Set<Promise<unknown>>();
 	private clients = new Map<string, ReturnType<ResourceEngine["consumer"]>>();
+	private readonly taskSearches = new Map<TaskSearchKey, TaskSearchSession>();
+	private readonly taskCall = new AsyncLocalStorage<TaskSearchCall>();
 	private stopping: Promise<void> | undefined;
 	constructor(private options: Options) {
 		options.assertInstallation();
@@ -277,6 +291,36 @@ export class FleetResources {
 			this.lastFailure = "RESOURCE_PROCESSING_FAILED";
 		});
 	}
+	private taskSearch(
+		key: TaskSearchKey,
+		signal: AbortSignal,
+		id: string | null,
+	) {
+		const cached = this.taskSearches.get(key);
+		if (cached) return cached;
+		const client = this.engine.consumer(
+			() => {
+				const call = this.taskCall.getStore();
+				if (!call || call.key !== key)
+					throw Error("Resource task context unavailable");
+				call.signal.throwIfAborted();
+				call.context?.assertCurrent();
+				return this.scope(id);
+			},
+			(r) => this.schedule(id, r.id),
+		);
+		const remove = () => {
+			if (this.taskSearches.get(key) === session) this.taskSearches.delete(key);
+			signal.removeEventListener("abort", remove);
+		};
+		const session = { client, dispose: remove };
+		this.taskSearches.set(key, session);
+		signal.addEventListener("abort", remove, { once: true });
+		while (this.taskSearches.size > MAX_TASK_SEARCHES) {
+			this.taskSearches.values().next().value?.dispose();
+		}
+		return session;
+	}
 	readonly executeTool: NonNullable<TaskManagerOptions["executeTool"]> = (
 		name,
 		callId,
@@ -285,34 +329,41 @@ export class FleetResources {
 		context?: TaskToolContext,
 	) => {
 		this.open();
-		const run = this.engine.execute(async (combined) => {
-			context?.assertCurrent();
-			const id = context?.agentId ?? null;
-			const host = new CodexHost(this.options.root, () => ({
-				action: "allow",
-			}));
-			const client = this.engine.consumer(
-				() => {
+		const key: TaskSearchKey = context
+			? JSON.stringify([context.taskId, context.agentId, context.revision])
+			: signal;
+		const run = this.engine.execute(
+			(combined) =>
+				this.taskCall.run({ key, context, signal: combined }, async () => {
 					context?.assertCurrent();
-					return this.scope(id);
-				},
-				(r) => this.schedule(id, r.id),
-			);
-			client.install(host.asLinaHost());
-			installActivityTools(host.asLinaHost(), {
-				ledger: this.activities,
-				...(this.options.onActivityChanged
-					? { changed: this.options.onActivityChanged }
-					: {}),
-				scope: () => {
-					context?.assertCurrent();
-					return this.scope(id);
-				},
-			});
-			const result = await host.invokeTool(name, callId, args, combined);
-			context?.assertCurrent();
-			return result;
-		}, signal);
+					const id = context?.agentId ?? null;
+					const host = new CodexHost(this.options.root, () => ({
+						action: "allow",
+					}));
+					const session = this.taskSearch(key, signal, id);
+					const cancel = () => session.dispose();
+					combined.addEventListener("abort", cancel, { once: true });
+					try {
+						session.client.install(host.asLinaHost());
+						installActivityTools(host.asLinaHost(), {
+							ledger: this.activities,
+							...(this.options.onActivityChanged
+								? { changed: this.options.onActivityChanged }
+								: {}),
+							scope: () => {
+								context?.assertCurrent();
+								return this.scope(id);
+							},
+						});
+						const result = await host.invokeTool(name, callId, args, combined);
+						context?.assertCurrent();
+						return result;
+					} finally {
+						combined.removeEventListener("abort", cancel);
+					}
+				}),
+			signal,
+		);
 		this.tasks.add(run);
 		void run.then(
 			() => this.tasks.delete(run),
@@ -331,6 +382,8 @@ export class FleetResources {
 			await Promise.allSettled([this.tail, ...this.tasks]);
 			this.activityLedger.close();
 			this.clients.clear();
+			for (const session of this.taskSearches.values()) session.dispose();
+			this.taskCall.disable();
 		})();
 		return this.stopping;
 	}

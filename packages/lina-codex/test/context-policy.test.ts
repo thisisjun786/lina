@@ -260,6 +260,104 @@ test("compaction stops claiming pre-compaction originals as resident while later
 	expect(seen[2]).toEqual(laterIds);
 });
 
+test("reopen never claims historical residency and later originals still deduplicate", async () => {
+	const f = setupNative();
+	const first = await createCodexSession(f.options);
+	await finish(first, f.rpc);
+	const oldIds = first.history().map((e) => (e as { id: string }).id);
+	await first.compact();
+	await finish(first, f.rpc);
+	const laterIds = first
+		.history()
+		.slice(2)
+		.map((e) => (e as { id: string }).id);
+	await first.close();
+	const rpc = contextRpc(f.root);
+	cleanup.push(() => rpc.close());
+	const seen: Array<readonly string[] | undefined> = [];
+	const resumed = await createCodexSession({
+		...f.options,
+		rpc: rpc.options,
+		register(host) {
+			host.on("context", (event) => {
+				seen.push(event.nativeEntryIds);
+			});
+		},
+	});
+	cleanup.push(() => resumed.close());
+	await finish(resumed, rpc);
+	expect(oldIds).toHaveLength(2);
+	expect(laterIds).toHaveLength(2);
+	expect(seen[0]).toEqual([]);
+	await finish(resumed, rpc);
+	expect(seen[1]).toHaveLength(2);
+	await resumed.compact();
+	await finish(resumed, rpc);
+	expect(seen[2]).toEqual([]);
+});
+
+test("legacy residency is conservative and compacted epochs stay excluded after transition", async () => {
+	const f = setupNative();
+	const beforeReopen: Array<readonly string[] | undefined> = [];
+	const first = await createCodexSession({
+		...f.options,
+		register(host) {
+			host.on("context", (e) => {
+				beforeReopen.push(e.nativeEntryIds);
+			});
+		},
+	});
+	await finish(first, f.rpc);
+	await first.compact();
+	f.state.policy = revised(f.state.policy, { bindingRevision: 2 });
+	await finish(first, f.rpc);
+	expect(beforeReopen[1]).toEqual([]);
+	const epoch = first.nativeEpoch;
+	const newIds = first
+		.history()
+		.filter(
+			(e) =>
+				(e as { codex?: { nativeEpoch?: number } }).codex?.nativeEpoch ===
+				epoch,
+		)
+		.map((e) => (e as { id: string }).id);
+	await first.close();
+	const seen: Array<readonly string[] | undefined> = [];
+	const rpc = contextRpc(f.root);
+	cleanup.push(() => rpc.close());
+	const resumed = await createCodexSession({
+		...f.options,
+		contextPolicy: f.state.policy,
+		rpc: rpc.options,
+		register(host) {
+			host.on("context", (e) => {
+				seen.push(e.nativeEntryIds);
+			});
+		},
+	});
+	await finish(resumed, rpc);
+	expect(seen[0]).toEqual([]);
+	expect(newIds).toHaveLength(2);
+	await resumed.close();
+	const legacyRpc = contextRpc(f.root);
+	cleanup.push(() => legacyRpc.close());
+	const legacy = await createCodexSession({
+		...f.options,
+		contextPolicy: f.state.policy,
+		rpc: legacyRpc.options,
+		register(host) {
+			host.on("context", (e) => {
+				seen.push(e.nativeEntryIds);
+			});
+		},
+	});
+	cleanup.push(() => legacy.close());
+	await finish(legacy, legacyRpc);
+	expect(seen[1]).toEqual([]);
+	await finish(legacy, legacyRpc);
+	expect(seen[2]).toHaveLength(2);
+});
+
 test("ordinary settled notLoaded threads resume once before the idle audit", async () => {
 	const f = setupNative();
 	const first = await createCodexSession(f.options);

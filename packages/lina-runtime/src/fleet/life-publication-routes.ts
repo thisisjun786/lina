@@ -36,6 +36,7 @@ export interface PublicationRouteServices {
 	images?(
 		worldId: string,
 		principal: PublicationPrincipal,
+		postIds: readonly string[],
 	): ReadonlyMap<string, PublicLifeImage>;
 }
 
@@ -482,7 +483,21 @@ export async function lifePublicationRoutes(
 					principal,
 					query,
 					principal && (route.action === "feed" || route.action === "post")
-						? services.images?.(route.worldId, principal)
+						? services.images?.(
+								route.worldId,
+								principal,
+								route.action === "feed"
+									? store
+											.publicationFeed(route.worldId, principal, query)
+											.items.map((post) => post.id)
+									: store.publicationPost(
+												route.worldId,
+												principal,
+												route.target,
+											)
+										? [route.target]
+										: [],
+							)
 						: undefined,
 				);
 	} catch (error) {

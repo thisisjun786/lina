@@ -62,6 +62,47 @@ function persistentFixture() {
 	return { ...f, store, open, seed, path: join(root, "memory.sqlite") };
 }
 
+function commitParksAndVisits(f: ReturnType<typeof persistentFixture>) {
+	const first = f.store.beginReasoning({ ...f.seed, stage: "deduction" }, [
+		f.a.id,
+		f.b.id,
+	]);
+	if (!first) throw Error("missing claim");
+	const deducted = f.store.applyConclusions({
+		requestId: first.claim.id,
+		expectedRevision: first.input.expectedRevision,
+		proposals: [{ ...f.proposal, reasoningKind: "deduction" }],
+		claim: first.claim,
+	});
+	const parent = deducted.records.find((r) => r.key === "parks");
+	if (!parent) throw Error("missing parent");
+	const second = f.store.beginReasoning(
+		{ ...f.seed, trigger: "b".repeat(64) },
+		[f.a.id, f.b.id, parent.id],
+	);
+	if (!second) throw Error("missing second claim");
+	const induced = f.store.applyConclusions({
+		requestId: second.claim.id,
+		expectedRevision: second.input.expectedRevision,
+		proposals: [
+			{
+				...f.proposal,
+				key: "park.visits",
+				text: "May like park visits",
+				premises: [{ recordId: parent.id, revision: parent.revision }],
+			},
+		],
+		claim: second.claim,
+	});
+	const child = induced.records.find((r) => r.key === "park.visits");
+	if (!child) throw Error("missing child");
+	return { parent, child };
+}
+
+function current(f: ReturnType<typeof persistentFixture>, key: string) {
+	return f.store.state().records.find((r) => r.key === key);
+}
+
 function fixture() {
 	const entries = new Map<string, SourceEntry>(
 		["u1", "u2", "uncited"].map((id) => [
@@ -766,4 +807,371 @@ test("one read validates a shared receipt once and the next read detects disk co
 		db.close();
 	}
 	expect(() => f.store.state()).toThrow(/fingerprint/);
+});
+
+test("identical eligible conclusion reconfirmation keeps generation and descendants", () => {
+	const f = persistentFixture();
+	const { parent, child } = commitParksAndVisits(f);
+	expect(parent.generation).toBe(0);
+	expect(child.status).toBe("active");
+	f.entries.set(
+		"u3",
+		ordinarySource({
+			entryId: "u3",
+			role: "user",
+			text: "I enjoy reading.",
+		}),
+	);
+	f.store.apply({
+		requestId: "unrelated",
+		expectedRevision: f.store.currentRevision(),
+		sourceProofs: captureSourceProofs(["u3"], f.lookup),
+		observations: [
+			{
+				subject: "user",
+				kind: "interest",
+				key: "reading",
+				text: "Enjoys reading",
+				evidence: "explicit",
+				sources: [{ entryId: "u3", quote: "reading" }],
+			},
+		],
+	});
+	const walking = current(f, "walking");
+	const outdoors = current(f, "outdoors");
+	if (!walking || !outdoors) throw Error("missing premises");
+	const again = f.store.beginReasoning(
+		{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+		[walking.id, outdoors.id],
+	);
+	if (!again) throw Error("missing claim");
+	f.store.applyConclusions({
+		requestId: again.claim.id,
+		expectedRevision: again.input.expectedRevision,
+		proposals: [
+			{
+				...f.proposal,
+				reasoningKind: "deduction",
+				premises: [
+					{ recordId: walking.id, revision: walking.revision },
+					{ recordId: outdoors.id, revision: outdoors.revision },
+				],
+			},
+		],
+		claim: again.claim,
+	});
+	expect(current(f, "parks")).toMatchObject({
+		id: parent.id,
+		generation: parent.generation,
+		text: parent.text,
+		status: "active",
+	});
+	expect(current(f, "park.visits")).toMatchObject({
+		id: child.id,
+		generation: child.generation,
+		status: "active",
+	});
+	const empty = f.store.beginReasoning(
+		{ ...f.seed, trigger: "d".repeat(64), stage: "induction" },
+		[walking.id, outdoors.id, parent.id],
+	);
+	if (!empty) throw Error("missing empty induction");
+	f.store.applyConclusions({
+		requestId: empty.claim.id,
+		expectedRevision: empty.input.expectedRevision,
+		proposals: [],
+		claim: empty.claim,
+	});
+	expect(current(f, "park.visits")).toMatchObject({
+		id: child.id,
+		status: "active",
+	});
+	f.store.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.some((r) => r.id === child.id && r.status === "active"),
+	).toBe(true);
+});
+
+test("premise corroboration then identical conclusion reconfirmation keeps descendants", () => {
+	const f = persistentFixture();
+	const { parent, child } = commitParksAndVisits(f);
+	f.entries.set(
+		"again",
+		ordinarySource({ entryId: "again", role: "user", text: "walking" }),
+	);
+	f.store.apply({
+		requestId: "again",
+		expectedRevision: f.store.currentRevision(),
+		sourceProofs: captureSourceProofs(["again"], f.lookup),
+		observations: [
+			{
+				subject: "user",
+				kind: "interest",
+				key: f.a.key,
+				text: f.a.text,
+				evidence: "explicit",
+				sources: [{ entryId: "again", quote: "walking" }],
+			},
+		],
+	});
+	const walking = current(f, "walking");
+	const outdoors = current(f, "outdoors");
+	if (!walking || !outdoors) throw Error("missing premises");
+	expect(walking.revision).toBeGreaterThan(f.a.revision);
+	const again = f.store.beginReasoning(
+		{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+		[walking.id, outdoors.id],
+	);
+	if (!again) throw Error("missing claim");
+	f.store.applyConclusions({
+		requestId: again.claim.id,
+		expectedRevision: again.input.expectedRevision,
+		proposals: [
+			{
+				...f.proposal,
+				reasoningKind: "deduction",
+				premises: [
+					{ recordId: walking.id, revision: walking.revision },
+					{ recordId: outdoors.id, revision: outdoors.revision },
+				],
+			},
+		],
+		claim: again.claim,
+	});
+	expect(current(f, "parks")).toMatchObject({
+		id: parent.id,
+		generation: parent.generation,
+	});
+	expect(current(f, "park.visits")).toMatchObject({
+		id: child.id,
+		status: "active",
+	});
+	expect(current(f, "parks")?.sources.map((s) => s.entryId)).toContain("again");
+	expect(current(f, "parks")?.sourceProofs?.map((s) => s.entryId)).toContain(
+		"again",
+	);
+	f.store.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.find((r) => r.key === "park.visits")?.status,
+	).toBe("active");
+});
+
+test("changing an eligible conclusion value invalidates descendants", () => {
+	const f = persistentFixture();
+	commitParksAndVisits(f);
+	const walking = current(f, "walking");
+	const outdoors = current(f, "outdoors");
+	const parent = current(f, "parks");
+	if (!walking || !outdoors || !parent) throw Error("missing records");
+	const again = f.store.beginReasoning(
+		{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+		[walking.id, outdoors.id],
+	);
+	if (!again) throw Error("missing claim");
+	f.store.applyConclusions({
+		requestId: again.claim.id,
+		expectedRevision: again.input.expectedRevision,
+		proposals: [
+			{
+				...f.proposal,
+				text: "Prefers indoor gardens",
+				reasoningKind: "deduction",
+				premises: [
+					{ recordId: walking.id, revision: walking.revision },
+					{ recordId: outdoors.id, revision: outdoors.revision },
+				],
+			},
+		],
+		claim: again.claim,
+	});
+	expect(current(f, "parks")).toMatchObject({
+		text: "Prefers indoor gardens",
+		generation: parent.generation + 1,
+	});
+	expect(current(f, "park.visits")).toBeUndefined();
+});
+
+test("changing conclusion premises invalidates descendants", () => {
+	const f = persistentFixture();
+	commitParksAndVisits(f);
+	const walking = current(f, "walking");
+	const parent = current(f, "parks");
+	if (!walking || !parent) throw Error("missing records");
+	const again = f.store.beginReasoning(
+		{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+		[walking.id],
+	);
+	if (!again) throw Error("missing claim");
+	f.store.applyConclusions({
+		requestId: again.claim.id,
+		expectedRevision: again.input.expectedRevision,
+		proposals: [
+			{
+				...f.proposal,
+				reasoningKind: "deduction",
+				premises: [{ recordId: walking.id, revision: walking.revision }],
+			},
+		],
+		claim: again.claim,
+	});
+	expect(current(f, "parks")?.generation).toBe(parent.generation + 1);
+	expect(current(f, "park.visits")).toBeUndefined();
+});
+
+test("revoking a conclusion invalidates descendants and blocks same-evidence relearning", () => {
+	const f = persistentFixture();
+	const { parent } = commitParksAndVisits(f);
+	f.store.retract(parent.id, f.store.currentRevision());
+	expect(current(f, "parks")).toBeUndefined();
+	expect(current(f, "park.visits")).toBeUndefined();
+	const retry = f.store.beginReasoning(
+		{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+		[f.a.id, f.b.id],
+	);
+	if (!retry) throw Error("missing claim");
+	expect(() =>
+		f.store.applyConclusions({
+			requestId: retry.claim.id,
+			expectedRevision: retry.input.expectedRevision,
+			proposals: [{ ...f.proposal, reasoningKind: "deduction" }],
+			claim: retry.claim,
+		}),
+	).toThrow(/invalidated/);
+	expect(current(f, "park.visits")).toBeUndefined();
+});
+
+test("identical reconfirmation still requires current source eligibility", () => {
+	const f = persistentFixture();
+	const { child } = commitParksAndVisits(f);
+	const walking = current(f, "walking");
+	const outdoors = current(f, "outdoors");
+	if (!walking || !outdoors) throw Error("missing premises");
+	const again = f.store.beginReasoning(
+		{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+		[walking.id, outdoors.id],
+	);
+	if (!again) throw Error("missing claim");
+	const uncited = f.entries.get("uncited");
+	if (!uncited) throw Error("fixture");
+	restrictSource(uncited);
+	expect(() =>
+		f.store.applyConclusions({
+			requestId: again.claim.id,
+			expectedRevision: again.input.expectedRevision,
+			proposals: [
+				{
+					...f.proposal,
+					reasoningKind: "deduction",
+					premises: [
+						{ recordId: walking.id, revision: walking.revision },
+						{ recordId: outdoors.id, revision: outdoors.revision },
+					],
+				},
+			],
+			claim: again.claim,
+		}),
+	).toThrow();
+	expect(f.store.currentRevision()).toBe(again.input.expectedRevision);
+	const inspect = new DatabaseSync(f.path, { readOnly: true });
+	try {
+		expect(
+			inspect
+				.prepare("SELECT status FROM engine_records WHERE id=?")
+				.get(child.id)?.["status"],
+		).toBe("active");
+	} finally {
+		inspect.close();
+	}
+});
+
+test("reordered identical premises preserve generation and descendants", () => {
+	const f = persistentFixture();
+	const { parent, child } = commitParksAndVisits(f);
+	expect(parent.generation).toBe(0);
+	expect(child.status).toBe("active");
+	f.entries.set(
+		"u3",
+		ordinarySource({
+			entryId: "u3",
+			role: "user",
+			text: "I enjoy reading.",
+		}),
+	);
+	f.store.apply({
+		requestId: "unrelated",
+		expectedRevision: f.store.currentRevision(),
+		sourceProofs: captureSourceProofs(["u3"], f.lookup),
+		observations: [
+			{
+				subject: "user",
+				kind: "interest",
+				key: "reading",
+				text: "Enjoys reading",
+				evidence: "explicit",
+				sources: [{ entryId: "u3", quote: "reading" }],
+			},
+		],
+	});
+	const walking = current(f, "walking");
+	const outdoors = current(f, "outdoors");
+	if (!walking || !outdoors) throw Error("missing premises");
+	const again = f.store.beginReasoning(
+		{ ...f.seed, trigger: "c".repeat(64), stage: "deduction" },
+		[walking.id, outdoors.id],
+	);
+	if (!again) throw Error("missing claim");
+	f.store.applyConclusions({
+		requestId: again.claim.id,
+		expectedRevision: again.input.expectedRevision,
+		proposals: [
+			{
+				...f.proposal,
+				reasoningKind: "deduction",
+				premises: [
+					{ recordId: outdoors.id, revision: outdoors.revision },
+					{ recordId: walking.id, revision: walking.revision },
+				],
+			},
+		],
+		claim: again.claim,
+	});
+	expect(current(f, "parks")).toMatchObject({
+		id: parent.id,
+		generation: parent.generation,
+		text: parent.text,
+		status: "active",
+	});
+	expect(current(f, "park.visits")).toMatchObject({
+		id: child.id,
+		generation: child.generation,
+		status: "active",
+	});
+	const empty = f.store.beginReasoning(
+		{ ...f.seed, trigger: "d".repeat(64), stage: "induction" },
+		[walking.id, outdoors.id, parent.id],
+	);
+	if (!empty) throw Error("missing empty induction");
+	f.store.applyConclusions({
+		requestId: empty.claim.id,
+		expectedRevision: empty.input.expectedRevision,
+		proposals: [],
+		claim: empty.claim,
+	});
+	expect(current(f, "park.visits")).toMatchObject({
+		id: child.id,
+		status: "active",
+	});
+	f.store.close();
+	expect(
+		f
+			.open()
+			.state()
+			.records.some((r) => r.id === child.id && r.status === "active"),
+	).toBe(true);
 });

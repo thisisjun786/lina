@@ -115,13 +115,19 @@ export async function lifeRoutes(
 						images: (
 							worldId: string,
 							principal: import("../../../lina-core/src/world/publication-types.ts").PublicationPrincipal,
+							postIds: readonly string[],
 						) => {
 							const grant = fleet.lifeStorage.authenticatePublicationViewer(
 								worldId,
 								request.headers.get("authorization")?.slice(7) ?? "",
 							);
 							if (!grant) throw Error("Publication viewer forbidden");
-							return images().feedImages(worldId, principal, grant.recipientId);
+							return images().feedImages(
+								worldId,
+								principal,
+								grant.recipientId,
+								postIds,
+							);
 						},
 					}
 				: {}),

@@ -1335,3 +1335,29 @@ test("interaction callback is optional and installation ownership is checked aga
 	expect(f.store.lifeInputs("test-world")).toHaveLength(2);
 	expect(f.services.run).not.toHaveBeenCalled();
 });
+
+test("image projection receives only requested visible post IDs", async () => {
+	const f = fixture();
+	const seen: unknown[] = [];
+	const services = {
+		...f.services,
+		images: (...args: unknown[]) => {
+			seen.push(args[2]);
+			return new Map();
+		},
+	};
+	for (const suffix of [
+		"/feed?limit=1",
+		"/feed/posts/" + f.postId,
+		"/feed/posts/absent",
+	]) {
+		await lifePublicationRoutes(
+			new Request(f.url(suffix), {
+				headers: { authorization: f.bearer, host: new URL(f.url(suffix)).host },
+			}),
+			services,
+			async () => ({}),
+		);
+	}
+	expect(seen).toEqual([[f.postId], [f.postId], []]);
+});

@@ -186,8 +186,9 @@ async function startSession(
 	);
 	const listeners = new Set<(event: unknown) => void>();
 	const history: ProjectedEntry[] = [...journalEntries(identity.sessionFile)];
-	// Compaction does not prove which original messages remain resident.
-	let nativeHistoryFloor = 0;
+	// Persisted history does not prove native residency after compaction or a
+	// disconnected notification. Only originals delivered in this attachment do.
+	let nativeHistoryFloor = history.length;
 	const nativeItems = new Map<string, number>();
 	const ordinals = new Map<string, number>();
 	const remember = (entry: ProjectedEntry) => {
@@ -893,6 +894,8 @@ async function startSession(
 			epoch,
 		))
 			retain(entry);
+		// Native replay is historical, including items the model may have compacted.
+		nativeHistoryFloor = history.length;
 		if (policy) contextPolicy.reconcile(read.thread, boundThreadId);
 		currentTurnId = activeTurnId(read.thread);
 		if (currentTurnId) turnAbort = new AbortController();
@@ -1134,6 +1137,8 @@ async function startSession(
 		},
 		async compact() {
 			assertContext();
+			// Failed or unacknowledged compaction cannot prove originals remain resident.
+			nativeHistoryFloor = history.length;
 			const done = waitNotification(
 				(method, params) =>
 					method === "thread/compacted" ||

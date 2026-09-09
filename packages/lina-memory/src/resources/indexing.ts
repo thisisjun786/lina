@@ -45,16 +45,30 @@ export class ResourceIndex {
 			throw Error("resource unavailable");
 		return r;
 	}
-	private sources(r: Resource): {
+	private sources(
+		r: Resource,
+		catalog?: Resource[],
+	): {
 		refs: ResourceVersionRef[];
 		complete: boolean;
 	} {
+		if (r.kind !== "collection")
+			return {
+				refs: [
+					{
+						resourceId: r.id,
+						resourceRevision: r.revision,
+						versionId: r.currentVersion,
+					},
+				],
+				complete: true,
+			};
 		const scope: ResourceScope = {
 			principalId: r.ownerId,
 			agentId: r.ownerId,
 			allowedVisibilities: ["private", "shared"],
 		};
-		const all = allResources(this.db).filter(
+		const all = (catalog ?? allResources(this.db)).filter(
 			(v) =>
 				!v.deleted &&
 				permitted(scope, v) &&
@@ -63,28 +77,26 @@ export class ResourceIndex {
 		const found = new Map<string, Resource>([[r.id, r]]),
 			pending = [r.id];
 		let complete = true;
-		if (r.kind === "collection")
-			while (pending.length) {
-				const id = pending.shift();
-				for (const v of all) {
-					if (v.parentId !== id && !v.collectionIds.includes(id ?? ""))
-						continue;
-					if (found.has(v.id)) continue;
-					// A shared metadata shell must not publish an older private content version.
-					if (
-						v.currentVersion &&
-						r.visibility === "shared" &&
-						version(this.db, v.currentVersion)?.visibility !== "shared"
-					)
-						continue;
-					if (found.size >= 64) {
-						complete = false;
-						continue;
-					}
-					found.set(v.id, v);
-					if (v.kind === "collection") pending.push(v.id);
+		while (pending.length) {
+			const id = pending.shift();
+			for (const v of all) {
+				if (v.parentId !== id && !v.collectionIds.includes(id ?? "")) continue;
+				if (found.has(v.id)) continue;
+				// A shared metadata shell must not publish an older private content version.
+				if (
+					v.currentVersion &&
+					r.visibility === "shared" &&
+					version(this.db, v.currentVersion)?.visibility !== "shared"
+				)
+					continue;
+				if (found.size >= 64) {
+					complete = false;
+					continue;
 				}
+				found.set(v.id, v);
+				if (v.kind === "collection") pending.push(v.id);
 			}
+		}
 		return {
 			refs: [...found.values()]
 				.sort((a, b) => (a.id < b.id ? -1 : 1))
@@ -130,9 +142,10 @@ export class ResourceIndex {
 	changed(): void {
 		if (!this.db.isTransaction)
 			throw Error("resource indexing needs writer transaction");
-		for (const r of allResources(this.db)) {
+		const catalog = allResources(this.db);
+		for (const r of catalog) {
 			if (r.deleted) continue;
-			const source = this.sources(r);
+			const source = this.sources(r, catalog);
 			for (const kind of r.kind === "collection"
 				? (["overview"] as const)
 				: (["extract", "brief"] as const)) {

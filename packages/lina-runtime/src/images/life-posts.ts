@@ -1,4 +1,7 @@
-import type { ImageAttemptDelivery } from "../../../lina-core/src/world/image-attempt-types.ts";
+import type {
+	ImageAttemptDelivery,
+	LifeImageAttempt,
+} from "../../../lina-core/src/world/image-attempt-types.ts";
 import type { PostImageAsset } from "../../../lina-core/src/world/image-publication.ts";
 import { lifeDigest } from "../../../lina-core/src/world/life-json.ts";
 import type { ImageJob } from "./contracts.ts";
@@ -92,6 +95,7 @@ export class LifeImagePosts {
 		worldId: string,
 		postId: string,
 		recipientId: string,
+		snapshot?: readonly LifeImageAttempt[],
 	): LifeImagePostAsset | null {
 		try {
 			const asset = this.options.world.imagePostAsset(
@@ -100,21 +104,21 @@ export class LifeImagePosts {
 				recipientId,
 			);
 			if (!asset) return null;
-			const attempts = this.options.world
-				.imageAttempts(worldId)
-				.filter(
-					(attempt) =>
-						(attempt.delivery.kind === "post" &&
-							attempt.delivery.postId === asset.postId &&
-							attempt.delivery.postRevision === asset.postRevision &&
-							attempt.delivery.artifactId === asset.artifactId) ||
-						(attempt.observation?.state === "completed" &&
-							attempt.observation.artifact !== null &&
-							attempt.observation.artifact.id === asset.artifactId &&
-							attempt.observation.artifact.sha256 === asset.sha256 &&
-							attempt.observation.artifact.mime === asset.mime &&
-							attempt.observation.artifact.size === asset.size),
-				);
+			const attempts = (
+				snapshot ?? this.options.world.imageAttempts(worldId)
+			).filter(
+				(attempt) =>
+					(attempt.delivery.kind === "post" &&
+						attempt.delivery.postId === asset.postId &&
+						attempt.delivery.postRevision === asset.postRevision &&
+						attempt.delivery.artifactId === asset.artifactId) ||
+					(attempt.observation?.state === "completed" &&
+						attempt.observation.artifact !== null &&
+						attempt.observation.artifact.id === asset.artifactId &&
+						attempt.observation.artifact.sha256 === asset.sha256 &&
+						attempt.observation.artifact.mime === asset.mime &&
+						attempt.observation.artifact.size === asset.size),
+			);
 			if (attempts.length !== 1) return null;
 			const attempt = attempts[0];
 			if (!attempt) return null;

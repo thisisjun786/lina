@@ -519,6 +519,7 @@ export class EngineStore {
 			const revision = revisionSchema.parse(input.expectedRevision + 1),
 				now = validTime(this.now);
 			const records: EngineRecord[] = [];
+			const sameConclusions = new Set<string>();
 			for (const item of prepared) {
 				const id = recordId(this.agentId, item.proposal),
 					previous = this.get(id);
@@ -535,6 +536,35 @@ export class EngineStore {
 					)
 				)
 					throw Error("invalidated conclusion evidence");
+				const sameConclusion =
+					previous?.reasoning &&
+					this.reasoningEligible(previous) &&
+					sameValue(previous, {
+						subject: item.proposal.subject,
+						kind: item.proposal.kind,
+						key: item.proposal.key,
+						text: item.proposal.text,
+						evidence: "inferred",
+						sources: item.sources,
+					}) &&
+					previous.reasoning.kind === item.reasoning.kind &&
+					isDeepStrictEqual(
+						previous.reasoning.premises
+							.map((p) => JSON.stringify([p.recordId, p.contentHash]))
+							.sort(),
+						item.reasoning.premises
+							.map((p) => JSON.stringify([p.recordId, p.contentHash]))
+							.sort(),
+					);
+				if (sameConclusion && previous) {
+					if (
+						isDeepStrictEqual(previous.sources, item.sources) &&
+						isDeepStrictEqual(previous.sourceProofs, item.sourceProofs) &&
+						previous.support === item.support
+					)
+						continue;
+					sameConclusions.add(id);
+				}
 				const record: EngineRecord = {
 					...deriveRecord(
 						this.agentId,
@@ -551,7 +581,9 @@ export class EngineStore {
 						now,
 						this.lookup,
 					),
-					generation: previous ? previous.generation + 1 : 0,
+					generation: previous
+						? previous.generation + (sameConclusion ? 0 : 1)
+						: 0,
 					createdAt: previous?.createdAt ?? now,
 					sourceRequestId: input.requestId,
 					sourceProofs: item.sourceProofs,
@@ -564,7 +596,8 @@ export class EngineStore {
 			requireCurrentProofs(frozen.promptProofs, this.lookup);
 			this.checkRevision(input.expectedRevision);
 			for (const record of records) {
-				this.invalidateDescendants(record.id, revision, now);
+				if (!sameConclusions.has(record.id))
+					this.invalidateDescendants(record.id, revision, now);
 				this.save(record);
 				this.db
 					.prepare("INSERT INTO engine_reasoning_history VALUES (?,?,?)")

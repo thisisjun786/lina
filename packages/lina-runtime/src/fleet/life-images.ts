@@ -71,45 +71,40 @@ export class FleetLifeImages {
 	allowed(candidate: GeneratedAvatarCandidate) {
 		return this.destinations.allowed(candidate);
 	}
-	/** Resolve cross-store/file authority before core opens the feed snapshot transaction. */
+	/** Resolve only the visible request page before the final feed transaction. */
 	feedImages(
 		worldId: string,
 		principal: PublicationPrincipal,
 		recipientId: string,
+		postIds: readonly string[],
 	): ReadonlyMap<string, PublicLifeImage> {
 		const { world } = this.options;
 		const result = new Map<string, PublicLifeImage>();
-		let after: string | null = null;
-		do {
-			const page = world.publicationFeed(worldId, principal, {
-				limit: 100,
-				after,
+		if (!postIds.length) return result;
+		const attempts = world.imageAttempts(worldId);
+		for (const postId of new Set(postIds)) {
+			if (!world.publicationPost(worldId, principal, postId)) continue;
+			if (
+				!attempts.some(
+					(attempt) =>
+						attempt.delivery.kind === "post" &&
+						attempt.delivery.postId === postId,
+				)
+			)
+				continue;
+			const asset = this.posts.asset(worldId, postId, recipientId, attempts);
+			if (!asset) continue;
+			const metadata = world.imagePostAsset(worldId, postId, recipientId);
+			if (!metadata) continue;
+			result.set(postId, {
+				artifactId: metadata.artifactId,
+				attachmentVersion: metadata.attachmentVersion,
+				mime: metadata.mime,
+				size: metadata.size,
+				altText: metadata.altText,
+				url: `/api/life/worlds/${worldId}/feed/posts/${postId}/assets/${metadata.artifactId}`,
 			});
-			for (const post of page.items) {
-				for (const attempt of world.imageAttempts(worldId)) {
-					if (
-						attempt.delivery.kind !== "post" ||
-						attempt.delivery.postId !== post.id
-					)
-						continue;
-					const intent = world.imageIntent(worldId, attempt.intentId);
-					if (intent?.source.kind !== "event_post") continue;
-					const asset = this.posts.asset(worldId, post.id, recipientId);
-					if (!asset) continue;
-					const metadata = world.imagePostAsset(worldId, post.id, recipientId);
-					if (!metadata) continue;
-					result.set(post.id, {
-						artifactId: metadata.artifactId,
-						attachmentVersion: metadata.attachmentVersion,
-						mime: metadata.mime,
-						size: metadata.size,
-						altText: metadata.altText,
-						url: `/api/life/worlds/${worldId}/feed/posts/${post.id}/assets/${metadata.artifactId}`,
-					});
-				}
-			}
-			after = page.nextCursor;
-		} while (after !== null);
+		}
 		return result;
 	}
 	private complete(job: ImageJob, invocation: "manual" | "scheduled") {
