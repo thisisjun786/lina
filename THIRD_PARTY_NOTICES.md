@@ -25,11 +25,14 @@ Preserve those texts with any distributed copies and review the actual artifact.
   and [examples license](https://github.com/volcengine/OpenViking/blob/420d4074f74070bc6fe7151aa54527cf1ff15152/examples/LICENSE).
   Upstream `third_party` components retain their respective licenses.
 - Lina integration: the original adapter review records independently written
-  HTTP code in `packages/lina-memory/src/openviking`, with no server source
-  imported by that change. Connecting to a separately operated server does not
+  HTTP code formerly in `packages/lina-memory/src/openviking`, with no server source
+  imported by that change. That runtime adapter has since been removed. Connecting to a separately operated server does not
   relicense the server or grant redistribution rights beyond its own terms.
 
 ## Honcho
+
+The runtime adapter has been retired. Existing external data is not imported or
+deleted by the LINA-owned engine transition. Historical review notices remain below.
 
 - Reviewed pin: `be54355545b64ddb10203829d323861f52423685`.
 - Server: GNU Affero General Public License v3.0, per the pinned

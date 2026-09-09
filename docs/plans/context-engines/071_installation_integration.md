@@ -204,3 +204,11 @@ session-app의 기본/disabled/legacy 선택 및 outbox 원본 보존, Fleet HTT
 루트·브라우저 타입 검사 통과. 기록은 session evidence의
 integration-session-retirement-green.log 및 integration-retirement-types.log다.
 전체 071 완료나 라이브 모델 검증을 뜻하지 않는다.
+
+외부 어댑터 production 디렉터리 및 해당 전용 테스트를 제거했다.
+TypeScript 소비자 검색에서 HonchoClient/OpenVikingClient와 어댑터 import가
+남지 않는 것을 확인했다. 기존 QA 진입점은 외부 서비스·파일 접근 전에
+retired 오류를 반환하며, deploy/honcho는 과거 설치 참고 자료로 표시했다.
+기존 라이선스 검토 기록은 보존했다. 이 변경 뒤 lina-memory 전체 129개
+테스트, 루트·브라우저 타입 검사, 전체 lint가 통과했다. lint에는 기존
+warning/info가 남아 있으며 라이브 원격 데이터의 이전·삭제는 실행하지 않았다.
