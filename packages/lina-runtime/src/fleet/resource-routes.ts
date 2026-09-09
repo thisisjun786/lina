@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ResourceActivities } from "../../../lina-memory/src/resources/activities.ts";
 import {
 	canonical,
 	createSchema,
@@ -7,6 +8,10 @@ import {
 import { readResource } from "../../../lina-memory/src/resources/retrieval.ts";
 import type { ResourceStore } from "../../../lina-memory/src/resources/store.ts";
 import type { ResourceScope } from "../../../lina-memory/src/resources/types.ts";
+import {
+	activityCommands,
+	projectActivityRecord,
+} from "../resources/activity-tools.ts";
 import type { ResourceSearch } from "../resources/search.ts";
 
 const reply = (data: unknown, status = 200) =>
@@ -74,6 +79,8 @@ export async function resourceRoutes(
 	request: Request,
 	options: {
 		store: ResourceStore;
+		activities?: ResourceActivities;
+		onActivityChanged?: (worldId: string) => void;
 		scope: () => ResourceScope;
 		basePath?: string;
 		search?: ResourceSearch;
@@ -120,6 +127,33 @@ export async function resourceRoutes(
 			.slice("/api/resources".length)
 			.split("/")
 			.filter(Boolean);
+		if (path[0] === "activities") {
+			if (!options.activities)
+				return reply({ error: "Activity storage unavailable" }, 503);
+			if (!scope().agentId)
+				return reply({ error: "Attributed agent required" }, 403);
+			if (path.length !== 2 || Object.keys(query).length)
+				return reply({ error: "Unknown activity route" }, 404);
+			if (request.method === "GET") {
+				const record = options.activities.get(scope(), path[1] ?? "");
+				if (record.receipt.actorAgentId !== scope().agentId)
+					return reply({ error: "Activity unavailable" }, 404);
+				guard();
+				return reply(projectActivityRecord(record));
+			}
+			if (request.method !== "POST")
+				return reply({ error: "Method not allowed" }, 405);
+			const operation = activityCommands(options.activities).find(
+				(op) => op.name === path[1],
+			);
+			if (!operation) return reply({ error: "Unknown activity route" }, 404);
+			const body = await json(request, 512 * 1024);
+			guard();
+			const record = operation.run(body, scope());
+			options.onActivityChanged?.(record.grant.worldId);
+			guard();
+			return reply(projectActivityRecord(record));
+		}
 		if (path.length === 0) {
 			if (request.method === "GET") {
 				const input = z

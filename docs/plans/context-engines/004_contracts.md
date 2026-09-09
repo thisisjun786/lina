@@ -143,3 +143,9 @@ null/shared-only 소비자는 공통 자료를 읽고 쓸 수 있으나 LIFE act
 resource activity outcome은 `recorded | verified_result | failed`다. 공통 work rule enum에 recorded를 추가하되 기존 rule 값을 바꾸지 않는다. 단순 기록은 recorded이며 자료를 저장했다고 verified_result가 되지 않는다. verified_result는 host가 받은 명시적 결과 확인과 읽을 수 있는 비어 있지 않은 산출물 인용을 요구한다. evidenceDigest는 실제 admission 시 읽은 `{resourceId,resourceRevision,versionId,blobHash,quote,quoteHash,memoryId}` 목록에서 계산한다. 모델이 제공한 digest나 ID만으로 검증하지 않는다. quote가 빈 목록 또는 실제 원문/허용 추출에서 찾을 수 없으면 verified_result를 거부한다.
 
 활동 보정 체인은 revision1이면 supersedesRevision=null, 그 뒤에는 반드시 revision-1이다. task receipt outcome parser는 기존 네 값(turn_ended/verified_result/failed/interrupted)만 허용한다. 공통 rule은 recorded를 선택할 수 있으나 task receipt 자체에 recorded를 허용하지 않는다.
+
+### 활동 도구와 HTTP 연결
+
+에이전트 활동 도구는 `lina_resource_activity_record`, `correct`, `grant`, `restrict` 접미사를 사용한다. HTTP는 `/api/agents/:agentId/resources/activities/{record|correct|grant|restrict}`에 POST하고, `/api/agents/:agentId/resources/activities/:activityId`에서 GET한다. 기존 인증·Origin 거부·본문 크기 제한을 적용한다. 전역 자료 경로의 무주체 호출은 활동을 변경하거나 조회할 수 없다.
+
+도구와 HTTP는 같은 입력 검증과 명령 함수를 사용한다. actor는 호스트의 agent scope에서 정하며 `hostConfirmed`는 입력으로 받지 않는다. 모델·일반 HTTP 입력의 outcome은 recorded/failed만 허용한다. 조회는 해당 활동의 주체로 제한하고 receipt·공유 필드·철회 상태만 반환한다. 원본 본문과 내부 스냅샷은 반환하지 않는다. 변경 후 기존 LIFE 변경 알림을 호출하되, 세계의 주기·실행 모드·예산은 수정하지 않는다.

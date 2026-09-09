@@ -39,6 +39,7 @@ interface Options {
 	validAgent: (id: string) => boolean;
 	assertInstallation: () => void;
 	isWorldParticipant?: (worldId: string, agentId: string) => boolean;
+	onActivityChanged?: (worldId: string) => void;
 }
 /** Validate recovery and migrations on copies; SQLite must not recover rejected originals. */
 function validateStoredResources(
@@ -226,6 +227,9 @@ export class FleetResources {
 		this.consumer(id).install(host);
 		installActivityTools(host, {
 			ledger: this.activities,
+			...(this.options.onActivityChanged
+				? { changed: this.options.onActivityChanged }
+				: {}),
 			scope: () => this.scope(id),
 		});
 	}
@@ -234,6 +238,9 @@ export class FleetResources {
 		this.consumer(null).install(host.asLinaHost());
 		installActivityTools(host.asLinaHost(), {
 			ledger: this.activities,
+			...(this.options.onActivityChanged
+				? { changed: this.options.onActivityChanged }
+				: {}),
 			scope: () => this.scope(null),
 		});
 		return [...host.tools.values()].map((t) => ({
@@ -294,6 +301,9 @@ export class FleetResources {
 			client.install(host.asLinaHost());
 			installActivityTools(host.asLinaHost(), {
 				ledger: this.activities,
+				...(this.options.onActivityChanged
+					? { changed: this.options.onActivityChanged }
+					: {}),
 				scope: () => {
 					context?.assertCurrent();
 					return this.scope(id);

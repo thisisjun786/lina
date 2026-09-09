@@ -401,6 +401,7 @@ async function startUnlocked(
 				services: () => hub.createContextServices(getSettings),
 				policy: getEnginePolicy,
 				validAgent: validOwner,
+				onActivityChanged: (worldId) => fleet.lifeRuntime.changed(worldId),
 				isWorldParticipant: (worldId, agentId) => {
 					const store = fleet.life.store;
 					return (
@@ -500,6 +501,8 @@ async function startUnlocked(
 					const client = resourceOwner.consumer(id);
 					return resourceRoutes(request, {
 						store: resourceOwner.engine.store,
+						activities: resourceOwner.activities,
+						onActivityChanged: (worldId) => fleet.lifeRuntime.changed(worldId),
 						scope: client.scope,
 						search: client.search,
 						...(id ? { basePath: `/api/agents/${id}/resources` } : {}),

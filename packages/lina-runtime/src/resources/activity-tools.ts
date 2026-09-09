@@ -20,16 +20,8 @@ const recordInput = createSchema
 const correctionInput = correctSchema
 	.omit({ hostConfirmed: true })
 	.extend({ outcome: z.enum(["recorded", "failed"]) });
-/** Tool callers never supply host verification or another agent's identity. */
-export function installActivityTools(
-	host: LinaHost,
-	options: {
-		ledger: ResourceActivities;
-		scope: () => ResourceScope;
-		changed?: (worldId: string) => void;
-	},
-) {
-	const operations = [
+export function activityCommands(ledger: ResourceActivities) {
+	return [
 		{
 			name: "record",
 			schema: recordInput,
@@ -37,7 +29,7 @@ export function installActivityTools(
 				const input = recordInput.parse(raw);
 				if (!scope.agentId)
 					throw Error("Attributed agent required for activity recording");
-				return options.ledger.create(scope, {
+				return ledger.create(scope, {
 					...input,
 					actorAgentId: scope.agentId,
 					hostConfirmed: false,
@@ -48,7 +40,7 @@ export function installActivityTools(
 			name: "correct",
 			schema: correctionInput,
 			run: (raw: unknown, scope: ResourceScope) =>
-				options.ledger.correct(scope, {
+				ledger.correct(scope, {
 					...correctionInput.parse(raw),
 					hostConfirmed: false,
 				}),
@@ -57,21 +49,32 @@ export function installActivityTools(
 			name: "grant",
 			schema: grantSchema,
 			run: (raw: unknown, scope: ResourceScope) =>
-				options.ledger.grant(scope, grantSchema.parse(raw)),
+				ledger.grant(scope, grantSchema.parse(raw)),
 		},
 		{
 			name: "restrict",
 			schema: restrictSchema,
 			run: (raw: unknown, scope: ResourceScope) =>
-				options.ledger.restrict(scope, restrictSchema.parse(raw)),
+				ledger.restrict(scope, restrictSchema.parse(raw)),
 		},
 	];
-	const project = (record: ResourceActivityRecord) => ({
-		receipt: record.receipt,
-		worldId: record.grant.worldId,
-		fields: record.grant.fields,
-		revoked: record.grant.revoked,
-	});
+}
+export const projectActivityRecord = (record: ResourceActivityRecord) => ({
+	receipt: record.receipt,
+	worldId: record.grant.worldId,
+	fields: record.grant.fields,
+	revoked: record.grant.revoked,
+});
+/** Tool callers never supply host verification or another agent's identity. */
+export function installActivityTools(
+	host: LinaHost,
+	options: {
+		ledger: ResourceActivities;
+		scope: () => ResourceScope;
+		changed?: (worldId: string) => void;
+	},
+) {
+	const operations = activityCommands(options.ledger);
 	for (const operation of operations)
 		host.registerTool({
 			name: `lina_resource_activity_${operation.name}`,
@@ -88,7 +91,7 @@ export function installActivityTools(
 					throw Error("Attributed agent required for activity changes");
 				const record = operation.run(raw, scope);
 				options.changed?.(record.grant.worldId);
-				const value = project(record);
+				const value = projectActivityRecord(record);
 				return {
 					content: [
 						{
@@ -102,7 +105,9 @@ export function installActivityTools(
 						if (
 							lifeDigest(now) !== lifeDigest(scope) ||
 							lifeDigest(
-								project(options.ledger.get(now, record.receipt.activityId)),
+								projectActivityRecord(
+									options.ledger.get(now, record.receipt.activityId),
+								),
 							) !== lifeDigest(value)
 						)
 							throw Error("Resource activity changed before delivery");

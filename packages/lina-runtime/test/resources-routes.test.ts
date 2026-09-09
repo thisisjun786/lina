@@ -242,3 +242,83 @@ test("resource HTTP capture remains explicit and rejects scope fields", async ()
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("activity API shares tool identity constraints and returns no source snapshot", async () => {
+	const { ResourceActivities } = await import(
+		"../../lina-memory/src/resources/activities.ts"
+	);
+	const root = mkdtempSync(join(tmpdir(), "lina-activity-api-"));
+	const store = new ResourceStore(root, limits);
+	const ledger = new ResourceActivities(root, store, {
+		isWorldParticipant: () => true,
+	});
+	const actor = {
+		principalId: "agent:lina",
+		agentId: "lina",
+		allowedVisibilities: ["shared"] as "shared"[],
+	};
+	const options = { store, scope: () => actor, activities: ledger };
+	try {
+		const doc = store.create(actor, {
+			operationId: "doc",
+			kind: "document",
+			title: "Research",
+			visibility: "shared",
+			mediaType: "text/plain",
+			bytes: new TextEncoder().encode("SOURCE_BODY_CANARY"),
+		});
+		const input = {
+			operationId: "record",
+			activityId: "activity",
+			worldId: "world",
+			participantAgentIds: ["lina"],
+			activityKind: "search",
+			outcome: "recorded",
+			resourceId: doc.id,
+			versionId: null,
+			memoryId: null,
+			quotes: [],
+			fields: {
+				categoryId: "research",
+				outcome: "recorded",
+				participantAgentIds: ["lina"],
+				summary: "Search result",
+			},
+			policyRevision: 1,
+		};
+		const made = await resourceRoutes(
+			request("/api/resources/activities/record", "POST", input),
+			options,
+		);
+		expect(made?.status).toBe(200);
+		const text = await made?.text();
+		expect(text).not.toContain("SOURCE_BODY_CANARY");
+		expect(text).not.toContain('"snapshot"');
+		const forged = await resourceRoutes(
+			request("/api/resources/activities/record", "POST", {
+				...input,
+				actorAgentId: "mira",
+				hostConfirmed: true,
+			}),
+			options,
+		);
+		expect(forged?.status).toBe(400);
+		const read = await resourceRoutes(
+			request("/api/resources/activities/activity"),
+			options,
+		);
+		expect(read?.status).toBe(200);
+		const other = await resourceRoutes(
+			request("/api/resources/activities/activity"),
+			{
+				...options,
+				scope: () => ({ ...actor, agentId: "mira", principalId: "agent:mira" }),
+			},
+		);
+		expect(other?.status).toBe(404);
+	} finally {
+		ledger.close();
+		store.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
