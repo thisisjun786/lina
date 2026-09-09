@@ -305,6 +305,38 @@ test("synthetic full qualification traverses 30 rows and three fresh saved batch
 		writeFileSync(indexPath, JSON.stringify(index));
 		const report = await qualify(indexPath);
 		expect(report.qualified).toBe(true);
+		const outputPath = join(root, "cli-qualification.json");
+		const runCommand = async () => {
+			const child = Bun.spawn(
+				[
+					"bun",
+					new URL("./cli.ts", import.meta.url).pathname,
+					"qualify",
+					"--index",
+					indexPath,
+					"--output",
+					outputPath,
+				],
+				{
+					env: { PATH: process.env["PATH"] ?? "" },
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
+			const [stdout, stderr, exitCode] = await Promise.all([
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			return { stdout, stderr, exitCode };
+		};
+		expect((await runCommand()).exitCode).toBe(0);
+		const cliReport = readFileSync(outputPath, "utf8");
+		expect(JSON.parse(cliReport).qualified).toBe(true);
+		expect(JSON.parse(cliReport).history).toHaveLength(4);
+		expect((await runCommand()).exitCode).not.toBe(0);
+		expect(readFileSync(outputPath, "utf8")).toBe(cliReport);
+
 		expect(report.history).toHaveLength(4);
 		expect(report.history[0]?.recordedReport).toEqual(priorReport);
 		expect(report.history[0]?.state).toBe("failed");
