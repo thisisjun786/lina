@@ -15,7 +15,10 @@ import {
 	projectCurrentPersona,
 	projectSharedPersona,
 } from "../../../lina-core/src/world/views.ts";
-import { resolveLifeModelProfile } from "../life/model-selection.ts";
+import {
+	freezeLifeModelSelection,
+	resolveLifeModelProfile,
+} from "../life/model-selection.ts";
 import type { LifeForeground } from "../life/runner.ts";
 import { createLifeRuntime, systemLifeClock } from "../life/runtime.ts";
 import type { LifeClock } from "../life/scheduler.ts";
@@ -230,8 +233,16 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		providerEnv: options.providerEnv,
 		...(options.command ? { command: options.command } : {}),
 		beforeOutbound(request) {
-			if (request.version === 3)
-				throw Error("Frozen LIFE requests require a versioned execution owner");
+			if (request.version === 3 && request.lane === "publication")
+				throw Error("Frozen publication owner is not connected");
+			if (request.version === 3) {
+				store.assertLifeModelOutbound(request);
+				assertWorkSourceCurrent(
+					options.workSource,
+					store.lifeStep(request.worldId, request.stepId).source.work,
+				);
+				return;
+			}
 			if (request.version === 1) {
 				store.assertLifeModelOutbound(request);
 				assertWorkSourceCurrent(
@@ -255,8 +266,8 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 			);
 		},
 		selection(request) {
-			if (request.version === 3)
-				throw Error("Frozen LIFE requests require a versioned execution owner");
+			if (request.version === 3 && request.lane === "publication")
+				throw Error("Frozen publication owner is not connected");
 			const config = store.lifeConfig(request.worldId);
 			if (request.version === 2) {
 				const job = store.assertPublicationDispatch(
@@ -317,11 +328,23 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 				store.assertPublicationEvidenceCurrent(request.worldId, request.stepId);
 			}
 			const settings = modelSettings.snapshot();
-			const route =
-				config.models?.[request.lane === "director" ? "director" : "actor"];
-			if (
+			const lane = request.lane === "director" ? "director" : "actor";
+			const route = config.models?.[lane];
+			if (!route) throw Error("LIFE exact model/settings selection changed");
+			if (request.version === 3) {
+				const step = store.lifeStep(request.worldId, request.stepId);
+				const saved = step.source.resolvedModels?.[lane];
+				const current = freezeLifeModelSelection(settings, route);
+				if (
+					settings.revision !== request.modelSettingsRevision ||
+					!saved ||
+					lifeDigest(request.selection) !== lifeDigest(saved) ||
+					lifeDigest(request.selection) !== lifeDigest(current)
+				)
+					throw Error("LIFE exact model/settings selection changed");
+			} else if (
 				settings.revision !== request.modelSettingsRevision ||
-				route?.provider !== request.provider ||
+				route.provider !== request.provider ||
 				route.model !== request.model
 			)
 				throw Error("LIFE exact model/settings selection changed");
@@ -364,6 +387,15 @@ export function createFleetLifeRuntime(options: FleetLifeOptions) {
 		},
 		config: (worldId) => store.lifeConfig(worldId),
 		acquireLease: (...args) => store.acquireLifeLease(...args),
+		resolveModels(worldId) {
+			const settings = modelSettings.snapshot();
+			const config = store.lifeConfig(worldId);
+			const lane = (name: "director" | "actor") => {
+				const route = config.models?.[name];
+				return route ? freezeLifeModelSelection(settings, route) : null;
+			};
+			return { director: lane("director"), actor: lane("actor") };
+		},
 		identity(worldId, version) {
 			const { identity, profiles } = fleetLifeIdentity(
 				store,
