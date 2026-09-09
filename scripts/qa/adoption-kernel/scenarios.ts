@@ -292,6 +292,7 @@ export function generateCase(
 					advanceOn: "answered",
 				});
 				expected.required = nextRequired;
+				expected.sources = [newFact.sourceId];
 				expected.value = [...nextRequired].sort().join(",");
 				expected.finalStage = 1;
 			}

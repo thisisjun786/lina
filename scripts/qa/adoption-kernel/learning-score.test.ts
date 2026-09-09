@@ -121,6 +121,39 @@ for (const row of ["B11", "B12"]) {
 		const result = scoreTrial(generated.privateTruth, trace);
 		expect(result.quality).toBe(true);
 		expect(result.uptake).toBe(true);
+		if (row === "B11") {
+			const reversed = structuredClone(trace);
+			const submit = reversed.effects.filter((e) => e.tool === "submit").at(-1);
+			const check = reversed.effects.filter((e) => e.tool === "check").at(-1);
+			if (!submit || !check) throw Error("missing final tools");
+			check.receipt.status = "failed";
+			reversed.effects = [
+				...reversed.effects.filter((e) => e !== submit && e !== check),
+				check,
+				submit,
+			];
+			expect(scoreTrial(generated.privateTruth, reversed).quality).toBe(false);
+		}
+		if (row === "B12") {
+			const changedInput = structuredClone(trace);
+			const request = changedInput.requests.at(-1);
+			const message = request?.input.messages[1];
+			if (!message) throw Error("missing final input");
+			const body = JSON.parse(message.content);
+			for (const raw of body.raw) {
+				if (raw.owner !== "user") continue;
+				const task = JSON.parse(raw.text);
+				if (task.condition === generated.privateTruth.expected.taskCondition) {
+					task.condition = rule.when;
+					raw.text = JSON.stringify(task);
+				}
+			}
+			message.content = JSON.stringify(body);
+			expect(scoreTrial(generated.privateTruth, changedInput).uptake).toBe(
+				false,
+			);
+		}
+
 		const wrongAnswer = structuredClone(trace);
 		const delivery = wrongAnswer.delivered.at(-1);
 		if (!delivery) throw Error("missing answer");

@@ -63,3 +63,59 @@ for (const row of ["B02", "B03", "B05", "B10"]) {
 		}
 	});
 }
+
+for (const row of ["B04", "B13"]) {
+	test(`stale-copy policy fails ${row} despite reaching the final stage`, async () => {
+		const generated = generateCase("stale-control", row, 0);
+		const first = generated.publicCase.stages[0]?.events[0];
+		if (!first || first.kind === "retract")
+			throw Error("missing initial source");
+		const old = /(?:choose |selection is )([^ .]+)/.exec(
+			first.evidence.text,
+		)?.[1];
+		if (!old) throw Error("missing old selection");
+		for (const mode of ["baseline", "kernel", "ablation"] as const) {
+			let calls = 0;
+			const trace = await runEpisode(
+				generated.publicCase,
+				mode,
+				policy((purposeRevision) => {
+					calls++;
+					if (row === "B13" && calls === 1)
+						return {
+							kind: "adopt",
+							purposeRevision,
+							adoptionKind: "plan",
+							text: "follow original selection",
+							condition: "active",
+							refs: [
+								{ id: first.evidence.id, revision: first.evidence.revision },
+							],
+						};
+					return {
+						kind: "answer",
+						purposeRevision,
+						text: JSON.stringify({
+							outcome: "answer",
+							value: old,
+							missing: [],
+							claims: [
+								{
+									sourceId: first.evidence.sourceId,
+									role: first.evidence.participantRole,
+									domain: first.evidence.domain,
+								},
+							],
+							verificationIds: [],
+						}),
+					};
+				}),
+			);
+			expect(trace.status).toBe("complete");
+			expect(trace.stages.at(-1)?.stage).toBe(
+				generated.privateTruth.expected.finalStage,
+			);
+			expect(scoreTrial(generated.privateTruth, trace).quality).toBe(false);
+		}
+	});
+}

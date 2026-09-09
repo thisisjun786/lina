@@ -270,16 +270,26 @@ export function scoreTrial(
 				correct &&
 				knownVerification &&
 				later.some(
-					(x) =>
+					(x, index) =>
 						x.tool === "submit" &&
+						x.receipt.status === "completed" &&
 						same((output(x)["items"] as JsonValue[]) ?? [], e.required) &&
-						later.some(
-							(check) =>
-								check.tool === "check" &&
-								args(check)["submissionId"] === x.effectId &&
-								check.receipt.quality.status === "pass" &&
-								a.verificationIds.includes(check.effectId),
-						),
+						later
+							.slice(index + 1)
+							.some(
+								(check) =>
+									check.tool === "check" &&
+									check.receipt.status === "completed" &&
+									args(check)["submissionId"] === x.effectId &&
+									output(check)["submissionId"] === x.effectId &&
+									output(check)["pass"] === true &&
+									Array.isArray(output(check)["missing"]) &&
+									(output(check)["missing"] as unknown[]).length === 0 &&
+									Array.isArray(output(check)["extra"]) &&
+									(output(check)["extra"] as unknown[]).length === 0 &&
+									check.receipt.quality.status === "pass" &&
+									a?.verificationIds.includes(check.effectId),
+							),
 				);
 			break;
 		case "B12":
@@ -385,11 +395,56 @@ export function scoreTrial(
 									bridge.effectId === checkId,
 							),
 						) &&
-						trace.requests.some(
-							(request) =>
-								request.stage === e.finalStage &&
-								request.input.adoptionIds.includes(adoption.id),
-						)
+						trace.requests.some((request) => {
+							if (
+								request.stage !== e.finalStage ||
+								!request.input.adoptionIds.includes(adoption.id)
+							)
+								return false;
+							let body: Record<string, unknown>;
+							try {
+								body = object(
+									JSON.parse(request.input.messages[1]?.content ?? ""),
+								);
+							} catch {
+								return false;
+							}
+							const derived = body["derived"],
+								raw = body["raw"];
+							if (!Array.isArray(derived) || !Array.isArray(raw)) return false;
+							const supplied = derived.some((value) => {
+								const item = object(value);
+								return (
+									item["id"] === adoption.id &&
+									item["revision"] === adoption.revision &&
+									item["condition"] === adoption.condition &&
+									item["kind"] === "understanding"
+								);
+							});
+							return (
+								supplied &&
+								raw.some((value) => {
+									const item = object(value);
+									if (
+										item["owner"] !== "user" ||
+										!e.sources.includes(String(item["sourceId"])) ||
+										typeof item["text"] !== "string"
+									)
+										return false;
+									try {
+										const task = object(JSON.parse(item["text"]));
+										return (
+											task["method"] === e.learnedRule?.method &&
+											task["condition"] === e.taskCondition &&
+											Array.isArray(task["required"]) &&
+											same(task["required"] as unknown[], e.required)
+										);
+									} catch {
+										return false;
+									}
+								})
+							);
+						})
 					);
 				}),
 		);
