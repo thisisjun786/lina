@@ -1,0 +1,10 @@
+{
+	"extends": "../../../tsconfig.json",
+	"compilerOptions": {
+		"types": ["bun-types"],
+		"noUnusedLocals": true,
+		"noUnusedParameters": true
+	},
+	"include": ["./*.ts"],
+	"exclude": ["node_modules", "dist"]
+}
