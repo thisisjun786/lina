@@ -12,7 +12,6 @@ import {
 	type AuthorNativePlan,
 	authorConfig,
 	authorFingerprint,
-	authorHash,
 	authorManagedFiles,
 	authorSelection,
 	nativeExecutable,
@@ -41,6 +40,7 @@ import {
 import {
 	probeEvidenceRoot,
 	probeExecutableIdentity,
+	probeFingerprint,
 	probeShutdown,
 	probeSourceIdentity,
 } from "./moirai-native-lifecycle.ts";
@@ -156,14 +156,7 @@ const requestOptions = {
 	tool_choice: "none",
 	stream: true,
 };
-const fingerprint = () =>
-	authorHash(
-		JSON.stringify({
-			capability: authorFingerprint(plan),
-			source: probeSourceIdentity(sourcePaths).sha256,
-			requestOptions,
-		}),
-	);
+const fingerprint = () => probeFingerprint(plan, sourcePaths, requestOptions);
 const runtime = {
 	capabilityFingerprint: plan.fingerprint,
 	implementation: source,

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MoiraiProbe, type ProbeGateway } from "../src/moirai-probe.ts";
-import type { CodexRpc } from "../src/rpc.ts";
+import type { CodexRpc, CodexRpcRequestHandler } from "../src/rpc.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -14,6 +14,7 @@ export function fixture(reuse?: string) {
 	const root = reuse ?? mkdtempSync(join(tmpdir(), "moirai-round-test-"));
 	if (!reuse) roots.push(root);
 	const listeners = new Set<(method: string, params: unknown) => void>();
+	const requestHandlers = new Set<CodexRpcRequestHandler>();
 	const turns = new Map<string, Array<Record<string, unknown>>>();
 	const pending: Array<{ threadId: string; id: string; text: string }> = [];
 	const starts = new Map<
@@ -43,8 +44,9 @@ export function fixture(reuse?: string) {
 			listeners.add(l);
 			return () => listeners.delete(l);
 		},
-		onRequest() {
-			return () => {};
+		onRequest(handler: CodexRpcRequestHandler) {
+			requestHandlers.add(handler);
+			return () => requestHandlers.delete(handler);
 		},
 		notify() {},
 		async close() {},
@@ -136,6 +138,13 @@ export function fixture(reuse?: string) {
 		entered,
 		complete,
 		emit,
+		async actionRequest() {
+			return Promise.allSettled(
+				[...requestHandlers].map((handler) =>
+					handler("item/tool/call", {}, () => {}),
+				),
+			);
+		},
 		turns,
 		gateway,
 		resumed,

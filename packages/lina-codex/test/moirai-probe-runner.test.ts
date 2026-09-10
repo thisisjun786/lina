@@ -14,9 +14,82 @@ import { join } from "node:path";
 import {
 	probeEvidenceRoot,
 	probeExecutableIdentity,
+	probeFingerprint,
 	probeShutdown,
 	probeSourceIdentity,
 } from "../../../scripts/qa/moirai-native-lifecycle.ts";
+import {
+	type AuthorNativePlan,
+	authorManagedFiles,
+} from "../src/author-native-policy.ts";
+import { lifeMetadata } from "./life-model-fixture.ts";
+
+for (const mutation of ["contents", "removed", "added", "retargeted"]) {
+	test(`probe fingerprint rejects managed policy drift: ${mutation}`, () => {
+		const root = mkdtempSync(join(tmpdir(), "moirai-policy-drift-"));
+		try {
+			const source = join(root, "requirements.toml");
+			const alias = join(root, "policy-link");
+			const added = join(root, "config.toml");
+			const executable = join(root, "native");
+			writeFileSync(source, 'approval_policy = "never"\n');
+			writeFileSync(executable, "synthetic executable");
+			symlinkSync(source, alias);
+			const paths = [alias, added];
+			const plan: AuthorNativePlan = {
+				root,
+				home: root,
+				workspace: root,
+				command: executable,
+				wrapper: executable,
+				managed: authorManagedFiles(paths),
+				fingerprint: "",
+				metadata: lifeMetadata,
+				selection: {
+					selected: {
+						id: "synthetic",
+						provider: "opencodex",
+						model: lifeMetadata.slug,
+						reasoning: "off",
+					},
+					connection: {
+						origin: "http://127.0.0.1:1",
+						baseUrl: "http://127.0.0.1:1/v1",
+						catalogJson: JSON.stringify({ models: [lifeMetadata] }),
+						catalogSource: "hub",
+						requiresAdmissionToken: false,
+						tokenEnv: "OPENCODEX_API_AUTH_TOKEN",
+						providerTable: "",
+					},
+				},
+			};
+			const fingerprint = () =>
+				probeFingerprint(plan, [executable], { tools: [] }, paths);
+			const first = fingerprint();
+			expect(fingerprint()).toBe(first);
+			const captured = structuredClone(plan.managed);
+			if (mutation === "contents")
+				writeFileSync(
+					source,
+					'approval_policy = "never"\nmodel_verbosity = "high"\n',
+				);
+			if (mutation === "removed") rmSync(alias);
+			if (mutation === "added") writeFileSync(added, "new policy");
+			if (mutation === "retargeted") {
+				const other = join(root, "other.toml");
+				writeFileSync(other, 'approval_policy = "never"\n');
+				rmSync(alias);
+				symlinkSync(other, alias);
+			}
+			expect(fingerprint).toThrow(
+				"Administrator-managed policy changed during probe",
+			);
+			expect(plan.managed).toEqual(captured);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+}
 
 test("evidence root rejects relative and checkout paths before creating artifacts", () => {
 	const root = mkdtempSync(join(tmpdir(), "moirai-path-test-"));

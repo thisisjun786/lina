@@ -2,9 +2,14 @@ import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
 import {
+	AUTHOR_MANAGED_PATHS,
+	type AuthorNativePlan,
 	authorFileDigest,
+	authorFingerprint,
 	authorHash,
+	authorManagedFiles,
 } from "../../packages/lina-codex/src/author-native-policy.ts";
+import { checkedDirectory } from "../../packages/lina-core/src/attachments/filesystem.ts";
 import { canonicalLifeJson } from "../../packages/lina-core/src/world/life-json.ts";
 
 export function probeSourceIdentity(paths: readonly string[]) {
@@ -14,7 +19,23 @@ export function probeSourceIdentity(paths: readonly string[]) {
 	return { files, sha256: authorHash(canonicalLifeJson(files)) };
 }
 
-import { checkedDirectory } from "../../packages/lina-core/src/attachments/filesystem.ts";
+export function probeFingerprint(
+	plan: AuthorNativePlan,
+	sourcePaths: readonly string[],
+	requestOptions: Readonly<Record<string, unknown>>,
+	managedPaths: readonly string[] = AUTHOR_MANAGED_PATHS,
+) {
+	const managed = authorManagedFiles(managedPaths);
+	if (canonicalLifeJson(managed) !== canonicalLifeJson(plan.managed))
+		throw Error("Administrator-managed policy changed during probe");
+	return authorHash(
+		JSON.stringify({
+			capability: authorFingerprint({ ...plan, managed }),
+			source: probeSourceIdentity(sourcePaths).sha256,
+			requestOptions,
+		}),
+	);
+}
 
 /** Observe the exact resolved executable; a version label alone cannot identify a build. */
 export function probeExecutableIdentity(command: string) {

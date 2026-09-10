@@ -14,6 +14,48 @@ function replaceUserText(
 	content.text = text;
 }
 
+for (const target of ["thread-0", "thread-1", "thread-2", "thread-3"]) {
+	test(`native action requests during final reconciliation prevent completion: ${target}`, async () => {
+		const f = fixture();
+		await f.probe.initialize();
+		const request = f.rpc.request.bind(f.rpc);
+		let reads = 0;
+		let observedSignal: AbortSignal | undefined;
+		f.rpc.request = async <T>(
+			method: string,
+			params?: unknown,
+			signal?: AbortSignal,
+		): Promise<T> => {
+			const result = await request<T>(method, params, signal);
+			if (
+				method === "thread/read" &&
+				(params as { threadId: string }).threadId === target &&
+				++reads === 2
+			) {
+				observedSignal = signal;
+				const replies = await f.actionRequest();
+				expect(replies[0]?.status).toBe("rejected");
+			}
+			return result;
+		};
+		await expect(finishProbeRound(f, "action")).rejects.toThrow(
+			"Native action request forbidden",
+		);
+		expect(observedSignal?.aborted).toBe(true);
+		expect(existsSync(join(f.root, "round-action", "complete.json"))).toBe(
+			false,
+		);
+		expect(
+			JSON.parse(
+				readFileSync(join(f.root, "round-action", "failure.json"), "utf8"),
+			).error,
+		).toBe("Native action request forbidden");
+		await expect(
+			f.probe.round("later", "input", new AbortController().signal),
+		).rejects.toThrow("Probe not ready");
+	});
+}
+
 test("cross-role events after an earlier final read prevent completion", async () => {
 	const f = fixture();
 	await f.probe.initialize();

@@ -93,6 +93,12 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 
 관련 테스트는 74 pass, Codex 패키지는 303 pass/41 skip이며 root·QA CLI 타입 검사와 lint가 통과했다. 실패 원장·일치하지만 잘못된 사용량·최종 읽기 중 늦은 이벤트·변경된 native 옵션과 소스 식별의 RED/GREEN 로그를 보존했다. `native-fixture-evidence-boundaries`와 새 `live-evidence-boundaries` 모두 세 회차를 통과했다. 후자는 실제 12회 송신·26,988토큰이며, 요청 옵션·소스 해시·정상 재시작·완료 후 SIGKILL 재개·소유 그룹 종료를 확인했다. 원본은 `moirai-r0/evidence-boundaries-repair/`에 있다. 앞선 후보와 다른 실행 조건이며 qualification 배치가 아니다.
 
+`919c375`의 CI는 통과했다. 이어진 Codex 리뷰의 [관리자 정책 해시 갱신 누락](https://github.com/thisisjun786/lina/pull/9#discussion_r3978822377), [최종 대조 중 native 요청 누락](https://github.com/thisisjun786/lina/pull/9#discussion_r3978822388) 두 지적도 재현했다.
+
+실행기는 매 회차 시작과 최종 성공 직전 관리자 정책 파일을 다시 읽고 처음 기록한 경로·내용·파일 목록과 비교한다. 내용 변경, 추가·삭제, 심볼릭 링크 대상 변경은 원래 계획을 갱신하지 않고 실패로 판정한다. 조정기는 금지된 native 요청의 중단 신호를 최종 이력 읽기까지 전달하고, 완료 원장 쓰기 직전에도 검사한다. 실패 원인을 보존하고 해당 조정기의 다음 회차도 거부한다.
+
+새 회귀 검사 8개는 수정 전 실패·수정 후 통과했다. 관련 두 파일은 24 pass, Codex 패키지는 311 pass/41 skip이며 root·QA CLI 타입 검사와 lint가 통과했다. lint의 기존 경고 27개는 남아 있다. 새 `native-fixture`는 설치된 Codex와 합성 provider로 같은 네 스레드의 세 회차, 정상 재시작, 완료 후 SIGKILL 재개, 세 소유 프로세스 그룹 종료를 통과했다. 기록된 구현 해시도 현재 파일과 다시 대조했다. 원본·RED/GREEN 로그·후보 diff는 Git 밖 `moirai-r0/policy-action-repair/`에 보존한다. 이 수정은 유료 모델을 호출하지 않았으며 이전 GLM 실증이나 인지 qualification과 별개다.
+
 - 관련 조정기·게이트웨이·checkpoint·도구 테스트: 37 pass.
 - Codex 패키지와 checkpoint/prompt 테스트: 247 pass, 41 skip. opt-in native 검사는 기본 suite에서 생략되며 위 별도 native 실증과 범위가 다르다.
 - 자체 기억·자료 엔진/저장/도구/API 테스트: 38 pass.

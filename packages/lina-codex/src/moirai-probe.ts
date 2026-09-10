@@ -142,11 +142,12 @@ export class MoiraiProbe {
 	async round(
 		roundId: string,
 		input: string,
-		signal: AbortSignal,
+		parentSignal: AbortSignal,
 	): Promise<MoiraiProbeResult[]> {
 		if (!/^[a-zA-Z0-9-]{1,80}$/.test(roundId)) throw Error("Invalid round ID");
 		if (this.busy || this.failed || this.bindings.size !== 4)
 			throw Error("Probe not ready");
+		const signal = AbortSignal.any([parentSignal, this.abort.signal]);
 		signal.throwIfAborted();
 		this.busy = true;
 		const directory = join(this.options.root, `round-${roundId}`);
@@ -198,6 +199,7 @@ export class MoiraiProbe {
 				}
 			});
 			for (const role of MOIRAI_ROLES) {
+				signal.throwIfAborted();
 				const threadId = identifier(this.bindings.get(role));
 				const snapshot = await this.options.rpc.request(
 					"thread/read",
@@ -210,6 +212,7 @@ export class MoiraiProbe {
 					turns: new Map(this.histories.get(role)),
 				});
 			}
+			signal.throwIfAborted();
 			if (finalReadError) throw finalReadError;
 			lifeWrite(join(directory, "complete.json"), {
 				roundId,
