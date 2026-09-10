@@ -1,6 +1,6 @@
 # R0: 네 지속 Codex 스레드 실행 증거
 
-2026-09-10. QA 전용 구현과 실제 GLM 호출을 확인했다. **하나의 합성 채널에서 세 판단을 병렬 실행하고 모이라이가 종합한 뒤, native 프로세스를 다시 열어 같은 네 스레드를 이어 갔다.** 제품 인지 회차나 사용자 채널에 연결하지 않았다. 독립 코드 리뷰는 진행 중이다.
+2026-09-10. QA 전용 구현과 실제 GLM 호출을 확인했다. **하나의 합성 채널에서 세 판단을 병렬 실행하고 모이라이가 종합한 뒤, native 프로세스를 다시 열어 같은 네 스레드를 이어 갔다.** 제품 인지 회차나 사용자 채널에 연결하지 않았다. 수정 후보의 독립 코드 리뷰는 PASS이며 미해결 지적은 없다. 이 판정은 R0 구현과 OpenViking 잔여 정리 범위에 한정한다.
 
 ## 구현과 실행
 
@@ -36,6 +36,10 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 
 독립 리뷰에서 `complete.json`의 존재만으로 재개하던 결함을 발견했다. [원장 검증](../../../packages/lina-codex/src/moirai-probe-state.ts)을 추가해 완료 내용·네 역할·thread/turn ID·개별 결과·원본 입력을 확인하고, 네 native 이력이 모두 일치해야 첫 resume을 보낸다. 빈/잘린/불일치 완료 기록, 실패 상태, 바뀐 출력, 추가 native turn의 회귀 검사는 수정 전 실패·수정 후 통과했다. 이 수정은 `candidate-6` 이후다. 새 합성 native 실행 3회차와 보존된 `live-6` 원장/이력으로 검증했고, 원래 live 후보와 구분한다.
 
+같은 검토에서 사용량·응답 모델 검사도 보완했다. 음수·문자열·합계 불일치·4,096 초과 출력 토큰은 원본을 저장한 뒤 실패로 판정한다. 사용량 미제공은 `null`이며 0으로 바꾸지 않는다. live 실행은 provider가 반환한 `glm-5.3-flash`를 정확히 확인한다. 이 조건의 회귀 검사 6개는 수정 전 실패했고 수정 후 통과했다.
+
+수정 후보 `candidate-7`의 `live-7`도 새로 실행했다. 12개 송신·19,182토큰, 세 회차 모두 같은 네 thread, 누적 이력 1→2→3, 종합 전 세 판단 완료, 정상 재시작과 완료 후 SIGKILL 재개를 확인했다. 판단 동시 실행 구간은 회차별 4,637/2,484/3,806ms였다. 종료 후 모든 기록된 PID가 없었다. `live-7-verified.json`과 후보 해시가 이 결과의 기준이며 이전 후보의 통과를 재사용한 판정이 아니다.
+
 이전 실험도 보존했다. `live-1`~`live-3`은 송신 전 실패, `live-4`는 첫 회차 4개 호출·2,686토큰 뒤 다음 회차 실패, `live-5`는 이전 후보의 12개 호출·16,230토큰 성공이다. 후보를 수정한 개발 실험이므로 연속 qualification으로 세지 않는다. 초기 실패 기록에는 세부 native/capture 오류가 없으며 현재 후보에서 각각을 남기도록 보완했다.
 
 ## 로컬 검증과 남은 일
@@ -46,10 +50,11 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 - 세션 시작과 기본 기억·비활성화·구형 설정 처리 테스트: 14 pass.
 - `bun run typecheck`, `bun run lint`, `bun run ci:build`, `bun run ci:validate`: exit 0. lint는 기존 경고를 포함한다.
 - root 타입 검사 대상 밖인 QA CLI도 별도로 검사해 0 diagnostics를 확인했다. 인자 없는 실행과 이미 존재하는 증거 경로는 exit 1이며 이전 결과를 변경하지 않았다.
+- 리뷰 수정 후 조정기·게이트웨이 25 pass, Codex 패키지 254 pass/41 skip을 확인했다. 위 초기 검사 수와 합산하지 않는다.
 - 최신 PR #8 CI는 author session을 재개하는 HTTP 테스트에서 200 대신 503으로 실패했다. 이번 PR #9 기반에서 해당 파일은 4 pass지만 PR #8 CI 실패가 해결됐다는 증거는 아니다.
 
 OpenViking 실행 어댑터와 패키지 의존성은 기존 기반에서 이미 퇴역했다. 남은 구형 QA 스텁 3개를 삭제하고 checkpoint 안내·합성 도구 예시·호환성 이슈 선택지를 현재 로컬 엔진에 맞췄다. 활성 소스·패키지·lockfile·실행 스크립트에서 관련 참조가 없음을 확인했다. 퇴역 안내, 구형 도구 거부 테스트와 라이선스·과거 계획은 유지한다. 서비스·전역 설정·기존 외부 데이터는 변경하지 않았다.
 
-원본은 Git 밖 세션 증거 폴더의 `moirai-r0/`에 있다: `candidate-6`, `native-fixture-final`, `live-1`~`live-6`, `live-6-verified.json`. 각 실행은 역할 원장, 실제 전송 기록, native history, 결과와 종료 기록을 가진다. 로컬 검사 로그도 같은 증거 폴더에 보존한다.
+원본은 Git 밖 세션 증거 폴더의 `moirai-r0/`에 있다: `candidate-6`/`candidate-7`, `native-fixture-final`/`native-fixture-resume-repair`, `live-1`~`live-7`, `live-6-verified.json`/`live-7-verified.json`. 각 실행은 역할 원장, 실제 전송 기록, native history, 결과와 종료 기록을 가진다. 로컬 검사 로그도 같은 증거 폴더에 보존한다.
 
 R1의 binding/회차 ledger, 진행 중 복구, R2의 판단·결과·해석 연결은 다음 작업이다. 30개 기준·중요 불변조건·90/80점·새 전체 배치 3연속, 동일 자원 비교와 추가 효용은 미검증 상태다. 기존 replay 리뷰의 플랫폼 차단도 이 실증으로 해소되지 않는다.
