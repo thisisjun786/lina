@@ -1,7 +1,19 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
-import { authorFileDigest } from "../../packages/lina-codex/src/author-native-policy.ts";
+import {
+	authorFileDigest,
+	authorHash,
+} from "../../packages/lina-codex/src/author-native-policy.ts";
+import { canonicalLifeJson } from "../../packages/lina-core/src/world/life-json.ts";
+
+export function probeSourceIdentity(paths: readonly string[]) {
+	const files = Object.fromEntries(
+		paths.map((path) => [realpathSync(path), authorFileDigest(path)]),
+	);
+	return { files, sha256: authorHash(canonicalLifeJson(files)) };
+}
+
 import { checkedDirectory } from "../../packages/lina-core/src/attachments/filesystem.ts";
 
 /** Observe the exact resolved executable; a version label alone cannot identify a build. */

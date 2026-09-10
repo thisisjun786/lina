@@ -1,5 +1,24 @@
 import { canonicalLifeJson } from "../../lina-core/src/world/life-json.ts";
 import { authorRecord } from "./author-native-policy.ts";
+import { lifeInteger } from "./life-model-validation.ts";
+
+export const PROBE_REQUEST_OPTIONS = Object.freeze({
+	reasoning: Object.freeze({ effort: "none" }),
+	store: false,
+	parallel_tool_calls: false,
+	include: Object.freeze(["reasoning.encrypted_content"]),
+});
+
+export function verifyProbeUsage(usage: unknown): void {
+	if (usage === null) return;
+	const counts = authorRecord(usage);
+	const input = lifeInteger(counts["input_tokens"]);
+	const output = lifeInteger(counts["output_tokens"]);
+	const total = lifeInteger(counts["total_tokens"]);
+	if (!Number.isSafeInteger(input + output) || total !== input + output)
+		throw Error("Inconsistent provider usage");
+	if (output > 4096) throw Error("Provider output token limit exceeded");
+}
 
 export type ProbeCapture = {
 	input: unknown[];

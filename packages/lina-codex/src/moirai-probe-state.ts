@@ -6,6 +6,7 @@ import { authorRecord } from "./author-native-policy.ts";
 import type { ProbeCapture } from "./moirai-probe-transport.ts";
 import {
 	probeProviderText,
+	verifyProbeUsage,
 	verifyProbeWire,
 } from "./moirai-probe-transport.ts";
 
@@ -67,6 +68,17 @@ export function completedProbeState(
 		throw Error("Never-persisted threads; no automatic recreation");
 	const numbered = rounds.map((name) => {
 		const directory = join(root, name);
+		const allowed = new Set([
+			"input.json",
+			"complete.json",
+			...roles.flatMap((role) =>
+				["intent", "turn", "result", "native", "final-native"].map(
+					(kind) => `${kind}-${role}.json`,
+				),
+			),
+		]);
+		if (readdirSync(directory).some((name) => !allowed.has(name)))
+			throw Error("Contradictory or unexpected completed-round evidence");
 		const roundId = name.slice(6);
 		const complete = readProbeRecord(join(directory, "complete.json"));
 		const source = readProbeRecord(join(directory, "input.json"));
@@ -168,6 +180,7 @@ export function completedProbeState(
 			)
 				throw Error("Role intent differs from recorded source");
 			const validatedCapture: ProbeCapture = { input, output, text, usage };
+			verifyProbeUsage(usage);
 			verifyProbeWire(
 				validatedCapture.input,
 				intent["input"],

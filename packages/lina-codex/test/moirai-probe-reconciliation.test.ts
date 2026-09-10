@@ -14,6 +14,33 @@ function replaceUserText(
 	content.text = text;
 }
 
+test("cross-role events after an earlier final read prevent completion", async () => {
+	const f = fixture();
+	await f.probe.initialize();
+	const request = f.rpc.request.bind(f.rpc);
+	let moiraiReads = 0;
+	f.rpc.request = async <T>(
+		method: string,
+		params?: unknown,
+		signal?: AbortSignal,
+		beforeSend?: () => void,
+	): Promise<T> => {
+		const result = await request<T>(method, params, signal, beforeSend);
+		if (
+			method === "thread/read" &&
+			(params as { threadId: string }).threadId === "thread-3" &&
+			++moiraiReads === 2
+		) {
+			const turn = { id: "late-turn", status: "completed", items: [] };
+			f.turns.get("thread-0")?.push(turn);
+			f.emit("turn/started", { threadId: "thread-0", turn });
+		}
+		return result;
+	};
+	await expect(finishProbeRound(f, "race")).rejects.toThrow();
+	expect(existsSync(join(f.root, "round-race", "complete.json"))).toBe(false);
+});
+
 for (const mutation of [
 	"source",
 	"role",

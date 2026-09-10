@@ -268,3 +268,30 @@ test("verify probe history accepts valid native turn order", () => {
 		}),
 	).not.toThrow();
 });
+
+for (const name of ["failure.json", "failure-clotho.json", "unknown.json"]) {
+	test(`completed ledger refuses contradictory or unexpected file: ${name}`, () => {
+		const root = ledger();
+		completeRound(root, "round-one", 1);
+		writeJson(join(root, "round-one", name), { error: "retained failure" });
+		expect(() => completedProbeState(root, "test-model", roles)).toThrow();
+	});
+}
+for (const usage of [
+	{ input_tokens: -1, output_tokens: 2, total_tokens: 1 },
+	{ input_tokens: "1", output_tokens: 2, total_tokens: 3 },
+	{ input_tokens: 1, output_tokens: 2, total_tokens: 4 },
+	{ input_tokens: 1, output_tokens: 4097, total_tokens: 4098 },
+]) {
+	test(`durable usage must be valid even when copies agree: ${JSON.stringify(usage)}`, () => {
+		const root = ledger();
+		const input = JSON.stringify({
+			roundId: "one",
+			role: "clotho",
+			input: "input-one",
+		});
+		const capture = { ...buildCapture(input, "text-one", null), usage };
+		completeRound(root, "round-one", 1, { capture, resultPatch: { usage } });
+		expect(() => completedProbeState(root, "test-model", roles)).toThrow();
+	});
+}

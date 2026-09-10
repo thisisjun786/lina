@@ -151,6 +151,8 @@ export class MoiraiProbe {
 		this.busy = true;
 		const directory = join(this.options.root, `round-${roundId}`);
 		let created = false;
+		let finalReadError: Error | undefined;
+		let stopFinalGuard = () => {};
 		try {
 			if (existsSync(directory)) throw Error("Round already exists");
 			checkedDirectory(directory, true);
@@ -179,6 +181,22 @@ export class MoiraiProbe {
 				signal,
 			);
 			results.push(aggregate);
+			stopFinalGuard = this.options.rpc.subscribe((method, params) => {
+				try {
+					const event = authorRecord(params);
+					if (
+						method === "eof" ||
+						method === "error" ||
+						([...this.bindings.values()].includes(String(event["threadId"])) &&
+							(method.startsWith("turn/") || method.startsWith("item/")))
+					)
+						finalReadError = Error(
+							"Native activity during final reconciliation",
+						);
+				} catch {
+					finalReadError = Error("Invalid event during final reconciliation");
+				}
+			});
 			for (const role of MOIRAI_ROLES) {
 				const threadId = identifier(this.bindings.get(role));
 				const snapshot = await this.options.rpc.request(
@@ -192,6 +210,7 @@ export class MoiraiProbe {
 					turns: new Map(this.histories.get(role)),
 				});
 			}
+			if (finalReadError) throw finalReadError;
 			lifeWrite(join(directory, "complete.json"), {
 				roundId,
 				results,
@@ -208,6 +227,7 @@ export class MoiraiProbe {
 				});
 			throw error;
 		} finally {
+			stopFinalGuard();
 			this.busy = false;
 		}
 	}

@@ -87,6 +87,12 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 
 이 기록 보완의 관련 테스트는 64 pass이며 QA CLI를 포함한 타입 검사와 lint가 통과했다. 새 `native-fixture-runtime-identity`의 세 회차가 통과했고, 결과에 기록된 Codex `0.153.4`와 bubblewrap `0.11.1`의 경로·해시·버전을 실제 파일과 다시 대조했다. 이 수정 검증은 합성 provider만 사용했다. 이전 GLM 실증과 새 실행 환경 영수증은 별도 후보이며, 원본은 `moirai-r0/runtime-identity-repair/`에 보존한다.
 
+`f814961`의 CI는 통과했다. 다음 Codex 리뷰의 다섯 지적에 따라 최종 읽기 구간의 모든 역할 이벤트를 감시해 늦은 turn/item 활동을 실패로 판정하고, 완료 원장과 함께 있는 실패·미지원 파일도 거부한다. 저장된 사용량은 복사본 일치뿐 아니라 실시간 gateway와 같은 정수·합계·출력 한도로 재검증한다. Moirai 조정기·gateway·전송/상태 검사·실행기의 소스 해시와 요청 옵션을 포함한 `probeFingerprint`도 결과에 저장한다.
+
+이때 기존 GLM의 원본 송신에 `reasoning.effort: medium`이 들어 있음을 확인했다. 선택 설정의 `off`가 실제 송신으로 이어지지 않았으므로 이전 실험은 추론 비활성 조건을 입증하지 않는다. 현재 gateway는 실제 송신에 `reasoning.effort: none`, `store: false`, `parallel_tool_calls: false`, 고정 include를 적용한다. 원래 native 요청과 실제 provider 송신을 모두 보존한다. `none` 요청은 provider 내부 추론의 비활성화를 인증하는 값이 아니다.
+
+관련 테스트는 74 pass, Codex 패키지는 303 pass/41 skip이며 root·QA CLI 타입 검사와 lint가 통과했다. 실패 원장·일치하지만 잘못된 사용량·최종 읽기 중 늦은 이벤트·변경된 native 옵션과 소스 식별의 RED/GREEN 로그를 보존했다. `native-fixture-evidence-boundaries`와 새 `live-evidence-boundaries` 모두 세 회차를 통과했다. 후자는 실제 12회 송신·26,988토큰이며, 요청 옵션·소스 해시·정상 재시작·완료 후 SIGKILL 재개·소유 그룹 종료를 확인했다. 원본은 `moirai-r0/evidence-boundaries-repair/`에 있다. 앞선 후보와 다른 실행 조건이며 qualification 배치가 아니다.
+
 - 관련 조정기·게이트웨이·checkpoint·도구 테스트: 37 pass.
 - Codex 패키지와 checkpoint/prompt 테스트: 247 pass, 41 skip. opt-in native 검사는 기본 suite에서 생략되며 위 별도 native 실증과 범위가 다르다.
 - 자체 기억·자료 엔진/저장/도구/API 테스트: 38 pass.

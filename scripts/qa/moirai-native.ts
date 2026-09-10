@@ -12,6 +12,7 @@ import {
 	type AuthorNativePlan,
 	authorConfig,
 	authorFingerprint,
+	authorHash,
 	authorManagedFiles,
 	authorSelection,
 	nativeExecutable,
@@ -24,6 +25,7 @@ import {
 	moiraiInstructions,
 } from "../../packages/lina-codex/src/moirai-probe.ts";
 import { createMoiraiProbeGateway } from "../../packages/lina-codex/src/moirai-probe-gateway.ts";
+import { PROBE_REQUEST_OPTIONS } from "../../packages/lina-codex/src/moirai-probe-transport.ts";
 import {
 	type CodexRpc,
 	createCodexRpc,
@@ -40,6 +42,7 @@ import {
 	probeEvidenceRoot,
 	probeExecutableIdentity,
 	probeShutdown,
+	probeSourceIdentity,
 } from "./moirai-native-lifecycle.ts";
 
 const live = process.argv.includes("--live");
@@ -137,8 +140,35 @@ delete plan.metadata["tool_mode"];
 plan.metadata["experimental_supported_tools"] = [];
 delete plan.metadata["apply_patch_tool_type"];
 plan.fingerprint = authorFingerprint(plan);
+const sourcePaths = [
+	"packages/lina-codex/src/moirai-probe.ts",
+	"packages/lina-codex/src/moirai-probe-state.ts",
+	"packages/lina-codex/src/moirai-probe-gateway.ts",
+	"packages/lina-codex/src/moirai-probe-transport.ts",
+	"scripts/qa/moirai-native.ts",
+	"scripts/qa/moirai-native-lifecycle.ts",
+].map((path) => resolve(import.meta.dir, "../..", path));
+const source = probeSourceIdentity(sourcePaths);
+const requestOptions = {
+	...PROBE_REQUEST_OPTIONS,
+	max_output_tokens: 4096,
+	tools: [],
+	tool_choice: "none",
+	stream: true,
+};
+const fingerprint = () =>
+	authorHash(
+		JSON.stringify({
+			capability: authorFingerprint(plan),
+			source: probeSourceIdentity(sourcePaths).sha256,
+			requestOptions,
+		}),
+	);
 const runtime = {
 	capabilityFingerprint: plan.fingerprint,
+	implementation: source,
+	requestOptions,
+	probeFingerprint: fingerprint(),
 	command: probeExecutableIdentity(plan.command),
 	wrapper: probeExecutableIdentity(plan.wrapper),
 	bun: Bun.version,
@@ -171,7 +201,7 @@ const closeNative = async () => {
 let status = "failed";
 try {
 	for (let round = 1; round <= 3; round++) {
-		if (authorFingerprint(plan) !== runtime.capabilityFingerprint)
+		if (fingerprint() !== runtime.probeFingerprint)
 			throw Error("Native capability changed during probe");
 		rpc = await createCodexRpc(lifeRpcOptions(plan, gateway.nonce));
 		await rpc.request("initialize", {
@@ -244,7 +274,7 @@ try {
 			await closeNative();
 		}
 	}
-	if (authorFingerprint(plan) !== runtime.capabilityFingerprint)
+	if (fingerprint() !== runtime.probeFingerprint)
 		throw Error("Native capability changed during probe");
 	status = "pass";
 } catch (error) {

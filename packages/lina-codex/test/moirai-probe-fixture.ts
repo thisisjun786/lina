@@ -127,6 +127,7 @@ export function fixture(reuse?: string) {
 		emit("turn/completed", { threadId: p.threadId, turn });
 	};
 	return {
+		rpc,
 		root,
 		probe,
 		pending,

@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { authorRecord } from "./author-native-policy.ts";
 import { inspectLifeCatalog } from "./life-model-gateway.ts";
-import { lifeInteger } from "./life-model-validation.ts";
 import {
+	PROBE_REQUEST_OPTIONS,
 	type ProbeCapture,
 	probeProviderText,
 	probeWireItems,
+	verifyProbeUsage,
 	verifyProbeWire,
 } from "./moirai-probe-transport.ts";
 
@@ -66,15 +67,7 @@ function completedCapture(raw: string, responseModel?: string) {
 		output = probeWireItems(response["output"]);
 		probeProviderText(output);
 		usage = response["usage"] ?? null;
-		if (usage !== null) {
-			const counts = authorRecord(usage);
-			const input = lifeInteger(counts["input_tokens"]);
-			const output = lifeInteger(counts["output_tokens"]);
-			const total = lifeInteger(counts["total_tokens"]);
-			if (!Number.isSafeInteger(input + output) || total !== input + output)
-				throw Error("Inconsistent provider usage");
-			if (output > 4096) throw Error("Provider output token limit exceeded");
-		}
+		verifyProbeUsage(usage);
 		completed++;
 	}
 	if (completed !== 1) throw Error("Missing or duplicate completion");
@@ -170,6 +163,7 @@ export function createMoiraiProbeGateway(options: Options) {
 				counts.set(claim.episodeId, consumed + 1);
 				const wire = {
 					...body,
+					...PROBE_REQUEST_OPTIONS,
 					max_output_tokens: 4096,
 					tools: [],
 					tool_choice: "none",

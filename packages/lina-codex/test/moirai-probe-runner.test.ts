@@ -15,6 +15,7 @@ import {
 	probeEvidenceRoot,
 	probeExecutableIdentity,
 	probeShutdown,
+	probeSourceIdentity,
 } from "../../../scripts/qa/moirai-native-lifecycle.ts";
 
 test("evidence root rejects relative and checkout paths before creating artifacts", () => {
@@ -62,6 +63,26 @@ test("executable identity records the resolved build and version and rejects a f
 		expect(second.sha256).not.toBe(first.sha256);
 		writeFileSync(file, "#!/bin/sh\nexit 3\n");
 		expect(() => probeExecutableIdentity(alias)).toThrow();
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("probe source identity changes with any included implementation and rejects missing source", () => {
+	const root = mkdtempSync(join(tmpdir(), "moirai-source-identity-"));
+	try {
+		const a = join(root, "coordinator.ts"),
+			b = join(root, "gateway.ts");
+		writeFileSync(a, "first");
+		writeFileSync(b, "gateway");
+		const first = probeSourceIdentity([a, b]);
+		expect(first.files[a]).toBe(
+			createHash("sha256").update("first").digest("hex"),
+		);
+		writeFileSync(a, "changed");
+		expect(probeSourceIdentity([a, b]).sha256).not.toBe(first.sha256);
+		expect(probeSourceIdentity([b]).sha256).not.toBe(first.sha256);
+		expect(() => probeSourceIdentity([join(root, "missing")])).toThrow();
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

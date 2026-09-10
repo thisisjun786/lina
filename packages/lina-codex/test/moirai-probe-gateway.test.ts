@@ -387,3 +387,22 @@ for (const field of ["previous_response_id", "conversation"]) {
 		expect(f.attempts).toBe(0);
 	});
 }
+
+test("native options cannot change the frozen outbound configuration", async () => {
+	const f = setup();
+	f.expectClaim("options");
+	await (
+		await f.request("options", [wireMessage("user", "options")], {
+			reasoning: { effort: "high" },
+			store: true,
+			parallel_tool_calls: true,
+			include: ["other"],
+		})
+	).text();
+	expect(f.sent[0]).toMatchObject({
+		reasoning: { effort: "none" },
+		store: false,
+		parallel_tool_calls: false,
+		include: ["reasoning.encrypted_content"],
+	});
+});
