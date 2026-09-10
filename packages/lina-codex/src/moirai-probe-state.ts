@@ -138,7 +138,10 @@ export function verifyProbeHistory(
 		if (
 			users.length !== 1 ||
 			!Array.isArray(content) ||
-			content.map((c) => authorRecord(c)["text"]).join("") !== saved.input
+			content.length !== 1 ||
+			authorRecord(content[0])["type"] !== "text" ||
+			typeof authorRecord(content[0])["text"] !== "string" ||
+			authorRecord(content[0])["text"] !== saved.input
 		)
 			throw Error("Native input evidence mismatch");
 	}

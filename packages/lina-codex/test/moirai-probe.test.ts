@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MOIRAI_ROLES, MoiraiProbe } from "../src/moirai-probe.ts";
+import { verifyProbeHistory } from "../src/moirai-probe-state.ts";
 import type { CodexRpc } from "../src/rpc.ts";
 
 const roots: string[] = [];
@@ -287,4 +288,42 @@ test("restart validates every role against durable and native results before res
 	const next = restart();
 	await expect(next.probe.initialize()).rejects.toThrow();
 	expect(next.resumed).toEqual([]);
+});
+
+test("native input must be one exact text item, without hidden or malformed content", () => {
+	const expected = {
+		threadId: "thread",
+		turns: new Map([["turn", { text: "answer", input: "original" }]]),
+	};
+	const history = (content: unknown[]) => ({
+		thread: {
+			id: "thread",
+			turns: [
+				{
+					id: "turn",
+					status: "completed",
+					items: [
+						{ type: "userMessage", content },
+						{ type: "agentMessage", text: "answer" },
+					],
+				},
+			],
+		},
+	});
+	const text = { type: "text", text: "original", text_elements: [] };
+	expect(() => verifyProbeHistory(history([text]), expected)).not.toThrow();
+	for (const content of [
+		[text, { type: "image", url: "synthetic.invalid/image" }],
+		[text, { type: "text", text: "" }],
+		[text, {}],
+		[{ type: "image", text: "original" }],
+		[{ type: "text", text: ["original"] }],
+		[
+			{ type: "text", text: "ori" },
+			{ type: "text", text: "ginal" },
+		],
+	])
+		expect(() => verifyProbeHistory(history(content), expected)).toThrow(
+			"Native input evidence mismatch",
+		);
 });

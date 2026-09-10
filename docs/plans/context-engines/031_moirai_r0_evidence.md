@@ -1,6 +1,6 @@
 # R0: 네 지속 Codex 스레드 실행 증거
 
-2026-09-10. QA 전용 구현과 실제 GLM 호출을 확인했다. **하나의 합성 채널에서 세 판단을 병렬 실행하고 모이라이가 종합한 뒤, native 프로세스를 다시 열어 같은 네 스레드를 이어 갔다.** 제품 인지 회차나 사용자 채널에 연결하지 않았다. 수정 후보의 독립 코드 리뷰는 PASS이며 미해결 지적은 없다. 이 판정은 R0 구현과 OpenViking 잔여 정리 범위에 한정한다.
+2026-09-10. QA 전용 구현과 실제 GLM 호출을 확인했다. **하나의 합성 채널에서 세 판단을 병렬 실행하고 모이라이가 종합한 뒤, native 프로세스를 다시 열어 같은 네 스레드를 이어 갔다.** 제품 인지 회차나 사용자 채널에 연결하지 않았다. `candidate-7`의 독립 코드 리뷰는 R0 구현과 OpenViking 잔여 정리 범위에서 PASS였다. 이후 CodeRabbit이 발견한 세 결함과 후속 수정 검증은 아래에 구분해 기록한다.
 
 ## 구현과 실행
 
@@ -43,6 +43,20 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 이전 실험도 보존했다. `live-1`~`live-3`은 송신 전 실패, `live-4`는 첫 회차 4개 호출·2,686토큰 뒤 다음 회차 실패, `live-5`는 이전 후보의 12개 호출·16,230토큰 성공이다. 후보를 수정한 개발 실험이므로 연속 qualification으로 세지 않는다. 초기 실패 기록에는 세부 native/capture 오류가 없으며 현재 후보에서 각각을 남기도록 보완했다.
 
 ## 로컬 검증과 남은 일
+
+### CodeRabbit 후속 수정
+
+`219368b`를 검토한 CodeRabbit의 [입력 검증](https://github.com/thisisjun786/lina/pull/9#discussion_r3977956846), [증거 경로](https://github.com/thisisjun786/lina/pull/9#discussion_r3977956856), [종료 확인](https://github.com/thisisjun786/lina/pull/9#discussion_r3977956885) 지적은 모두 유효했다.
+
+- native 입력은 저장된 문자열과 같은 `text` 항목 정확히 하나만 허용한다. 이미지·빈 항목·잘못된 자료형이 섞인 이력이 통과하던 결함을 수정했다. 회귀 검사는 수정 전 실패했다.
+- 실행기는 상대 경로와 현재 checkout 내부의 증거 경로를 파일 생성 전에 거부한다. 상위 경로의 심볼릭 링크도 거부한다.
+- `rpc.close()` 뒤 소유 프로세스 그룹의 존재를 확인하고 `shutdown-N.json`에 결과를 저장한다. 그룹이 남거나 종료·관찰 오류가 있으면 실험은 실패이며 `ownedProcessesClosed`도 거짓이다.
+
+관련 테스트는 28 pass다. 별도의 살아 있는 자식 프로세스로 종료 여부 검사를 확인했고, CLI에 상대 경로·checkout 내부 절대 경로를 넘겼을 때 exit 1과 파일 미생성을 확인했다. `bun run typecheck`, `bun run lint`는 exit 0이며 QA CLI를 포함한 별도 타입 검사도 0 diagnostics다.
+
+수정 후보의 `native-fixture-coderabbit`는 설치된 Codex와 합성 provider로 세 회차를 완료했다. 정상 재시작과 완료 후 SIGKILL 재개를 통과했고 세 소유 프로세스 그룹 모두 종료됐음을 기록했다. 이번 수정 검증에서는 유료 모델을 호출하지 않았다. 이전 `live-7`의 실모델 증거와 별개이며 새 CodeRabbit 승인이나 qualification을 뜻하지 않는다. 원본 리뷰·검사 로그·후보 해시는 Git 밖 `moirai-r0/coderabbit-repair/`에 보존한다.
+
+### 기존 검증과 미완료 범위
 
 - 관련 조정기·게이트웨이·checkpoint·도구 테스트: 37 pass.
 - Codex 패키지와 checkpoint/prompt 테스트: 247 pass, 41 skip. opt-in native 검사는 기본 suite에서 생략되며 위 별도 native 실증과 범위가 다르다.

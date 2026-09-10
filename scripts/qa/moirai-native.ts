@@ -36,6 +36,7 @@ import {
 	type IsolatedHomeConnection,
 	OpenCodexHub,
 } from "../../packages/lina-opencodex/src/hub.ts";
+import { probeEvidenceRoot, probeShutdown } from "./moirai-native-lifecycle.ts";
 
 const live = process.argv.includes("--live");
 const rootArg = process.argv.find((x) => x.startsWith("--root="))?.slice(7);
@@ -43,7 +44,7 @@ if (!rootArg)
 	throw Error(
 		"Usage: bun scripts/qa/moirai-native.ts --root=/absolute/new/evidence/path [--live]",
 	);
-const root = resolve(rootArg);
+const root = probeEvidenceRoot(rootArg, resolve(import.meta.dir, "../.."));
 mkdirSync(root, { mode: 0o700 });
 for (const name of ["native", "ledger", "wire"])
 	mkdirSync(join(root, name), { mode: 0o700 });
@@ -144,6 +145,16 @@ writeFileSync(
 const runId = randomUUID();
 let rpc: CodexRpc | undefined;
 const results: unknown[] = [];
+const shutdowns: Awaited<ReturnType<typeof probeShutdown>>[] = [];
+const closeNative = async () => {
+	if (!rpc) return;
+	const receipt = await probeShutdown(rpc);
+	shutdowns.push(receipt);
+	rpc = undefined;
+	lifeWrite(join(root, `shutdown-${shutdowns.length}.json`), receipt);
+	if (!receipt.groupExited || receipt.closeError || receipt.observationError)
+		throw Error("Owned native shutdown incomplete");
+};
 let status = "failed";
 try {
 	for (let round = 1; round <= 3; round++) {
@@ -207,8 +218,7 @@ try {
 			if (!rpc.pid) throw Error("Missing owned PID for kill check");
 			const pid = rpc.pid;
 			process.kill(-pid, "SIGKILL");
-			await rpc.close();
-			rpc = undefined;
+			await closeNative();
 			lifeWrite(join(root, "kill.json"), {
 				pid,
 				signal: "SIGKILL",
@@ -216,8 +226,7 @@ try {
 				observedAt: Date.now(),
 			});
 		} else {
-			await rpc.close();
-			rpc = undefined;
+			await closeNative();
 		}
 	}
 	status = "pass";
@@ -227,7 +236,15 @@ try {
 	});
 	process.exitCode = 1;
 } finally {
-	await rpc?.close();
+	try {
+		await closeNative();
+	} catch (error) {
+		status = "failed";
+		process.exitCode = 1;
+		results.push({
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
 	await gateway.close();
 	await fixture?.stop(true);
 	const result = {
@@ -242,7 +259,15 @@ try {
 			requestTimeoutMs: 120000,
 		},
 		scope: "R0 transport/history only, not qualification or cognitive utility",
-		ownedProcessesClosed: true,
+		ownedProcessesClosed:
+			shutdowns.length > 0 &&
+			shutdowns.every(
+				(receipt) =>
+					receipt.groupExited &&
+					!receipt.closeError &&
+					!receipt.observationError,
+			),
+		shutdowns,
 	};
 	lifeWrite(join(root, "result.json"), result);
 	console.log(JSON.stringify(result));
