@@ -229,7 +229,7 @@ export async function runLiveScenario(
 		verdict: passed ? "pass" : "fail",
 		sdk: sdk.name,
 		version: sdk.version,
-		api: "openai-completions",
+		api: "openai-responses",
 		requestedModel: "ollama-cloud/glm-5.3-flash",
 		truth,
 		evidence,

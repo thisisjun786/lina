@@ -7,13 +7,13 @@ import { type LiveCapture, startLiveCapture } from "./live-capture.ts";
 const model = "ollama-cloud/glm-5.3-flash";
 const secret = "synthetic-capture-credential";
 const sse =
-	'data: {"model":"glm-5.3-flash","choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3}}\n\ndata: [DONE]\n\n';
+	'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed","model":"glm-5.3-flash","usage":{"input_tokens":7,"output_tokens":3}}}\n\n';
 const body = {
 	model,
-	messages: [{ role: "user", content: "Synthetic capture test" }],
+	input: [{ role: "user", content: "Synthetic capture test" }],
 	stream: true,
-	max_tokens: 9000,
-	tools: [{ type: "function", function: { name: "lookup_inventory" } }],
+	max_output_tokens: 9000,
+	tools: [{ type: "function", name: "lookup_inventory" }],
 };
 
 async function withCapture(
@@ -42,7 +42,7 @@ async function withCapture(
 }
 
 function send(capture: LiveCapture, requestBody: unknown = body) {
-	return fetch(`${capture.baseUrl}/chat/completions`, {
+	return fetch(`${capture.baseUrl}/responses`, {
 		method: "POST",
 		headers: { "content-type": "application/json", "x-private-header": secret },
 		body: JSON.stringify(requestBody),
@@ -75,8 +75,7 @@ test("capture forwards bounded requests and preserves SSE without credential art
 			expect(await response.text()).toBe(sse);
 			expect(received).toEqual({
 				...body,
-				max_tokens: 4096,
-				stream_options: { include_usage: true },
+				max_output_tokens: 4096,
 			});
 			expect(authorization).toBe(`Bearer ${secret}`);
 			expect(privateHeader).toBeNull();

@@ -16,25 +16,49 @@ type Variant =
 	| "model"
 	| "missing-model";
 
-function response(delta: unknown, variant: Variant, finish: string) {
+function response(item: Record<string, unknown>, variant: Variant) {
 	const model = variant === "model" ? "wrong-model" : "glm-5.3-flash";
 	const fields = variant === "missing-model" ? {} : { model };
-	const chunk = {
-		...fields,
-		id: "fixture-live",
-		object: "chat.completion.chunk",
-		created: 1,
-		choices: [{ index: 0, delta, finish_reason: null }],
-	};
 	const complete = {
-		...chunk,
-		choices: [{ index: 0, delta: {}, finish_reason: finish }],
-		usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		...fields,
+		id: `resp_${item["id"]}`,
+		object: "response",
+		created_at: 1,
+		status: "completed",
+		output: [item],
+		usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
 	};
+	const events = [
+		{
+			type: "response.created",
+			response: { ...complete, status: "in_progress", output: [], usage: null },
+		},
+		{
+			type: "response.output_item.added",
+			output_index: 0,
+			item: { ...item, content: [], arguments: "" },
+		},
+		{ type: "response.output_item.done", output_index: 0, item },
+		{ type: "response.completed", response: complete },
+	];
 	return new Response(
-		`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify(complete)}\n\ndata: [DONE]\n\n`,
+		events
+			.map(
+				(event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+			)
+			.join(""),
 		{ headers: { "content-type": "text/event-stream" } },
 	);
+}
+
+function message(text: string, id: string) {
+	return {
+		id,
+		type: "message",
+		role: "assistant",
+		status: "completed",
+		content: [{ type: "output_text", text, annotations: [] }],
+	};
 }
 
 async function exerciseLive(variant: Variant) {
@@ -44,46 +68,42 @@ async function exerciseLive(variant: Variant) {
 		hostname: "127.0.0.1",
 		port: 0,
 		async fetch(request) {
+			if (new URL(request.url).pathname !== "/v1/responses")
+				return new Response("Responses API required", { status: 404 });
 			const body = z
 				.object({
-					messages: z.array(
-						z.looseObject({ role: z.string(), content: z.unknown() }),
+					input: z.array(
+						z.looseObject({
+							type: z.string().optional(),
+							output: z.unknown().optional(),
+						}),
 					),
 				})
 				.parse(await request.json());
 			requests++;
 			if (requests === 1)
-				return response(
-					{ role: "assistant", content: "I will wait." },
-					variant,
-					"stop",
-				);
+				return response(message("I will wait.", "msg_plan"), variant);
 			if (requests === 2)
 				return response(
 					{
-						role: "assistant",
-						tool_calls: [
-							{
-								index: 0,
-								id: "call_inventory",
-								type: "function",
-								function: {
-									name: "lookup_inventory",
-									arguments: JSON.stringify({
-										warehouse: variant === "east" ? "east" : "west",
-										sku: "BOLT",
-									}),
-								},
-							},
-						],
+						id: "fc_inventory",
+						call_id: "call_inventory",
+						type: "function_call",
+						name: "lookup_inventory",
+						status: "completed",
+						arguments: JSON.stringify({
+							warehouse: variant === "east" ? "east" : "west",
+							sku: "BOLT",
+						}),
 					},
 					variant,
-					"tool_calls",
 				);
 			if (requests !== 3) throw new Error("Unexpected extra fixture request");
 			const toolText = z
 				.string()
-				.parse(body.messages.findLast((m) => m.role === "tool")?.content);
+				.parse(
+					body.input.findLast((m) => m.type === "function_call_output")?.output,
+				);
 			const tool = z
 				.object({
 					warehouse: z.string(),
@@ -98,7 +118,7 @@ async function exerciseLive(variant: Variant) {
 			if (variant === "quantity")
 				text = JSON.stringify({ ...tool, quantity: -1 });
 			if (variant === "json") text = "not JSON";
-			return response({ role: "assistant", content: text }, variant, "stop");
+			return response(message(text, "msg_final"), variant);
 		},
 	});
 	try {
@@ -110,6 +130,9 @@ async function exerciseLive(variant: Variant) {
 		expect(report.cleanup.captureClosed).toBe(true);
 		expect(report.cleanup.scratchRemoved).toBe(true);
 		expect(existsSync(report.cleanup.scratch)).toBe(false);
+		expect(report.evidence.wire).toHaveLength(3);
+		expect(report.evidence.calls).toHaveLength(1);
+		expect(report.errors).toEqual([]);
 		return report;
 	} finally {
 		await upstream.stop(true);

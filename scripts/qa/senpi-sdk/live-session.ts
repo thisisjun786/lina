@@ -28,7 +28,7 @@ export async function createLiveSession(options: {
 		"lina-live-probe",
 		{
 			baseUrl: baseUrl,
-			api: "openai-completions",
+			api: "openai-responses",
 			apiKey: "synthetic-capture-only",
 			models: [
 				{

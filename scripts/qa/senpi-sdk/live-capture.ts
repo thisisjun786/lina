@@ -54,7 +54,7 @@ export function startLiveCapture(options: CaptureOptions): LiveCapture {
 	async function forward(request: Request): Promise<Response> {
 		if (
 			request.method !== "POST" ||
-			new URL(request.url).pathname !== "/v1/chat/completions"
+			new URL(request.url).pathname !== "/v1/responses"
 		)
 			return new Response("Unsupported capture route", { status: 404 });
 		let raw: unknown;
@@ -73,11 +73,9 @@ export function startLiveCapture(options: CaptureOptions): LiveCapture {
 			return new Response("Episode dispatch unavailable", { status: 429 });
 		const forwarded: Record<string, unknown> = {
 			...parsed.data,
-			max_tokens: 4096,
+			max_output_tokens: 4096,
 			stream: true,
-			stream_options: { include_usage: true },
 		};
-		delete forwarded["max_completion_tokens"];
 		const sequence = ++dispatched;
 		const started = performance.now();
 		let status = 0;
@@ -90,7 +88,7 @@ export function startLiveCapture(options: CaptureOptions): LiveCapture {
 			if (options.credential)
 				outgoingHeaders["authorization"] = `Bearer ${options.credential}`;
 			const upstream = await fetch(
-				`${options.upstreamBaseUrl.replace(/\/$/, "")}/chat/completions`,
+				`${options.upstreamBaseUrl.replace(/\/$/, "")}/responses`,
 				{
 					method: "POST",
 					headers: outgoingHeaders,

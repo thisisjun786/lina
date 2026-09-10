@@ -1,3 +1,4 @@
+// allow: SIZE_OK - declarative negative and usage corpus for one evaluator seam.
 import { expect, test } from "bun:test";
 import {
 	evaluateLiveEvidence,
@@ -13,11 +14,19 @@ const truth: LiveTruth = {
 	quantity: 37,
 	receipt: "owner-west-7c21",
 };
-const answer =
-	'{"warehouse":"west","sku":"BOLT","quantity":37,"receipt":"owner-west-7c21"}';
+const answer = JSON.stringify(truth);
 
-function sse(chunks: readonly unknown[]): string {
-	return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`;
+function sse(chunks: readonly Record<string, unknown>[]): string {
+	return chunks
+		.map((chunk, index) => {
+			const completed = index === chunks.length - 1;
+			const event = {
+				type: completed ? "response.completed" : "response.in_progress",
+				response: { status: completed ? "completed" : "in_progress", ...chunk },
+			};
+			return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+		})
+		.join("");
 }
 
 function wire(response: string): LiveWire {
@@ -35,27 +44,19 @@ function valid(): LiveEvidence {
 		finalText: answer,
 		wire: [
 			wire(
-				sse([
-					{
+				sse(
+					[2, 5, 5].map((output_tokens) => ({
 						model: "glm-5.3-flash",
-						usage: { prompt_tokens: 13, completion_tokens: 2 },
-					},
-					{
-						model: "glm-5.3-flash",
-						usage: { prompt_tokens: 13, completion_tokens: 5 },
-					},
-					{
-						model: "glm-5.3-flash",
-						usage: { prompt_tokens: 13, completion_tokens: 5 },
-					},
-				]),
+						usage: { input_tokens: 13, output_tokens },
+					})),
+				),
 			),
 			wire(
 				sse([
 					{ model: "ollama-cloud/glm-5.3-flash", usage: null },
 					{
 						model: "ollama-cloud/glm-5.3-flash",
-						usage: { prompt_tokens: 21, completion_tokens: 8 },
+						usage: { input_tokens: 21, output_tokens: 8 },
 					},
 				]),
 			),
@@ -218,7 +219,7 @@ test.each([
 	},
 	{
 		name: "partial",
-		chunks: [{ model: "glm-5.3-flash", usage: { prompt_tokens: 4 } }],
+		chunks: [{ model: "glm-5.3-flash", usage: { input_tokens: 4 } }],
 		expected: { inputTokens: 4, outputTokens: null },
 	},
 	{
@@ -226,7 +227,7 @@ test.each([
 		chunks: [
 			{
 				model: "glm-5.3-flash",
-				usage: { prompt_tokens: 0, completion_tokens: 0 },
+				usage: { input_tokens: 0, output_tokens: 0 },
 			},
 		],
 		expected: { inputTokens: 0, outputTokens: 0 },
@@ -258,7 +259,7 @@ test("keeps totals unknown when one response omits usage", () => {
 test("accepts six responses and SSE comments, CRLF, and multiline data", () => {
 	// Given valid SSE framing and the exact request budget boundary.
 	const response =
-		': keepalive\r\nevent: message\r\ndata: {"model":\r\ndata: "glm-5.3-flash"}\r\n\r\ndata: [DONE]\r\n\r\n';
+		': keepalive\r\nevent: response.completed\r\ndata: {"type":"response.completed","response":{"status":"completed","model":\r\ndata: "glm-5.3-flash"}}\r\n\r\n';
 	const evidence = {
 		...valid(),
 		wire: Array.from({ length: 6 }, () => wire(response)),

@@ -63,8 +63,8 @@ export function evaluateLiveEvidence(
 	let outputTokens: number | null = 0;
 	const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 	const usageSchema = z.object({
-		prompt_tokens: count.optional(),
-		completion_tokens: count.optional(),
+		input_tokens: count.optional(),
+		output_tokens: count.optional(),
 		total_tokens: count.optional(),
 	});
 	const modelRequest = z.object({
@@ -90,10 +90,7 @@ export function evaluateLiveEvidence(
 				.map((line) => line.slice(5).trimStart())
 				.join("\n");
 			if (!data) continue;
-			if (data.trim() === "[DONE]") {
-				finished = true;
-				continue;
-			}
+			if (data.trim() === "[DONE]") continue;
 			let raw: unknown;
 			try {
 				raw = JSON.parse(data);
@@ -107,7 +104,25 @@ export function evaluateLiveEvidence(
 				failures.push(`stream-shape-${index}`);
 				continue;
 			}
-			const model = parsed.data["model"];
+			if (parsed.data["type"] === "error")
+				failures.push(`stream-error-${index}`);
+			const rawResponse = parsed.data["response"];
+			if (rawResponse === undefined) continue;
+			const response = z.record(z.string(), z.unknown()).safeParse(rawResponse);
+			if (!response.success) {
+				failures.push(`response-shape-${index}`);
+				continue;
+			}
+			if (parsed.data["type"] === "response.completed") {
+				if (response.data["status"] === "completed") finished = true;
+				else failures.push(`response-status-${index}`);
+			}
+			if (
+				parsed.data["type"] === "response.failed" ||
+				parsed.data["type"] === "response.incomplete"
+			)
+				failures.push(`response-status-${index}`);
+			const model = response.data["model"];
 			if (model !== undefined) {
 				if (
 					model === "glm-5.3-flash" ||
@@ -117,15 +132,15 @@ export function evaluateLiveEvidence(
 					responseModels.add(model);
 				} else failures.push(`response-model-${index}`);
 			}
-			const rawUsage = parsed.data["usage"];
+			const rawUsage = response.data["usage"];
 			if (rawUsage === undefined || rawUsage === null) continue;
 			const usage = usageSchema.safeParse(rawUsage);
 			if (!usage.success) {
 				failures.push(`usage-${index}`);
 				continue;
 			}
-			input = usage.data.prompt_tokens ?? null;
-			output = usage.data.completion_tokens ?? null;
+			input = usage.data.input_tokens ?? null;
+			output = usage.data.output_tokens ?? null;
 			if (output !== null && output > 4096)
 				failures.push(`output-budget-${index}`);
 			if (
