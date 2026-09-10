@@ -1,159 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-	MOIRAI_ROLES,
-	MoiraiProbe,
-	type ProbeGateway,
-} from "../src/moirai-probe.ts";
+import { MOIRAI_ROLES } from "../src/moirai-probe.ts";
 import { verifyProbeHistory } from "../src/moirai-probe-state.ts";
-import type { CodexRpc } from "../src/rpc.ts";
+import { finishProbeRound, fixture } from "./moirai-probe-fixture.ts";
 
-const roots: string[] = [];
-afterEach(() => {
-	for (const root of roots.splice(0))
-		rmSync(root, { recursive: true, force: true });
-});
-function fixture(reuse?: string) {
-	const root = reuse ?? mkdtempSync(join(tmpdir(), "moirai-round-test-"));
-	if (!reuse) roots.push(root);
-	const listeners = new Set<(method: string, params: unknown) => void>();
-	const turns = new Map<string, Array<Record<string, unknown>>>();
-	const pending: Array<{ threadId: string; id: string; text: string }> = [];
-	const starts = new Map<
-		number,
-		ReturnType<typeof Promise.withResolvers<void>>
-	>();
-	const started = (index: number) => {
-		if (pending[index]) return Promise.resolve();
-		let signal = starts.get(index);
-		if (!signal) {
-			signal = Promise.withResolvers<void>();
-			starts.set(index, signal);
-		}
-		return signal.promise;
-	};
-	const entered = Promise.withResolvers<void>();
-	let count = 0;
-	let aggregates = 0;
-	const resumed: string[] = [];
-	const emit = (method: string, params: unknown) => {
-		for (const l of listeners) l(method, params);
-	};
-	const rpc = {
-		pid: 123,
-		closed: false,
-		subscribe(l: (method: string, params: unknown) => void) {
-			listeners.add(l);
-			return () => listeners.delete(l);
-		},
-		onRequest() {
-			return () => {};
-		},
-		notify() {},
-		async close() {},
-		async request(
-			method: string,
-			p: { threadId: string; input: Array<{ text: string }> },
-		) {
-			if (method === "thread/start") {
-				const id = `thread-${count++}`;
-				turns.set(id, []);
-				return { thread: { id } };
-			}
-			if (method === "thread/resume") {
-				resumed.push(p.threadId);
-				return { thread: { id: p.threadId } };
-			}
-			if (method === "thread/read")
-				return {
-					thread: { id: p.threadId, turns: turns.get(p.threadId) ?? [] },
-				};
-			if (method === "turn/start") {
-				const id = `turn-${turns.get(p.threadId)?.length ?? 0}-${pending.length}`;
-				const text = p.input[0]?.text ?? "";
-				pending.push({ threadId: p.threadId, id, text });
-				starts.get(pending.length - 1)?.resolve();
-				if (p.threadId === "thread-3") aggregates++;
-				if (pending.length === 3) entered.resolve();
-				return { turn: { id } };
-			}
-			throw Error(method);
-		},
-	} as unknown as CodexRpc;
-	const claims = new Map<string, Parameters<ProbeGateway["expect"]>[0]>();
-	const gateway: ProbeGateway = {
-		expect(claim) {
-			claims.set(claim.key, claim);
-		},
-		async settled(key) {
-			const claim = claims.get(key);
-			if (!claim) throw Error("Missing fixture claim");
-			const text = `proposal-${claims.size - 1}`;
-			return {
-				usage: null,
-				text,
-				input: [
-					...(claim.previous
-						? [...claim.previous.input, ...claim.previous.output]
-						: []),
-					{
-						role: "user",
-						content: [{ type: "input_text", text: claim.input }],
-					},
-				],
-				output: [
-					{ role: "assistant", content: [{ type: "output_text", text }] },
-				],
-			};
-		},
-	};
-	const probe = new MoiraiProbe({
-		rpc,
-		root,
-		model: "test",
-		threadParams: () => ({}),
-		verifyThread: () => {},
-		gateway,
-	});
-	const complete = (i: number, status = "completed") => {
-		const p = pending[i];
-		if (!p) throw Error("missing pending");
-		const turn = {
-			id: p.id,
-			status,
-			items: [
-				{ type: "userMessage", content: [{ type: "text", text: p.text }] },
-				{ type: "agentMessage", text: `proposal-${i}` },
-			],
-		};
-		turns.get(p.threadId)?.push(turn);
-		emit("turn/completed", { threadId: p.threadId, turn });
-	};
-	return {
-		root,
-		probe,
-		pending,
-		started,
-		claims,
-		entered,
-		complete,
-		emit,
-		turns,
-		gateway,
-		resumed,
-		get aggregates() {
-			return aggregates;
-		},
-	};
-}
 test("three proposals overlap and aggregation waits for canonical plus captured success", async () => {
 	const f = fixture();
 	await f.probe.initialize();
@@ -409,17 +260,8 @@ test("native input must be one exact text item, without hidden or malformed cont
 test("ordered transport capture survives consecutive rounds and a fresh coordinator", async () => {
 	const first = fixture();
 	await first.probe.initialize();
-	const finish = async (f: ReturnType<typeof fixture>, id: string) => {
-		const index = f.pending.length;
-		const run = f.probe.round(id, `input-${id}`, new AbortController().signal);
-		await f.started(index + 2);
-		for (let i = index; i < index + 3; i++) f.complete(i);
-		await f.started(index + 3);
-		f.complete(index + 3);
-		return run;
-	};
-	const one = await finish(first, "z-first");
-	const two = await finish(first, "a-second");
+	const one = await finishProbeRound(first, "z-first");
+	const two = await finishProbeRound(first, "a-second");
 	for (const role of MOIRAI_ROLES)
 		expect(first.claims.get(`a-second-${role}`)?.previous).toEqual(
 			one.find((r) => r.role === role)?.capture,
@@ -429,7 +271,7 @@ test("ordered transport capture survives consecutive rounds and a fresh coordina
 		next.turns.set(id, structuredClone(history));
 	await next.probe.initialize();
 	expect(next.resumed).toHaveLength(4);
-	await finish(next, "m-third");
+	await finishProbeRound(next, "m-third");
 	for (const role of MOIRAI_ROLES)
 		expect(next.claims.get(`m-third-${role}`)?.previous).toEqual(
 			two.find((r) => r.role === role)?.capture,

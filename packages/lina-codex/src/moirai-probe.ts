@@ -65,6 +65,10 @@ export class MoiraiProbe {
 	private busy = false;
 	private sequence = 0;
 	private captures = new Map<MoiraiRole, ProbeCapture>();
+	private histories = new Map<
+		MoiraiRole,
+		Map<string, { text: string; input: string }>
+	>();
 	private failed = false;
 	private readonly abort = new AbortController();
 	constructor(private readonly options: Options) {
@@ -100,6 +104,7 @@ export class MoiraiProbe {
 				if (authorRecord(authorRecord(resumed)["thread"])["id"] !== id)
 					throw Error("Resumed thread changed");
 				this.bindings.set(role, id);
+				this.histories.set(role, new Map(saved.get(role)?.turns));
 				const turns = [...(saved.get(role)?.turns.values() ?? [])];
 				const last = turns.at(-1);
 				if (last) this.captures.set(role, last.capture);
@@ -124,6 +129,7 @@ export class MoiraiProbe {
 			if ([...this.bindings.values()].includes(id))
 				throw Error("Duplicate native thread");
 			this.bindings.set(role, id);
+			this.histories.set(role, new Map());
 			lifeWrite(join(root, `created-${role}.json`), { role, threadId: id });
 		}
 		lifeWrite(join(root, "binding.json"), {
@@ -144,9 +150,11 @@ export class MoiraiProbe {
 		signal.throwIfAborted();
 		this.busy = true;
 		const directory = join(this.options.root, `round-${roundId}`);
+		let created = false;
 		try {
 			if (existsSync(directory)) throw Error("Round already exists");
 			checkedDirectory(directory, true);
+			created = true;
 			const sequence = this.sequence + 1;
 			lifeWrite(join(directory, "input.json"), { roundId, input, sequence });
 			const proposals = await Promise.allSettled(
@@ -171,6 +179,19 @@ export class MoiraiProbe {
 				signal,
 			);
 			results.push(aggregate);
+			for (const role of MOIRAI_ROLES) {
+				const threadId = identifier(this.bindings.get(role));
+				const snapshot = await this.options.rpc.request(
+					"thread/read",
+					{ threadId, includeTurns: true },
+					signal,
+				);
+				lifeWrite(join(directory, `final-native-${role}.json`), snapshot);
+				verifyProbeHistory(snapshot, {
+					threadId,
+					turns: new Map(this.histories.get(role)),
+				});
+			}
 			lifeWrite(join(directory, "complete.json"), {
 				roundId,
 				results,
@@ -181,6 +202,10 @@ export class MoiraiProbe {
 			return results;
 		} catch (error) {
 			this.failed = true;
+			if (created)
+				lifeWrite(join(directory, "failure.json"), {
+					error: error instanceof Error ? error.message : String(error),
+				});
 			throw error;
 		} finally {
 			this.busy = false;
@@ -283,6 +308,7 @@ export class MoiraiProbe {
 					),
 				);
 				const thread = authorRecord(snapshot["thread"]);
+				lifeWrite(join(directory, `native-${role}.json`), snapshot);
 				if (thread["id"] !== threadId || !Array.isArray(thread["turns"]))
 					throw Error("Invalid canonical thread");
 				const matches = thread["turns"].filter(
@@ -290,6 +316,10 @@ export class MoiraiProbe {
 				);
 				if (matches.length !== 1) throw Error("Missing canonical turn");
 				const output = probeTurnText(matches[0]);
+				const expected = new Map(this.histories.get(role));
+				if (expected.has(turnId)) throw Error("Native turn ID reused");
+				expected.set(turnId, { text: output, input });
+				verifyProbeHistory(snapshot, { threadId, turns: expected });
 				return { role, threadId, turnId, text: output };
 			})();
 			const outcomes = await Promise.allSettled([nativeResult, captured]);
@@ -309,6 +339,7 @@ export class MoiraiProbe {
 			} as MoiraiProbeResult;
 			lifeWrite(join(directory, `result-${role}.json`), value);
 			this.captures.set(role, value.capture);
+			this.histories.get(role)?.set(value.turnId, { text: value.text, input });
 			return value;
 		} catch (error) {
 			lifeWrite(join(directory, `failure-${role}.json`), {

@@ -75,6 +75,14 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 
 ### 기존 검증과 미완료 범위
 
+`331dd71`의 CI와 해당 수정 diff의 독립 리뷰는 통과했다. 이후 Codex의 새 리뷰에서 [원본 source와 역할 입력 연결 누락](https://github.com/thisisjun786/lina/pull/9#discussion_r3978410819), [현재 native snapshot의 추가 turn 무시](https://github.com/thisisjun786/lina/pull/9#discussion_r3978410825)가 확인됐다. 앞선 PASS는 이 두 누락을 발견했다는 뜻이 아니다.
+
+후속 수정은 저장된 역할 입력의 round/role/원문을 source와 대조한다. 종합 입력의 원문과 세 제안의 역할·내용·순서도 해당 회차 결과와 일치해야 한다. 매 역할 완료 시 기존 이력과 현재 turn 전체를 검증하고, 종합 뒤 네 스레드를 다시 읽어 늦은 추가 turn까지 확인한 후 완료 원장을 쓴다. 이상이 있으면 완료를 기록하지 않고 원본 snapshot과 실패 원인을 보존한다.
+
+원본 변경·역할/회차 변경·종합 원문/제안 변경·native 추가 turn/과거 변경/순서 변경/현재 입력 변경의 재현 10개가 수정 전 실패했다. 종합 도중 다른 판단 스레드에 추가된 turn을 재현한 검사도 수정 전 실패했다. 최종 관련 테스트는 63 pass, Codex 패키지는 292 pass/41 skip이며 root 타입·lint가 통과했다. 공통 테스트 fixture를 별도 파일로 옮겼고 기존 검사는 유지했다.
+
+새 후보 `live-source-snapshot`은 GLM 12회 송신·17,332토큰으로 세 회차를 통과했다. 정상 재시작과 완료 후 SIGKILL 재개, 역할 완료·회차 종료 snapshot 검증, 소유 그룹 종료를 확인했다. 모델·요청/에피소드 한도와 R0 실증 범위는 같다. 원본과 후보 해시·RED/GREEN 로그는 Git 밖 `moirai-r0/source-snapshot-repair/`에 보존한다. 이 후보의 GitHub 리뷰·CI 결과는 해당 커밋 기준으로 별도 확인해야 한다.
+
 - 관련 조정기·게이트웨이·checkpoint·도구 테스트: 37 pass.
 - Codex 패키지와 checkpoint/prompt 테스트: 247 pass, 41 skip. opt-in native 검사는 기본 suite에서 생략되며 위 별도 native 실증과 범위가 다르다.
 - 자체 기억·자료 엔진/저장/도구/API 테스트: 38 pass.

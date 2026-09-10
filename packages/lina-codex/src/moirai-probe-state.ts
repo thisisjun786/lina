@@ -88,13 +88,19 @@ export function completedProbeState(
 			source["sequence"] !== sequence
 		)
 			throw Error("Invalid durable round sequence");
-		return { directory, roundId, results, sequence };
+		return {
+			directory,
+			roundId,
+			results,
+			sequence,
+			sourceInput: source["input"],
+		};
 	});
 	const ordered = [...numbered].sort((a, b) => a.sequence - b.sequence);
 	if (ordered.some(({ sequence }, index) => sequence !== index + 1))
 		throw Error("Invalid durable round sequence");
 	const previousCaptures = new Map<string, ProbeCapture>();
-	for (const { directory, roundId, results } of ordered) {
+	for (const { directory, roundId, results, sourceInput } of ordered) {
 		const seen = new Set<string>();
 		for (const raw of results) {
 			const result = authorRecord(raw);
@@ -137,6 +143,30 @@ export function completedProbeState(
 				canonicalLifeJson(usage) !== canonicalLifeJson(result["usage"])
 			)
 				throw Error("Completed role evidence mismatch");
+			const envelope = authorRecord(JSON.parse(intent["input"]));
+			const expectedInput =
+				role === "moirai"
+					? {
+							input: sourceInput,
+							proposals: roles
+								.filter((r) => r !== "moirai")
+								.map((role) => ({
+									role,
+									text: authorRecord(
+										results.find((r) => authorRecord(r)["role"] === role),
+									)["text"],
+								})),
+						}
+					: sourceInput;
+			const actualInput =
+				role === "moirai" && typeof envelope["input"] === "string"
+					? JSON.parse(envelope["input"])
+					: envelope["input"];
+			if (
+				canonicalLifeJson({ ...envelope, input: actualInput }) !==
+				canonicalLifeJson({ roundId, role, input: expectedInput })
+			)
+				throw Error("Role intent differs from recorded source");
 			const validatedCapture: ProbeCapture = { input, output, text, usage };
 			verifyProbeWire(
 				validatedCapture.input,

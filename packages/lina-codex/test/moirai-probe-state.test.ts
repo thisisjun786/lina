@@ -76,7 +76,8 @@ function completeRound(
 ): WireCapture {
 	const roundId = name.slice(6);
 	const directory = join(root, name);
-	const input = `input-${roundId}`;
+	const sourceInput = `input-${roundId}`;
+	const input = JSON.stringify({ roundId, role: "clotho", input: sourceInput });
 	const text = `text-${roundId}`;
 	const capture =
 		options.capture ?? buildCapture(input, text, options.previous ?? null);
@@ -91,7 +92,7 @@ function completeRound(
 	};
 	const inputSequence =
 		"inputSequence" in options ? options.inputSequence : sequence;
-	const source: Record<string, unknown> = { roundId, input };
+	const source: Record<string, unknown> = { roundId, input: sourceInput };
 	const complete: Record<string, unknown> = {
 		roundId,
 		results: [result],
@@ -126,7 +127,15 @@ test("completed probe state orders reverse-lexical round directories by sequence
 		"turn-a-second",
 	]);
 	expect(state.get("clotho")?.turns.get("turn-a-second")?.capture).toEqual(
-		buildCapture("input-a-second", "text-a-second", first),
+		buildCapture(
+			JSON.stringify({
+				roundId: "a-second",
+				role: "clotho",
+				input: "input-a-second",
+			}),
+			"text-a-second",
+			first,
+		),
 	);
 });
 
