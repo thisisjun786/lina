@@ -8,7 +8,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MOIRAI_ROLES, MoiraiProbe } from "../src/moirai-probe.ts";
+import {
+	MOIRAI_ROLES,
+	MoiraiProbe,
+	type ProbeGateway,
+} from "../src/moirai-probe.ts";
 import { verifyProbeHistory } from "../src/moirai-probe-state.ts";
 import type { CodexRpc } from "../src/rpc.ts";
 
@@ -23,6 +27,19 @@ function fixture(reuse?: string) {
 	const listeners = new Set<(method: string, params: unknown) => void>();
 	const turns = new Map<string, Array<Record<string, unknown>>>();
 	const pending: Array<{ threadId: string; id: string; text: string }> = [];
+	const starts = new Map<
+		number,
+		ReturnType<typeof Promise.withResolvers<void>>
+	>();
+	const started = (index: number) => {
+		if (pending[index]) return Promise.resolve();
+		let signal = starts.get(index);
+		if (!signal) {
+			signal = Promise.withResolvers<void>();
+			starts.set(index, signal);
+		}
+		return signal.promise;
+	};
 	const entered = Promise.withResolvers<void>();
 	let count = 0;
 	let aggregates = 0;
@@ -60,9 +77,10 @@ function fixture(reuse?: string) {
 					thread: { id: p.threadId, turns: turns.get(p.threadId) ?? [] },
 				};
 			if (method === "turn/start") {
-				const id = `turn-${pending.length}`;
+				const id = `turn-${turns.get(p.threadId)?.length ?? 0}-${pending.length}`;
 				const text = p.input[0]?.text ?? "";
 				pending.push({ threadId: p.threadId, id, text });
+				starts.get(pending.length - 1)?.resolve();
 				if (p.threadId === "thread-3") aggregates++;
 				if (pending.length === 3) entered.resolve();
 				return { turn: { id } };
@@ -70,10 +88,31 @@ function fixture(reuse?: string) {
 			throw Error(method);
 		},
 	} as unknown as CodexRpc;
-	const gateway = {
-		expect() {},
-		async settled() {
-			return { usage: null };
+	const claims = new Map<string, Parameters<ProbeGateway["expect"]>[0]>();
+	const gateway: ProbeGateway = {
+		expect(claim) {
+			claims.set(claim.key, claim);
+		},
+		async settled(key) {
+			const claim = claims.get(key);
+			if (!claim) throw Error("Missing fixture claim");
+			const text = `proposal-${claims.size - 1}`;
+			return {
+				usage: null,
+				text,
+				input: [
+					...(claim.previous
+						? [...claim.previous.input, ...claim.previous.output]
+						: []),
+					{
+						role: "user",
+						content: [{ type: "input_text", text: claim.input }],
+					},
+				],
+				output: [
+					{ role: "assistant", content: [{ type: "output_text", text }] },
+				],
+			};
 		},
 	};
 	const probe = new MoiraiProbe({
@@ -102,6 +141,8 @@ function fixture(reuse?: string) {
 		root,
 		probe,
 		pending,
+		started,
+		claims,
 		entered,
 		complete,
 		emit,
@@ -118,8 +159,8 @@ test("three proposals overlap and aggregation waits for canonical plus captured 
 	await f.probe.initialize();
 	const aggregateEntered = Promise.withResolvers<void>();
 	const original = f.gateway.expect;
-	f.gateway.expect = () => {
-		original();
+	f.gateway.expect = (claim) => {
+		original(claim);
 		if (f.pending.length === 3) aggregateEntered.resolve();
 	};
 	const run = f.probe.round(
@@ -181,6 +222,41 @@ test("native completed with failed gateway capture cannot aggregate", async () =
 	for (let i = 0; i < 3; i++) f.complete(i);
 	await expect(run).rejects.toThrow();
 	expect(f.aggregates).toBe(0);
+});
+test("changed native output cannot certify provider transmission or start aggregation", async () => {
+	const f = fixture();
+	f.gateway.settled = async () => ({
+		usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+		text: "provider original",
+		input: [],
+		output: [],
+	});
+	await f.probe.initialize();
+	const run = f.probe.round(
+		"output-mismatch",
+		"synthetic",
+		new AbortController().signal,
+	);
+	void run.catch(() => {});
+	await f.entered.promise;
+	for (let i = 0; i < 3; i++) f.complete(i);
+	// If aggregation incorrectly starts, finish it so the pre-fix test cannot hang.
+	const prior = f.gateway.expect;
+	f.gateway.expect = (claim) => {
+		prior(claim);
+		queueMicrotask(() => f.complete(3));
+	};
+	await expect(run).rejects.toThrow();
+	expect(f.aggregates).toBe(0);
+	const failure = JSON.parse(
+		readFileSync(
+			join(f.root, "round-output-mismatch", "failure-clotho.json"),
+			"utf8",
+		),
+	);
+	expect(failure.nativeResult.text).toBe("proposal-0");
+	expect(failure.capturedResult.text).toBe("provider original");
+	expect(failure.capturedResult.usage.total_tokens).toBe(3);
 });
 test("empty bound threads are not silently recreated after restart", async () => {
 	const f = fixture();
@@ -245,7 +321,9 @@ test("restart validates every role against durable and native results before res
 	const f = fixture();
 	await f.probe.initialize();
 	const aggregateEntered = Promise.withResolvers<void>();
-	f.gateway.expect = () => {
+	const register = f.gateway.expect;
+	f.gateway.expect = (claim) => {
+		register(claim);
 		if (f.pending.length === 3) aggregateEntered.resolve();
 	};
 	const run = f.probe.round("saved", "synthetic", new AbortController().signal);
@@ -326,4 +404,51 @@ test("native input must be one exact text item, without hidden or malformed cont
 		expect(() => verifyProbeHistory(history(content), expected)).toThrow(
 			"Native input evidence mismatch",
 		);
+});
+
+test("ordered transport capture survives consecutive rounds and a fresh coordinator", async () => {
+	const first = fixture();
+	await first.probe.initialize();
+	const finish = async (f: ReturnType<typeof fixture>, id: string) => {
+		const index = f.pending.length;
+		const run = f.probe.round(id, `input-${id}`, new AbortController().signal);
+		await f.started(index + 2);
+		for (let i = index; i < index + 3; i++) f.complete(i);
+		await f.started(index + 3);
+		f.complete(index + 3);
+		return run;
+	};
+	const one = await finish(first, "z-first");
+	const two = await finish(first, "a-second");
+	for (const role of MOIRAI_ROLES)
+		expect(first.claims.get(`a-second-${role}`)?.previous).toEqual(
+			one.find((r) => r.role === role)?.capture,
+		);
+	const next = fixture(first.root);
+	for (const [id, history] of first.turns)
+		next.turns.set(id, structuredClone(history));
+	await next.probe.initialize();
+	expect(next.resumed).toHaveLength(4);
+	await finish(next, "m-third");
+	for (const role of MOIRAI_ROLES)
+		expect(next.claims.get(`m-third-${role}`)?.previous).toEqual(
+			two.find((r) => r.role === role)?.capture,
+		);
+	for (const [index, name] of ["z-first", "a-second", "m-third"].entries()) {
+		for (const file of ["input", "complete"])
+			expect(
+				JSON.parse(
+					readFileSync(
+						join(first.root, `round-${name}`, `${file}.json`),
+						"utf8",
+					),
+				).sequence,
+			).toBe(index + 1);
+	}
+	const reordered = fixture(first.root);
+	for (const [id, history] of next.turns)
+		reordered.turns.set(id, structuredClone(history));
+	reordered.turns.get("thread-3")?.reverse();
+	await expect(reordered.probe.initialize()).rejects.toThrow();
+	expect(reordered.resumed).toEqual([]);
 });

@@ -1,6 +1,6 @@
 # R0: 네 지속 Codex 스레드 실행 증거
 
-2026-09-10. QA 전용 구현과 실제 GLM 호출을 확인했다. **하나의 합성 채널에서 세 판단을 병렬 실행하고 모이라이가 종합한 뒤, native 프로세스를 다시 열어 같은 네 스레드를 이어 갔다.** 제품 인지 회차나 사용자 채널에 연결하지 않았다. `candidate-7`의 독립 코드 리뷰는 R0 구현과 OpenViking 잔여 정리 범위에서 PASS였다. 이후 CodeRabbit이 발견한 세 결함과 후속 수정 검증은 아래에 구분해 기록한다.
+2026-09-10. QA 전용 구현과 실제 GLM 호출을 확인했다. **하나의 합성 채널에서 세 판단을 병렬 실행하고 모이라이가 종합한 뒤, native 프로세스를 다시 열어 같은 네 스레드를 이어 갔다.** 제품 인지 회차나 사용자 채널에 연결하지 않았다. `candidate-7`의 독립 코드 리뷰는 R0 구현과 OpenViking 잔여 정리 범위에서 PASS였다. 이후 CodeRabbit과 Codex 리뷰가 발견한 결함과 각 수정 후보의 검증을 아래에 구분해 기록한다.
 
 ## 구현과 실행
 
@@ -55,6 +55,23 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 관련 테스트는 28 pass다. 별도의 살아 있는 자식 프로세스로 종료 여부 검사를 확인했고, CLI에 상대 경로·checkout 내부 절대 경로를 넘겼을 때 exit 1과 파일 미생성을 확인했다. `bun run typecheck`, `bun run lint`는 exit 0이며 QA CLI를 포함한 별도 타입 검사도 0 diagnostics다.
 
 수정 후보의 `native-fixture-coderabbit`는 설치된 Codex와 합성 provider로 세 회차를 완료했다. 정상 재시작과 완료 후 SIGKILL 재개를 통과했고 세 소유 프로세스 그룹 모두 종료됐음을 기록했다. 이번 수정 검증에서는 유료 모델을 호출하지 않았다. 이전 `live-7`의 실모델 증거와 별개이며 새 CodeRabbit 승인이나 qualification을 뜻하지 않는다. 원본 리뷰·검사 로그·후보 해시는 Git 밖 `moirai-r0/coderabbit-repair/`에 보존한다.
+
+### Codex 리뷰 후속 수정: 전체 전달 이력과 출력 대조
+
+`da3dde5`의 CI는 `dev-gate`까지 통과했지만, Codex 리뷰에서 [이전 전송 이력 누락](https://github.com/thisisjun786/lina/pull/9#discussion_r3978126115), [provider/native 출력 불일치](https://github.com/thisisjun786/lina/pull/9#discussion_r3978126124), [native 이력 순서 변경](https://github.com/thisisjun786/lina/pull/9#discussion_r3978126134)을 통과시키는 세 결함이 확인됐다. 같은 커밋의 CodeRabbit `SUCCESS` 상태는 재리뷰 승인이 아니다. 봇은 자동 리뷰를 건너뛴다고 알렸고 마지막 실제 리뷰 대상은 `219368b`였다.
+
+현재 수정은 다음 계약을 적용한다.
+
+- 게이트웨이는 이전에 수신한 전체 입력과 provider의 최종 출력이 다음 입력 앞부분에 같은 순서·내용으로 있는지 확인한다. 메시지 역할·텍스트 항목 경계·phase와 reasoning의 summary·opaque 내용도 비교한다. ID·완료 상태·annotation 같은 전송 메타데이터는 비교에서 제외하며 원본 wire에는 남긴다. 현재 사용자 입력도 정확히 하나의 텍스트 항목이어야 한다.
+- 재개 중 새로 추가된 native 환경·권한·skill 안내는 허용된 envelope 형태만 받는다. 이 안내 내부의 의미가 안전한지까지 인증하는 검사는 아니다. 이전에 전달된 안내는 다음 회차부터 전체 prefix 비교에 포함한다. 별도 provider 문맥을 불러오는 `previous_response_id`·`conversation` 등 미지원 전송 필드는 거부한다.
+- provider의 최종 assistant 출력과 native 완료 텍스트가 같아야 역할 결과를 확정한다. 불일치면 종합을 시작하지 않고 양쪽 결과·사용량을 실패 기록에 남긴다.
+- 회차 시작과 완료 기록에 같은 1부터 시작하는 연속 순번을 저장한다. 재개 전에 순번과 네 역할의 전송 기록 연결을 검증하고 native turn의 위치까지 대조한다. 순번·capture가 없는 과거 원장은 원본 그대로 보존하며 자동 보정하거나 새 증거로 인정하지 않는다.
+
+관련 테스트 51 pass, Codex 패키지 281 pass/41 skip, root 타입·QA CLI 타입·lint가 통과했다. 입력 이력 변조와 출력 불일치 재현은 수정 전 실패·수정 후 통과했다. 순서 검증의 RED/GREEN 로그도 보존한다. 테스트 기대값은 합성 입력·응답으로 지정했으며 실제 모델의 답을 기준값으로 복사하지 않았다.
+
+`native-fixture-review-history-2`는 설치된 Codex와 합성 provider로 새 세 회차를 통과했다. 이어 `live-review-history`에서 Linux/Codex `0.153.4`/Bun `1.4.0`/OpenCodex Responses/`ollama-cloud/glm-5.3-flash`의 실제 12회 송신과 19,152토큰을 기록했다. 같은 네 thread를 유지했고 각 회차의 전체 wire 입력 항목 수는 역할별 3→8→12개였다. 세 판단 완료 후 종합, 정상 종료 후 재개, 완료 후 SIGKILL 재개, 세 소유 프로세스 그룹 종료를 확인했다. 직접 청구 금액과 OpenCodex 내부 물리 재시도 횟수는 미측정이다.
+
+개발 도중 `native-fixture-review-history`는 첫 회차 완료 뒤 재개 capture 연결이 빠져 실패했다. 이 기록과 실패 원인도 보존한다. 합성 fixture의 미지원 필드로 테스트가 멈춘 중간 로그도 삭제하지 않는다. 최종 원본·후보 해시·검사 로그는 Git 밖 `moirai-r0/review-history-repair/`에 있다. 이 실증은 R0 전송과 완료 회차 재개에 한정하며, 독립 인지 qualification·진행 중 효과 복구·기존 replay 리뷰의 차단 해소를 뜻하지 않는다.
 
 ### 기존 검증과 미완료 범위
 

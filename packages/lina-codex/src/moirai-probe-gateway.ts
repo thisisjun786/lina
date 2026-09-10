@@ -2,16 +2,23 @@ import { randomBytes } from "node:crypto";
 import { authorRecord } from "./author-native-policy.ts";
 import { inspectLifeCatalog } from "./life-model-gateway.ts";
 import { lifeInteger } from "./life-model-validation.ts";
+import {
+	type ProbeCapture,
+	probeProviderText,
+	probeWireItems,
+	verifyProbeWire,
+} from "./moirai-probe-transport.ts";
 
 type ClaimInput = {
 	key: string;
 	episodeId: string;
 	input: string;
 	instructions: string;
+	previous: ProbeCapture | null;
 };
 type Claim = ClaimInput & {
 	claimed: boolean;
-	done: ReturnType<typeof Promise.withResolvers<{ usage: unknown }>>;
+	done: ReturnType<typeof Promise.withResolvers<ProbeCapture>>;
 };
 type Options = {
 	baseUrl: string;
@@ -23,40 +30,12 @@ type Options = {
 	fetchImpl?: typeof fetch;
 };
 const MAX_BYTES = 1048576;
-function messages(body: Record<string, unknown>): string {
-	if (!Array.isArray(body["input"]) || !body["input"].length)
-		throw Error("Missing input");
-	let last = "";
-	let lastRole = "";
-	for (const raw of body["input"]) {
-		const item = authorRecord(raw);
-		if (item["type"] === "reasoning") continue;
-		if (item["type"] != null && item["type"] !== "message")
-			throw Error("Non-message history");
-		if (!["developer", "user", "assistant"].includes(String(item["role"])))
-			throw Error("Invalid history role");
-		const parts = item["content"];
-		if (
-			!Array.isArray(parts) ||
-			parts.some(
-				(p) =>
-					!["input_text", "output_text"].includes(
-						String(authorRecord(p)["type"]),
-					) || typeof authorRecord(p)["text"] !== "string",
-			)
-		)
-			throw Error("Non-text history");
-		last = parts.map((p) => authorRecord(p)["text"]).join("");
-		lastRole = String(item["role"]);
-	}
-	if (lastRole !== "user") throw Error("Last input is not user");
-	return last;
-}
-function completedUsage(raw: string, responseModel?: string): unknown {
+function completedCapture(raw: string, responseModel?: string) {
 	const text = raw.replace(/^\uFEFF/, "").replace(/\r\n|\r/g, "\n");
 	if (!text.endsWith("\n\n")) throw Error("Truncated SSE");
 	let completed = 0;
 	let usage: unknown = null;
+	let output: unknown[] = [];
 	for (const frame of text.split("\n\n")) {
 		const data = frame
 			.split("\n")
@@ -84,6 +63,8 @@ function completedUsage(raw: string, responseModel?: string): unknown {
 			)
 		)
 			throw Error("Invalid terminal response");
+		output = probeWireItems(response["output"]);
+		probeProviderText(output);
 		usage = response["usage"] ?? null;
 		if (usage !== null) {
 			const counts = authorRecord(usage);
@@ -97,7 +78,7 @@ function completedUsage(raw: string, responseModel?: string): unknown {
 		completed++;
 	}
 	if (completed !== 1) throw Error("Missing or duplicate completion");
-	return usage;
+	return { usage, output, text: probeProviderText(output) };
 }
 /** QA-owned admission proxy. The production LIFE gateway remains unchanged. */
 export function createMoiraiProbeGateway(options: Options) {
@@ -138,13 +119,42 @@ export function createMoiraiProbeGateway(options: Options) {
 				);
 				if (body["model"] !== options.model || body["stream"] !== true)
 					throw Error("Model or stream mismatch");
-				const input = messages(body);
+				if (
+					Object.keys(body).some(
+						(key) =>
+							![
+								"model",
+								"instructions",
+								"input",
+								"tools",
+								"tool_choice",
+								"parallel_tool_calls",
+								"reasoning",
+								"store",
+								"stream",
+								"include",
+								"prompt_cache_key",
+								"client_metadata",
+								"max_output_tokens",
+							].includes(key),
+					)
+				)
+					throw Error("Unexpected probe transport fields");
+				const items = probeWireItems(body["input"]);
+				const last = items.at(-1);
+				const input =
+					last?.["role"] === "user"
+						? (last["content"] as Array<{ text: string }>)
+								.map((p) => p.text)
+								.join("")
+						: null;
 				claim = [...claims.values()].find(
 					(c) => c.input === input && c.instructions === body["instructions"],
 				);
 				if (!claim) return new Response("unregistered", { status: 403 });
 				if (claim.claimed) return new Response("duplicate", { status: 409 });
 				record(`${claim.key}-received`, { body });
+				verifyProbeWire(items, claim.input, claim.previous);
 				inspectLifeCatalog(body["tools"]);
 				const consumed = counts.get(claim.episodeId) ?? 0;
 				if (consumed >= 6) {
@@ -237,12 +247,15 @@ export function createMoiraiProbeGateway(options: Options) {
 									raw,
 									attempts: counts.get(current.episodeId),
 								});
-								const usage = completedUsage(raw, options.responseModel);
+								const capture = {
+									...completedCapture(raw, options.responseModel),
+									input: items,
+								};
 								record(`${current.key}-settled`, {
-									usage,
+									...capture,
 									endedAt: Date.now(),
 								});
-								current.done.resolve({ usage });
+								current.done.resolve(capture);
 								destination.close();
 							} catch (error) {
 								const reason =
@@ -297,6 +310,7 @@ export function createMoiraiProbeGateway(options: Options) {
 		expect(input: ClaimInput) {
 			if (
 				closed ||
+				input.previous === undefined ||
 				!/^[a-zA-Z0-9-]+$/.test(input.key) ||
 				!input.episodeId ||
 				claims.has(input.key) ||
@@ -306,9 +320,13 @@ export function createMoiraiProbeGateway(options: Options) {
 				)
 			)
 				throw Error("Duplicate or invalid claim");
-			const done = Promise.withResolvers<{ usage: unknown }>();
+			const done = Promise.withResolvers<ProbeCapture>();
 			void done.promise.catch(() => {});
-			claims.set(input.key, { ...input, claimed: false, done });
+			claims.set(input.key, {
+				...structuredClone(input),
+				claimed: false,
+				done,
+			});
 		},
 		settled(key: string) {
 			const c = claims.get(key);

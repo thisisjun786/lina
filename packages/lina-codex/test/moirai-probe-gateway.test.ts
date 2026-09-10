@@ -25,7 +25,13 @@ function setup(
 		}) as typeof fetch,
 	});
 	cleanup.push(() => gateway.close());
-	const request = (key: string) =>
+	const request = (
+		key: string,
+		input: unknown[] = [
+			{ role: "user", content: [{ type: "input_text", text: key }] },
+		],
+		extra: Record<string, unknown> = {},
+	) =>
 		fetch(`${gateway.baseUrl}/responses`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${gateway.nonce}` },
@@ -34,7 +40,8 @@ function setup(
 				instructions: "role",
 				stream: true,
 				tools: [],
-				input: [{ role: "user", content: [{ type: "input_text", text: key }] }],
+				input,
+				...extra,
 			}),
 		});
 	const expectClaim = (key: string) =>
@@ -43,6 +50,7 @@ function setup(
 			episodeId: "episode",
 			input: key,
 			instructions: "role",
+			previous: null,
 		});
 	return {
 		gateway,
@@ -73,6 +81,146 @@ test("six cumulative calls admitted, sequential seventh blocked before outbound"
 		tool_choice: "none",
 	});
 });
+
+const wireMessage = (role: string, text: string) => ({
+	type: "message",
+	role,
+	phase: role === "assistant" ? "final_answer" : null,
+	content: [
+		{ type: role === "assistant" ? "output_text" : "input_text", text },
+	],
+});
+for (const mutation of [
+	"omitted",
+	"altered-user",
+	"altered-assistant",
+	"reordered",
+	"extra",
+	"valid",
+]) {
+	test(`complete upstream history is checked before sending: ${mutation}`, async () => {
+		const f = setup();
+		const oldUser = wireMessage("user", "old-input");
+		const oldAnswer = wireMessage("assistant", "old-answer");
+		f.gateway.expect({
+			key: "now",
+			episodeId: "episode",
+			input: "now",
+			instructions: "role",
+			previous: {
+				input: [oldUser],
+				output: [oldAnswer],
+				text: "old-answer",
+				usage: null,
+			},
+		});
+		let history = [oldUser, oldAnswer];
+		if (mutation === "omitted") history = [];
+		if (mutation === "altered-user") history[0] = wireMessage("user", "wrong");
+		if (mutation === "altered-assistant")
+			history[1] = wireMessage("assistant", "wrong");
+		if (mutation === "reordered") history.reverse();
+		if (mutation === "extra")
+			history.push(wireMessage("developer", "unregistered instruction"));
+		const response = await f.request("now", [
+			...history,
+			wireMessage("user", "now"),
+		]);
+		await response.text().catch(() => {});
+		if (mutation === "valid") {
+			expect(response.status).toBe(200);
+			expect(await f.gateway.settled("now")).toMatchObject({
+				text: "ok",
+				input: [...history, wireMessage("user", "now")],
+				output: [wireMessage("assistant", "ok")],
+			});
+			expect(f.attempts).toBe(1);
+		} else {
+			expect(response.status).toBe(400);
+			await expect(f.gateway.settled("now")).rejects.toThrow();
+			expect(f.attempts).toBe(0);
+		}
+	});
+}
+test("opaque reasoning and native context remain in the complete history check", async () => {
+	for (const change of ["none", "reasoning", "context", "drop-reasoning"]) {
+		const f = setup();
+		const context = wireMessage(
+			"developer",
+			"<permissions instructions>\nread-only\n</permissions instructions>",
+		);
+		const oldUser = wireMessage("user", "old");
+		const reasoning = {
+			type: "reasoning",
+			summary: [],
+			content: null,
+			encrypted_content: "synthetic-opaque",
+		};
+		const answer = wireMessage("assistant", "answer");
+		f.gateway.expect({
+			key: "new",
+			episodeId: "e",
+			input: "new",
+			instructions: "role",
+			previous: {
+				input: [context, oldUser],
+				output: [reasoning, answer],
+				text: "answer",
+				usage: null,
+			},
+		});
+		const history: unknown[] = [
+			structuredClone(context),
+			oldUser,
+			structuredClone(reasoning),
+			answer,
+		];
+		if (change === "context")
+			history[0] = wireMessage("developer", "changed permissions");
+		if (change === "reasoning")
+			history[2] = { ...reasoning, encrypted_content: "changed" };
+		if (change === "drop-reasoning") history.splice(2, 1);
+		history.push(
+			wireMessage(
+				"user",
+				"<environment_context>\n  <current_date>2026-09-10</current_date>\n</environment_context>",
+			),
+			wireMessage("user", "new"),
+		);
+		const r = await f.request("new", history);
+		await r.text().catch(() => {});
+		expect(r.status).toBe(change === "none" ? 200 : 400);
+		expect(f.attempts).toBe(change === "none" ? 1 : 0);
+	}
+});
+test("terminal output preserves text parts and rejects malformed assistant content", async () => {
+	for (const content of [
+		[],
+		[{ type: "refusal", refusal: "no" }],
+		[{ type: "output_text", text: 17 }],
+		[
+			{ type: "output_text", text: "a" },
+			{ type: "output_text", text: "b" },
+		],
+	]) {
+		const f = setup(
+			() =>
+				new Response(
+					`data: ${JSON.stringify({ type: "response.completed", response: { status: "completed", output: [{ type: "message", role: "assistant", content }] } })}\n\n`,
+					{ headers: { "content-type": "text/event-stream" } },
+				),
+		);
+		f.expectClaim("terminal");
+		const r = await f.request("terminal").catch(() => null);
+		await r?.text().catch(() => {});
+		if (content.length === 2)
+			expect(await f.gateway.settled("terminal")).toMatchObject({
+				text: "ab",
+				usage: null,
+			});
+		else await expect(f.gateway.settled("terminal")).rejects.toThrow();
+	}
+});
 test("duplicate registration and duplicate POST cannot duplicate model calls", async () => {
 	const f = setup();
 	f.expectClaim("a");
@@ -82,6 +230,7 @@ test("duplicate registration and duplicate POST cannot duplicate model calls", a
 			episodeId: "episode",
 			input: "a",
 			instructions: "role",
+			previous: null,
 		}),
 	).toThrow();
 	const r = await f.request("a");
@@ -187,7 +336,10 @@ test("absent provider usage stays unknown", async () => {
 	const f = setup(() => lifeResponse("ok", null));
 	f.expectClaim("unknown");
 	await (await f.request("unknown")).text();
-	expect(await f.gateway.settled("unknown")).toEqual({ usage: null });
+	expect(await f.gateway.settled("unknown")).toMatchObject({
+		usage: null,
+		text: "ok",
+	});
 });
 
 for (const model of ["unexpected", undefined, "expected"]) {
@@ -201,7 +353,13 @@ for (const model of ["unexpected", undefined, "expected"]) {
 							id: "response",
 							model,
 							status: "completed",
-							output: [{ type: "message" }],
+							output: [
+								{
+									type: "message",
+									role: "assistant",
+									content: [{ type: "output_text", text: "ok" }],
+								},
+							],
 						},
 					})}\n\n`,
 					{ headers: { "content-type": "text/event-stream" } },
@@ -215,5 +373,17 @@ for (const model of ["unexpected", undefined, "expected"]) {
 		if (model === "expected") await f.gateway.settled("identity");
 		else await expect(f.gateway.settled("identity")).rejects.toThrow();
 		expect(f.attempts).toBe(1);
+	});
+}
+
+for (const field of ["previous_response_id", "conversation"]) {
+	test(`hidden provider context is rejected before outbound: ${field}`, async () => {
+		const f = setup();
+		f.expectClaim("hidden");
+		const r = await f.request("hidden", [wireMessage("user", "hidden")], {
+			[field]: "unverified-provider-state",
+		});
+		expect(r.status).toBe(400);
+		expect(f.attempts).toBe(0);
 	});
 }

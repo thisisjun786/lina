@@ -3,6 +3,11 @@ import { join } from "node:path";
 import { readRegular } from "../../lina-core/src/attachments/filesystem.ts";
 import { canonicalLifeJson } from "../../lina-core/src/world/life-json.ts";
 import { authorRecord } from "./author-native-policy.ts";
+import type { ProbeCapture } from "./moirai-probe-transport.ts";
+import {
+	probeProviderText,
+	verifyProbeWire,
+} from "./moirai-probe-transport.ts";
 
 export const readProbeRecord = (path: string) =>
 	authorRecord(JSON.parse(Buffer.from(readRegular(path)).toString("utf8")));
@@ -50,29 +55,48 @@ export function completedProbeState(
 			role,
 			{
 				threadId: threads[role] as string,
-				turns: new Map<string, { text: string; input: string }>(),
+				turns: new Map<
+					string,
+					{ text: string; input: string; capture: ProbeCapture }
+				>(),
 			},
 		]),
 	);
 	const rounds = readdirSync(root).filter((name) => name.startsWith("round-"));
 	if (!rounds.length)
 		throw Error("Never-persisted threads; no automatic recreation");
-	for (const name of rounds) {
+	const numbered = rounds.map((name) => {
 		const directory = join(root, name);
 		const roundId = name.slice(6);
 		const complete = readProbeRecord(join(directory, "complete.json"));
 		const source = readProbeRecord(join(directory, "input.json"));
+		const sequence = complete["sequence"];
+		const results = complete["results"];
 		if (
 			complete["roundId"] !== roundId ||
 			complete["resumable"] !== true ||
 			source["roundId"] !== roundId ||
 			typeof source["input"] !== "string" ||
-			!Array.isArray(complete["results"]) ||
-			complete["results"].length !== roles.length
+			!Array.isArray(results) ||
+			results.length !== roles.length
 		)
 			throw Error("Invalid durable completion");
+		if (
+			typeof sequence !== "number" ||
+			!Number.isSafeInteger(sequence) ||
+			sequence < 1 ||
+			source["sequence"] !== sequence
+		)
+			throw Error("Invalid durable round sequence");
+		return { directory, roundId, results, sequence };
+	});
+	const ordered = [...numbered].sort((a, b) => a.sequence - b.sequence);
+	if (ordered.some(({ sequence }, index) => sequence !== index + 1))
+		throw Error("Invalid durable round sequence");
+	const previousCaptures = new Map<string, ProbeCapture>();
+	for (const { directory, roundId, results } of ordered) {
 		const seen = new Set<string>();
-		for (const raw of complete["results"]) {
+		for (const raw of results) {
 			const result = authorRecord(raw);
 			const role = String(result["role"]);
 			const saved = expected.get(role);
@@ -93,16 +117,38 @@ export function completedProbeState(
 			const captured = readProbeRecord(join(directory, `result-${role}.json`));
 			const intent = readProbeRecord(join(directory, `intent-${role}.json`));
 			const started = readProbeRecord(join(directory, `turn-${role}.json`));
+			const capture = authorRecord(result["capture"]);
+			const input = capture["input"];
+			const output = capture["output"];
+			const text = capture["text"];
+			const usage = capture["usage"];
 			if (
 				canonicalLifeJson(captured) !== canonicalLifeJson(result) ||
 				intent["key"] !== `${roundId}-${role}` ||
 				intent["threadId"] !== saved.threadId ||
 				typeof intent["input"] !== "string" ||
 				started["threadId"] !== saved.threadId ||
-				started["turnId"] !== turnId
+				started["turnId"] !== turnId ||
+				!Array.isArray(input) ||
+				!Array.isArray(output) ||
+				typeof text !== "string" ||
+				text !== result["text"] ||
+				probeProviderText(output) !== result["text"] ||
+				canonicalLifeJson(usage) !== canonicalLifeJson(result["usage"])
 			)
 				throw Error("Completed role evidence mismatch");
-			saved.turns.set(turnId, { text: result["text"], input: intent["input"] });
+			const validatedCapture: ProbeCapture = { input, output, text, usage };
+			verifyProbeWire(
+				validatedCapture.input,
+				intent["input"],
+				previousCaptures.get(role) ?? null,
+			);
+			previousCaptures.set(role, validatedCapture);
+			saved.turns.set(turnId, {
+				text: result["text"],
+				input: intent["input"],
+				capture: validatedCapture,
+			});
 		}
 	}
 	return expected;
@@ -123,13 +169,15 @@ export function verifyProbeHistory(
 		turns.length !== expected.turns.size
 	)
 		throw Error("Unsettled native history");
+	const durableOrder = [...expected.turns.keys()];
 	const seen = new Set<string>();
-	for (const rawTurn of turns) {
-		const turn = authorRecord(rawTurn);
+	for (let index = 0; index < turns.length; index++) {
+		const turn = authorRecord(turns[index]);
 		const id = String(turn["id"]);
 		const saved = expected.turns.get(id);
 		if (!saved || seen.has(id) || probeTurnText(turn) !== saved.text)
 			throw Error("Native completion evidence mismatch");
+		if (id !== durableOrder[index]) throw Error("Native turn order mismatch");
 		seen.add(id);
 		const users = (turn["items"] as unknown[])
 			.map(authorRecord)

@@ -8,6 +8,7 @@ import {
 	probeTurnText,
 	verifyProbeHistory,
 } from "./moirai-probe-state.ts";
+import type { ProbeCapture } from "./moirai-probe-transport.ts";
 import type { CodexRpc } from "./rpc.ts";
 import { turnStartParams } from "./tasks/protocol.ts";
 
@@ -34,8 +35,9 @@ export interface ProbeGateway {
 		episodeId: string;
 		input: string;
 		instructions: string;
+		previous: ProbeCapture | null;
 	}): void;
-	settled(key: string): Promise<{ usage: unknown }>;
+	settled(key: string): Promise<ProbeCapture>;
 }
 export type MoiraiProbeResult = {
 	role: MoiraiRole;
@@ -43,6 +45,7 @@ export type MoiraiProbeResult = {
 	turnId: string;
 	text: string;
 	usage: unknown;
+	capture: ProbeCapture;
 };
 type Options = {
 	rpc: CodexRpc;
@@ -60,6 +63,8 @@ const identifier = (v: unknown): string => {
 export class MoiraiProbe {
 	private bindings = new Map<MoiraiRole, string>();
 	private busy = false;
+	private sequence = 0;
+	private captures = new Map<MoiraiRole, ProbeCapture>();
 	private failed = false;
 	private readonly abort = new AbortController();
 	constructor(private readonly options: Options) {
@@ -95,6 +100,10 @@ export class MoiraiProbe {
 				if (authorRecord(authorRecord(resumed)["thread"])["id"] !== id)
 					throw Error("Resumed thread changed");
 				this.bindings.set(role, id);
+				const turns = [...(saved.get(role)?.turns.values() ?? [])];
+				const last = turns.at(-1);
+				if (last) this.captures.set(role, last.capture);
+				this.sequence = turns.length;
 			}
 			return;
 		}
@@ -138,7 +147,8 @@ export class MoiraiProbe {
 		try {
 			if (existsSync(directory)) throw Error("Round already exists");
 			checkedDirectory(directory, true);
-			lifeWrite(join(directory, "input.json"), { roundId, input });
+			const sequence = this.sequence + 1;
+			lifeWrite(join(directory, "input.json"), { roundId, input, sequence });
 			const proposals = await Promise.allSettled(
 				MOIRAI_ROLES.slice(0, 3).map((role) =>
 					this.runRole(directory, roundId, role, input, signal),
@@ -165,7 +175,9 @@ export class MoiraiProbe {
 				roundId,
 				results,
 				resumable: true,
+				sequence,
 			});
+			this.sequence = sequence;
 			return results;
 		} catch (error) {
 			this.failed = true;
@@ -237,6 +249,7 @@ export class MoiraiProbe {
 				episodeId,
 				input,
 				instructions: moiraiInstructions(role),
+				previous: this.captures.get(role) ?? null,
 			});
 			const settled = gateway.settled(key);
 			void settled.catch(() => {});
@@ -284,11 +297,18 @@ export class MoiraiProbe {
 			capture = outcomes[1];
 			if (native?.status !== "fulfilled" || capture?.status !== "fulfilled")
 				throw Error("Native/capture completion disagreement");
+			if (
+				authorRecord(native.value)["text"] !==
+				authorRecord(capture.value)["text"]
+			)
+				throw Error("Provider/native output mismatch");
 			const value = {
 				...authorRecord(native.value),
 				usage: authorRecord(capture.value)["usage"] ?? null,
+				capture: capture.value,
 			} as MoiraiProbeResult;
 			lifeWrite(join(directory, `result-${role}.json`), value);
+			this.captures.set(role, value.capture);
 			return value;
 		} catch (error) {
 			lifeWrite(join(directory, `failure-${role}.json`), {
@@ -298,6 +318,8 @@ export class MoiraiProbe {
 				error: error instanceof Error ? error.message : String(error),
 				native: native?.status ?? "unknown",
 				capture: capture?.status ?? "unknown",
+				nativeResult: native?.status === "fulfilled" ? native.value : null,
+				capturedResult: capture?.status === "fulfilled" ? capture.value : null,
 				nativeError:
 					native?.status === "rejected" ? String(native.reason) : null,
 				captureError:
