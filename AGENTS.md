@@ -1,6 +1,7 @@
 # Lina — agent guide
 
 - Read [POLICY.md](POLICY.md) for development, CI, merge and release authority; [CONTRIBUTING.md](CONTRIBUTING.md) is the contribution entry point. Keep repository rules here, not in global client settings.
+- Engine refactors follow the [Moirai cognitive agenda](docs/plans/context-engines/030_moirai_refactor_plan.md): preserve grounded judgment, outcome feedback, and domain ownership. The plan is not evidence of implemented multi-thread orchestration or qualification.
 - Bun workspace; `bun test` / `bun run typecheck` / `bun run lint` from the root.
 - Strict TS (see tsconfig.json), Biome, no default exports.
 - Codex is the sole execution engine; `lina-codex` owns its RPC adapter and OpenCodex owns provider routing. `lina-runtime/src/host.ts` contains Lina-owned contracts; do not introduce an engine SDK dependency into channels or memory.

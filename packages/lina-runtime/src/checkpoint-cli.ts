@@ -64,7 +64,7 @@ export function checkpointCommand(
 			reason: (exportGit ? second : first) ?? "Manual agent state checkpoint",
 			exportGit,
 			coverageGaps: [
-				"External OpenViking/Honcho memory is not exported; back up the selected service separately.",
+				"Data outside the selected local component roots is not exported; back it up separately.",
 				"Shared Codex task history, external session files, user workspaces and external skill roots require separate backup.",
 				"Provider credentials, process environment, packaged assets and runtime release require separate recovery.",
 			],

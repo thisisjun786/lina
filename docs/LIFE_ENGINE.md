@@ -188,9 +188,10 @@ before choosing a separate activation procedure. Keep damaged originals and
 checkpoint payloads private. There is no automatic in-place repair, rollback of
 external provider actions or selective live-world restore in this contract.
 
-Coverage gaps include external OpenViking/Honcho memory, shared/external Codex
-history, user workspaces, external skill roots, process environment, provider
-credentials/runtime binaries and ima2 discovery at `home/.ima2/server.json`.
+Coverage gaps include data outside the selected local component roots,
+shared/external Codex history, user workspaces, external skill roots, process
+environment, provider credentials/runtime binaries and ima2 discovery at
+`home/.ima2/server.json`.
 Checkpointing a configured path does not necessarily include the external service
 or file it points to. Consult [installation recovery](plans/installation.md) and
 the [checkpoint CLI](../packages/lina-runtime/src/checkpoint-cli.ts).
