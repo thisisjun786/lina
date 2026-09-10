@@ -17,7 +17,7 @@
 | 항목 | 의미 |
 | --- | --- |
 | 회차 식별 | roundId, requestId, snapshotId, bindingGeneration, promptRevision |
-| 판단 호출 식별 | 세 판단자에는 Host가 역할·회차·시도별로 발급한 role과 proposalId를 제공. Moirai에는 아래의 완료 결과 묶음을 제공 |
+| 판단 호출 식별 | 첫 C/E 비교에서는 Host가 회차·슬롯별로 발급한 slotId(p1/p2/p3)와 proposalId를 제공. 실제 역할 연결은 Host 기록에만 남기고 입력에는 역할 이름을 넣지 않음. Moirai에는 아래의 완료 결과 묶음을 제공 |
 | 현재 요청 | 사용자 원문·순서, 현재 목적, 정정과 철회 |
 | 현재 제약 | 허용된 범위·행동, 권한과 정책 revision, 시간·자원 조건 |
 | 근거 묶음 | sourceRef, 버전, 관찰 시점, 적용 범위, 유효 상태, 원문/필요한 발췌 |
@@ -25,7 +25,7 @@
 | 사용 가능한 조회 | 검증된 조회 도구와 범위, 결과 상한, 남은 호출·출력 예산. 첫 실험에서는 빈 목록 |
 | 대화 맥락 | 현재 사용자 의도와 에이전트 말투, 필요한 대화 문맥 |
 
-Moirai에는 같은 묶음과 세 역할의 검증된 완료 결과를 추가한다. Host는 각 결과에 자신이 발급한 proposalId, role, 해당 출력, native 완료·검증 상태를 연결한다. 모델이 반환한 ID만 보고 같은 입력을 받았다고 믿지 않고, 실제 송신과 native 완료 기록을 대조한다. 입력 자료와 후보 텍스트는 지시보다 낮은 신뢰의 데이터로 전달한다.
+Moirai에는 같은 묶음과 세 역할의 검증된 완료 결과를 추가한다. Host는 각 결과에 자신이 발급한 proposalId, slotId, 해당 출력, native 완료·검증 상태를 연결한다. 첫 C/E 비교의 종합 입력에도 역할 이름을 넣지 않는다. 모델이 반환한 ID만 보고 같은 입력을 받았다고 믿지 않고, 실제 송신과 native 완료 기록을 대조한다. 입력 자료와 후보 텍스트는 지시보다 낮은 신뢰의 데이터로 전달한다.
 
 <a id="common"></a>
 
@@ -194,6 +194,25 @@ Clotho의 대안과 기각 이유는 `alternatives`, Lachesis의 확인된 주�
 Moirai는 `proposalId`를 제외한 같은 필드와 `consideredProposals`, `unresolved`, `replyDraft`를 반환한다. `consideredProposals`는 `{proposalId, disposition, reason}` 목록이다. Host가 제공한 세 완료 결과의 ID를 각각 정확히 한 번 포함하며 `disposition`은 `use`, `revise`, `reject` 중 하나다. `unresolved`는 아직 해결하지 못한 쟁점 목록이다. `replyDraft`는 사용자 응답 초안이거나 null이다. 효과 실행에 의존하는 완료 답변은 실제 receipt가 확인될 때까지 발송하지 않는다. 이 발송 제약은 프롬프트가 아니라 Host에서도 강제한다.
 
 `ready`는 형식상 판단을 제출했다는 뜻이며 실행 승인이나 참을 보장하지 않는다. `need_evidence`는 원인과 필요한 확인을 남기는 상태다. 단순히 자료가 적다는 이유만으로 쓰지 않는다. `invalidated`는 현재 입력의 정정·권한 변경 등을 알고 있어 기존 입력으로 유효한 판단을 할 수 없다는 뜻이다. native 실패·출력 파손은 모델 상태와 별도로 Host가 기록하며, 실패 역할을 정상 결과처럼 종합하지 않는다.
+
+### 첫 C/E 비교의 규범 스키마
+
+위 표의 모든 필드는 필수다. 객체는 표에 열거한 키만 허용하고, 중첩 객체도 동일하게 닫힌 구조로 검사한다. proposer에는 proposalId가 필수이며 종합 전용 필드는 금지한다. Moirai에는 proposalId를 금지하고 consideredProposals/unresolved/replyDraft를 요구한다. JSON 객체 한 개만 허용하며 Markdown 코드 블록이나 앞뒤 해설은 거부한다. 원문 UTF-8은 최대 65536바이트다.
+
+| 종류 | 정확한 형식과 한도 |
+| --- | --- |
+| 식별자 | roundId/snapshotId/proposalId/sourceRef는 공백만으로 이뤄지지 않은 1–128자 문자열. Host 기대값과 일치 |
+| 본문 문자열 | understanding, content, condition, claim, reasonNotChosen, reason은 공백만으로 이뤄지지 않은 1–4096자 문자열 |
+| nullable 문자열 | challenge/changeCondition/outcomeCheck/evidenceRequest/replyDraft는 위 본문 문자열 또는 null |
+| 문자열 배열 | assumptions/unresolved는 각 0–16개 본문 문자열. 동일 문자열 중복 금지 |
+| sourceRefs | 각 0–16개 식별자, 목록 안 중복 금지. Host가 제공한 현재 유효 출처만 허용. support의 sourceRefs는 최소 1개 |
+| candidate | null 또는 정확히 kind/content/preconditions. preconditions는 0–8개이며 각 항목은 condition/sourceRefs. 동일 condition 중복 금지 |
+| alternatives | 0–1개. 각 항목은 정확히 kind/content/reasonNotChosen/sourceRefs |
+| support | 0–16개. 각 항목은 정확히 claim/sourceRefs. 동일 claim 중복 금지 |
+| consideredProposals | 정확히 3개. 각 항목은 proposalId/disposition/reason. Host가 준 세 ID를 각각 한 번 포함 |
+| 열거형 | status는 ready/need_evidence/invalidated, kind는 respond/propose_effect/ask_user/defer, disposition은 use/revise/reject |
+
+상태별 불변식도 적용한다. ready는 candidate가 있고 evidenceRequest=null이다. need_evidence는 candidate.kind가 ask_user 또는 defer이고 evidenceRequest가 비어 있지 않다. invalidated는 candidate=null, alternatives=[]이며 Moirai의 replyDraft=null이다. 무효화 사유는 understanding에 쓴다. invalidated는 구조가 맞더라도 이 실험의 종합 입력으로 채택하지 않는다. 이 검사는 구조와 관계의 검증이며 주장 내용의 진실성을 보증하지 않는다.
 
 <a id="variants"></a>
 

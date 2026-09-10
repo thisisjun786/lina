@@ -14,7 +14,7 @@
 | NEW | `scripts/qa/moirai-prompt-compare.ts` | 각 사례의 C/E를 별도 native home/root에서 실행하고 양쪽 결과·실패를 모은 비교 명세. 기본 합성 실행만 제공 |
 | NEW | `packages/lina-codex/test/moirai-prompt.test.ts` | 원문 조립·출력 구조·식별·출처 검증의 RED/GREEN |
 | NEW | `packages/lina-codex/test/moirai-prompt-probe.test.ts` | 실제 probe의 지침 전달·독립 병렬·검증 후 종합·실패·재개 차단 계약 |
-| NEW | `packages/lina-codex/test/moirai-prompt-compare.test.ts` | CLI 조건 검증과 쌍별 입력·한도·실패 분모·usage 기록. 기존 QA 코드 import로 타입 검사 연결 |
+| NEW | `packages/lina-codex/test/moirai-prompt-compare.test.ts` | CLI 조건 검증과 쌍별 입력·한도·실패 분모·usage 기록. 실제 자식 fixture 명령으로 결과 파일 없는 실패를 주입. 기존 QA 코드 import로 타입 검사 연결 |
 | MODIFY | `packages/lina-codex/test/moirai-probe-fixture.ts` | 새 테스트에 필요한 응답/지침 관찰을 선택적으로 제공. 기존 기본 출력은 유지 |
 | MODIFY | `docs/ARCHITECTURE.md`, `030`, `032`, `033`, `034`, `040` | QA 구현과 합성 증거, 아직 수행하지 않은 실모델 평가를 구분해 현재 상태 갱신 |
 
@@ -80,6 +80,8 @@ type ProbeExperiment = {
 각 조건은 별도 프로세스로 실행해 native home까지 분리한다. 비교기는 두 runtime manifest의 exact model, requestOptions, native executable/wrapper identity, 구현 신원이 같은지 대조한다. home별 capability fingerprint는 경로 때문에 달라질 수 있어 같다고 주장하지 않는다. 입력 신원은 실행 식별자를 제외한 고정 사례 payload의 digest로 대조한다. 불일치는 비교 실패다. CLI 분기·사례·합성 응답·요약 함수는 테스트가 import하는 QA 모듈에 두어 타입 검사한다. 기존 최상위 CLI 전체가 타입 검사된다고 주장하지 않는다.
 
 의도한 manifest 설정과 실제 outbound를 구분한다. 각 outbound의 model, reasoning, max_output_tokens, tools, tool_choice 및 PROBE_REQUEST_OPTIONS 필드를 대조한다. C의 실제 전송 envelope와 종합 payload에 역할 이름이 없다는 것도 테스트한다. 잘못된 JSON·ID·출처·종합 ID는 in-memory probe 테스트에서 주입하며 첫 CLI에 fault 플래그를 추가하지 않는다.
+
+비교기의 `runComparison` 함수는 내부 옵션 `commandFor(condition, caseId, childRoot): readonly string[]`를 받는다. 기본값은 현재 Bun과 moirai-native.ts 인자 배열이며 CLI로 임의 실행 파일을 받지 않는다. 테스트에서는 이 옵션으로 실제 Bun 자식 fixture를 실행한다. C 자식은 stderr에 식별 가능한 합성 오류를 쓰고 종료 코드 7로 종료하며 result.json을 만들지 않는다. E 자식은 별도 방문 기록과 합성 결과를 남긴다. 비교기를 끝까지 실행한 뒤 C의 종료 코드·stderr·결과 누락, E 실행, 분모 2개와 실패 조건 포함을 확인한다. 단순 요약 함수 테스트로 이 자식 실행 경계의 검증을 대체하지 않는다.
 
 ## 위임
 
