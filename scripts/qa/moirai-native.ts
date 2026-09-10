@@ -43,6 +43,7 @@ import {
 	probeFingerprint,
 	probeShutdown,
 	probeSourceIdentity,
+	probeStoredWire,
 } from "./moirai-native-lifecycle.ts";
 
 const live = process.argv.includes("--live");
@@ -257,6 +258,16 @@ try {
 				await verifyAuthorNative(rpc, plan);
 				return {
 					rpc,
+					verifyHistory: (snapshot, capture) => {
+						const receipt = probeStoredWire(home, snapshot, capture);
+						lifeWrite(
+							join(
+								root,
+								`stored-wire-${round}-${shutdowns.length}-${receipt.sha256}.json`,
+							),
+							receipt,
+						);
+					},
 					close: async () => {
 						await closeNative();
 						if (readbackFailure) throw readbackFailure;

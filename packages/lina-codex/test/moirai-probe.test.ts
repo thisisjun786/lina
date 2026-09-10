@@ -222,7 +222,26 @@ test("restart validates every role against durable and native results before res
 test("native input must be one exact text item, without hidden or malformed content", () => {
 	const expected = {
 		threadId: "thread",
-		turns: new Map([["turn", { text: "answer", input: "original" }]]),
+		turns: new Map([
+			[
+				"turn",
+				{
+					text: "answer",
+					input: "original",
+					capture: {
+						input: [],
+						text: "answer",
+						usage: null,
+						output: [
+							{
+								role: "assistant",
+								content: [{ type: "output_text", text: "answer" }],
+							},
+						],
+					},
+				},
+			],
+		]),
 	};
 	const history = (content: unknown[]) => ({
 		thread: {

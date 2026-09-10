@@ -219,8 +219,22 @@ test("completed probe state rejects a capture whose usage disagrees with the com
 });
 
 const expectedTurns = new Map([
-	["turn-first", { text: "first reply", input: "first prompt" }],
-	["turn-second", { text: "second reply", input: "second prompt" }],
+	[
+		"turn-first",
+		{
+			text: "first reply",
+			input: "first prompt",
+			capture: buildCapture("first prompt", "first reply", null),
+		},
+	],
+	[
+		"turn-second",
+		{
+			text: "second reply",
+			input: "second prompt",
+			capture: buildCapture("second prompt", "second reply", null),
+		},
+	],
 ]);
 
 function history(ids: readonly ("turn-first" | "turn-second")[]) {
@@ -267,6 +281,31 @@ test("verify probe history accepts valid native turn order", () => {
 			turns: expectedTurns,
 		}),
 	).not.toThrow();
+});
+
+test("native turn IDs retain their string schema during reconciliation", () => {
+	const raw = history(["turn-first"]);
+	const turn = raw.thread.turns[0];
+	if (!turn) throw Error("Missing fixture turn");
+	const expected = {
+		threadId,
+		turns: new Map([
+			[
+				"1",
+				{
+					text: "first reply",
+					input: "first prompt",
+					capture: buildCapture("first prompt", "first reply", null),
+				},
+			],
+		]),
+	};
+	Object.assign(turn, { id: "1" });
+	expect(() => verifyProbeHistory(raw, expected)).not.toThrow();
+	Object.assign(turn, { id: 1 });
+	expect(() => verifyProbeHistory(raw, expected)).toThrow(
+		"Native turn identity",
+	);
 });
 
 for (const name of ["failure.json", "failure-clotho.json", "unknown.json"]) {

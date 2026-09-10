@@ -19,7 +19,11 @@ export const MOIRAI_ROLES = [
 	"moirai",
 ] as const;
 export type MoiraiRole = (typeof MOIRAI_ROLES)[number];
-export type ProbeReadback = { rpc: CodexRpc; close(): Promise<void> };
+export type ProbeReadback = {
+	rpc: CodexRpc;
+	close(): Promise<void>;
+	verifyHistory(snapshot: unknown, capture: ProbeCapture): void;
+};
 export const moiraiInstructions = (role: MoiraiRole) =>
 	`You are ${role} in a synthetic Moirai transport experiment. ` +
 	{
@@ -68,7 +72,7 @@ export class MoiraiProbe {
 	private captures = new Map<MoiraiRole, ProbeCapture>();
 	private histories = new Map<
 		MoiraiRole,
-		Map<string, { text: string; input: string }>
+		Map<string, { text: string; input: string; capture: ProbeCapture }>
 	>();
 	private failed = false;
 	private readonly abort = new AbortController();
@@ -220,6 +224,7 @@ export class MoiraiProbe {
 			if (shutdown) {
 				closing = true;
 				const readback = await shutdown();
+				const persisted = new Map<MoiraiRole, unknown>();
 				let readbackClosing = false;
 				const offRequest = readback.rpc.onRequest(async () => {
 					this.abort.abort(Error("Native action request forbidden"));
@@ -252,6 +257,7 @@ export class MoiraiProbe {
 							threadId,
 							turns: new Map(this.histories.get(role)),
 						});
+						persisted.set(role, snapshot);
 					}
 				} finally {
 					readbackClosing = true;
@@ -264,6 +270,11 @@ export class MoiraiProbe {
 				}
 				signal.throwIfAborted();
 				if (finalReadError) throw finalReadError;
+				for (const role of MOIRAI_ROLES) {
+					const capture = this.captures.get(role);
+					if (!capture) throw Error("Missing persisted capture");
+					readback.verifyHistory(persisted.get(role), capture);
+				}
 			}
 			lifeWrite(join(directory, "complete.json"), {
 				roundId,
@@ -312,6 +323,7 @@ export class MoiraiProbe {
 		let turnId: string | undefined;
 		let native: PromiseSettledResult<unknown> | undefined;
 		let capture: PromiseSettledResult<unknown> | undefined;
+		let nativeSnapshot: unknown;
 		const onAbort = () => done.reject(signal.reason);
 		signal.addEventListener("abort", onAbort, { once: true });
 		const off = rpc.subscribe((method, params) => {
@@ -382,6 +394,7 @@ export class MoiraiProbe {
 					),
 				);
 				const thread = authorRecord(snapshot["thread"]);
+				nativeSnapshot = snapshot;
 				lifeWrite(join(directory, `native-${role}.json`), snapshot);
 				if (thread["id"] !== threadId || !Array.isArray(thread["turns"]))
 					throw Error("Invalid canonical thread");
@@ -390,10 +403,6 @@ export class MoiraiProbe {
 				);
 				if (matches.length !== 1) throw Error("Missing canonical turn");
 				const output = probeTurnText(matches[0]);
-				const expected = new Map(this.histories.get(role));
-				if (expected.has(turnId)) throw Error("Native turn ID reused");
-				expected.set(turnId, { text: output, input });
-				verifyProbeHistory(snapshot, { threadId, turns: expected });
 				return { role, threadId, turnId, text: output };
 			})();
 			const outcomes = await Promise.allSettled([nativeResult, captured]);
@@ -411,9 +420,21 @@ export class MoiraiProbe {
 				usage: authorRecord(capture.value)["usage"] ?? null,
 				capture: capture.value,
 			} as MoiraiProbeResult;
+			const expected = new Map(this.histories.get(role));
+			if (expected.has(value.turnId)) throw Error("Native turn ID reused");
+			expected.set(value.turnId, {
+				text: value.text,
+				input,
+				capture: value.capture,
+			});
+			verifyProbeHistory(nativeSnapshot, { threadId, turns: expected });
 			lifeWrite(join(directory, `result-${role}.json`), value);
 			this.captures.set(role, value.capture);
-			this.histories.get(role)?.set(value.turnId, { text: value.text, input });
+			this.histories.get(role)?.set(value.turnId, {
+				text: value.text,
+				input,
+				capture: value.capture,
+			});
 			return value;
 		} catch (error) {
 			lifeWrite(join(directory, `failure-${role}.json`), {

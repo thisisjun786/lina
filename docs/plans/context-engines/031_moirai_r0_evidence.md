@@ -113,6 +113,10 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 
 관련 Codex 패키지 321 pass/41 skip, root·QA CLI 타입 검사와 lint가 통과했다. 설치된 Codex와 합성 provider의 `native-readback`은 세 회차·12개 송신, 같은 네 스레드, 정상 재시작과 SIGKILL 뒤 이력 대조, 여섯 소유 프로세스 그룹 종료를 통과했다. 이 검증은 유료 모델을 호출하지 않았고 qualification이 아니다. 원본과 후보별 실행·검사 로그는 `moirai-r0/policy-action-repair/`에 보존한다.
 
+`d2e59be`의 hosted CI는 통과했고, 후속 리뷰의 [turn ID 타입 변형](https://github.com/thisisjun786/lina/pull/9#discussion_r3979560382)과 [마지막 회차의 응답 구조 손실](https://github.com/thisisjun786/lina/pull/9#discussion_r3979560391)을 보완했다. 문자열 ID를 강제하고 각 native 이력의 메시지 수·순서·phase·추론 summary/content를 provider capture와 대조한다. `thread/read`가 노출하지 않는 암호화 추론은 native와 검사 프로세스를 모두 종료한 뒤 격리된 sessions 아래 원본 rollout에서 검증한다. 전체 response_item 배열, 세션 ID, 시작·완료 turn ID가 맞아야 완료를 기록한다. 기존 원본·실패 기록은 유지한다.
+
+ID·구조·저장 검사 연결의 회귀 6건은 수정 전 실패·수정 후 통과했다. 저장 원문 변형·경로 검사 9건을 포함한 Codex 패키지는 336 pass/41 skip이고 root·QA CLI 타입 검사가 통과했다. 기본 합성 응답과 별도 복합 합성 응답으로 설치된 Codex의 세 회차를 각각 확인했다. 복합 응답은 추론 summary/content/암호화 값과 commentary/final_answer 두 메시지를 넣어 native 저장·재개까지 검사한다. 테스트용 preload는 로컬 합성 provider 응답만 바꾸며 gateway·조정기·검증기는 원래 코드를 실행한다. 두 실행 모두 같은 네 스레드·12개 송신·여섯 소유 그룹 종료를 확인했다. 원본과 preload·해시·실패 및 검사 로그는 Git 밖 `moirai-r0/final-items-repair/`에 있다. 이 수정도 유료 모델을 호출하지 않았고 실모델 qualification을 추가로 주장하지 않는다.
+
 - 관련 조정기·게이트웨이·checkpoint·도구 테스트: 37 pass.
 - Codex 패키지와 checkpoint/prompt 테스트: 247 pass, 41 skip. opt-in native 검사는 기본 suite에서 생략되며 위 별도 native 실증과 범위가 다르다.
 - 자체 기억·자료 엔진/저장/도구/API 테스트: 38 pass.

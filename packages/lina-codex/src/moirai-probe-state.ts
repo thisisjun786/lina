@@ -11,6 +11,7 @@ import type { ProbeCapture } from "./moirai-probe-transport.ts";
 import {
 	PROBE_MAX_WIRE_BYTES,
 	probeProviderText,
+	probeWireItems,
 	verifyProbeUsage,
 	verifyProbeWire,
 } from "./moirai-probe-transport.ts";
@@ -227,7 +228,7 @@ export function verifyProbeHistory(
 	raw: unknown,
 	expected: {
 		threadId: string;
-		turns: Map<string, { text: string; input: string }>;
+		turns: Map<string, { text: string; input: string; capture: ProbeCapture }>;
 	},
 ): void {
 	const thread = authorRecord(authorRecord(raw)["thread"]);
@@ -242,7 +243,9 @@ export function verifyProbeHistory(
 	const seen = new Set<string>();
 	for (let index = 0; index < turns.length; index++) {
 		const turn = authorRecord(turns[index]);
-		const id = String(turn["id"]);
+		const id = turn["id"];
+		if (typeof id !== "string" || !id)
+			throw Error("Native turn identity invalid");
 		const saved = expected.turns.get(id);
 		if (!saved || seen.has(id) || probeTurnText(turn) !== saved.text)
 			throw Error("Native completion evidence mismatch");
@@ -261,5 +264,48 @@ export function verifyProbeHistory(
 			authorRecord(content[0])["text"] !== saved.input
 		)
 			throw Error("Native input evidence mismatch");
+		const expectedItems = probeWireItems(saved.capture.output).map((item) => {
+			if (item["type"] === "message")
+				return {
+					type: "agentMessage",
+					text: (item["content"] as Array<{ text: string }>)
+						.map((part) => part.text)
+						.join(""),
+					phase: item["phase"],
+				};
+			const texts = (parts: unknown) => {
+				if (!Array.isArray(parts)) throw Error("Invalid provider reasoning");
+				return parts.map((part) => {
+					const text = authorRecord(part)["text"];
+					if (typeof text !== "string")
+						throw Error("Invalid provider reasoning");
+					return text;
+				});
+			};
+			return {
+				type: "reasoning",
+				summary: texts(item["summary"]),
+				content: texts(item["content"] ?? []),
+			};
+		});
+		const items = (turn["items"] as unknown[]).map(authorRecord);
+		const actualItems = items.slice(1).map((item) =>
+			item["type"] === "agentMessage"
+				? {
+						type: item["type"],
+						text: item["text"],
+						phase: item["phase"] ?? null,
+					}
+				: {
+						type: item["type"],
+						summary: item["summary"],
+						content: item["content"],
+					},
+		);
+		if (
+			items[0]?.["type"] !== "userMessage" ||
+			!isDeepStrictEqual(actualItems, expectedItems)
+		)
+			throw Error("Native output item structure mismatch");
 	}
 }

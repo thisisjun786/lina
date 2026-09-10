@@ -17,6 +17,7 @@ import {
 	probeFingerprint,
 	probeShutdown,
 	probeSourceIdentity,
+	probeStoredWire,
 } from "../../../scripts/qa/moirai-native-lifecycle.ts";
 import {
 	type AuthorNativePlan,
@@ -24,6 +25,102 @@ import {
 	authorManagedFiles,
 } from "../src/author-native-policy.ts";
 import { lifeMetadata } from "./life-model-fixture.ts";
+
+for (const mutation of [
+	"none",
+	"encrypted",
+	"summary",
+	"content",
+	"collapsed",
+	"reordered",
+	"turn-id",
+	"outside",
+	"symlink",
+]) {
+	test(`stopped native rollout retains the entire provider wire: ${mutation}`, () => {
+		const home = mkdtempSync(join(tmpdir(), "moirai-stored-wire-"));
+		try {
+			mkdirSync(join(home, "sessions"));
+			const path = join(home, "sessions", "rollout.jsonl");
+			const input = [
+				{ role: "user", content: [{ type: "input_text", text: "request" }] },
+			];
+			const output = [
+				{
+					type: "reasoning",
+					summary: [{ type: "summary_text", text: "summary" }],
+					content: [{ type: "reasoning_text", text: "content" }],
+					encrypted_content: "opaque-original",
+				},
+				...["first", "second"].map((text) => ({
+					role: "assistant",
+					phase: "final_answer",
+					content: [{ type: "output_text", text }],
+				})),
+			];
+			const items = structuredClone([...input, ...output]) as Array<
+				Record<string, unknown>
+			>;
+			if (mutation === "encrypted")
+				Object.assign(items[1] ?? {}, { encrypted_content: "altered" });
+			if (mutation === "summary")
+				Object.assign(items[1] ?? {}, { summary: [] });
+			if (mutation === "content")
+				Object.assign(items[1] ?? {}, { content: [] });
+			if (mutation === "collapsed")
+				items.splice(2, 2, {
+					role: "assistant",
+					phase: "final_answer",
+					content: [{ type: "output_text", text: "first\nsecond" }],
+				});
+			if (mutation === "reordered") items.reverse();
+			const rows = [
+				{ type: "session_meta", payload: { id: "thread" } },
+				{
+					type: "event_msg",
+					payload: { type: "task_started", turn_id: "turn" },
+				},
+				...items.map((payload) => ({ type: "response_item", payload })),
+				{
+					type: "event_msg",
+					payload: {
+						type: "task_complete",
+						turn_id: mutation === "turn-id" ? 1 : "turn",
+					},
+				},
+			];
+			writeFileSync(
+				path,
+				rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
+			);
+			const alias = join(home, "sessions", "alias.jsonl");
+			if (mutation === "symlink") symlinkSync(path, alias);
+			const snapshot = {
+				thread: {
+					id: "thread",
+					path:
+						mutation === "outside"
+							? join(home, "other.jsonl")
+							: mutation === "symlink"
+								? alias
+								: path,
+					turns: [{ id: "turn" }],
+				},
+			};
+			const check = () =>
+				probeStoredWire(home, snapshot, {
+					input,
+					output,
+					text: "first\nsecond",
+					usage: null,
+				});
+			if (mutation === "none") expect(check().responseItems).toBe(4);
+			else expect(check).toThrow();
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+}
 
 test("repository source identity includes lower execution dependencies and the lockfile", () => {
 	const root = mkdtempSync(join(tmpdir(), "moirai-source-tree-"));

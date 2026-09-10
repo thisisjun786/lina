@@ -8,6 +8,13 @@ import { finishProbeRound, fixture } from "./moirai-probe-fixture.ts";
 test("completed four-role opaque captures larger than 2 MiB remain replayable", async () => {
 	const f = fixture();
 	const settled = f.gateway.settled.bind(f.gateway);
+	const complete = f.complete;
+	f.complete = (index, status) => {
+		complete(index, status);
+		const thread = f.pending[index]?.threadId;
+		const items = f.turns.get(thread ?? "")?.at(-1)?.["items"] as unknown[];
+		items.splice(1, 0, { type: "reasoning", summary: [], content: [] });
+	};
 	f.gateway.settled = async (key) => {
 		const capture = await settled(key);
 		capture.output.unshift({
@@ -35,6 +42,61 @@ function replaceUserText(
 	content.text = text;
 }
 
+for (const mutation of [
+	"collapsed-messages",
+	"phase",
+	"missing-reasoning",
+	"changed-reasoning",
+]) {
+	test(`final readback preserves provider item structure: ${mutation}`, async () => {
+		const f = fixture();
+		const settled = f.gateway.settled.bind(f.gateway);
+		f.gateway.settled = async (key) => {
+			const capture = await settled(key);
+			if (key.endsWith("-moirai")) {
+				if (mutation === "collapsed-messages") {
+					capture.text = "first\nsecond";
+					capture.output = ["first", "second"].map((text) => ({
+						role: "assistant",
+						content: [{ type: "output_text", text }],
+					}));
+				} else if (mutation === "phase") {
+					Object.assign(capture.output[0] as object, { phase: "final_answer" });
+				} else {
+					capture.output.unshift({
+						type: "reasoning",
+						summary: [{ type: "summary_text", text: "original" }],
+						content: [],
+					});
+				}
+			}
+			return capture;
+		};
+		await f.probe.initialize();
+		const run = f.probe.round("items", "input", new AbortController().signal);
+		void run.catch(() => {});
+		await f.started(2);
+		for (let i = 0; i < 3; i++) f.complete(i);
+		await f.started(3);
+		f.complete(3);
+		const items = f.turns.get("thread-3")?.[0]?.["items"] as Array<
+			Record<string, unknown>
+		>;
+		if (mutation === "collapsed-messages")
+			Object.assign(items[1] ?? {}, { text: "first\nsecond" });
+		if (mutation === "changed-reasoning")
+			items.splice(1, 0, {
+				type: "reasoning",
+				summary: ["changed"],
+				content: [],
+			});
+		await expect(run).rejects.toThrow();
+		expect(existsSync(join(f.root, "round-items", "complete.json"))).toBe(
+			false,
+		);
+	});
+}
+
 for (const activity of [
 	"turn",
 	"item",
@@ -42,6 +104,7 @@ for (const activity of [
 	"close-error",
 	"clean",
 	"persisted-only",
+	"stored-wire-mismatch",
 ]) {
 	test(`round keeps completion pending until guarded shutdown: ${activity}`, async () => {
 		const f = fixture();
@@ -63,6 +126,10 @@ for (const activity of [
 			f.emit("eof", {});
 			return {
 				rpc: { ...f.rpc },
+				verifyHistory() {
+					if (activity === "stored-wire-mismatch")
+						throw Error("Stored wire mismatch");
+				},
 				close: async () => {
 					f.emit("eof", {});
 				},
