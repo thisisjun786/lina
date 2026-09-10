@@ -2,6 +2,8 @@
 
 Lina owns persistent agent conversations, persona and memory, task coordination and the user interface. Codex is the execution engine; OpenCodex owns provider routing. The current execution and configuration contract is [CODEX_RUNTIME](CODEX_RUNTIME.md). [Product plans](PLANNING.md) distinguish current behavior from proposed UI, desktop, history and world features.
 
+The [Moirai refactor](plans/context-engines/030_moirai_refactor_plan.md) keeps engine activity behind the ordinary conversation and replaces user-composed backend/model settings with maintainer-qualified presets. The [R0 QA probe](plans/context-engines/031_moirai_r0_evidence.md) exercises four persistent native threads separately from the product. Preset enforcement and the new conversation boundary remain planned; the existing model APIs described below still apply to the current runtime.
+
 ```text
 browser -> same-origin gateway -> Lina agent/task controller
                                   |-> agent-owned Codex session

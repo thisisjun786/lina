@@ -1,5 +1,7 @@
 # Required model onboarding
 
+> 2026-09-10 superseding decision: user customization of the backend and role models is cancelled. The [Moirai preset contract](../context-engines/030_moirai_refactor_plan.md#모델-운영-검증한-프리셋으로-제한) now governs model admission. Maintainers choose and qualify the supported combinations; onboarding connects the required models rather than exposing arbitrary model/role settings. The provider order, local model list and hardware proposals below are historical candidates, not admitted Moirai presets. Existing settings remain implemented until the coordinated R4 migration.
+
 Date: 2026-09-06. Status: approved provider order and curated-list approach; initial model selection by design judgment.
 Parent: [Product and OS boundary](../../REPOSITORY_SPLIT.md).
 

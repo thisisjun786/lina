@@ -11,7 +11,7 @@
 | 연속 메시지와 중간 사용자 입력 | [대화 전달](plans/codex-ui/002_conversation_delivery.md) | 공개된 발화와 미공개 후보를 나누는 엔진·저장 계약 설계 |
 | 이미지·파일 붙여넣기 | [첨부 계획](plans/codex-ui/003_clipboard_attachment.md) | 공통 첨부 큐와 플랫폼별 검증이 필요한 계획 |
 | 전용 컴퓨터의 공통 계약 | [컴퓨터·실행·입력 소유권](plans/platform/001_runtime_contracts.md) | API·저장 계약 제안, 독립 GUI 입력은 아직 미검증 |
-| 프로바이더 선택과 로컬 모델 큐레이션 | [모델 온보딩](plans/platform/005_model_onboarding.md) | 제시 순서·큐레이션 요구 보존, 현재 연결은 Codex + OpenCodex |
+| 검증 모델 프리셋과 연결 | [Moirai 모델 계약](plans/context-engines/030_moirai_refactor_plan.md#모델-운영-검증한-프리셋으로-제한), [모델 온보딩](plans/platform/005_model_onboarding.md) | 사용자 백엔드 임의 설정 취소. 유지보수자가 검증한 모델·역할 프리셋으로 제한하는 전환 계획이며 기존 설정 API는 아직 유지 |
 | 설치 구성과 전체 상태 버전관리 | [리팩터링 요구](plans/platform/008_refactor_preparation.md) | 홈·패키지 분리·로컬 체크포인트 구현, 자동 이력·선택 복원·외부 내보내기는 후속 |
 | ima2 이미지 엔진 | [생성·편집 연동](plans/platform/009_ima2_image_engine.md), [LIFE 통합 계약](plans/life/070_images_and_avatars.md) | 기존 이미지 엔진과 LIFE 게시·아바타 연결 구현. 070에서 전체 테스트 3,357개·HTTP 27건·독립 리뷰 통과. 실제 이미지 품질·UI는 별도 검증 |
 | 주기적 프로필 사진과 내부 SNS | [에이전트 일상](plans/platform/010_agent_daily_life_ideas.md), [LIFE 전체 구현 계획](plans/life/000_plan.md) | 내부 게시물·에이전트 답글·댓글·반응·재공유와 다음 경험 연결 구현·검토 통과. 이미지·주기적 프로필 사진 연결도 로컬 검증 통과. UI와 실제 생성 품질은 별도 검증. 주기·예산·공유 대상은 명시적 설정 |
@@ -27,7 +27,7 @@ UI 공개 참고 자료는 [설계 참고 자료](plans/codex-ui/000_source_rese
 - **첫 시작:** 사용자 소개는 최초 한 번만 한다. 사이드바 없는 대화 화면에서 이름/호칭과 기본 맥락을 묻고, 완료 후 재진입 메뉴를 제공하지 않는다. 에이전트 추가는 리나가 진행하는 별도 생성 대화다. [완료된 흐름](plans/onboarding.md)을 유지한다. UI 기획의 목록·뒤로 가기·설정은 평소 대화에 적용하며 최초 소개로 복귀하는 기능을 되살리지 않는다.
 - **런타임과 패키지:** 실행 엔진은 Codex, 프로바이더 관리는 OpenCodex다. `lina-runtime`은 제품 런타임을 소유한다. Senpi 실행과 OmO 작업 패키지 `lina-jobs`는 제거했고, Codex 작업 기능은 유지한다. 계획의 제안 API·테이블·패키지는 구현 전에 현재 코드와 대조한다.
 - **설치 홈:** 명시한 `LINA_HOME`, 기본 `~/.lina`가 기준이다. Lina OS의 초기 `/var/lib/lina` 제안은 현재 기본 경로를 바꾸지 않는다. OS 서비스 등록은 사용자 데이터와 구분한다.
-- **모델 연결과 OS 설정:** Lina가 프로바이더·모델 설정 UI와 연결 계약을 소유한다. Tailscale·도구 설치와 OS 설정 완료 기준은 [OS 제품 경계](REPOSITORY_SPLIT.md)가 정한 OS 소유 범위다. 네이티브 Lina의 첫 소개에 OS 설치 요구를 강제하지 않는다.
+- **모델 연결과 OS 설정:** Lina가 검증 모델 프리셋과 인증·연결 계약을 소유한다. 사용자가 백엔드와 역할별 모델을 자유롭게 조립하는 안은 취소했다. 현재 설정 API의 전환은 Moirai R4에서 진행한다. Tailscale·도구 설치와 OS 설정 완료 기준은 [OS 제품 경계](REPOSITORY_SPLIT.md)가 정한 OS 소유 범위다. 네이티브 Lina의 첫 소개에 OS 설치 요구를 강제하지 않는다.
 - **데이터 이력:** 원래 요구는 페르소나뿐 아니라 메모리·에이전트 설정·사용자 프로필 전체다. 현재 체크포인트는 오프라인 로컬 스냅샷과 선택적 Git 명세 기록이다. 자동 변경 이력, 선택 복원, 외부 저장소까지 일관된 복구가 구현됐다고 표현하지 않는다.
 
 ## 실행 환경 소유권
