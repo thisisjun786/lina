@@ -391,7 +391,7 @@ describe("TaskManager", () => {
 		}
 	});
 
-	test("registers OpenViking dynamic tools on thread/start and answers item/tool/call", async () => {
+	test("registers dynamic tools on thread/start and answers item/tool/call", async () => {
 		const f = fixture();
 		const rpc = new FakeCodexRpc();
 		const calls: { tool: string; callId: string; args: unknown }[] = [];
@@ -401,19 +401,19 @@ describe("TaskManager", () => {
 			dynamicTools: [
 				{
 					type: "function",
-					name: "lina_work_read",
-					description: "Read one OpenViking workbench file as text.",
+					name: "fixture_document_read",
+					description: "Read one synthetic document as text.",
 					inputSchema: {
 						type: "object",
-						properties: { uri: { type: "string" } },
-						required: ["uri"],
+						properties: { documentId: { type: "string" } },
+						required: ["documentId"],
 					},
 				},
 			],
 			executeTool: async (tool, callId, args) => {
 				calls.push({ tool, callId, args });
 				return {
-					contentItems: [{ type: "inputText", text: "work memory" }],
+					contentItems: [{ type: "inputText", text: "synthetic document" }],
 					success: true,
 				};
 			},
@@ -423,7 +423,7 @@ describe("TaskManager", () => {
 				ownerAgentId: "kai",
 				title: "tools",
 				cwd: f.cwd,
-				prompt: "use work memory",
+				prompt: "read the synthetic document",
 				requestId: "c-tools",
 			});
 			const start = rpc.calls("thread/start")[0]?.params as Record<
@@ -433,12 +433,12 @@ describe("TaskManager", () => {
 			expect(start["dynamicTools"]).toEqual([
 				{
 					type: "function",
-					name: "lina_work_read",
-					description: "Read one OpenViking workbench file as text.",
+					name: "fixture_document_read",
+					description: "Read one synthetic document as text.",
 					inputSchema: {
 						type: "object",
-						properties: { uri: { type: "string" } },
-						required: ["uri"],
+						properties: { documentId: { type: "string" } },
+						required: ["documentId"],
 					},
 				},
 			]);
@@ -451,24 +451,24 @@ describe("TaskManager", () => {
 					turnId: "turn-1",
 					callId: "call-1",
 					namespace: null,
-					tool: "lina_work_read",
-					arguments: { uri: "viking://work/a.md" },
+					tool: "fixture_document_read",
+					arguments: { documentId: "document-a" },
 				},
 			});
 			await Promise.resolve();
 			await manager.read(created.id);
 			expect(calls).toEqual([
 				{
-					tool: "lina_work_read",
+					tool: "fixture_document_read",
 					callId: "call-1",
-					args: { uri: "viking://work/a.md" },
+					args: { documentId: "document-a" },
 				},
 			]);
 			expect(rpc.responses).toEqual([
 				{
 					id: "tool-1",
 					result: {
-						contentItems: [{ type: "inputText", text: "work memory" }],
+						contentItems: [{ type: "inputText", text: "synthetic document" }],
 						success: true,
 					},
 				},
@@ -481,8 +481,8 @@ describe("TaskManager", () => {
 					turnId: "turn-x",
 					callId: "call-x",
 					namespace: null,
-					tool: "lina_work_read",
-					arguments: { uri: "viking://work/secret.md" },
+					tool: "fixture_document_read",
+					arguments: { documentId: "secret-document" },
 				},
 			});
 			await Promise.resolve();

@@ -1,5 +1,5 @@
 name: Dependency or provider compatibility
-description: Report a broken engine, proxy, model, API or memory-service integration.
+description: Report a broken engine, proxy, model, API or local memory/resource integration.
 body:
   - type: dropdown
     id: integration
@@ -8,7 +8,7 @@ body:
       options:
         - Codex
         - OpenCodex
-        - OpenViking or Honcho
+        - Native memory or resources
         - Other dependency
     validations:
       required: true

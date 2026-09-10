@@ -88,6 +88,11 @@ test("CLI checkpoints and stages all local persona, memory and settings database
 			expect(log.stdout.toString().trim()).toBe("1");
 		}
 		expect(checkpoint.complete).toBe(false);
+		expect(checkpoint.coverageGaps).toEqual([
+			"Data outside the selected local component roots is not exported; back it up separately.",
+			"Shared Codex task history, external session files, user workspaces and external skill roots require separate backup.",
+			"Provider credentials, process environment, packaged assets and runtime release require separate recovery.",
+		]);
 		expect(
 			checkpoint.files.map((file: { path: string }) => file.path).sort(),
 		).toEqual(["agents.sqlite", "mind.sqlite", "models.sqlite"]);
