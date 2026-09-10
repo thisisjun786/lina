@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	MoiraiProbe,
+	type ProbeExperiment,
 	type ProbeGateway,
 	type ProbeReadback,
 } from "../src/moirai-probe.ts";
@@ -14,7 +15,7 @@ afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });
-export function fixture(reuse?: string) {
+export function fixture(reuse?: string, experiment?: ProbeExperiment) {
 	const root = reuse ?? mkdtempSync(join(tmpdir(), "moirai-round-test-"));
 	if (!reuse) roots.push(root);
 	const listeners = new Set<(method: string, params: unknown) => void>();
@@ -38,6 +39,7 @@ export function fixture(reuse?: string) {
 	let count = 0;
 	let aggregates = 0;
 	const resumed: string[] = [];
+	const threadStarts: unknown[] = [];
 	const emit = (method: string, params: unknown) => {
 		for (const l of listeners) l(method, params);
 	};
@@ -59,6 +61,7 @@ export function fixture(reuse?: string) {
 			p: { threadId: string; input: Array<{ text: string }> },
 		) {
 			if (method === "thread/start") {
+				threadStarts.push(structuredClone(p));
 				const id = `thread-${count++}`;
 				turns.set(id, []);
 				return { thread: { id } };
@@ -117,6 +120,7 @@ export function fixture(reuse?: string) {
 		threadParams: () => ({}),
 		verifyThread: () => {},
 		gateway,
+		...(experiment ? { experiment } : {}),
 	});
 	const complete = (i: number, status = "completed") => {
 		const p = pending[i];
@@ -152,6 +156,7 @@ export function fixture(reuse?: string) {
 		turns,
 		gateway,
 		resumed,
+		threadStarts,
 		get aggregates() {
 			return aggregates;
 		},
