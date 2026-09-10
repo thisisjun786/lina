@@ -12,16 +12,42 @@ import {
 import { checkedDirectory } from "../../packages/lina-core/src/attachments/filesystem.ts";
 import { canonicalLifeJson } from "../../packages/lina-core/src/world/life-json.ts";
 
-export function probeSourceIdentity(paths: readonly string[]) {
+/** Repository mode includes tracked files and non-ignored additions, including the lockfile. */
+export function probeSourceIdentity(source: string | readonly string[]) {
+	const paths =
+		typeof source === "string"
+			? [
+					...new Set(
+						execFileSync(
+							"git",
+							[
+								"-C",
+								source,
+								"ls-files",
+								"--cached",
+								"--others",
+								"--exclude-standard",
+								"-z",
+							],
+							{ encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+						)
+							.split("\0")
+							.filter(Boolean),
+					),
+				]
+					.sort()
+					.map((path) => resolve(source, path))
+			: source;
+	if (!paths.length) throw Error("Probe source is empty");
 	const files = Object.fromEntries(
-		paths.map((path) => [realpathSync(path), authorFileDigest(path)]),
+		paths.map((path) => [resolve(path), authorFileDigest(path)]),
 	);
 	return { files, sha256: authorHash(canonicalLifeJson(files)) };
 }
 
 export function probeFingerprint(
 	plan: AuthorNativePlan,
-	sourcePaths: readonly string[],
+	sourcePaths: string | readonly string[],
 	requestOptions: Readonly<Record<string, unknown>>,
 	managedPaths: readonly string[] = AUTHOR_MANAGED_PATHS,
 ) {

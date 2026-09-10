@@ -14,6 +14,34 @@ function replaceUserText(
 	content.text = text;
 }
 
+for (const activity of ["turn", "item", "request", "close-error", "clean"]) {
+	test(`round keeps completion pending until guarded shutdown: ${activity}`, async () => {
+		const f = fixture();
+		await f.probe.initialize();
+		let shutdownCalled = false;
+		const run = finishProbeRound(f, "shutdown", async () => {
+			shutdownCalled = true;
+			expect(existsSync(join(f.root, "round-shutdown", "complete.json"))).toBe(
+				false,
+			);
+			if (activity === "turn") f.emit("turn/started", { threadId: "thread-0" });
+			if (activity === "item") f.emit("item/started", { threadId: "thread-1" });
+			if (activity === "request") await f.actionRequest();
+			if (activity === "close-error") throw Error("Owned shutdown failed");
+			f.emit("eof", {});
+		});
+		if (activity === "clean") await run;
+		else await expect(run).rejects.toThrow();
+		expect(shutdownCalled).toBe(true);
+		expect(existsSync(join(f.root, "round-shutdown", "complete.json"))).toBe(
+			activity === "clean",
+		);
+		expect(existsSync(join(f.root, "round-shutdown", "failure.json"))).toBe(
+			activity !== "clean",
+		);
+	});
+}
+
 for (const target of ["thread-0", "thread-1", "thread-2", "thread-3"]) {
 	test(`native action requests during final reconciliation prevent completion: ${target}`, async () => {
 		const f = fixture();

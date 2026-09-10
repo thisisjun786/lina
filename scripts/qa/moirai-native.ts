@@ -140,15 +140,8 @@ delete plan.metadata["tool_mode"];
 plan.metadata["experimental_supported_tools"] = [];
 delete plan.metadata["apply_patch_tool_type"];
 plan.fingerprint = authorFingerprint(plan);
-const sourcePaths = [
-	"packages/lina-codex/src/moirai-probe.ts",
-	"packages/lina-codex/src/moirai-probe-state.ts",
-	"packages/lina-codex/src/moirai-probe-gateway.ts",
-	"packages/lina-codex/src/moirai-probe-transport.ts",
-	"scripts/qa/moirai-native.ts",
-	"scripts/qa/moirai-native-lifecycle.ts",
-].map((path) => resolve(import.meta.dir, "../..", path));
-const source = probeSourceIdentity(sourcePaths);
+const sourceRoot = resolve(import.meta.dir, "../..");
+const source = probeSourceIdentity(sourceRoot);
 const requestOptions = {
 	...PROBE_REQUEST_OPTIONS,
 	max_output_tokens: 4096,
@@ -156,7 +149,7 @@ const requestOptions = {
 	tool_choice: "none",
 	stream: true,
 };
-const fingerprint = () => probeFingerprint(plan, sourcePaths, requestOptions);
+const fingerprint = () => probeFingerprint(plan, sourceRoot, requestOptions);
 const runtime = {
 	capabilityFingerprint: plan.fingerprint,
 	implementation: source,
@@ -229,22 +222,38 @@ try {
 		console.log(
 			JSON.stringify({ event: "round-start", round, pid: rpc.pid, live }),
 		);
+		const pid = rpc.pid;
+		const roundId = `r${round}-${runId}`;
 		const output = await probe.round(
-			`r${round}-${runId}`,
+			roundId,
 			input,
 			new AbortController().signal,
+			async () => {
+				if (round === 2) {
+					if (!pid) throw Error("Missing owned PID for kill check");
+					process.kill(-pid, "SIGKILL");
+				}
+				await closeNative();
+				if (round === 2)
+					lifeWrite(join(root, "kill.json"), {
+						pid,
+						signal: "SIGKILL",
+						boundary: "after canonical completed turns, before round2 commit",
+						observedAt: Date.now(),
+					});
+			},
 		);
-		const binding = JSON.parse(
-			readFileSync(join(root, "ledger", "binding.json"), "utf8"),
-		) as { threads: Record<string, string> };
+		// Copy the validated snapshots after shutdown; no unguarded native reads.
 		for (const role of MOIRAI_ROLES) {
-			const history = await rpc.request("thread/read", {
-				threadId: binding.threads[role],
-				includeTurns: true,
-			});
+			const history = JSON.parse(
+				readFileSync(
+					join(root, "ledger", `round-${roundId}`, `final-native-${role}.json`),
+					"utf8",
+				),
+			);
 			lifeWrite(join(root, `history-${round}-${role}.json`), history);
 		}
-		results.push({ round, pid: rpc.pid, output });
+		results.push({ round, pid, output });
 		console.log(
 			JSON.stringify({
 				event: "round-complete",
@@ -252,20 +261,6 @@ try {
 				roles: output.map((x) => x.role),
 			}),
 		);
-		if (round === 2) {
-			if (!rpc.pid) throw Error("Missing owned PID for kill check");
-			const pid = rpc.pid;
-			process.kill(-pid, "SIGKILL");
-			await closeNative();
-			lifeWrite(join(root, "kill.json"), {
-				pid,
-				signal: "SIGKILL",
-				boundary: "after canonical completed round2",
-				observedAt: Date.now(),
-			});
-		} else {
-			await closeNative();
-		}
 	}
 	if (fingerprint() !== runtime.probeFingerprint)
 		throw Error("Native capability changed during probe");

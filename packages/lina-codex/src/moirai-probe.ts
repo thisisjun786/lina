@@ -143,6 +143,7 @@ export class MoiraiProbe {
 		roundId: string,
 		input: string,
 		parentSignal: AbortSignal,
+		shutdown?: () => Promise<void>,
 	): Promise<MoiraiProbeResult[]> {
 		if (!/^[a-zA-Z0-9-]{1,80}$/.test(roundId)) throw Error("Invalid round ID");
 		if (this.busy || this.failed || this.bindings.size !== 4)
@@ -153,6 +154,7 @@ export class MoiraiProbe {
 		const directory = join(this.options.root, `round-${roundId}`);
 		let created = false;
 		let finalReadError: Error | undefined;
+		let closing = false;
 		let stopFinalGuard = () => {};
 		try {
 			if (existsSync(directory)) throw Error("Round already exists");
@@ -186,7 +188,7 @@ export class MoiraiProbe {
 				try {
 					const event = authorRecord(params);
 					if (
-						method === "eof" ||
+						(method === "eof" && !closing) ||
 						method === "error" ||
 						([...this.bindings.values()].includes(String(event["threadId"])) &&
 							(method.startsWith("turn/") || method.startsWith("item/")))
@@ -214,6 +216,12 @@ export class MoiraiProbe {
 			}
 			signal.throwIfAborted();
 			if (finalReadError) throw finalReadError;
+			if (shutdown) {
+				closing = true;
+				await shutdown();
+				signal.throwIfAborted();
+				if (finalReadError) throw finalReadError;
+			}
 			lifeWrite(join(directory, "complete.json"), {
 				roundId,
 				results,

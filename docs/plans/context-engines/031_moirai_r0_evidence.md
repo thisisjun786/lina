@@ -99,6 +99,12 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 
 새 회귀 검사 8개는 수정 전 실패·수정 후 통과했다. 관련 두 파일은 24 pass, Codex 패키지는 311 pass/41 skip이며 root·QA CLI 타입 검사와 lint가 통과했다. lint의 기존 경고 27개는 남아 있다. 새 `native-fixture`는 설치된 Codex와 합성 provider로 같은 네 스레드의 세 회차, 정상 재시작, 완료 후 SIGKILL 재개, 세 소유 프로세스 그룹 종료를 통과했다. 기록된 구현 해시도 현재 파일과 다시 대조했다. 원본·RED/GREEN 로그·후보 diff는 Git 밖 `moirai-r0/policy-action-repair/`에 보존한다. 이 수정은 유료 모델을 호출하지 않았으며 이전 GLM 실증이나 인지 qualification과 별개다.
 
+`b190f9e`의 새 Codex 리뷰는 [실행기의 추가 이력 읽기](https://github.com/thisisjun786/lina/pull/9#discussion_r3979096538)와 [소스 식별 범위 누락](https://github.com/thisisjun786/lina/pull/9#discussion_r3979096544)을 지적했다. 실행기는 조정기에 종료 콜백을 넘기고, 마지막 이력 검사부터 소유 프로세스 종료까지 같은 감시 구간을 유지한 뒤 완료 원장을 쓴다. 밖에서 native 이력을 다시 읽지 않고 검증된 snapshot을 복사한다. SIGKILL 경계는 native turn 완료·최종 대조 뒤, 회차 완료 원장 쓰기 전이다. 부모 프로세스나 진행 중인 turn 복구를 뜻하지 않는다.
+
+소스 식별은 여섯 파일의 수동 목록 대신 저장소의 추적 파일·ignore되지 않은 추가 파일 전체를 읽는다. 하위 실행 의존 파일과 `bun.lock`을 포함하며, 추적 파일이 없어지면 실패한다. 문서 변경도 후보를 바꾼다. 설치된 `node_modules`의 바이트 동일성까지 인증하는 검사는 아니다. 종료 중 늦은 turn/item/요청, 종료 실패·정상 종료의 다섯 검사와 저장소 하위 의존성·lockfile·추가/삭제 검사로 범위를 확인했다. 관련 두 파일 30 pass, Codex 패키지 317 pass/41 skip, root·QA CLI 타입 검사가 통과했다. 종료 검사 다섯 개는 수정 전 실패·수정 후 통과했고 새 저장소 식별 입력을 지원하지 않던 기존 함수의 실패 로그도 보존했다.
+
+같은 커밋의 hosted CI는 3,621 pass/47 skip/1 fail이었다. `life-author-session.test.ts:284`의 세션 재개 HTTP 응답이 200 대신 503이었다. 이전 실행의 취소는 PR 본문 갱신이 시작한 새 CI와 구분하며, 실패 검사를 재실행만으로 통과 처리하지 않는다. 원본 로그와 후속 증거는 `moirai-r0/policy-action-repair/`에 보존한다.
+
 - 관련 조정기·게이트웨이·checkpoint·도구 테스트: 37 pass.
 - Codex 패키지와 checkpoint/prompt 테스트: 247 pass, 41 skip. opt-in native 검사는 기본 suite에서 생략되며 위 별도 native 실증과 범위가 다르다.
 - 자체 기억·자료 엔진/저장/도구/API 테스트: 38 pass.

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import {
@@ -23,6 +23,40 @@ import {
 	authorManagedFiles,
 } from "../src/author-native-policy.ts";
 import { lifeMetadata } from "./life-model-fixture.ts";
+
+test("repository source identity includes lower execution dependencies and the lockfile", () => {
+	const root = mkdtempSync(join(tmpdir(), "moirai-source-tree-"));
+	try {
+		execFileSync("git", ["init", "--quiet", root]);
+		mkdirSync(join(root, "packages"));
+		const entry = join(root, "probe.ts");
+		const dependency = join(root, "packages", "rpc.ts");
+		const lock = join(root, "bun.lock");
+		writeFileSync(entry, 'import "./packages/rpc.ts";');
+		writeFileSync(dependency, "original rpc");
+		writeFileSync(lock, "original lock");
+		execFileSync("git", ["-C", root, "add", "."]);
+		const first = probeSourceIdentity(root);
+		expect(first.files[dependency]).toBe(
+			createHash("sha256").update("original rpc").digest("hex"),
+		);
+		writeFileSync(dependency, "changed rpc");
+		expect(probeSourceIdentity(root).sha256).not.toBe(first.sha256);
+		writeFileSync(dependency, "original rpc");
+		expect(probeSourceIdentity(root).sha256).toBe(first.sha256);
+		writeFileSync(lock, "changed lock");
+		expect(probeSourceIdentity(root).sha256).not.toBe(first.sha256);
+		writeFileSync(lock, "original lock");
+		const added = join(root, "packages", "new-dependency.ts");
+		writeFileSync(added, "new source");
+		expect(probeSourceIdentity(root).files[added]).toBeDefined();
+		expect(probeSourceIdentity(root).sha256).not.toBe(first.sha256);
+		rmSync(dependency);
+		expect(() => probeSourceIdentity(root)).toThrow();
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
 
 for (const mutation of ["contents", "removed", "added", "retargeted"]) {
 	test(`probe fingerprint rejects managed policy drift: ${mutation}`, () => {

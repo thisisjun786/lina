@@ -157,9 +157,15 @@ export function fixture(reuse?: string) {
 export async function finishProbeRound(
 	f: ReturnType<typeof fixture>,
 	id: string,
+	shutdown?: () => Promise<void>,
 ) {
 	const index = f.pending.length;
-	const run = f.probe.round(id, `input-${id}`, new AbortController().signal);
+	const run = f.probe.round(
+		id,
+		`input-${id}`,
+		new AbortController().signal,
+		shutdown,
+	);
 	await f.started(index + 2);
 	for (let i = index; i < index + 3; i++) f.complete(i);
 	await f.started(index + 3);
