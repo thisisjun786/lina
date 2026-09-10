@@ -1,17 +1,36 @@
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
-import { readRegular } from "../../lina-core/src/attachments/filesystem.ts";
-import { canonicalLifeJson } from "../../lina-core/src/world/life-json.ts";
+import { dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import {
+	fsyncDirectory,
+	readRegular,
+	writeExclusive,
+} from "../../lina-core/src/attachments/filesystem.ts";
 import { authorRecord } from "./author-native-policy.ts";
 import type { ProbeCapture } from "./moirai-probe-transport.ts";
 import {
+	PROBE_MAX_WIRE_BYTES,
 	probeProviderText,
 	verifyProbeUsage,
 	verifyProbeWire,
 } from "./moirai-probe-transport.ts";
 
+// Four roles x up to four rounds x input/output and two text copies, including JSON overhead.
+export const PROBE_MAX_RECORD_BYTES = 4 * 4 * 4 * PROBE_MAX_WIRE_BYTES;
+export function writeProbeRecord(path: string, value: unknown): void {
+	const bytes = Buffer.from(JSON.stringify(value));
+	if (bytes.byteLength > PROBE_MAX_RECORD_BYTES)
+		throw Error("Probe record exceeds replay byte limit");
+	writeExclusive(path, bytes);
+	fsyncDirectory(dirname(path));
+}
+
 export const readProbeRecord = (path: string) =>
-	authorRecord(JSON.parse(Buffer.from(readRegular(path)).toString("utf8")));
+	authorRecord(
+		JSON.parse(
+			Buffer.from(readRegular(path, PROBE_MAX_RECORD_BYTES)).toString("utf8"),
+		),
+	);
 
 export function probeTurnText(raw: unknown): string {
 	const turn = authorRecord(raw);
@@ -72,9 +91,14 @@ export function completedProbeState(
 			"input.json",
 			"complete.json",
 			...roles.flatMap((role) =>
-				["intent", "turn", "result", "native", "final-native"].map(
-					(kind) => `${kind}-${role}.json`,
-				),
+				[
+					"intent",
+					"turn",
+					"result",
+					"native",
+					"final-native",
+					"persisted-native",
+				].map((kind) => `${kind}-${role}.json`),
 			),
 		]);
 		if (readdirSync(directory).some((name) => !allowed.has(name)))
@@ -141,7 +165,7 @@ export function completedProbeState(
 			const text = capture["text"];
 			const usage = capture["usage"];
 			if (
-				canonicalLifeJson(captured) !== canonicalLifeJson(result) ||
+				!isDeepStrictEqual(captured, result) ||
 				intent["key"] !== `${roundId}-${role}` ||
 				intent["threadId"] !== saved.threadId ||
 				typeof intent["input"] !== "string" ||
@@ -152,7 +176,7 @@ export function completedProbeState(
 				typeof text !== "string" ||
 				text !== result["text"] ||
 				probeProviderText(output) !== result["text"] ||
-				canonicalLifeJson(usage) !== canonicalLifeJson(result["usage"])
+				!isDeepStrictEqual(usage, result["usage"])
 			)
 				throw Error("Completed role evidence mismatch");
 			const envelope = authorRecord(JSON.parse(intent["input"]));
@@ -175,8 +199,10 @@ export function completedProbeState(
 					? JSON.parse(envelope["input"])
 					: envelope["input"];
 			if (
-				canonicalLifeJson({ ...envelope, input: actualInput }) !==
-				canonicalLifeJson({ roundId, role, input: expectedInput })
+				!isDeepStrictEqual(
+					{ ...envelope, input: actualInput },
+					{ roundId, role, input: expectedInput },
+				)
 			)
 				throw Error("Role intent differs from recorded source");
 			const validatedCapture: ProbeCapture = { input, output, text, usage };

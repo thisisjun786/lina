@@ -2,7 +2,11 @@ import { afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MoiraiProbe, type ProbeGateway } from "../src/moirai-probe.ts";
+import {
+	MoiraiProbe,
+	type ProbeGateway,
+	type ProbeReadback,
+} from "../src/moirai-probe.ts";
 import type { CodexRpc, CodexRpcRequestHandler } from "../src/rpc.ts";
 
 const roots: string[] = [];
@@ -157,7 +161,7 @@ export function fixture(reuse?: string) {
 export async function finishProbeRound(
 	f: ReturnType<typeof fixture>,
 	id: string,
-	shutdown?: () => Promise<void>,
+	shutdown?: () => Promise<ProbeReadback>,
 ) {
 	const index = f.pending.length;
 	const run = f.probe.round(

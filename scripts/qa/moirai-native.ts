@@ -16,7 +16,6 @@ import {
 	authorSelection,
 	nativeExecutable,
 } from "../../packages/lina-codex/src/author-native-policy.ts";
-import { lifeWrite } from "../../packages/lina-codex/src/life-model-journal.ts";
 import { lifeRpcOptions } from "../../packages/lina-codex/src/life-model-policy.ts";
 import {
 	MOIRAI_ROLES,
@@ -24,6 +23,7 @@ import {
 	moiraiInstructions,
 } from "../../packages/lina-codex/src/moirai-probe.ts";
 import { createMoiraiProbeGateway } from "../../packages/lina-codex/src/moirai-probe-gateway.ts";
+import { writeProbeRecord as lifeWrite } from "../../packages/lina-codex/src/moirai-probe-state.ts";
 import { PROBE_REQUEST_OPTIONS } from "../../packages/lina-codex/src/moirai-probe-transport.ts";
 import {
 	type CodexRpc,
@@ -150,6 +150,15 @@ const requestOptions = {
 	stream: true,
 };
 const fingerprint = () => probeFingerprint(plan, sourceRoot, requestOptions);
+writeFileSync(join(home, "config.toml"), authorConfig(plan), {
+	mode: 0o600,
+	flag: "wx",
+});
+writeFileSync(
+	join(home, "models.json"),
+	JSON.stringify({ models: [plan.metadata] }),
+	{ mode: 0o600, flag: "wx" },
+);
 const runtime = {
 	capabilityFingerprint: plan.fingerprint,
 	implementation: source,
@@ -162,15 +171,6 @@ const runtime = {
 	arch: process.arch,
 };
 lifeWrite(join(root, "runtime.json"), runtime);
-writeFileSync(join(home, "config.toml"), authorConfig(plan), {
-	mode: 0o600,
-	flag: "wx",
-});
-writeFileSync(
-	join(home, "models.json"),
-	JSON.stringify({ models: [plan.metadata] }),
-	{ mode: 0o600, flag: "wx" },
-);
 const runId = randomUUID();
 let rpc: CodexRpc | undefined;
 const results: unknown[] = [];
@@ -241,13 +241,39 @@ try {
 						boundary: "after canonical completed turns, before round2 commit",
 						observedAt: Date.now(),
 					});
+				if (fingerprint() !== runtime.probeFingerprint)
+					throw Error("Native capability changed during probe");
+				rpc = await createCodexRpc(lifeRpcOptions(plan, gateway.nonce));
+				let readbackFailure: Error | undefined;
+				rpc.onRequest(async () => {
+					readbackFailure = Error("Native readback action forbidden");
+					throw readbackFailure;
+				});
+				await rpc.request("initialize", {
+					clientInfo: { name: "moirai-readback", version: "1" },
+					capabilities: { experimentalApi: true },
+				});
+				rpc.notify("initialized");
+				await verifyAuthorNative(rpc, plan);
+				return {
+					rpc,
+					close: async () => {
+						await closeNative();
+						if (readbackFailure) throw readbackFailure;
+					},
+				};
 			},
 		);
 		// Copy the validated snapshots after shutdown; no unguarded native reads.
 		for (const role of MOIRAI_ROLES) {
 			const history = JSON.parse(
 				readFileSync(
-					join(root, "ledger", `round-${roundId}`, `final-native-${role}.json`),
+					join(
+						root,
+						"ledger",
+						`round-${roundId}`,
+						`persisted-native-${role}.json`,
+					),
 					"utf8",
 				),
 			);

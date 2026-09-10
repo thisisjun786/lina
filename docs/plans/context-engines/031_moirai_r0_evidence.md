@@ -105,6 +105,14 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 
 같은 커밋의 hosted CI는 3,621 pass/47 skip/1 fail이었다. `life-author-session.test.ts:284`의 세션 재개 HTTP 응답이 200 대신 503이었다. 이전 실행의 취소는 PR 본문 갱신이 시작한 새 CI와 구분하며, 실패 검사를 재실행만으로 통과 처리하지 않는다. 원본 로그와 후속 증거는 `moirai-r0/policy-action-repair/`에 보존한다.
 
+`10e2b44`의 hosted CI는 통과했다. 이전 author 재개 503은 단독 20개 새 시나리오, CI 앞부분 열 파일 조합 40개, 전체 로컬 진단 3,628 pass/47 skip에서 재현되지 않았다. 임시 진단 출력은 제거했고 원인은 미확정으로 남긴다. 이 통과를 503 해결 증거로 보지 않는다.
+
+새 리뷰의 [종료 시 버퍼 알림 누락](https://github.com/thisisjun786/lina/pull/9#discussion_r3979343910)은 종료 뒤 새 native 프로세스에서 저장된 네 이력을 다시 대조하도록 보완했다. 이 검사 프로세스는 thread/read만 사용하고 스레드를 재개하거나 모델을 호출하지 않는다. 원본 실행과 검사 프로세스 모두 종료한 뒤 완료 원장을 쓴다. 알림 없이 추가된 저장 turn을 넣은 회귀 검사는 수정 전 실패·수정 후 통과했다.
+
+[큰 완료 기록의 재개 한도](https://github.com/thisisjun786/lina/pull/9#discussion_r3979343920)는 실제로 공용 JSON 쓰기 한도에서도 막혔다. Moirai 전용 기록 쓰기와 읽기에 같은 64MiB 상한을 적용하고 큰 기록의 구조 비교에 공용 LIFE JSON 크기 제한을 적용하지 않는다. 이 상한은 네 역할·네 회차 분량의 입력/출력·텍스트 복사본에 맞춘 저장 여유이며 provider 요청·응답의 1MiB 한도와 요청/에피소드 한도를 늘리지 않는다. 역할별 600,000바이트 opaque 내용을 가진 2MiB 초과 완료 기록의 쓰기·재개를 확인했다. [생성된 설정 변경](https://github.com/thisisjun786/lina/pull/9#discussion_r3979343930)은 매 실행 전·최종 성공 전 기존 `assertAuthorFiles`로 실제 config.toml과 models.json을 계획과 대조한다. 두 파일 변경 재현도 수정 전 실패·수정 후 통과했다.
+
+관련 Codex 패키지 321 pass/41 skip, root·QA CLI 타입 검사와 lint가 통과했다. 설치된 Codex와 합성 provider의 `native-readback`은 세 회차·12개 송신, 같은 네 스레드, 정상 재시작과 SIGKILL 뒤 이력 대조, 여섯 소유 프로세스 그룹 종료를 통과했다. 이 검증은 유료 모델을 호출하지 않았고 qualification이 아니다. 원본과 후보별 실행·검사 로그는 `moirai-r0/policy-action-repair/`에 보존한다.
+
 - 관련 조정기·게이트웨이·checkpoint·도구 테스트: 37 pass.
 - Codex 패키지와 checkpoint/prompt 테스트: 247 pass, 41 skip. opt-in native 검사는 기본 suite에서 생략되며 위 별도 native 실증과 범위가 다르다.
 - 자체 기억·자료 엔진/저장/도구/API 테스트: 38 pass.

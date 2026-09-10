@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
+import { assertAuthorFiles } from "../../packages/lina-codex/src/author-native-checks.ts";
 import {
 	AUTHOR_MANAGED_PATHS,
 	type AuthorNativePlan,
+	authorConfig,
 	authorFileDigest,
 	authorFingerprint,
 	authorHash,
@@ -54,6 +56,7 @@ export function probeFingerprint(
 	const managed = authorManagedFiles(managedPaths);
 	if (canonicalLifeJson(managed) !== canonicalLifeJson(plan.managed))
 		throw Error("Administrator-managed policy changed during probe");
+	assertAuthorFiles(plan, authorConfig(plan));
 	return authorHash(
 		JSON.stringify({
 			capability: authorFingerprint({ ...plan, managed }),

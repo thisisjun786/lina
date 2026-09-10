@@ -2,6 +2,8 @@ import { canonicalLifeJson } from "../../lina-core/src/world/life-json.ts";
 import { authorRecord } from "./author-native-policy.ts";
 import { lifeInteger } from "./life-model-validation.ts";
 
+export const PROBE_MAX_WIRE_BYTES = 1048576;
+
 export const PROBE_REQUEST_OPTIONS = Object.freeze({
 	reasoning: Object.freeze({ effort: "none" }),
 	store: false,

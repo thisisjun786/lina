@@ -20,6 +20,7 @@ import {
 } from "../../../scripts/qa/moirai-native-lifecycle.ts";
 import {
 	type AuthorNativePlan,
+	authorConfig,
 	authorManagedFiles,
 } from "../src/author-native-policy.ts";
 import { lifeMetadata } from "./life-model-fixture.ts";
@@ -58,7 +59,14 @@ test("repository source identity includes lower execution dependencies and the l
 	}
 });
 
-for (const mutation of ["contents", "removed", "added", "retargeted"]) {
+for (const mutation of [
+	"contents",
+	"removed",
+	"added",
+	"retargeted",
+	"generated-config",
+	"generated-models",
+]) {
 	test(`probe fingerprint rejects managed policy drift: ${mutation}`, () => {
 		const root = mkdtempSync(join(tmpdir(), "moirai-policy-drift-"));
 		try {
@@ -66,13 +74,15 @@ for (const mutation of ["contents", "removed", "added", "retargeted"]) {
 			const alias = join(root, "policy-link");
 			const added = join(root, "config.toml");
 			const executable = join(root, "native");
+			const home = join(root, "home");
+			mkdirSync(home);
 			writeFileSync(source, 'approval_policy = "never"\n');
 			writeFileSync(executable, "synthetic executable");
 			symlinkSync(source, alias);
 			const paths = [alias, added];
 			const plan: AuthorNativePlan = {
 				root,
-				home: root,
+				home,
 				workspace: root,
 				command: executable,
 				wrapper: executable,
@@ -97,6 +107,11 @@ for (const mutation of ["contents", "removed", "added", "retargeted"]) {
 					},
 				},
 			};
+			writeFileSync(join(home, "config.toml"), authorConfig(plan));
+			writeFileSync(
+				join(home, "models.json"),
+				JSON.stringify({ models: [plan.metadata] }),
+			);
 			const fingerprint = () =>
 				probeFingerprint(plan, [executable], { tools: [] }, paths);
 			const first = fingerprint();
@@ -109,6 +124,16 @@ for (const mutation of ["contents", "removed", "added", "retargeted"]) {
 				);
 			if (mutation === "removed") rmSync(alias);
 			if (mutation === "added") writeFileSync(added, "new policy");
+			if (mutation === "generated-config")
+				writeFileSync(
+					join(home, "config.toml"),
+					`${authorConfig(plan)}\nmodel_verbosity = "high"\n`,
+				);
+			if (mutation === "generated-models")
+				writeFileSync(
+					join(home, "models.json"),
+					JSON.stringify({ models: [{ ...plan.metadata, context_window: 1 }] }),
+				);
 			if (mutation === "retargeted") {
 				const other = join(root, "other.toml");
 				writeFileSync(other, 'approval_policy = "never"\n');
@@ -116,7 +141,9 @@ for (const mutation of ["contents", "removed", "added", "retargeted"]) {
 				symlinkSync(other, alias);
 			}
 			expect(fingerprint).toThrow(
-				"Administrator-managed policy changed during probe",
+				mutation.startsWith("generated-")
+					? "Author native config fingerprint changed"
+					: "Administrator-managed policy changed during probe",
 			);
 			expect(plan.managed).toEqual(captured);
 		} finally {

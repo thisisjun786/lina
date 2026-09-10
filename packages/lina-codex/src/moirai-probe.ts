@@ -2,9 +2,9 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { checkedDirectory } from "../../lina-core/src/attachments/filesystem.ts";
 import { authorRecord } from "./author-native-policy.ts";
-import { lifeWrite } from "./life-model-journal.ts";
 import {
 	completedProbeState,
+	writeProbeRecord as lifeWrite,
 	probeTurnText,
 	verifyProbeHistory,
 } from "./moirai-probe-state.ts";
@@ -19,6 +19,7 @@ export const MOIRAI_ROLES = [
 	"moirai",
 ] as const;
 export type MoiraiRole = (typeof MOIRAI_ROLES)[number];
+export type ProbeReadback = { rpc: CodexRpc; close(): Promise<void> };
 export const moiraiInstructions = (role: MoiraiRole) =>
 	`You are ${role} in a synthetic Moirai transport experiment. ` +
 	{
@@ -143,7 +144,7 @@ export class MoiraiProbe {
 		roundId: string,
 		input: string,
 		parentSignal: AbortSignal,
-		shutdown?: () => Promise<void>,
+		shutdown?: () => Promise<ProbeReadback>,
 	): Promise<MoiraiProbeResult[]> {
 		if (!/^[a-zA-Z0-9-]{1,80}$/.test(roundId)) throw Error("Invalid round ID");
 		if (this.busy || this.failed || this.bindings.size !== 4)
@@ -218,7 +219,49 @@ export class MoiraiProbe {
 			if (finalReadError) throw finalReadError;
 			if (shutdown) {
 				closing = true;
-				await shutdown();
+				const readback = await shutdown();
+				let readbackClosing = false;
+				const offRequest = readback.rpc.onRequest(async () => {
+					this.abort.abort(Error("Native action request forbidden"));
+					throw Error("Native action request forbidden");
+				});
+				const offEvent = readback.rpc.subscribe((method) => {
+					if (
+						(method === "eof" && !readbackClosing) ||
+						method === "error" ||
+						method.startsWith("turn/") ||
+						method.startsWith("item/")
+					)
+						this.abort.abort(
+							Error("Native activity during persisted readback"),
+						);
+				});
+				try {
+					for (const role of MOIRAI_ROLES) {
+						const threadId = identifier(this.bindings.get(role));
+						const snapshot = await readback.rpc.request(
+							"thread/read",
+							{ threadId, includeTurns: true },
+							signal,
+						);
+						lifeWrite(
+							join(directory, `persisted-native-${role}.json`),
+							snapshot,
+						);
+						verifyProbeHistory(snapshot, {
+							threadId,
+							turns: new Map(this.histories.get(role)),
+						});
+					}
+				} finally {
+					readbackClosing = true;
+					try {
+						await readback.close();
+					} finally {
+						offRequest();
+						offEvent();
+					}
+				}
 				signal.throwIfAborted();
 				if (finalReadError) throw finalReadError;
 			}

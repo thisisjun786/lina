@@ -1,7 +1,28 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { MOIRAI_ROLES } from "../src/moirai-probe.ts";
+import { completedProbeState } from "../src/moirai-probe-state.ts";
 import { finishProbeRound, fixture } from "./moirai-probe-fixture.ts";
+
+test("completed four-role opaque captures larger than 2 MiB remain replayable", async () => {
+	const f = fixture();
+	const settled = f.gateway.settled.bind(f.gateway);
+	f.gateway.settled = async (key) => {
+		const capture = await settled(key);
+		capture.output.unshift({
+			type: "reasoning",
+			encrypted_content: "x".repeat(600000),
+		});
+		return capture;
+	};
+	await f.probe.initialize();
+	await finishProbeRound(f, "large");
+	expect(
+		readFileSync(join(f.root, "round-large", "complete.json")).byteLength,
+	).toBeGreaterThan(2 * 1024 * 1024);
+	expect(completedProbeState(f.root, "test", MOIRAI_ROLES).size).toBe(4);
+});
 
 function replaceUserText(
 	turn: Record<string, unknown> | undefined,
@@ -14,7 +35,14 @@ function replaceUserText(
 	content.text = text;
 }
 
-for (const activity of ["turn", "item", "request", "close-error", "clean"]) {
+for (const activity of [
+	"turn",
+	"item",
+	"request",
+	"close-error",
+	"clean",
+	"persisted-only",
+]) {
 	test(`round keeps completion pending until guarded shutdown: ${activity}`, async () => {
 		const f = fixture();
 		await f.probe.initialize();
@@ -28,7 +56,17 @@ for (const activity of ["turn", "item", "request", "close-error", "clean"]) {
 			if (activity === "item") f.emit("item/started", { threadId: "thread-1" });
 			if (activity === "request") await f.actionRequest();
 			if (activity === "close-error") throw Error("Owned shutdown failed");
+			if (activity === "persisted-only")
+				f.turns
+					.get("thread-0")
+					?.push({ id: "unannounced", status: "completed", items: [] });
 			f.emit("eof", {});
+			return {
+				rpc: { ...f.rpc },
+				close: async () => {
+					f.emit("eof", {});
+				},
+			};
 		});
 		if (activity === "clean") await run;
 		else await expect(run).rejects.toThrow();

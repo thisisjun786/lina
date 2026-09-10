@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { authorRecord } from "./author-native-policy.ts";
 import { inspectLifeCatalog } from "./life-model-gateway.ts";
 import {
+	PROBE_MAX_WIRE_BYTES,
 	PROBE_REQUEST_OPTIONS,
 	type ProbeCapture,
 	probeProviderText,
@@ -30,7 +31,7 @@ type Options = {
 	record: (key: string, value: unknown) => void;
 	fetchImpl?: typeof fetch;
 };
-const MAX_BYTES = 1048576;
+const MAX_BYTES = PROBE_MAX_WIRE_BYTES;
 function completedCapture(raw: string, responseModel?: string) {
 	const text = raw.replace(/^\uFEFF/, "").replace(/\r\n|\r/g, "\n");
 	if (!text.endsWith("\n\n")) throw Error("Truncated SSE");
