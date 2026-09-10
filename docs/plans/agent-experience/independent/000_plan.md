@@ -2,6 +2,22 @@
 
 Understood as: build and run a plain LLM plus adoption kernel with only minimal durable storage and tool ports, excluding existing Lina engines; iterate against 30 fixed criteria using real Ollama GLM 5.3 Flash until the engineering threshold passes. This experimental goal precedes the parent plan's whole-Lina integration.
 
+## Fixed objective for continuation (2026-09-10)
+
+The module must establish useful behavior with the LLM and minimal storage/tool
+connections alone. Do not add a context, memory, persona or LIFE engine to rescue
+its scores, and do not begin whole-Lina integration before independent qualification.
+Passing implementation tests or storing an understanding is insufficient: measure
+whether grounded experience changes subsequent method selection and task quality.
+Keep matched baseline and understanding-ablation results, including equal scores
+and regressions. Passing the engineering threshold and establishing incremental
+utility are distinct claims; do not declare the engine's added value from a tie.
+No new uplift threshold or weaker scoring rule is introduced by this clarification.
+
+The current PR is an incomplete implementation checkpoint. Real-model testing and
+improvement continue in a new session using [the handoff](029_handoff.md), the
+existing frozen rubric and the remaining recovery/qualification phases.
+
 ## Loop contract
 
 - Class C4 for durable effect/correction boundaries; satisfy-spec plus score optimization, HOTL requested on 2026-09-10.
