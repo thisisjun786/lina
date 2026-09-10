@@ -7,7 +7,7 @@
 		"qa": "bun run cli.ts",
 		"check": "bun test ./*.check.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
-		"build": "bun build ./cli.ts ./worker.ts --target=bun --packages=external --outdir=dist",
+		"build": "bun build ./cli.ts ./worker.ts ./live.ts --target=bun --packages=external --outdir=dist",
 		"lint": "biome check ."
 	},
 	"dependencies": {
