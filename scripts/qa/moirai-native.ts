@@ -36,7 +36,11 @@ import {
 	type IsolatedHomeConnection,
 	OpenCodexHub,
 } from "../../packages/lina-opencodex/src/hub.ts";
-import { probeEvidenceRoot, probeShutdown } from "./moirai-native-lifecycle.ts";
+import {
+	probeEvidenceRoot,
+	probeExecutableIdentity,
+	probeShutdown,
+} from "./moirai-native-lifecycle.ts";
 
 const live = process.argv.includes("--live");
 const rootArg = process.argv.find((x) => x.startsWith("--root="))?.slice(7);
@@ -133,6 +137,15 @@ delete plan.metadata["tool_mode"];
 plan.metadata["experimental_supported_tools"] = [];
 delete plan.metadata["apply_patch_tool_type"];
 plan.fingerprint = authorFingerprint(plan);
+const runtime = {
+	capabilityFingerprint: plan.fingerprint,
+	command: probeExecutableIdentity(plan.command),
+	wrapper: probeExecutableIdentity(plan.wrapper),
+	bun: Bun.version,
+	platform: process.platform,
+	arch: process.arch,
+};
+lifeWrite(join(root, "runtime.json"), runtime);
 writeFileSync(join(home, "config.toml"), authorConfig(plan), {
 	mode: 0o600,
 	flag: "wx",
@@ -158,6 +171,8 @@ const closeNative = async () => {
 let status = "failed";
 try {
 	for (let round = 1; round <= 3; round++) {
+		if (authorFingerprint(plan) !== runtime.capabilityFingerprint)
+			throw Error("Native capability changed during probe");
 		rpc = await createCodexRpc(lifeRpcOptions(plan, gateway.nonce));
 		await rpc.request("initialize", {
 			clientInfo: { name: "moirai-r0", version: "1" },
@@ -229,6 +244,8 @@ try {
 			await closeNative();
 		}
 	}
+	if (authorFingerprint(plan) !== runtime.capabilityFingerprint)
+		throw Error("Native capability changed during probe");
 	status = "pass";
 } catch (error) {
 	results.push({
@@ -252,6 +269,7 @@ try {
 		live,
 		model,
 		runId,
+		runtime,
 		results,
 		limits: {
 			callsPerEpisode: 6,

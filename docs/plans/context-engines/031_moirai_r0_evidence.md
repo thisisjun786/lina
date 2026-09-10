@@ -83,6 +83,10 @@ bun scripts/qa/moirai-native.ts --live --root=/tmp/moirai-live-new
 
 새 후보 `live-source-snapshot`은 GLM 12회 송신·17,332토큰으로 세 회차를 통과했다. 정상 재시작과 완료 후 SIGKILL 재개, 역할 완료·회차 종료 snapshot 검증, 소유 그룹 종료를 확인했다. 모델·요청/에피소드 한도와 R0 실증 범위는 같다. 원본과 후보 해시·RED/GREEN 로그는 Git 밖 `moirai-r0/source-snapshot-repair/`에 보존한다. 이 후보의 GitHub 리뷰·CI 결과는 해당 커밋 기준으로 별도 확인해야 한다.
 
+`0b16837`의 CI는 통과했다. 이어진 Codex 리뷰의 [실행 파일 식별 정보 누락](https://github.com/thisisjun786/lina/pull/9#discussion_r3978560477)을 수정해 `runtime.json`과 `result.json.runtime`에 capability fingerprint, 실제 Codex/wrapper 경로·SHA-256·`--version` 결과, Bun/OS/아키텍처를 저장한다. 매 회차 시작과 최종 성공 직전에 fingerprint가 같은지 확인한다. 과거 결과에 현재 설치 정보를 소급해서 쓰지 않는다.
+
+이 기록 보완의 관련 테스트는 64 pass이며 QA CLI를 포함한 타입 검사와 lint가 통과했다. 새 `native-fixture-runtime-identity`의 세 회차가 통과했고, 결과에 기록된 Codex `0.153.4`와 bubblewrap `0.11.1`의 경로·해시·버전을 실제 파일과 다시 대조했다. 이 수정 검증은 합성 provider만 사용했다. 이전 GLM 실증과 새 실행 환경 영수증은 별도 후보이며, 원본은 `moirai-r0/runtime-identity-repair/`에 보존한다.
+
 - 관련 조정기·게이트웨이·checkpoint·도구 테스트: 37 pass.
 - Codex 패키지와 checkpoint/prompt 테스트: 247 pass, 41 skip. opt-in native 검사는 기본 suite에서 생략되며 위 별도 native 실증과 범위가 다르다.
 - 자체 기억·자료 엔진/저장/도구/API 테스트: 38 pass.

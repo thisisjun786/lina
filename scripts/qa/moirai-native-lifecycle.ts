@@ -1,6 +1,23 @@
+import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
+import { authorFileDigest } from "../../packages/lina-codex/src/author-native-policy.ts";
 import { checkedDirectory } from "../../packages/lina-core/src/attachments/filesystem.ts";
+
+/** Observe the exact resolved executable; a version label alone cannot identify a build. */
+export function probeExecutableIdentity(command: string) {
+	const path = realpathSync(command);
+	const sha256 = authorFileDigest(path);
+	const version = execFileSync(path, ["--version"], {
+		encoding: "utf8",
+		timeout: 10000,
+		maxBuffer: 4096,
+		stdio: ["ignore", "pipe", "pipe"],
+	}).trim();
+	if (!version || authorFileDigest(path) !== sha256)
+		throw Error("Executable changed or version unavailable");
+	return { path, sha256, version };
+}
 
 /** Admission only: do not create evidence until the absolute outside-checkout path is checked. */
 export function probeEvidenceRoot(value: string, repository: string): string {

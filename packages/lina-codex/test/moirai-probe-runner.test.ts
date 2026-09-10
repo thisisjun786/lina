@@ -1,11 +1,19 @@
 import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	probeEvidenceRoot,
+	probeExecutableIdentity,
 	probeShutdown,
 } from "../../../scripts/qa/moirai-native-lifecycle.ts";
 
@@ -29,6 +37,31 @@ test("evidence root rejects relative and checkout paths before creating artifact
 				repository,
 			),
 		).toThrow();
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("executable identity records the resolved build and version and rejects a failed version probe", () => {
+	const root = mkdtempSync(join(tmpdir(), "moirai-version-test-"));
+	try {
+		const file = join(root, "native");
+		const alias = join(root, "current");
+		const source = '#!/bin/sh\nprintf "synthetic-native 1.2.3\\n"\n';
+		writeFileSync(file, source, { mode: 0o700 });
+		symlinkSync(file, alias);
+		const first = probeExecutableIdentity(alias);
+		expect(first).toEqual({
+			path: file,
+			sha256: createHash("sha256").update(source).digest("hex"),
+			version: "synthetic-native 1.2.3",
+		});
+		writeFileSync(file, '#!/bin/sh\nprintf "synthetic-native 1.2.4\\n"\n');
+		const second = probeExecutableIdentity(alias);
+		expect(second.version).toBe("synthetic-native 1.2.4");
+		expect(second.sha256).not.toBe(first.sha256);
+		writeFileSync(file, "#!/bin/sh\nexit 3\n");
+		expect(() => probeExecutableIdentity(alias)).toThrow();
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
