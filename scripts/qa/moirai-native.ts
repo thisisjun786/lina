@@ -45,7 +45,16 @@ import {
 	probeSourceIdentity,
 	probeStoredWire,
 } from "./moirai-native-lifecycle.ts";
+import {
+	promptExperiment,
+	promptSelection,
+	syntheticJudgment,
+} from "./moirai-prompt-cases.ts";
 
+const selectedPrompt = promptSelection(process.argv.slice(2));
+const prompt = selectedPrompt
+	? promptExperiment(selectedPrompt.condition, selectedPrompt.caseId)
+	: null;
 const live = process.argv.includes("--live");
 const rootArg = process.argv.find((x) => x.startsWith("--root="))?.slice(7);
 if (!rootArg)
@@ -81,6 +90,7 @@ if (live) {
 		port: 0,
 		async fetch(req) {
 			const body = (await req.json()) as Record<string, unknown>;
+			if (prompt) return lifeResponse(syntheticJudgment(body));
 			const text = JSON.stringify(body["input"]);
 			return lifeResponse(`synthetic result ${text.length}`);
 		},
@@ -161,6 +171,17 @@ writeFileSync(
 	{ mode: 0o600, flag: "wx" },
 );
 const runtime = {
+	...(prompt
+		? {
+				experiment: {
+					condition: prompt.condition,
+					caseId: prompt.caseId,
+					pack: prompt.pack,
+					input: prompt.input,
+					inputDigest: prompt.inputDigest,
+				},
+			}
+		: {}),
 	capabilityFingerprint: plan.fingerprint,
 	implementation: source,
 	requestOptions,
@@ -186,8 +207,15 @@ const closeNative = async () => {
 		throw Error("Owned native shutdown incomplete");
 };
 let status = "failed";
+const abort = new AbortController();
+const stop = () => abort.abort(Error("Prompt comparison interrupted"));
+if (prompt) {
+	process.on("SIGINT", stop);
+	process.on("SIGTERM", stop);
+}
 try {
-	for (let round = 1; round <= 3; round++) {
+	for (let round = 1; round <= (prompt ? 1 : 3); round++) {
+		abort.signal.throwIfAborted();
 		if (fingerprint() !== runtime.probeFingerprint)
 			throw Error("Native capability changed during probe");
 		rpc = await createCodexRpc(lifeRpcOptions(plan, gateway.nonce));
@@ -198,6 +226,7 @@ try {
 		rpc.notify("initialized");
 		await verifyAuthorNative(rpc, plan);
 		const probe = new MoiraiProbe({
+			...(prompt ? { experiment: prompt.protocol } : {}),
 			rpc,
 			root: join(root, "ledger"),
 			model,
@@ -211,70 +240,67 @@ try {
 				personality: "none",
 				developerInstructions: "",
 				runtimeWorkspaceRoots: [],
-				baseInstructions: moiraiInstructions(role),
+				baseInstructions:
+					prompt?.pack.instructions[role] ?? moiraiInstructions(role),
 			}),
 			verifyThread: (raw) => verifyAuthorThread(raw, plan),
 		});
 		await probe.initialize();
 		const input =
-			round === 1
+			prompt?.input ??
+			(round === 1
 				? "We have a synthetic task: choose one way to organize three notes. The reference color is teal. Give one concise proposal with a reason. No tools."
-				: `Round ${round}: revise the prior proposal for only two notes. Mention the earlier reference color if it is in your own history; do not guess. Give a concise answer. No tools.`;
+				: `Round ${round}: revise the prior proposal for only two notes. Mention the earlier reference color if it is in your own history; do not guess. Give a concise answer. No tools.`);
 		console.log(
 			JSON.stringify({ event: "round-start", round, pid: rpc.pid, live }),
 		);
 		const pid = rpc.pid;
 		const roundId = `r${round}-${runId}`;
-		const output = await probe.round(
-			roundId,
-			input,
-			new AbortController().signal,
-			async () => {
-				if (round === 2) {
-					if (!pid) throw Error("Missing owned PID for kill check");
-					process.kill(-pid, "SIGKILL");
-				}
-				await closeNative();
-				if (round === 2)
-					lifeWrite(join(root, "kill.json"), {
-						pid,
-						signal: "SIGKILL",
-						boundary: "after canonical completed turns, before round2 commit",
-						observedAt: Date.now(),
-					});
-				if (fingerprint() !== runtime.probeFingerprint)
-					throw Error("Native capability changed during probe");
-				rpc = await createCodexRpc(lifeRpcOptions(plan, gateway.nonce));
-				let readbackFailure: Error | undefined;
-				rpc.onRequest(async () => {
-					readbackFailure = Error("Native readback action forbidden");
-					throw readbackFailure;
+		const output = await probe.round(roundId, input, abort.signal, async () => {
+			if (round === 2) {
+				if (!pid) throw Error("Missing owned PID for kill check");
+				process.kill(-pid, "SIGKILL");
+			}
+			await closeNative();
+			if (round === 2)
+				lifeWrite(join(root, "kill.json"), {
+					pid,
+					signal: "SIGKILL",
+					boundary: "after canonical completed turns, before round2 commit",
+					observedAt: Date.now(),
 				});
-				await rpc.request("initialize", {
-					clientInfo: { name: "moirai-readback", version: "1" },
-					capabilities: { experimentalApi: true },
-				});
-				rpc.notify("initialized");
-				await verifyAuthorNative(rpc, plan);
-				return {
-					rpc,
-					verifyHistory: (snapshot, capture) => {
-						const receipt = probeStoredWire(home, snapshot, capture);
-						lifeWrite(
-							join(
-								root,
-								`stored-wire-${round}-${shutdowns.length}-${receipt.sha256}.json`,
-							),
-							receipt,
-						);
-					},
-					close: async () => {
-						await closeNative();
-						if (readbackFailure) throw readbackFailure;
-					},
-				};
-			},
-		);
+			if (fingerprint() !== runtime.probeFingerprint)
+				throw Error("Native capability changed during probe");
+			rpc = await createCodexRpc(lifeRpcOptions(plan, gateway.nonce));
+			let readbackFailure: Error | undefined;
+			rpc.onRequest(async () => {
+				readbackFailure = Error("Native readback action forbidden");
+				throw readbackFailure;
+			});
+			await rpc.request("initialize", {
+				clientInfo: { name: "moirai-readback", version: "1" },
+				capabilities: { experimentalApi: true },
+			});
+			rpc.notify("initialized");
+			await verifyAuthorNative(rpc, plan);
+			return {
+				rpc,
+				verifyHistory: (snapshot, capture) => {
+					const receipt = probeStoredWire(home, snapshot, capture);
+					lifeWrite(
+						join(
+							root,
+							`stored-wire-${round}-${shutdowns.length}-${receipt.sha256}.json`,
+						),
+						receipt,
+					);
+				},
+				close: async () => {
+					await closeNative();
+					if (readbackFailure) throw readbackFailure;
+				},
+			};
+		});
 		// Copy the validated snapshots after shutdown; no unguarded native reads.
 		for (const role of MOIRAI_ROLES) {
 			const history = JSON.parse(
@@ -291,6 +317,7 @@ try {
 			lifeWrite(join(root, `history-${round}-${role}.json`), history);
 		}
 		results.push({ round, pid, output });
+		abort.signal.throwIfAborted();
 		console.log(
 			JSON.stringify({
 				event: "round-complete",
@@ -319,6 +346,8 @@ try {
 	}
 	await gateway.close();
 	await fixture?.stop(true);
+	process.off("SIGINT", stop);
+	process.off("SIGTERM", stop);
 	const result = {
 		status,
 		live,
@@ -327,11 +356,13 @@ try {
 		runtime,
 		results,
 		limits: {
-			callsPerEpisode: 6,
+			callsPerEpisode: prompt ? 4 : 6,
 			outputTokensPerRequest: 4096,
 			requestTimeoutMs: 120000,
 		},
-		scope: "R0 transport/history only, not qualification or cognitive utility",
+		scope: prompt
+			? "Synthetic C/E prompt execution only; not model quality or qualification"
+			: "R0 transport/history only, not qualification or cognitive utility",
 		ownedProcessesClosed:
 			shutdowns.length > 0 &&
 			shutdowns.every(

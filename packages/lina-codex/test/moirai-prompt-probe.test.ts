@@ -16,7 +16,7 @@ function experiment(): ProbeExperiment {
 			JSON.stringify({ roundId, slot: MOIRAI_ROLES.indexOf(role), input }),
 		synthesisInput: (input, results) =>
 			JSON.stringify({ input, proposals: results.map((r) => r.text) }),
-		validateOutput() {},
+		validateOutput: () => undefined,
 	};
 }
 
@@ -50,6 +50,7 @@ test("invalid proposal preserves raw output and failure while withholding synthe
 	const spec = experiment();
 	spec.validateOutput = (_round, role) => {
 		if (role === "clotho") throw Error("wrong proposal ID");
+		return undefined;
 	};
 	const f = fixture(undefined, spec);
 	await f.probe.initialize();
@@ -76,6 +77,7 @@ test("invalid synthesis is retained and never completes the experiment", async (
 	const spec = experiment();
 	spec.validateOutput = (_round, role) => {
 		if (role === "moirai") throw Error("missing considered proposal");
+		return undefined;
 	};
 	const f = fixture(undefined, spec);
 	await f.probe.initialize();

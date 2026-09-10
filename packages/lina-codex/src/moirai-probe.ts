@@ -51,13 +51,18 @@ export type MoiraiProbeResult = {
 	text: string;
 	usage: unknown;
 	capture: ProbeCapture;
+	judgment?: { status: string };
 };
 /** Opt-in, fresh-thread QA contract; never a production effect port. */
 export type ProbeExperiment = {
 	instructions: Readonly<Record<MoiraiRole, string>>;
 	envelope(roundId: string, role: MoiraiRole, input: string): string;
 	synthesisInput(input: string, results: readonly MoiraiProbeResult[]): string;
-	validateOutput(roundId: string, role: MoiraiRole, text: string): void;
+	validateOutput(
+		roundId: string,
+		role: MoiraiRole,
+		text: string,
+	): { status: string } | undefined;
 };
 type Options = {
 	rpc: CodexRpc;
@@ -206,6 +211,8 @@ export class MoiraiProbe {
 				if (x.status !== "fulfilled") throw Error("Missing proposal");
 				return x.value;
 			});
+			if (results.some((r) => r.judgment?.status === "invalidated"))
+				throw Error("Judgment invalidated; aggregate withheld");
 			const aggregate = await this.runRole(
 				directory,
 				roundId,
@@ -218,6 +225,8 @@ export class MoiraiProbe {
 				signal,
 			);
 			results.push(aggregate);
+			if (aggregate.judgment?.status === "invalidated")
+				throw Error("Synthesis invalidated; completion withheld");
 			stopFinalGuard = this.options.rpc.subscribe((method, params) => {
 				try {
 					const event = authorRecord(params);
@@ -460,7 +469,15 @@ export class MoiraiProbe {
 			});
 			verifyProbeHistory(nativeSnapshot, { threadId, turns: expected });
 			lifeWrite(join(directory, `result-${role}.json`), value);
-			this.experiment?.validateOutput(episodeId, role, value.text);
+			const judgment = this.experiment?.validateOutput(
+				episodeId,
+				role,
+				value.text,
+			);
+			if (judgment) {
+				value.judgment = judgment;
+				lifeWrite(join(directory, `judgment-${role}.json`), judgment);
+			}
 			this.captures.set(role, value.capture);
 			this.histories.get(role)?.set(value.turnId, {
 				text: value.text,

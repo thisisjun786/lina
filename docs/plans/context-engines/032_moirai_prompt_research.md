@@ -16,7 +16,7 @@ LINA의 이번 연구 목표는 **같은 모델이 Clotho·Lachesis·Atropos에�
 
 이 방식도 넓은 의미의 MoA 계열에 들어간다. 원 논문은 같은 모델의 재사용을 허용하며, Self-MoA는 동일 모델의 여러 출력을 종합한다. 여기서 LINA가 추가로 검증할 대상은 **서로 다른 역할 지침이 단순 반복 생성보다 나은가**다. [MoA, 2024](https://arxiv.org/html/2406.04692v1#S2), [Self-MoA, 2025](https://arxiv.org/html/2502.00674v1#S3)
 
-조사 시점의 기준 코드는 `522101ff99e356b0ea6d27b4ea03ec7e599ee4b3`이다. [moirai-probe.ts](../../../packages/lina-codex/src/moirai-probe.ts)의 `moiraiInstructions`(27–36행)는 역할별 한 문장과 공통 지시로 구성된다. `round`(170–190행)는 세 판단을 병렬로 실행한 다음 종합하며, `runRole`(381행)은 같은 모델을 사용한다. 이 코드는 실행·이력 검사를 위한 QA 경로다. 아래 역할 절차, 구조화된 판단, 조회 도구, 프롬프트 최적화기는 아직 연결되지 않았다.
+조사 시점의 기준 코드는 `522101ff99e356b0ea6d27b4ea03ec7e599ee4b3`이다. [moirai-probe.ts](../../../packages/lina-codex/src/moirai-probe.ts)의 `moiraiInstructions`(27–36행)는 역할별 한 문장과 공통 지시로 구성된다. `round`(170–190행)는 세 판단을 병렬로 실행한 다음 종합하며, `runRole`(381행)은 같은 모델을 사용한다. 이 코드는 실행·이력 검사를 위한 QA 경로다. 조사 당시에는 역할 절차, 구조화된 판단, 조회 도구, 프롬프트 최적화기가 연결되지 않았다. 후속 [QA 비교 구현](040_moirai_prompt_comparison.md)은 C/E 지침과 JSON 검증·기록을 연결했다. 조회·자동 최적화·실모델 품질 평가는 후속 범위다.
 
 <a id="evidence"></a>
 

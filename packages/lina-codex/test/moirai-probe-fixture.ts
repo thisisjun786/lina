@@ -15,7 +15,11 @@ afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });
-export function fixture(reuse?: string, experiment?: ProbeExperiment) {
+export function fixture(
+	reuse?: string,
+	experiment?: ProbeExperiment,
+	respond: (index: number, input: string) => string = (i) => `proposal-${i}`,
+) {
 	const root = reuse ?? mkdtempSync(join(tmpdir(), "moirai-round-test-"));
 	if (!reuse) roots.push(root);
 	const listeners = new Set<(method: string, params: unknown) => void>();
@@ -94,7 +98,7 @@ export function fixture(reuse?: string, experiment?: ProbeExperiment) {
 		async settled(key) {
 			const claim = claims.get(key);
 			if (!claim) throw Error("Missing fixture claim");
-			const text = `proposal-${claims.size - 1}`;
+			const text = respond(claims.size - 1, claim.input);
 			return {
 				usage: null,
 				text,
@@ -130,7 +134,7 @@ export function fixture(reuse?: string, experiment?: ProbeExperiment) {
 			status,
 			items: [
 				{ type: "userMessage", content: [{ type: "text", text: p.text }] },
-				{ type: "agentMessage", text: `proposal-${i}` },
+				{ type: "agentMessage", text: respond(i, p.text) },
 			],
 		};
 		turns.get(p.threadId)?.push(turn);

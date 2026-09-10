@@ -1,6 +1,6 @@
 # Moirai 공통 지침·역할 지침 비교 PR
 
-2026-09-11 · 문서 회차 검토 완료, 구현 회차 대기 · 문서 C2 / QA 구현 C3
+2026-09-11 · 문서 회차 완료, QA 비교 구현 검증 중 · 문서 C2 / QA 구현 C3
 
 같은 모델을 세 번 호출했을 때 상세 역할 지침이 어떤 판단을 만드는지 관찰할 QA 실행 경로를 만든다. 먼저 [연구](032_moirai_prompt_research.md)와 [지침 후보](033_moirai_prompt_candidates.md)를 Draft PR로 올리고, 같은 PR에 비교 실행과 기록을 추가한다. 첫 PR은 실험을 실행하고 실패까지 남기는 데서 끝난다. 지침의 성능 우월성은 별도 실모델 평가가 필요하다.
 
@@ -38,7 +38,7 @@ scripts/qa/moirai-native.ts  격리 실행·종료·native readback
 scripts/qa/moirai-native-lifecycle.ts  실행 신원·안전한 증거 경로
 ```
 
-`moirai-probe.ts:27`의 지침과 `:362`의 gateway 기대값은 현재 고정돼 있다. `:175`의 독립 판단이 끝나면 `:184`에서 곧바로 종합한다. 현재 형식은 자연어이므로 JSON 유효성 검증 지점이 필요하다. `moirai-probe-state.ts:124`는 `resumable: true`인 완료 기록만 복구하므로 새 실험을 재개 불가로 기록할 수 있다. `scripts/qa/moirai-native.ts:190`의 기본 실험은 세 회차를 재개하며 실행한다.
+구현 전 기준 `522101f`에서 `moirai-probe.ts:27`의 지침과 `:362`의 gateway 기대값은 고정돼 있었다. `:175`의 독립 판단이 끝나면 `:184`에서 곧바로 종합한다. 당시 형식은 자연어이므로 JSON 유효성 검증 지점이 필요하다. `moirai-probe-state.ts:124`는 `resumable: true`인 완료 기록만 복구하므로 새 실험을 재개 불가로 기록할 수 있다. `scripts/qa/moirai-native.ts:190`의 기본 실험은 세 회차를 재개하며 실행한다.
 
 아무 코드도 바꾸지 않거나 설정만 바꾸면 지침 고정과 JSON 검증 부재를 해결하지 못한다. 새 RPC·gateway를 만들면 이미 검증한 경계를 복제하게 된다. 기존 probe에 실험용 계약을 선택적으로 연결하고 기본 R0 경로는 유지한다. 제품 package export나 runtime 소유권은 변경하지 않는다.
 
@@ -63,3 +63,5 @@ scripts/qa/moirai-native-lifecycle.ts  실행 신원·안전한 증거 경로
 보완 검토는 `8997de3..481cba4`에서 세 수정과 문서 검사를 재확인해 PASS를 반환했다. 설계 담당도 변경한 결정 D2/D3/D5를 ALIGNED로 확인했다. [Draft PR #10](https://github.com/thisisjun786/lina/pull/10)은 `dev` 대상이며 `481cba4`에서 docs-only CI의 changes와 dev-gate가 통과했다. source lint/types/tests/build는 문서 전용 선택에 따라 생략됐고 실행 성공으로 세지 않는다. 같은 커밋의 전체 Git 이력 비밀정보 검사는 285개 커밋에서 발견 0개였다.
 
 문서 회차의 결론: 040의 작은 C/E 설계를 구현한다. 다음 P는 이 결론과 현재 코드를 대조하고 동일 설계의 실행 계약부터 시작한다. 제품 통합·실모델 품질 평가는 계속 후속 범위다.
+
+구현 회차에서는 프롬프트 조립·응답 validator를 위임하고, main이 probe·비교 CLI를 연결했다. 독립 코드 검토의 두 지적은 모두 수용했다. promptRevision을 pack에서 가져오고, 유효한 invalidated 판단을 파싱 오류와 구분해 보존한다. 새 회귀 테스트가 기존 오류를 재현한 뒤 수정본에서 통과했다. native 합성 실행 6조건·24호출은 전송·격리·기록 검증이며 인지 성능 증거가 아니다. 최종 검증 명령과 사용법은 040에 둔다.

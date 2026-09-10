@@ -1,6 +1,6 @@
 # 첫 C/E 비교의 구현 설계
 
-의존: [PR 계획](034_moirai_prompt_pr_plan.md)의 문서 회차, [응답 계약과 원문](033_moirai_prompt_candidates.md). 이 문서는 첫 구현 회차의 변경 명세다. 아직 구현·실행 증거가 아니다.
+의존: [PR 계획](034_moirai_prompt_pr_plan.md)의 문서 회차, [응답 계약과 원문](033_moirai_prompt_candidates.md). 이 문서는 첫 구현 회차의 변경 명세와 검증 기록이다. 비교는 로컬 합성 provider를 쓰며 실모델 품질을 평가하지 않는다.
 
 ## 변경 파일과 데이터 흐름
 
@@ -30,7 +30,7 @@ gateway의 tool 차단·전송 검증, native 격리 정책, 기본 R0 복구 �
 
 응답은 033의 JSON 계약을 따른다. 정해진 필드의 타입·열거값·nullable·배열 상한을 검증한다. roundId/snapshotId/proposalId는 Host 기대값과 같아야 한다. 인용한 sourceRef는 해당 입력에 존재해야 하며 유효한 현재 근거여야 한다. support의 근거 없는 주장은 거부한다. Moirai는 검증된 세 proposalId를 각각 한 번씩 다뤄야 한다. 존재하는 출처 ID를 붙인 거짓 주장을 자동으로 판별한다고 주장하지 않는다.
 
-`invalidated`는 candidate=null이어야 한다. `ready`/`need_evidence`와 native/형식 실패는 구분한다. 무효화 판단이나 구조·식별·출처 실패가 있으면 Moirai를 호출하지 않는다. 실패 원문과 검증 오류를 남긴다. 모델이 need_evidence를 반환해도 조회나 추가 생성 호출은 하지 않는다. 정보 부족 자체는 관찰 가능한 결과다.
+`invalidated`는 candidate=null이어야 한다. `ready`/`need_evidence`와 native/형식 실패는 구분한다. 무효화 판단이나 구조·식별·출처 실패가 있으면 Moirai를 호출하지 않는다. 실패 원문과 검증 오류를 남긴다. 형식이 유효한 invalidated 응답은 judgment 기록에 보존하고, round의 별도 채택 검사에서 종합이나 완료를 차단한다. 형식 오류로 바꾸지 않는다. 모델이 need_evidence를 반환해도 조회나 추가 생성 호출은 하지 않는다. 정보 부족 자체는 관찰 가능한 결과다.
 
 ## 기존 probe의 변경 지점
 
@@ -52,7 +52,8 @@ type ProbeExperiment = {
   instructions: Readonly<Record<MoiraiRole, string>>;
   envelope(roundId: string, role: MoiraiRole, input: string): string;
   synthesisInput(input: string, results: readonly MoiraiProbeResult[]): string;
-  validateOutput(roundId: string, role: MoiraiRole, text: string): void;
+  validateOutput(roundId: string, role: MoiraiRole, text: string):
+    { status: string } | undefined;
 };
 ```
 
@@ -62,7 +63,7 @@ type ProbeExperiment = {
 
 선택 지침은 생성 시 복사·고정한다. experiment가 없으면 기존 문자열을 사용한다. experiment가 있으면 initialize에서 비어 있지 않은 ledger를 거부하고 round에서 두 번째 회차를 거부한다. 완료 기록은 `resumable: false`로 기록해 기본 R0 reader로도 재개하지 못한다. 기존 R0의 `resumable: true` 의미를 바꾸지 않는다.
 
-`runRole`은 experiment.envelope가 만든 중립 식별과 현재 입력을 intent에 쓴다. experiment가 없으면 기존 round/role/input 포맷을 그대로 쓴다. native와 provider 완료·원문 일치 검사를 마친 뒤 raw result를 보존하고 외부 JSON을 검증한다. 검증 오류는 기존 failure-role 기록에 남겨 원문과 연결한다. 실패했는데 complete.json을 쓰지 않는다. latency는 기존 gateway의 시작·종료 시각을 소비하고 없으면 null로 남긴다. 셋 중 하나가 실패하면 기존 `Promise.allSettled` 경로로 나머지 결과도 수집하고 종합은 보류한다. Moirai payload는 experiment.synthesisInput으로 Host가 검증한 세 결과만 담는다. 최종 JSON도 같은 경계에서 검증한 뒤 기존 native/history/readback 검사를 수행한다.
+`runRole`은 experiment.envelope가 만든 중립 식별과 현재 입력을 intent에 쓴다. experiment가 없으면 기존 round/role/input 포맷을 그대로 쓴다. native와 provider 완료·원문 일치 검사를 마친 뒤 raw result를 보존하고 외부 JSON을 검증한다. 검증 오류는 기존 failure-role 기록에 남겨 원문과 연결한다. 통과한 구조화 응답은 judgment-role 기록에도 보존한다. 실패했는데 complete.json을 쓰지 않는다. latency는 기존 gateway의 시작·종료 시각을 소비하고 없으면 null로 남긴다. 셋 중 하나가 실패하면 기존 `Promise.allSettled` 경로로 나머지 결과도 수집하고 종합은 보류한다. Moirai payload는 experiment.synthesisInput으로 Host가 검증한 세 결과만 담는다. 최종 JSON도 같은 경계에서 검증한 뒤 기존 native/history/readback 검사를 수행한다.
 
 ## 실행기 변경 지점
 
@@ -75,11 +76,11 @@ type ProbeExperiment = {
 
 비교기는 checkout 밖의 비어 있는 새 root를 사용하고 사례별 C/E 자식 디렉터리를 만든다. native 생성은 각 조건 4회, 합계 8회이며 재시도는 없다. 요청당 4096 출력 토큰/120초, 조건당 최대 16384 출력 토큰이다. 기존 gateway의 episode 6회 상한보다 작은 실험 상한이다. 사용하지 않은 슬롯을 옮기지 않는다. 실제 비용은 같은 한도와 다르며 reasoning usage의 가용성과 값도 별도 보존한다.
 
-실패한 첫 조건 때문에 둘째 조건의 기록을 누락하지 않는다. 각 조건 결과에는 상태, 실제 시도 수, 완료된 역할, 원문 경로, 지침·입력 신원, usage 또는 null, latency, 종료 receipt를 남긴다. outbound attempt 원문에서 조건별 4회 이하인지 대조한다. 실패 조건을 분모에서 제거하지 않는다. 비교 manifest에는 예상한 조건·사례 수와 실제 성공/실패 수를 함께 둔다. 오류로 자식 result.json이 없으면 exit code와 stderr를 실패로 보존한다. shell 문자열 조합 없이 인자 배열로 실행한다.
+실패한 첫 조건 때문에 둘째 조건의 기록을 누락하지 않는다. 각 조건 결과에는 상태, 실제 시도 수, 완료된 역할, 원문 경로, 지침·입력 신원, usage 또는 null, latency, 종료 receipt를 남긴다. outbound attempt 원문에서 조건별 4회 이하인지 대조한다. 실패 조건을 분모에서 제거하지 않는다. 비교 manifest에는 예상한 조건·사례 수와 실제 성공/실패 수를 함께 둔다. 오류로 자식 result.json이 없으면 exit code와 stderr를 실패로 보존한다. 비교 CLI의 SIGINT/SIGTERM은 실행 중 자식에 SIGTERM을 전달하고 종료를 기다린다. 15초 안에 종료하지 않으면 해당 자식만 SIGKILL로 닫는다. 조건별 5분 마감과 요청별 기존 120초 마감을 함께 적용한다. 취소 뒤 남은 조건은 시작하지 않고 실패 분모에 남긴다. native의 기존 bwrap --die-with-parent 경계도 유지한다. shell 문자열 조합 없이 인자 배열로 실행한다.
 
 각 조건은 별도 프로세스로 실행해 native home까지 분리한다. 비교기는 두 runtime manifest의 exact model, requestOptions, native executable/wrapper identity, 구현 신원이 같은지 대조한다. home별 capability fingerprint는 경로 때문에 달라질 수 있어 같다고 주장하지 않는다. 입력 신원은 실행 식별자를 제외한 고정 사례 payload의 digest로 대조한다. 불일치는 비교 실패다. CLI 분기·사례·합성 응답·요약 함수는 테스트가 import하는 QA 모듈에 두어 타입 검사한다. 기존 최상위 CLI 전체가 타입 검사된다고 주장하지 않는다.
 
-의도한 manifest 설정과 실제 outbound를 구분한다. 각 outbound의 model, reasoning, max_output_tokens, tools, tool_choice 및 PROBE_REQUEST_OPTIONS 필드를 대조한다. C의 실제 전송 envelope와 종합 payload에 역할 이름이 없다는 것도 테스트한다. 잘못된 JSON·ID·출처·종합 ID는 in-memory probe 테스트에서 주입하며 첫 CLI에 fault 플래그를 추가하지 않는다.
+의도한 manifest 설정과 실제 outbound를 구분한다. 각 outbound의 model, reasoning, max_output_tokens, tools, tool_choice 및 PROBE_REQUEST_OPTIONS 필드를 대조한다. Codex가 덧붙이는 권한·환경 문맥은 기존 verifyProbeWire로 검사하고, 메시지 ID를 제외한 내용과 순서를 C/E 사이에서도 대조한다. C의 실제 전송 envelope와 종합 payload에 역할 이름이 없다는 것도 테스트한다. 잘못된 JSON·ID·출처·종합 ID는 in-memory probe 테스트에서 주입하며 첫 CLI에 fault 플래그를 추가하지 않는다.
 
 비교기의 `runComparison` 함수는 내부 옵션 `commandFor(condition, caseId, childRoot): readonly string[]`를 받는다. 기본값은 현재 Bun과 moirai-native.ts 인자 배열이며 CLI로 임의 실행 파일을 받지 않는다. 테스트에서는 이 옵션으로 실제 Bun 자식 fixture를 실행한다. C 자식은 stderr에 식별 가능한 합성 오류를 쓰고 종료 코드 7로 종료하며 result.json을 만들지 않는다. E 자식은 별도 방문 기록과 합성 결과를 남긴다. 비교기를 끝까지 실행한 뒤 C의 종료 코드·stderr·결과 누락, E 실행, 분모 2개와 실패 조건 포함을 확인한다. 단순 요약 함수 테스트로 이 자식 실행 경계의 검증을 대체하지 않는다.
 
@@ -103,3 +104,25 @@ type ProbeExperiment = {
 합성 fixture는 이 실행 계약을 검사한다. 정답 품질, 역할 분화의 실제 효용, 모델별 최적화 성능, 사실의 참·거짓은 이번 PR의 자동 판정 대상이 아니다.
 
 QA 검증은 E7 테스트·코드 경계에 해당한다. 실행 표면은 opt-in CLI와 probe다. 호출자가 이를 쓰지 않는 우회 경로는 제품 runtime에 남아 있으므로 제품 권한 강제라고 부르지 않는다. 최종 효과 실행 강제 계층은 이번 PR에 없다. 기존 R0의 native sandbox와 gateway tool 차단을 사용하며 그 경계를 새로 설계하지 않는다.
+
+## 구현 검증 기록
+
+기존 probe에 선택 지침·외부 JSON 검증·한 회차 제한을 연결했다. 실행기는 실제 outbound에서 지침·입력·모델 설정을 확인하고, 원문·판단 상태·usage·latency와 자식 실패를 비교 기록에 모은다. `usage: null`은 그대로 보존한다. 로컬 provider가 반환하는 31/7 토큰은 합성 fixture 값이며 비용 측정값이 아니다.
+
+실행 명령은 다음과 같다. 경로는 checkout 밖의 아직 존재하지 않는 절대 경로여야 한다.
+
+```sh
+bun scripts/qa/moirai-prompt-compare.ts --root=/tmp/moirai-ce-example
+```
+
+`comparison.json`은 예상 조건 6개와 각 조건의 성공·실패를 포함한다. 조건별 하위 디렉터리에는 runtime, wire, ledger, shutdown, result가 남는다. 이 자료는 로컬에서 검토하며 커밋하지 않는다.
+
+첫 native 실행에서 자식 6개는 모두 완료됐지만 비교기가 자동 권한·환경 문맥을 예상하지 못해 실패했다. 실제 outbound와 기존 전송 검증 함수를 대조해 원인을 좁혔고, 동일 문맥을 포함한 회귀 테스트를 먼저 실패시킨 뒤 수정했다. 다음 실행은 6개 조건·24회 호출을 모두 완료했다. 수정은 검증기 호출에 한정했으며 sandbox나 gateway의 허용 범위를 늘리지 않았다.
+
+판단 품질·실제 토큰 비용·모델별 지침 최적화·제품 연결은 여전히 미검증이다. 다음 실험은 동일 모델의 C/E 결과를 독립 평가할 데이터와 기준을 정하는 일이다.
+
+독립 코드 검토에서 manifest의 실제 입력 연결과 취소 전파를 추가로 지적했다. 두 지적을 수용해 입력 원문·기대 digest를 함께 대조하고, 신호로 자식을 종료한 뒤 기다리도록 수정했다. 실제 자식이 준비 신호를 보낸 뒤 취소하는 회귀 테스트로 정리 완료와 미시작 조건의 보존을 확인했다.
+
+로컬 검사: `bun test packages/lina-codex/test/moirai-*.test.ts`는 131 pass, 0 fail이었다. `bun run typecheck`는 루트와 웹 TypeScript 검사에서 종료 코드 0이었다. 변경한 TypeScript 10개 파일의 Biome 검사는 종료 코드 0이었고, 전체 `bun run lint`도 종료 코드 0이었다. 전체 lint에는 기존 경고 27개가 남아 있어 경고가 없다고 주장하지 않는다.
+
+실제 비교 CLI에 첫 outbound 기록 뒤 SIGINT를 보낸 검사에서는 종료 코드 1, 실패 분모 6개, 시도 수 `[3,0,0,0,0,0]`을 관찰했다. 실행 중 native group은 종료됐고 OS 조회도 ESRCH였다. 미시작 조건의 생성 호출은 0회였다.
