@@ -113,8 +113,8 @@ function uniqueSorted<T>(
 		throw Error(`duplicate ${label}`);
 	return sort
 		? [...items].sort((a, b) =>
-				key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0,
-			)
+			key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0,
+		)
 		: items;
 }
 
@@ -163,13 +163,13 @@ export function judgmentDigest(value: unknown): string {
 			? item.map(canonical)
 			: item !== null && typeof item === "object"
 				? Object.fromEntries(
-						Object.keys(item)
-							.sort()
-							.map((key) => [
-								key,
-								canonical((item as Record<string, unknown>)[key]),
-							]),
-					)
+					Object.keys(item)
+						.sort()
+						.map((key) => [
+							key,
+							canonical((item as Record<string, unknown>)[key]),
+						]),
+				)
 				: item;
 	return createHash("sha256")
 		.update(JSON.stringify(canonical(value)))
@@ -205,6 +205,10 @@ function objectiveProfileRef(value: unknown): ObjectiveProfileRef {
 		revision: revision(row["revision"], "objective revision", 1),
 		digest: boundedId(row["digest"], "objective digest"),
 	};
+}
+
+export function parseObjectiveProfileRef(value: unknown): ObjectiveProfileRef {
+	return objectiveProfileRef(value);
 }
 
 export function parseObjectiveProfile(value: unknown): ObjectiveProfile {
@@ -565,10 +569,10 @@ export function parseResolutionRecord(value: unknown): ResolutionRecord {
 							item["byModule"] === null
 								? null
 								: enumeration(
-										item["byModule"],
-										MODULE_KINDS,
-										"exclusion module",
-									),
+									item["byModule"],
+									MODULE_KINDS,
+									"exclusion module",
+								),
 						reason: boundedText(item["reason"], "exclusion reason"),
 					};
 				},

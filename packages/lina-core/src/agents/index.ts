@@ -53,6 +53,7 @@ export {
 	parseIntentionTransition,
 	parseJudgmentSnapshotRef,
 	parseObjectiveProfile,
+	parseObjectiveProfileRef,
 	parseOptionAssessment,
 	parseResolutionRecord,
 	parseSelectionSpec,
