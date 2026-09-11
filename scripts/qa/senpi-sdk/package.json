@@ -1,0 +1,23 @@
+{
+	"name": "lina-qa-senpi-sdk",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0",
+	"scripts": {
+		"qa": "bun run cli.ts",
+		"check": "bun test ./*.check.ts",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"build": "bun build ./cli.ts ./worker.ts ./live.ts ./moirai.ts ./moirai-runner.ts --target=bun --packages=external --outdir=dist",
+		"lint": "biome check ."
+	},
+	"dependencies": {
+		"@code-yeongyu/senpi": "2026.9.10-2",
+		"typebox": "1.3.18",
+		"zod": "4.4.3"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.12",
+		"bun-types": "1.3.10",
+		"typescript": "5.9.3"
+	}
+}
