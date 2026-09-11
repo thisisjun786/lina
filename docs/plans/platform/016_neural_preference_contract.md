@@ -1,12 +1,12 @@
 # 모이라이 코어의 판단·선택·학습·실행 계약
 
-상태: 2026-09-11 설계 제안. [015 모이라이 에이전트 코어 설계](015_neural_preference_engine_research.md)의 세 판단 모듈을 입력·계산·결과·학습 계약으로 구체화한다. 타입·포트·파일은 제안이며 현재 Senpi QA가 이 구조를 구현했다는 뜻이 아니다. 015는 제품 목표·구조·근거를, 이 문서는 회차·판단·선택·영속화·수용 조건을 소유한다.
+상태: 2026-09-12 설계 제안. [015 모이라이 에이전트 코어 설계](015_neural_preference_engine_research.md)의 세 판단 모듈을 입력·계산·결과·학습 계약으로 구체화한다. 타입·포트·파일은 제안이며 현재 Senpi QA가 이 구조를 구현했다는 뜻이 아니다. 015는 제품 목표·구조·근거를, 이 문서는 회차·판단·선택·영속화·수용 조건을 소유한다. 기존 모듈 배치와 후속 변경 순서의 정본은 [017 구성 초안](017_moirai_module_composition.md)이다.
 
 모이라이는 한 개인의 전망·계획 판단, 경험·가치 판단, 의도·연속성 판단을 종합한다. 라케시스의 학습된 선호는 Google Research가 소개한 **MaleCNS v1.0** 부분회로로 구현한다. 개인 대화·학습·LIFE 선택·재시작·8명 운영을 연결하며 비교 실험은 구현을 선택하는 증거로 사용한다.
 
 ## 결정과 현재 연결 지점
 
-기존 코드 연결 지점은 `522101ff99e356b0ea6d27b4ea03ec7e599ee4b3`, 인지 확장 기준은 PR #10의 `5b22aee53f9f7c01cc508289099f662aed613140`이다. **이 설계의 선택된 대화·인지 백엔드는 새 Senpi SDK**다. PR #10에는 Senpi SDK 생성·대화·도구·취소·재개 검증과 영어 인지 프롬프트가 들어 있다. 같은 PR에 남은 ‘실행 엔진 재검토’ 문구보다 이번 Senpi 선택을 설계 기준으로 우선한다. 기존 dev의 Codex 코드와 정책은 전환 전 연결 지점을 찾는 근거이며, 이 문서가 Senpi 제품 통합 완료를 증명하지는 않는다.
+기존 코드 연결 지점은 `522101ff99e356b0ea6d27b4ea03ec7e599ee4b3`, 인지 확장 기준은 PR #10의 `5b22aee53f9f7c01cc508289099f662aed613140`이다. **이 설계의 선택된 대화·인지 백엔드는 새 Senpi SDK**다. PR #10에는 Senpi SDK 생성·대화·도구·취소·재개 검증과 영어 인지 프롬프트가 들어 있다. 일반 SDK 시험과 도구 없는 Moirai 3+1 시험은 별도 시나리오다. 같은 PR에 남은 ‘실행 엔진 재검토’ 문구보다 이번 Senpi 선택을 설계 기준으로 우선한다. 기존 dev의 Codex 코드와 정책은 전환 전 연결 지점을 찾는 근거이며, 이 문서가 Senpi 제품 통합 완료를 증명하지는 않는다.
 
 | 현재 소유자 | 확인한 책임 | 제안하는 변경 |
 | --- | --- | --- |
@@ -41,14 +41,19 @@ Senpi 연결은 PR #10의 [세션 생성](https://github.com/thisisjun786/lina/b
 
 ```text
 JudgmentSnapshot = { schemaVersion, roundId, agentId, scopeId, sourceRefs,
-  instructionRevision, policyRevision, identityRevision, intentionRevision,
+  workingRevision, instructionRevision, policyRevision, identityRevision,
+  domainRevisions, intentionRevision,
   observationRef, frozenNeuralRef, clockId, sequence, bindingGeneration }
 Assessment = { schemaVersion, moduleKind, snapshotId, inputDigest,
   mechanismRevision, completeText, evidenceRefs, proposedOptions,
   forecasts | values | continuity, diagnostics }
 ```
 
+`workingRevision`은 현재 문맥의 revision이고 `instructionRevision`은 원본 request·현재 지시의 revision이다. 서로 대신하지 않는다. 도메인별 공개된 읽기 결과와 원본 참조를 조립하고 읽기 전후 버전·확정 직전 현재성을 확인한다. 여러 DB를 원자적으로 읽는다고 가정하지 않는다.
+
 위 표기는 필수 영역을 나타내며 `forecasts | values | continuity`는 moduleKind에 따른 구분 타입이다. `completeText`는 잘리지 않은 모듈 의견이다. 구조화된 결과를 만들 수 없으면 텍스트만으로 정상 판단을 대신하지 않는다. 모델이 주장한 계산 결과·참조는 Host가 실제 도구/계산 receipt와 대조한다. 모델·세션 ID는 진단 자료이며 판단의 권위나 별도 인격이 아니다.
+
+클로토의 `projectConsequences`는 해당 개인에게 공개된 도메인 상태와 선언된 규칙만 사용하는 제안 조회 포트다. 실제 World 진행이나 비공개 상태의 정답 복사를 예측으로 사용하지 않는다. `forecastId`, `optionKey`, 관측 항목·시점과 `predictionMethodRevision`을 실제 결과에 연결한다.
 
 Forecast의 결과·비용·기한은 각각 `Claim { claimId, kind: observed | assumption | prediction, value, unit, sourceRefs, assumptionRefs, verificationStatus, horizon }`으로 표현한다. 직접 관측한 값과 예상값을 구분하고 출처는 해당 claim의 대상·범위·시점과 일치해야 한다. 유효한 receipt 하나가 문서 전체의 사실성을 보장하지 않는다. BaselinePolicy는 catalog가 허용한 claim 종류·단위·검증 상태만 읽고, 예상값은 가정·불확실성 처리 규칙을 적용한다. LLM이 붙인 확신 수치만으로 검증 상태를 올리지 않는다.
 
@@ -66,11 +71,15 @@ Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회�
 
 `AssessmentSet`은 snapshotId·candidateSetHash·모듈별 평가 해시·누락 사유를 묶는다. 모이라이는 근거·예상·선호·약속 충돌을 구분해 종합안을 제안하고 Host의 버전 있는 기준 정책이 적격 후보와 `p0`를 계산한다. 서로 다른 종류의 점수를 평균내거나 합의를 외부 증거로 세지 않는다.
 
+주관적 반대·취향·약속의 우선순위 의견은 종합할 근거이며 단독 veto가 아니다. 현재 권한 위반·필수 근거 누락·객관적인 실행 조건 실패는 Host가 적용한다. 모듈이 보류를 제안했다는 이유만으로 모든 후보를 폐기하지 않는다.
+
 ### 의도 유지와 결과 환류
 
 `IntentionRecord`는 목표·출처·수락 근거·우선순위·기한·완료/중단 조건·관련 약속·revision을 가진다. `proposed → adopted → active → completed`와 `suspended/cancelled` 전이를 명시하고 재개·취소에도 원인과 근거를 남긴다. LLM의 제안이나 자기 선언만으로 사용자 약속을 수락·해제하지 않는다. 스스로 시작하는 목표는 허용된 자율성 범위에서 Host가 채택한다. 충돌 시 대안·보류·재협의를 제안할 수 있으며 아트로포스에 단독 최종 권한은 없다.
 
-제안 `AgentCoreStore`는 회차·판단·예측·의도 전이와 기존 owner의 출처 참조를 저장한다. 사실 기억·정체성·사용자 지시·권한 원본의 독립 writer를 만들지 않는다. 아직 일반 목표·약속 저장 API가 있다고 가정하지 않으며 기존 LIFE의 단일 행동 intent와 개인의 장기 의도를 구분한다. 다른 통합이 먼저 이 기능을 제공하면 그 소유자를 확장한다.
+`Purpose`는 목적·성공 조건, `Understanding`은 근거와 적용 조건을 가진 지속적 이해, `Plan`은 방법·단계, `Intention`은 채택된 수행 의도다. QA 채택 커널에서 이 의미와 철회·결과 연결을 가져오되 제품 schema와 현재 owner에 맞춘다. WorkingState의 목표 메모나 TaskManager의 실행 상태로 이 구분을 대체하지 않는다.
+
+제안 `JudgmentStore`는 회차·판단·예측·이해/계획/의도 채택·전이와 기존 owner의 출처 참조를 저장한다. QA `KernelStore`와 나란히 운영하거나 QA DB를 통째로 복사하지 않는다. 사실 기억·정체성·사용자 지시·권한 원본의 독립 writer를 만들지 않는다. 아직 일반 목표·약속 저장 API가 있다고 가정하지 않으며 기존 LIFE의 단일 행동 intent와 개인의 장기 의도를 구분한다. 다른 통합이 먼저 이 기능을 제공하면 그 소유자를 확장한다.
 
 실제 결과는 같은 원본 outcomeId로 전달한다. 적용 키는 `(agentId, scopeId, outcomeId, consumerKind)`이며 `consumerRevision`은 receipt의 메타데이터다. 클로토는 예측 오차, 라케시스는 허용된 선호 학습, 아트로포스는 의도 상태 전이를 각각 수행한다. 각 owner가 변경과 receipt를 자기 저장소의 한 transaction으로 확정하며 같은 키·digest는 기존 결과를 반환하고 다른 digest는 충돌이다. 한 소비자의 완료가 다른 소비자의 완료를 뜻하지 않는다. 중단 뒤 미완료 소비자만 복구하고 내부 의견을 세 개의 독립 경험으로 세지 않는다. 업그레이드나 consumerRevision 변경만으로 적용을 반복하지 않는다. 정정·재해석은 원본을 연결한 명시적 새 사건과 별도의 정책을 요구한다.
 
@@ -102,7 +111,7 @@ Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회�
 | 데이터 | 단일 쓰기 소유자 | 소비 규칙 |
 | --- | --- | --- |
 | 작성 정체성·명시적 선호·현재 지시·권한 | 기존 AgentStore·ConversationStore·실행 정책 | 판단 모듈과 신경 학습은 원본을 변경하지 못함 |
-| 회차·예측·목표·의도/약속의 수락·전이 기록 | Host의 제안 `AgentCoreStore` | 원래 지시·수락·실행 receipt를 참조; 아트로포스는 변경 제안만 반환 |
+| 회차·예측·목표·의도/약속의 수락·전이 기록 | Host의 제안 `JudgmentStore` | 원래 지시·수락·실행 receipt를 참조; 아트로포스는 변경 제안만 반환 |
 | 사실 기억·세계 사건·관계 원본 | 기존 EngineStore·WorldStore | 출처가 유효한 관측만 신경 입력으로 전달 |
 | `h`, 느린 `m`, 개인 `ΔW`, 학습 흔적·예측기 | Host의 제안 `NeuralPreferenceStore` | Python은 계산 결과를 제안하며 직접 저장하지 않음 |
 | 대화·LIFE가 읽는 성향 | 기존 성향 합성 owner | `dimensionSource`로 reflection/neural 중 하나 선택; 같은 dimension의 두 생성 결과를 합산하지 않음 |
@@ -158,7 +167,9 @@ b_a = boundedReadout(q_a)                         # [-1, 1]
 
 ### 후보의 의미와 효과 범위
 
-첫 행동 모드는 해당 LIFE pack이 선언한 한정된 활동 catalog를 사용한다. `CanonicalOption`은 `kind`, actor·scope, 대상 ID, 핵심 인자, 전제조건, 허용 효과 범위와 버전을 포함한다. Host가 catalog의 schema·정규화 규칙으로 만든 key가 행동 동일성의 기준이며 LLM이 만든 임의 ID를 신뢰하지 않는다.
+World 없는 F2의 채택·약속 변경은 개인용 catalog를 사용하고, 첫 LIFE 행동 모드는 해당 pack의 한정된 활동 catalog로 확장한다. 각 catalog의 schema·가능 효과·확인 방법은 F1/F2에서 정한다. 일반 대화의 약속 수락·취소나 도구·게시·세계 변경도 지속 효과를 만들면 이 행동 계약으로 승격한다. 모듈의 `answer` 분류만으로 채택·실행 검사를 생략하지 않는다. `CanonicalOption`은 `kind`, actor·scope, 대상 ID, 핵심 인자, 전제조건, 허용 효과 범위와 catalog 버전을 포함한다. LIFE 후보에는 pack/step의 `decisionMode` 참조를 추가한다. 개인이 통제하는 Ensemble terminal/binding이 다른 행동을 뜻하면 후보 동일성에도 포함한다. Host가 catalog의 schema·정규화 규칙으로 만든 key가 행동 동일성의 기준이며 LLM이 만든 임의 ID를 신뢰하지 않는다.
+
+LIFE의 기회 제시·개인 선택과 `legacy | moirai` 전환은 [017 D09](017_moirai_module_composition.md#life와-기존-성향-계산의-전환)를 따른다. moirai 모드에서 기존 개인 가중치로 먼저 행동을 뽑거나, 확정 뒤 Ensemble이 다른 개인 행동으로 재선택하지 않는다. 상대의 독립 결정과 세계의 확률적 결과는 개인 행동 선택과 구분해 기록한다.
 
 같은 canonical key의 표면 표현은 합친다. 같은 활동의 서로 다른 방법을 허용하면 먼저 활동 그룹의 확률 질량을 정하고 방법들에 나누는 정책을 기록한다. 음악 표현 두 개와 그림 표현 하나라는 이유로 음악 확률이 두 배가 되어서는 안 된다. 자유문장 전체의 의미 동일성을 일반 파서로 증명하지 않는다. catalog 밖의 제안은 확정 실행 후보에 넣기 전 별도 정규화·검증이 필요하다.
 
@@ -229,6 +240,8 @@ Outcome = { outcomeId, target, sourceRef, scopeId, clockId, kind,
 
 | 제안 포트 | 입력과 확정 책임 |
 | --- | --- |
+| `judge` | 공통 snapshot·허용된 전문 근거 → 완결된 모듈 의견·전체 대안·계산 참조; 다른 모듈 출력과 직접 효과 없음 |
+| `projectConsequences` | 개인에게 공개된 도메인 상태·후보·가정 → 예상 효과·모르는 조건·근거; 실제 세계 쓰기 없음 |
 | `prepareEvent` | EventKey·source/clock·기준 snapshot → PreparedEvent; 활성 상태 쓰기 없음 |
 | `commitObservation` | 준비 해시·예상 revision·현재 source → 관측 receipt·다음 상태·관측 RNG를 한 번 저장 |
 | `probeOptions` | 관측 receipt·동일 snapshot·정규화한 단서 → 후보별 편향·잠정 trace; 활성 상태/RNG 쓰기 없음 |
@@ -240,17 +253,17 @@ Outcome = { outcomeId, target, sourceRef, scopeId, clockId, kind,
 | `observeOutcome` | 두 종류 중 하나의 target·source·trace·중복 키 → 현재 학습 상태에 한 번 반영 |
 | `checkpoint / restore` | 회로·encoder·상태·학습·clock·RNG·inbox/outbox의 호환 snapshot |
 
-Host의 제안 AgentCoreStore는 회차·모듈 평가·의도 전이를 소유한다. 신경 어댑터를 교체하거나 끈 회차에도 코어 수명은 유지한다. `state/neural-preferences.sqlite`에는 신경 사건·상태 참조·조회 receipt·학습 inbox를 둔다. 선택 receipt·Host 결정 RNG·held/released outbox의 단일 writer는 AgentCoreStore이며 `commitDecision`은 그 로컬 transaction이다. 신경 관측과 trace blob은 먼저 영속화하고 코어가 불변 참조를 기록한다. 두 저장소를 가로지르는 transaction은 가정하지 않는다. 큰 상태 blob은 임시 파일 기록·동기화·원자적 이름 변경·해시 확인을 마친 뒤 DB가 참조한다. DB 확정 전에 중단된 blob은 재시작 시 미참조 파일로 구분한다. DB와 파일을 하나의 분산 transaction으로 간주하지 않는다. 역사 receipt가 참조하는 blob을 보존 정책 없이 삭제하지 않는다.
+Host의 제안 JudgmentStore는 회차·모듈 평가·의도 전이를 소유한다. 신경 어댑터를 교체하거나 끈 회차에도 코어 수명은 유지한다. `state/neural-preferences.sqlite`에는 신경 사건·상태 참조·조회 receipt·학습 inbox를 둔다. 선택 receipt·Host 결정 RNG·held/released outbox의 단일 writer는 JudgmentStore이며 `commitDecision`은 그 로컬 transaction이다. 신경 관측과 trace blob은 먼저 영속화하고 코어가 불변 참조를 기록한다. 두 저장소를 가로지르는 transaction은 가정하지 않는다. 큰 상태 blob은 임시 파일 기록·동기화·원자적 이름 변경·해시 확인을 마친 뒤 DB가 참조한다. DB 확정 전에 중단된 blob은 재시작 시 미참조 파일로 구분한다. DB와 파일을 하나의 분산 transaction으로 간주하지 않는다. 역사 receipt가 참조하는 blob을 보존 정책 없이 삭제하지 않는다.
 
-WorldStore와 AgentCoreStore 사이에는 하나의 transaction이 없다. 기존 LIFE step에 decisionId를 보존하고 outbox/inbox와 기존 prepare/reconcile로 중복을 막는다. 실제 효과가 중복되지 않는지는 해당 effect owner의 시험으로 입증한다.
+WorldStore와 JudgmentStore 사이에는 하나의 transaction이 없다. 기존 LIFE step에 decisionId를 보존하고 outbox/inbox와 기존 prepare/reconcile로 중복을 막는다. 실제 효과가 중복되지 않는지는 해당 effect owner의 시험으로 입증한다.
 
-checkpoint는 기존 설치/checkpoint owner가 조정한다. 대상 scope의 신규 회차·dispatch·모든 상태 writer를 막고, 진행 중 DB 쓰기를 마친 뒤 공통 증가 순번을 고정한다. 이 동안 관측·학습·의도·결정·RNG는 진행하지 않는다. 원문 저장소·WorldStore의 참조 snapshot, 신경 DB와 blob, AgentCoreStore를 차례로 저장하고 마지막에 `CheckpointManifest { checkpointId, schemaVersions, perScopeSequence, storeRevisions, profileHashes, blobDigests, pendingInboxOutbox }`를 확정한다. 대기 중 외부 결과는 inbox에서 보존하고 미확인 효과는 reconcile 대상으로 남긴다. manifest가 확정되기 전 파일 묶음은 복원 가능한 checkpoint가 아니다.
+checkpoint는 기존 설치/checkpoint owner가 조정한다. 대상 scope의 신규 회차·dispatch·모든 상태 writer를 막고, 진행 중 DB 쓰기를 마친 뒤 공통 증가 순번을 고정한다. 이 동안 관측·학습·의도·결정·RNG는 진행하지 않는다. 원문 저장소·WorldStore의 참조 snapshot, 신경 DB와 blob, JudgmentStore를 차례로 저장하고 마지막에 `CheckpointManifest { checkpointId, schemaVersions, perScopeSequence, storeRevisions, profileHashes, blobDigests, pendingInboxOutbox }`를 확정한다. 대기 중 외부 결과는 inbox에서 보존하고 미확인 효과는 reconcile 대상으로 남긴다. manifest가 확정되기 전 파일 묶음은 복원 가능한 checkpoint가 아니다.
 
 복원 시 서비스 쓰기를 막은 채 동일 manifest의 저장소·blob·원문 참조를 모두 대조한다. 서로 다른 checkpoint의 DB나 누락된 trace를 섞으면 거부하고 원본을 보존한다. 호환 검사와 pending inbox/outbox 및 실제 효과 reconcile이 끝난 뒤 회차를 재개한다. 실패한 다중 저장소 복원을 부분 성공으로 활성화하지 않는다. 실제 데이터 보존·오프라인 복원 경계는 기존 설치/checkpoint owner를 확장하며 별도 복원기를 만들지 않는다.
 
 한 `(agent, scope)`의 관측·결정 준비·LLM 종합 또는 finalize가 끝날 때까지 회차 lease로 순서를 유지한다. 다른 일반 사건·outcome의 신경·의도·예측 상태 쓰기는 큐에서 기다린다. source 정정·권한 회수·현재 약속의 취소/변경은 이 lease를 기다리지 않고 generation을 변경해 관련 회차를 무효화한다. `commitDecision`과 `finalizeDecision` 모두 snapshot의 의도 revision과 현재 generation을 검사한다. lease 만료·취소 후 늦은 응답은 fencing token으로 거부한다. 외부 행동 결과를 기다리는 동안 회차 lease를 잡아두지 않는다.
 
-다른 scope·개인은 독립적으로 준비할 수 있고 DB commit은 Host가 직렬화한다. `dispatchable` 이후의 정상적인 개인 상태 변화만으로 과거 선택을 다시 추첨하지 않는다. 효과 직전에는 현재 권한·근거·대상 조건을 재검증한다. 공동 세계 변경은 기존 world revision/lease 경계를 따른다.
+다른 scope·개인은 독립적으로 준비할 수 있고 DB commit은 Host가 직렬화한다. `dispatchable` 이후의 정상적인 개인 상태 변화만으로 과거 선택을 다시 추첨하지 않는다. 효과 직전에는 현재 권한·근거·대상 조건을 재검증한다. 공동 세계 변경은 기존 world revision과 확정 경계를 따른다. 긴 LLM 호출 동안 전체 World 쓰기를 막는 전역 잠금을 새로 도입하지 않는다.
 
 현실 공통 scope와 LIFE scope는 각각의 `clockId`·단위·마지막 적용 시점·증가 순번을 가진다. 시계 역행은 오류다. 느린 `m`은 해당 시계 경과분을 한 번 감쇠한다. 유휴가 프로필의 한계를 넘으면 빠른 전위·발화·지연 버퍼를 휴지 상태로 초기화하고 학습 가중치는 유지한다. 재시작 자체를 초기화 사유로 삼지 않는다. 호환 프로필 없는 checkpoint는 격리하고 원본을 보존한다.
 
@@ -278,20 +291,11 @@ checkpoint는 기존 설치/checkpoint owner가 조정한다. 대상 scope의 �
 
 ## 구현 단위와 완료 증거
 
-첫 단위는 한 개인·한 공개 scope에서 세 판단의 상태·계산·결과 계약, MaleCNS 부분회로의 제한된 학습, 실제 Moirai 대화, 검증된 피드백, 재시작을 함께 연결한다. 단서별 학습 재독출을 통과하면 LIFE 실행 계약으로 이어간다. 원래 배선이 모든 일반 모델보다 우월해야 다음 제품 기능을 개발할 수 있다는 관문은 두지 않는다.
+후속 변경 순서·파일 후보·의존 관계는 [017의 F1–F4 지도](017_moirai_module_composition.md#후속-설계와-구현의-의존-순서) 하나로 관리한다. F1에서 원본 참조·채택·판단의 계약을 정하고, F2에서 World 없는 한 개인의 세 메커니즘·Senpi 대화·학습·결과·복구를 연결한다. F2는 대화 중 채택·약속 변경에 필요한 공통 후보·선택·finalize도 포함한다. F3는 이를 LIFE 행동 catalog로 확장하고 기회/행동을 분리하며, F4는 성장 투영·공개 범위·운영 전환이다. 개인정보·정정·중복 반영 방지는 F1/F2부터 적용한다.
 
-| 단위 | 제안 변경 위치 | 그 단위가 남길 기능과 수용 증거 |
-| --- | --- | --- |
-| 1. 개인 코어·대화·학습 | NEW core `agents/judgment.ts`, `judgment-store.ts`, `neural-preference.ts`; runtime `cognition/conversation.ts`, `prospect.ts`, `value.ts`, `continuity.ts`, `neural-preference/port.ts`, `client.ts`, `store.ts`, `senpi/session.ts`; MODIFY runtime `session-app.ts`, `session-engine.ts`, `host.ts`, `sdk-port.ts`, `runtime.ts`와 core `store.ts`; 별도 Python 배포 단위 | 실제 회로 artifact·학습 조회, Senpi 3+1+추가 호출 입력, 세 모듈의 계산 receipt, 의도 전이·출처 참조, 응답·trace 결합, 결과의 소비자별 복구와 file DB 재시작 |
-| 2. 공통 후보·LIFE 행동 | NEW runtime `cognition/option-assessments.ts`, `baseline-policy.ts`; MODIFY `life/director.ts`, `life/model-port.ts`, core `world/autonomy-persistence.ts`와 step/identity codecs | 공통 후보별 세 평가·단일 p0·선호 중복 차단, 3+2+추가 평가 비용, held/released outbox·target 독립 선택, 보류 후 무실행·재시작 후 중복 추출 없음 |
-| 3. 성장·scope | MODIFY core `agents/behavior-types.ts`, `behavior-store.ts`, `persona.ts`, runtime `persona/native-growth.ts`, `persona/hooks.ts`, `fleet/life-runtime.ts` | dimension 생성자·source proof 버전, 공개 허용 성장만 전이, 철회·정정·같은 경험 중복 학습 차단 |
-| 4. 8명 운영 | MODIFY runtime `life/scheduler.ts`, fleet 신경 서비스 조립·종료, 설치/checkpoint 소유자 | per-scope 큐·fence·배치·프로세스 종료/복구, 혼합 부하와 실제 자원 측정 |
+대조한 dev에는 PR #10의 Senpi 3+1 회차가 제품 통합돼 있지 않다. `session-app.ts`와 제안 `cognition/install.ts`가 Host 조정기·Senpi 역할 세션을 조립하고 `cognition/conversation.ts`는 `SessionPort`에 하나의 논리 대화 수명을 제공한다. 회차 ledger·채택·실행 권한은 SDK 어댑터 내부로 숨기지 않는다. 기존 [SessionEngine.kind](../../../packages/lina-runtime/src/session-engine.ts#L6)의 Codex 고정 타입·생성 소비자·잠근 의존성과 엔진 정책도 후속 전환 단위에서 갱신한다. 기존 Codex 개발 작업 서비스는 별도 실행 owner로 유지할 수 있다.
 
-위 경로의 core/runtime은 각각 `packages/lina-core/src/`, `packages/lina-runtime/src/` 접두사다. 후속 구현 PR은 해당 시점 실제 파일과 소비자를 다시 대조한다. 단위 1의 대화 통합은 provenance를 가진 전용 `agentState` 입력만 사용하며, 기존 공유 성향 dimension 생성자 전환은 단위 3에서 수행한다. 단위 1에서도 같은 경험·dimension이 기존 성장과 신경 입력으로 중복 반영되지 않도록 입력 계약에서 생성자를 지정한다. 분리할 수 없는 dimension은 전환 전까지 신경 투영에서 제외한다. 이 순서로 처음부터 학습을 확인하면서 기존 성향 owner도 보존한다.
-
-대조한 dev에는 PR #10의 Senpi 3+1 회차가 제품 통합돼 있지 않다. 단위 1은 새 SDK로 이 경로를 연결하는 변경을 포함한다. `session-app.ts`가 Senpi 어댑터로 내부 역할 세션과 최종 종합 세션을 조립하고, `cognition/conversation.ts`는 `SessionPort` 경계에서 하나의 논리 대화 수명을 제공한다. 기존 [SessionEngine.kind](../../../packages/lina-runtime/src/session-engine.ts#L6)의 Codex 고정 타입·생성 소비자·잠근 의존성과 엔진 정책도 해당 Senpi 전환 단위에서 함께 갱신한다. 퇴역한 구현을 복원하거나 Codex 스레드·RPC를 새 백엔드의 전제로 두지 않는다.
-
-내부 조언은 사용자 발송·직접 효과 실행 권한을 갖지 않고, 최종 응답만 DurableRuntime의 출처 확인·entry 저장·settlement 경계로 보낸다. 필요한 근거 조회는 Host의 허용된 조회 계약으로 수행한다. 원문·완결된 내부 의견·구조화된 평가·출력 보존을 실제 Senpi 제품 전송에서 검증한다. PR #10의 익명 문자열 schema를 변경하는 마이그레이션이며 예전 QA를 제품 적합성 증거로 대신하지 않는다. Senpi에서 관찰 가능한 session/run 식별자와 Host의 회차·source 증거를 대응시키며, Codex 전용 `nativeEpoch` 의미를 이름만 바꿔 재사용하지 않는다. 다른 Senpi/Moirai 통합이 먼저 병합되면 그 소유자를 확장하며 두 어댑터·회차 조정기를 만들지 않는다. QA runner에서만 성공한 결과는 단위 1 완료가 아니다.
+내부 조언은 사용자 발송·직접 효과 실행 권한을 갖지 않고, 최종 응답만 DurableRuntime의 출처 확인·entry 저장·settlement 경계로 보낸다. 필요한 근거 조회는 Host의 허용된 조회 계약으로 수행한다. 원문·완결된 내부 의견·구조화된 평가·출력 보존을 실제 Senpi 제품 전송에서 검증한다. PR #10의 익명 문자열 schema를 변경하는 마이그레이션이며 예전 QA를 제품 적합성 증거로 대신하지 않는다. Senpi에서 관찰 가능한 session/run 식별자와 Host의 회차·source 증거를 대응시키며, Codex 전용 `nativeEpoch` 의미를 이름만 바꿔 재사용하지 않는다. 다른 Senpi/Moirai 통합이 먼저 병합되면 그 소유자를 확장하며 두 어댑터·회차 조정기를 만들지 않는다. QA runner에서만 성공한 결과는 F2 완료가 아니다.
 
 검증은 개발자가 선언한 정답 감정을 맞히는 시험으로 끝내지 않는다.
 

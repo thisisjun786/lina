@@ -1,6 +1,6 @@
 # 모이라이 시스템 리팩토링 계획
 
-상태: 에이전트 코어의 모듈·회차·도메인 경계 계획이다. 목표 구조와 과학적 근거는 [015 코어 설계](../platform/015_neural_preference_engine_research.md), 판단·선택·학습 수명은 [016 계약](../platform/016_neural_preference_contract.md)이 소유한다. 선택된 실행 백엔드는 새 Senpi SDK다. [R0의 Codex 실행 증거](031_moirai_r0_evidence.md)는 이전 QA 기록이며 현재 목표의 제품 통합·판단 성능·qualification 증거가 아니다.
+상태: 에이전트 코어의 모듈·회차·도메인 경계 계획이다. 목표 구조와 과학적 근거는 [015 코어 설계](../platform/015_neural_preference_engine_research.md), 판단·선택·학습 수명은 [016 계약](../platform/016_neural_preference_contract.md)이 소유한다. 전체 모듈 배치·재사용·전환 순서는 [017 구성 초안](../platform/017_moirai_module_composition.md)이 소유한다. 선택된 실행 백엔드는 새 Senpi SDK다. [R0의 Codex 실행 증거](031_moirai_r0_evidence.md)는 이전 QA 기록이며 현재 목표의 제품 통합·판단 성능·qualification 증거가 아니다.
 
 ## 최상위 어젠다
 
@@ -19,7 +19,7 @@ LINA는 이 엔진을 사용하는 제품이다. 전체 엔진은 모이라이 �
 ## 기존 작업과 관계
 
 - [PR #7](https://github.com/thisisjun786/lina/pull/7): 병합된 기억·문맥·페르소나·자원·World/LIFE 구현 기반.
-- [PR #8](https://github.com/thisisjun786/lina/pull/8): 독립 채택 커널과 평가 하네스. 경험 적용 실패와 실행·복구 계약을 판별하는 실험 기반이며 제품 통합 완료가 아니다.
+- [PR #8](https://github.com/thisisjun786/lina/pull/8): 미병합 종료된 독립 채택 커널과 평가 하네스. 경험 적용 실패와 실행·복구 계약을 판별하는 실험 기반이며 제품 통합 완료가 아니다.
 - [PR #10](https://github.com/thisisjun786/lina/pull/10): 고정 리비전의 Senpi QA와 역할 프롬프트 실증. [016 연결 지점](../platform/016_neural_preference_contract.md#결정과-현재-연결-지점)의 자료를 기준으로 제품 계약을 구현한다.
 - 이 계획: 기존 도메인 소유권과 한 채널의 내부 판단 수명을 정한다. PR #8의 코드를 복사하거나 qualification을 대체하지 않는다.
 
@@ -86,7 +86,8 @@ flowchart TD
 | Persona | 정체성·소통 선호·성향 성장을 묶되 내부 writer 구분 | 원본 settled request, ConversationStore 선호 receipt, AgentStore 성장·작성자 설정 |
 | Resource | 자료·산출물·검색·자료 파생 기억을 묶음 | operationId/payload hash/CAS, scope·source version·prepared claim |
 | World | 공동 상태·주체별 공개·세계 투영을 별도 유지 | binding/recipient/disclosure/currentness |
-| LIFE / Host | 전문 저장 모듈과 구분되는 실행 기반 | lease·foreground 제외·prepare/reconcile·실제 효과 소유권 |
+| LIFE | World의 상황·참여 기회와 개인별 활동 연결 | 기회/행동 분리·legacy 재현·Ensemble 규칙·prepare/reconcile |
+| Host | 회차·판단·선택 기록과 기존 실행 owner로 인계 | 개인/scope lease·현재성·held/released outbox·실제 효과 참조 |
 
 구체적인 정리 대상:
 
@@ -94,7 +95,7 @@ flowchart TD
 2. `ContextServices`에 모인 Memory/Persona/Resource callback 타입을 도메인 포트로 분리한다. 공통 모델 호출·라우팅·예산·비용 관측은 공유하고 beforeDispatch 검증은 유지한다.
 3. 별도 `PersonaReflection`은 비테스트 TS 참조 검색에서 정의만 확인됐다. 기존 반례 테스트를 nativePreferences/NativePersonaGrowth 경로에 대응시킨 뒤 폐기 여부를 확정한다. 지금 삭제하지 않는다.
 4. 대화 기억과 Resource 파생 기억은 출처와 복구 수명이 다르므로 DB를 합치지 않는다. 개인 기억으로 반영하려면 출처가 있는 별도 채택을 거친다.
-5. NativePersonaGrowth의 LifeDefinition 의존을 PersonaSchema 공급 계약으로 분리하는 안을 검토한다. World 없이 현재 성장 코드가 동작한다고 가정하지 않는다. 작성된 축·허용 범위·World 투영을 보존한다.
+5. NativePersonaGrowth의 LifeDefinition 의존을 PersonaSchema 공급 계약으로 분리하는 가안을 선택한다. 017 D10의 AgentStore 소유와 World 축 매핑을 후속 설계에서 구체화한다. World 없이 현재 성장 코드가 동작한다고 가정하지 않는다. 작성된 축·허용 범위·World 투영을 보존한다.
 
 현재 지시·정정·권한 회수·필수 문맥 전달은 전문 모듈의 필수 연결이다. MoA가 추가 조회나 추론을 선택할 수 있어도 필수 경로를 끌 수는 없다. 모든 domain writer를 Moirai DB에 흡수하지 않는다.
 
@@ -108,7 +109,7 @@ flowchart TD
 
 실행 시 UI뿐 아니라 설정 API·저장된 설정·실제 송신 직전에도 프리셋과 모델을 확인한다. 지원 밖 모델, 사용 불가능한 필수 모델, 달라진 설정은 실행 전에 거부한다. 프리셋 내부에 검증된 대체 경로가 없다면 다른 모델로 조용히 전환하지 않는다. 프리셋 변경은 진행 회차의 모델을 바꾸지 않고 새 binding generation에 적용한다. 기존 사용자 모델 설정과 이력은 보존하고 지원 프리셋 전환이 필요한 상태로 처리한다. 자동 삭제·자동 원격 호출은 하지 않는다.
 
-이는 후속 제품 계약이다. 현재 제품의 자유 profile/tier 설정 API가 제거됐다는 뜻은 아니다. R4에서 현재 `models/types.ts`, `validation.ts`, `settings.ts`, `selection.ts`, 설정 HTTP/UI와 Senpi 송신 소비자를 함께 전환한다. 이전 모델 온보딩 문서의 자유 선택 제안보다 이 계약을 우선한다.
+이는 후속 제품 계약이다. 현재 제품의 자유 profile/tier 설정 API가 제거됐다는 뜻은 아니다. F2에서 역할·전송 계약을 적용하고 F4의 운영 전환에서 현재 `models/types.ts`, `validation.ts`, `settings.ts`, `selection.ts`, 설정 HTTP/UI와 Senpi 송신 소비자를 함께 전환한다. 이전 모델 온보딩 문서의 자유 선택 제안보다 이 계약을 우선한다.
 
 ## 판단·효과·의미 복구
 
@@ -120,22 +121,15 @@ flowchart TD
 
 ## 구현 순서와 중단 조건
 
-| 단계 | 작업 | 완료 증거 |
-| --- | --- | --- |
-| R0 기록 | 이전 Codex 네 지속 스레드의 최소 실증 | 생성/병렬 3판단/종합/재개/늦은 결과 분리, 실제 모델·사용량·설치 버전 |
-| R1 | Senpi 채널 binding과 공통 snapshot·회차 ledger | 정정 중 회차, 중복 응답, 부분 실패, 재시작, 모델 교체를 재현하는 테스트 |
-| R2 | 세 판단 계산·결과·해석 연결 | 공통 후보 coverage, 근거/경험/약속 개입에 따른 판단 변화와 소비자별 결과 복구 |
-| R3 | 도메인 포트와 후처리 분리 | 기존 source/receipt/CAS 회귀 테스트, 단일 writer, 원본 데이터 보존 |
-| R4 | MoA·검증 프리셋·최종 대화 응답 연결 | 동일 snapshot, 프리셋 revision과 실제 모델 일치, 지원 밖 모델 거부, 비용 합산, 내부 절차를 중계하지 않는 대화 검증 |
-| R5 | 실모델 개발 비교와 고정 후보 검증 | 아래 세 판정을 분리한 결과와 실패·비용 원본 |
+구현 의존 순서는 [017의 F1–F4 지도](../platform/017_moirai_module_composition.md#후속-설계와-구현의-의존-순서)를 정본으로 삼는다. 이전 R1–R5의 계약·메커니즘·도메인·프리셋·평가 책임을 그 지도에 통합하며 별도 단계표를 운영하지 않는다. R0는 이전 Codex QA의 생성·병렬 판단·종합·재개·늦은 결과 분리 기록으로 보존한다.
 
-R0는 이전 QA 기록으로 보존한다. 현재 구현 순서는 [016 구현 단위](../platform/016_neural_preference_contract.md#구현-단위와-완료-증거)를 따른다. 위 R1~R5의 회차·도메인·프리셋·qualification 책임은 그 단위에 함께 반영한다. 모든 behavior 변경은 실패 테스트부터 시작하며 QA 성공을 제품 통합으로 표시하지 않는다.
+이번 PR의 완료는 기존 소스와 연구를 근거로 한 설계 초안의 갱신이다. 실제 behavior 변경은 후속 구현에서 실패 테스트부터 시작하며 QA 성공을 제품 통합으로 표시하지 않는다. 아래 제품 게이트는 후속 구현의 검증 기준이며 이번 문서 검토 통과로 충족되지 않는다.
 
 ## 검증 게이트
 
 - **G1 인지 역할:** 해석→적용→결과→정정을 실제 입력·선택·결과로 추적한다. 정확한 이해가 공급됐는데 실패한 B11을 저장량 부족으로만 설명하지 않는다.
 - **G2 불변조건:** 원본 현재성, 권한, 단일 writer, 회차 격리, 효과 중복 방지, 부분 실패, 실제 프로세스 중단 후 실행/의미 복구를 검증한다.
-- **G3 기존 qualification:** PR #8의 30개 기준, 중요 H 조건 전부, 전체 90점 이상·카테고리별 80점 이상, 고정 후보의 새 전체 배치 3회 연속을 유지한다. 새 표현과 기존 채점 계약의 호환이 안 되면 미충족으로 기록하며 기준을 약화하지 않는다.
+- **G3 기존 qualification:** PR #8의 기준 리비전 `ab9f1f073eca80ecef8dda0b0f7d338f4d6cb35c`에서 출발한 30개 기준, 중요 H 조건 전부, 전체 90점 이상·카테고리별 80점 이상, 고정 후보의 새 전체 배치 3회 연속을 유지한다. 새 표현과 기존 채점 계약의 호환이 안 되면 미충족으로 기록하며 기준을 약화하지 않는다. 후속 실행 전에 시나리오·scorer·실행 후보의 정확한 리비전과 변경점을 함께 고정하고, 로컬 후속 후보를 암묵적으로 같은 채점기로 취급하지 않는다.
 - **G4 추가 효용:** baseline/kernel/이해 제거군의 자원을 맞추고, 동일 전문 지원과 총자원의 단일 판단·재검토 경로와 MoA도 별도로 비교한다. 동점이면 추가 효용 미입증이다. 정답 누출·사례별 답 하드코딩을 금지한다.
 - **G5 비용:** 예전 하네스의 episode 6회·출력 4096토큰·120초는 해당 고정 실험의 조건이며 제품 출력 제한으로 복사하지 않는다. 대화 3+1·행동 3+2에 추가 평가·조회·재시도·신경 계산을 합산한다. 제품 원문을 잘라 예산을 맞추지 않으며 동일 총자원에서 실제 품질·지연을 비교한다.
 - **G6 문서·호환:** 구현 전후, 로컬/원격 CI/실모델 증거를 구분한다. 실제 구현 시 AGENTS와 README의 해당 계약을 반영하며, PR #8과 이 계획의 완료 상태를 혼동하지 않는다.
@@ -144,7 +138,7 @@ R0는 이전 QA 기록으로 보존한다. 현재 구현 순서는 [016 구현 �
 
 R0는 합성 입력을 사용하는 QA 경로로 구현됐다. GLM 실제 호출, 세 판단의 동시 실행, 종합 순서, 같은 네 thread의 재개와 완료 회차 뒤 native 프로세스 강제 종료·복구를 확인했다. 실행 중 회차 복구, 인지 성능, 새 인지 계약과 모듈 분리, qualification은 미완료다. R0의 세 회차는 qualification의 새 전체 배치 3회가 아니다. 병합·배포는 이 계획의 범위가 아니다.
 
-## 소스 지도
+## 채널·Codex 전환의 연결 지점
 
 저장소 루트 기준:
 
