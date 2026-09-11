@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -26,7 +27,16 @@ import {
 	snapshotDigest,
 	transitionIntention,
 } from "../src/agents/index.ts";
+import { canonicalJson } from "../src/agents/judgment-validation.ts";
 import { Fixture } from "./fixture.ts";
+
+test("canonical JSON bytes are shared with judgment digests", () => {
+	const value = { b: [{ d: 1, c: 2 }], a: null };
+	expect(canonicalJson(value)).toBe('{"a":null,"b":[{"c":2,"d":1}]}');
+	expect(judgmentDigest(value)).toBe(
+		createHash("sha256").update(canonicalJson(value)).digest("hex"),
+	);
+});
 
 let fixture: Fixture;
 let path: string;

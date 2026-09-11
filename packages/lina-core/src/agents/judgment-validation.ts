@@ -157,23 +157,27 @@ function jsonObject(value: unknown): JsonObject {
 	);
 }
 
+function canonical(item: unknown): unknown {
+	return Array.isArray(item)
+		? item.map(canonical)
+		: item !== null && typeof item === "object"
+			? Object.fromEntries(
+					Object.keys(item)
+						.sort()
+						.map((key) => [
+							key,
+							canonical((item as Record<string, unknown>)[key]),
+						]),
+				)
+			: item;
+}
+
+export function canonicalJson(value: unknown): string {
+	return JSON.stringify(canonical(value));
+}
+
 export function judgmentDigest(value: unknown): string {
-	const canonical = (item: unknown): unknown =>
-		Array.isArray(item)
-			? item.map(canonical)
-			: item !== null && typeof item === "object"
-				? Object.fromEntries(
-						Object.keys(item)
-							.sort()
-							.map((key) => [
-								key,
-								canonical((item as Record<string, unknown>)[key]),
-							]),
-					)
-				: item;
-	return createHash("sha256")
-		.update(JSON.stringify(canonical(value)))
-		.digest("hex");
+	return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
 export function assessmentInputDigest(input: {

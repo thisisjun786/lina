@@ -18,6 +18,7 @@ import {
 } from "./judgment.ts";
 import { initializeJudgmentSchema } from "./judgment-schema.ts";
 import {
+	canonicalJson,
 	intentionDigest,
 	judgmentDigest,
 	parseAssessment,
@@ -34,21 +35,8 @@ import {
 } from "./judgment-validation.ts";
 import { boundedId } from "./validation.ts";
 
-function sortedCanonical(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(sortedCanonical);
-	if (value !== null && typeof value === "object")
-		return Object.fromEntries(
-			Object.keys(value)
-				.sort()
-				.map((key) => [
-					key,
-					sortedCanonical((value as Record<string, unknown>)[key]),
-				]),
-		);
-	return value;
-}
 function body(value: unknown): string {
-	return JSON.stringify(sortedCanonical(value));
+	return canonicalJson(value);
 }
 function revision(value: number, minimum = 0): number {
 	if (!Number.isSafeInteger(value) || value < minimum)
