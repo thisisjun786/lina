@@ -229,7 +229,7 @@ bun run eval --provider openai --model gpt-5.6-sol src/extensions.eval.ts
 
 ## Lina 비교 자동화 설계
 
-이 절은 연구자의 후속 제안이다. 실행 엔진, 프리셋, 예산 또는 테스트 정책의 채택 결정이 아니다. Lina의 실행 엔진은 Codex이며 Senpi 실행은 퇴역했다. [저장소 정책](../../../POLICY.md#dependencies-and-compatibility)을 유지하고, 모델 운영 방향은 [Moirai 계획](../context-engines/030_moirai_refactor_plan.md)이 소유한다.
+이 절은 연구자의 후속 제안이다. 실행 엔진, 프리셋, 예산 또는 테스트 정책의 채택 결정이 아니다. 전환 전 Lina의 실행 엔진은 Codex이며, 모이라이 코어의 백엔드는 새 Senpi SDK로 전환하는 것이 확정 방향이다([정본 D21](../../MOIRAI_ENGINE.md#확정된-결정-목록)). [저장소 정책](../../../POLICY.md#dependencies-and-compatibility)을 유지하고, 모델 운영 방향은 [Moirai 계획](../context-engines/030_moirai_refactor_plan.md)이 소유한다.
 
 실행 준비자는 이 문서와 함께 Moirai의 역할·출력·G1–G8 계약, POLICY의 승인·비용 조건, CODEX_RUNTIME의 실제 메시지 전달 경로를 읽고, 비식별 Lina 실패 사례 하나를 확보해야 한다. 아래 명세는 그 사실을 기록할 틀이며 저장 형식·실행 명령을 이미 제공하는 구현 가이드가 아니다.
 
