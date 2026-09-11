@@ -13,7 +13,8 @@ import { z } from "zod";
 export async function createLiveSession(options: {
 	readonly scratch: string;
 	readonly baseUrl: string;
-	readonly tool: ToolDefinition;
+	readonly tool?: ToolDefinition;
+	readonly systemPrompt?: string;
 }) {
 	const { scratch, baseUrl, tool } = options;
 	const runtime = await ModelRuntime.create({
@@ -60,6 +61,7 @@ export async function createLiveSession(options: {
 		getThemes: () => ({ themes: [], diagnostics: [] }),
 		getAgentsFiles: () => ({ agentsFiles: [] }),
 		getSystemPrompt: () =>
+			options.systemPrompt ??
 			"You are an inventory assistant. Follow the latest user request. Use lookup_inventory only when asked. Never invent inventory or receipts. When asked for JSON, return only an object with warehouse, sku, quantity, receipt from the tool result.",
 		getSystemPromptSource: () => undefined,
 		getAppendSystemPrompt: () => [],
@@ -73,8 +75,8 @@ export async function createLiveSession(options: {
 		model,
 		modelRuntime: runtime,
 		resourceLoader,
-		tools: ["lookup_inventory"],
-		customTools: [tool],
+		tools: tool ? [tool.name] : [],
+		customTools: tool ? [tool] : [],
 		scopedModels: [],
 		favoriteModels: [],
 		thinkingLevel: "off",
