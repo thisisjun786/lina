@@ -27,7 +27,7 @@ No prompt is borrowed from a coding-agent workflow. No delivery-date, CSV or ord
 
 System instructions are English. Advice and final responses follow the language of the user's current message unless the user requests another language. This is deliberate: the language used to configure the pipeline is not its required output language.
 
-There is no default sentence count. The problem determines the necessary depth. Explicit user-facing format requests remain applicable to the final response, but they do not turn internal advice into a compressed customer-service draft. Runtime capture limits remain transport safeguards; increased token use or elapsed time is not treated as an answer-quality failure.
+There is no default sentence count. The problem determines the necessary depth. Explicit user-facing format requests remain applicable to the final response, but they do not turn internal advice into a compressed customer-service draft. Cognitive requests omit the application's output-token ceiling. Request-count and connection-time safeguards are separate from output length; increased token use or elapsed time is not treated as an answer-quality failure.
 
 Advice explains its recommendation and material grounds; it is not an exhaustive private reasoning transcript. None of the functions can establish execution, permission, memory updates or completion merely by saying so. Actual effects remain with their owners and require external evidence.
 
@@ -35,4 +35,4 @@ Advice explains its recommendation and material grounds; it is not an exhaustive
 
 This revision is a prompt-writing and local SDK-wiring change. It does not inherit the quality results of earlier live experiments and is not a production engine migration. Local HTTP fixtures prove that the actual source and built SDK runners transmit these exact assets, preserve anonymous inputs and correlate native sessions correctly; fixture replies are not live-model cognition.
 
-The preserved local evidence path is `$HOME/.local/state/lina-qa/senpi-cognitive-prompts-20260911/`. A new paid live-model evaluation is a separate task; no improvement in real-model answer quality is claimed here.
+The preserved local evidence path is `$HOME/.local/state/lina-qa/senpi-cognitive-prompts-20260911/`. The subsequently authorized [same-question quality run](../moirai-cognitive-quality.md) records actual model observations separately from this local wiring proof.
