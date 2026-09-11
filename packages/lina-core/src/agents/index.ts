@@ -38,3 +38,24 @@ export {
 	parseVisualReference,
 	visualIdentityDigest,
 } from "./visual-validation.ts";
+
+// Judgment contracts.
+
+export * from "./judgment.ts";
+export {
+	assessmentInputDigest,
+	INTENTION_TRANSITIONS,
+	intentionDigest,
+	judgmentDigest,
+	parseAssessment,
+	parseAssessmentSet,
+	parseIntentionRecord,
+	parseIntentionTransition,
+	parseJudgmentSnapshotRef,
+	parseObjectiveProfile,
+	parseOptionAssessment,
+	parseResolutionRecord,
+	parseSelectionSpec,
+	snapshotDigest,
+	transitionIntention,
+} from "./judgment-validation.ts";
