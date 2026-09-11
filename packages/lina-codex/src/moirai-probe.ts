@@ -51,6 +51,18 @@ export type MoiraiProbeResult = {
 	text: string;
 	usage: unknown;
 	capture: ProbeCapture;
+	judgment?: { status: string };
+};
+/** Opt-in, fresh-thread QA contract; never a production effect port. */
+export type ProbeExperiment = {
+	instructions: Readonly<Record<MoiraiRole, string>>;
+	envelope(roundId: string, role: MoiraiRole, input: string): string;
+	synthesisInput(input: string, results: readonly MoiraiProbeResult[]): string;
+	validateOutput(
+		roundId: string,
+		role: MoiraiRole,
+		text: string,
+	): { status: string } | undefined;
 };
 type Options = {
 	rpc: CodexRpc;
@@ -59,6 +71,7 @@ type Options = {
 	threadParams: (role: MoiraiRole) => Record<string, unknown>;
 	verifyThread: (raw: unknown) => void;
 	gateway: ProbeGateway;
+	experiment?: ProbeExperiment;
 };
 const identifier = (v: unknown): string => {
 	if (typeof v !== "string" || !v) throw Error("Missing native identity");
@@ -66,6 +79,8 @@ const identifier = (v: unknown): string => {
 };
 /** QA-only coordinator; no production session or effect ports are installed. */
 export class MoiraiProbe {
+	private readonly experiment: ProbeExperiment | undefined;
+	private readonly instructions: Readonly<Record<MoiraiRole, string>>;
 	private bindings = new Map<MoiraiRole, string>();
 	private busy = false;
 	private sequence = 0;
@@ -77,6 +92,20 @@ export class MoiraiProbe {
 	private failed = false;
 	private readonly abort = new AbortController();
 	constructor(private readonly options: Options) {
+		this.instructions = Object.freeze(
+			Object.fromEntries(
+				MOIRAI_ROLES.map((role) => [
+					role,
+					options.experiment?.instructions[role] ?? moiraiInstructions(role),
+				]),
+			),
+		) as Readonly<Record<MoiraiRole, string>>;
+		this.experiment = options.experiment
+			? Object.freeze({
+					...options.experiment,
+					instructions: this.instructions,
+				})
+			: undefined;
 		checkedDirectory(options.root, true);
 		options.rpc.onRequest(async () => {
 			this.abort.abort(Error("Native action request forbidden"));
@@ -86,6 +115,8 @@ export class MoiraiProbe {
 	async initialize(): Promise<void> {
 		if (this.bindings.size) throw Error("Already initialized");
 		const { root, rpc } = this.options;
+		if (this.experiment && readdirSync(root).length)
+			throw Error("Prompt experiment requires a fresh ledger");
 		if (existsSync(join(root, "binding.json"))) {
 			const saved = completedProbeState(root, this.options.model, MOIRAI_ROLES);
 			for (const role of MOIRAI_ROLES) {
@@ -126,7 +157,7 @@ export class MoiraiProbe {
 			const raw = await rpc.request("thread/start", {
 				...this.options.threadParams(role),
 				ephemeral: false,
-				baseInstructions: moiraiInstructions(role),
+				baseInstructions: this.instructions[role],
 				dynamicTools: [],
 			});
 			this.options.verifyThread(raw);
@@ -151,6 +182,8 @@ export class MoiraiProbe {
 		shutdown?: () => Promise<ProbeReadback>,
 	): Promise<MoiraiProbeResult[]> {
 		if (!/^[a-zA-Z0-9-]{1,80}$/.test(roundId)) throw Error("Invalid round ID");
+		if (this.experiment && this.sequence > 0)
+			throw Error("Prompt experiment permits a single round");
 		if (this.busy || this.failed || this.bindings.size !== 4)
 			throw Error("Probe not ready");
 		const signal = AbortSignal.any([parentSignal, this.abort.signal]);
@@ -178,17 +211,22 @@ export class MoiraiProbe {
 				if (x.status !== "fulfilled") throw Error("Missing proposal");
 				return x.value;
 			});
+			if (results.some((r) => r.judgment?.status === "invalidated"))
+				throw Error("Judgment invalidated; aggregate withheld");
 			const aggregate = await this.runRole(
 				directory,
 				roundId,
 				"moirai",
-				JSON.stringify({
-					input,
-					proposals: results.map((r) => ({ role: r.role, text: r.text })),
-				}),
+				this.experiment?.synthesisInput(input, results) ??
+					JSON.stringify({
+						input,
+						proposals: results.map((r) => ({ role: r.role, text: r.text })),
+					}),
 				signal,
 			);
 			results.push(aggregate);
+			if (aggregate.judgment?.status === "invalidated")
+				throw Error("Synthesis invalidated; completion withheld");
 			stopFinalGuard = this.options.rpc.subscribe((method, params) => {
 				try {
 					const event = authorRecord(params);
@@ -279,7 +317,7 @@ export class MoiraiProbe {
 			lifeWrite(join(directory, "complete.json"), {
 				roundId,
 				results,
-				resumable: true,
+				resumable: !this.experiment,
 				sequence,
 			});
 			this.sequence = sequence;
@@ -306,7 +344,9 @@ export class MoiraiProbe {
 		const { rpc, gateway } = this.options;
 		const threadId = identifier(this.bindings.get(role));
 		const key = `${episodeId}-${role}`;
-		const input = JSON.stringify({ roundId: episodeId, role, input: text });
+		const input =
+			this.experiment?.envelope(episodeId, role, text) ??
+			JSON.stringify({ roundId: episodeId, role, input: text });
 		const controller = new AbortController();
 		const signal = AbortSignal.any([
 			parentSignal,
@@ -359,7 +399,7 @@ export class MoiraiProbe {
 				key,
 				episodeId,
 				input,
-				instructions: moiraiInstructions(role),
+				instructions: this.instructions[role],
 				previous: this.captures.get(role) ?? null,
 			});
 			const settled = gateway.settled(key);
@@ -429,6 +469,15 @@ export class MoiraiProbe {
 			});
 			verifyProbeHistory(nativeSnapshot, { threadId, turns: expected });
 			lifeWrite(join(directory, `result-${role}.json`), value);
+			const judgment = this.experiment?.validateOutput(
+				episodeId,
+				role,
+				value.text,
+			);
+			if (judgment) {
+				value.judgment = judgment;
+				lifeWrite(join(directory, `judgment-${role}.json`), judgment);
+			}
 			this.captures.set(role, value.capture);
 			this.histories.get(role)?.set(value.turnId, {
 				text: value.text,
