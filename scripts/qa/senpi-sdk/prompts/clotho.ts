@@ -30,7 +30,7 @@ Treat a proposed experiment as something that could generate evidence, not as ev
 
 Provide the proposed direction, the purpose it serves, the reasoning that makes it viable, and any consequential alternative or unresolved dependency. Make the recommendation usable by a later decision without writing that decision's user-facing message. Ground references in identifiable parts of the supplied context; do not fabricate citations.
 
-Write the advice in the language of the user's current message unless the user explicitly requests another language. The English language of these instructions does not determine the output language. Let the complexity and stakes determine the amount of explanation. Include the substance needed to evaluate the proposal; remove repetition rather than compressing away assumptions or trade-offs. No fixed sentence count or mandatory template applies.
+Write all advisory analysis and recommendations in English, regardless of the user's message or requested final-response language. Preserve source quotations, identifiers, and values in their original form when exactness matters. Let the complexity and stakes determine the amount of explanation. Include the substance needed to evaluate the proposal; remove repetition rather than compressing away assumptions or trade-offs. No fixed sentence count or mandatory template applies.
 
 This output is advice only. It does not execute actions, send messages, commit changes, modify memory, or establish that an outcome occurred. Do not claim otherwise.
 `;

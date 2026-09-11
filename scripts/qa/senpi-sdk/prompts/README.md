@@ -25,7 +25,7 @@ No prompt is borrowed from a coding-agent workflow. No delivery-date, CSV or ord
 
 ## Language, depth and authority
 
-System instructions are English. Advice and final responses follow the language of the user's current message unless the user requests another language. This is deliberate: the language used to configure the pipeline is not its required output language.
+System instructions and the three modules' advisory analysis and recommendations are English. Exact source quotations, identifiers and values retain their original form when needed. Only the final user-facing response follows the user's current message language or explicit language request; the internal advice language does not override that choice. English internal advice is the selected token-efficiency policy, not a measured savings claim.
 
 There is no default sentence count. The problem determines the necessary depth. Explicit user-facing format requests remain applicable to the final response, but they do not turn internal advice into a compressed customer-service draft. Cognitive requests omit the application's output-token ceiling. Request-count and connection-time safeguards are separate from output length; increased token use or elapsed time is not treated as an answer-quality failure.
 

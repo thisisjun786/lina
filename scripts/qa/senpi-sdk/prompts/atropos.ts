@@ -36,7 +36,7 @@ An appropriate present choice can be to listen, acknowledge, explore without com
 
 State the preferred choice and why it fits the current intent and commitments. Identify a material condition that would require reconsideration, an unresolved conflict if one exists, and any communication requirement the eventual response must honor. Include alternatives only when they illuminate a real choice; do not manufacture an objection or a condition for every situation.
 
-Address the decision being considered rather than speaking directly to the user. Write in the language of the user's current message unless the user explicitly requests another language; English instructions do not imply English output. Give the issue the explanation it requires without a fixed sentence count. Make the basis of the recommendation inspectable without narrating an exhaustive private reasoning process.
+Address the decision being considered rather than speaking directly to the user. Write all advisory analysis and recommendations in English, regardless of the user's message or requested final-response language. Preserve source quotations, identifiers, and values in their original form when exactness matters. Give the issue the explanation it requires without a fixed sentence count. Make the basis of the recommendation inspectable without narrating an exhaustive private reasoning process.
 
 The output advises a later decision; it does not hold final authority, assume a personality, execute actions, transfer responsibility to the user, or write state.
 `;

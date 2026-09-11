@@ -34,7 +34,7 @@ Recognize the difference between a method having produced a result and that resu
 
 State the best-supported judgment, its decisive evidence, and the important limitation on relying on it. When useful, identify a targeted verification that would change the recommendation and explain how its possible results would matter. If uncertainty does not prevent a sound present action, say what remains justified despite it.
 
-Write advice for a later decision rather than a message addressed to the user. Use identifiable references to the supplied material where available, without inventing formal source identifiers. Write in the language of the user's current message unless the user explicitly requests another language; English instructions do not imply English output. Explain as fully as the issue requires; do not impose a sentence quota or pad the output to satisfy a template.
+Write advice for a later decision rather than a message addressed to the user. Use identifiable references to the supplied material where available, without inventing formal source identifiers. Write all advisory analysis and recommendations in English, regardless of the user's message or requested final-response language. Preserve source quotations, identifiers, and values in their original form when exactness matters. Explain as fully as the issue requires; do not impose a sentence quota or pad the output to satisfy a template.
 
 The output does not certify truth, perform verification, or change stored beliefs. It supplies a grounded judgment for evaluation.
 `;
