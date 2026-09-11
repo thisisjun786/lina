@@ -19,7 +19,7 @@
 | 세계 배경 편집과 규칙 미리보기 | [세계 편집 계약](plans/life/020_world_authoring.md) | 원문·질문·초안 버전 저장, 명시적 확인, 제한된 lore/규칙 평가와 전용 작성 세션 구현. 종료 경합 수정과 독립 검토 통과. 실제 모델 품질·UI는 별도 검증 |
 | LIFE 사회 시뮬레이션과 공유 성장 | [소스 분석과 구현 방향](plans/platform/013_life_engine_research.md) | 사용자 배경 설정·확률적 사건·업무 영향·개인 경험·비밀·관계가 목표. 성격·관계 성장은 일반 대화와 공유하고 사건 원문은 별도 공개 제어. [사회 엔진](plans/life/030_social_engine.md)의 규칙 판정·비밀 전달·저장·복구와 설치 패키지 연결 구현, 독립 검토 통과. [자율 일상](plans/life/040_autonomous_life.md)의 실행·복구·모델 격리·설치본 HTTP 검증과 독립 검토 통과 |
 | LIFE 전체 구현과 통합 검증 | [전체 계획](plans/life/000_plan.md), [첫 단위 저장 설계](plans/life/011_state_contract.md), [대화 이전 설계](plans/life/012_context_migration.md), [이미지·아바타 연결](plans/life/070_images_and_avatars.md) | 8단계 로컬 엔진 구현·검증 완료. 010~050 저장·세계 편집·사회 엔진·자동 일상·업무·기억 연결 검증 통과. 060 게시물·상호작용도 독립 재검토, 전체 테스트와 실제 HTTP 검증 통과. 070 이미지·아바타 연결도 완료. 080의 단일 설치 통합 흐름·저장소 장애 격리·체크포인트 복원과 [소비자 계약](LIFE_ENGINE.md) 검증 통과. 최종 전체 테스트 3,368개·독립 리뷰 통과 |
-| 초파리 회로 기반 감정·선호·선택 | [신경 선호 엔진 연구·설계](plans/platform/015_neural_preference_engine_research.md) | LLM 인지와 신경 변조·경험 학습을 결합하는 제품 설계 초안. LIFE·Moirai 연결, 8명 비동기 처리·복구, CPU/GPU 확장과 검증 계획을 포함하며 실제 회로·연동·성능은 미검증 |
+| 초파리 회로 기반 감정·선호·선택 | [신경 선호 엔진 연구·설계](plans/platform/015_neural_preference_engine_research.md) | PR #10의 최신 Moirai에 맞춘 종합 전 상태 전달과 별도 행동 추출·경험 학습 설계. LIFE 연결, 8명 비동기 처리·복구, CPU/GPU 확장을 포함하며 실제 회로·연동·성능은 미검증 |
 
 UI 공개 참고 자료는 [설계 참고 자료](plans/codex-ui/000_source_research.md), 세부 시각 기준은 [Codex 디자인 언어](plans/codex-ui/005_codex_design_language.md)에 있다. 개인 캡처와 운영 이력은 제품 소스에 포함하지 않는다.
 
