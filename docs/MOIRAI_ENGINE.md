@@ -22,7 +22,7 @@ LINA는 이 엔진을 사용하는 제품이다. 엔진은 개인 대화, 약속
 | --- | --- |
 | 세 판단·종합·선택 규칙, 목표 프로필, 회차 기록, 의도·약속의 채택 기록, 예측과 오차, 신경 선호 상태·학습, 선택 난수와 실행 요청 outbox | 사실 기억·대화 원문·정체성·사용자 지시·권한의 원본, 세계 상태, 작업 실행 상태, 게시·이미지 결과, 채널 전송 |
 
-LLM 실행 백엔드는 **Senpi**다. Senpi는 세 판단과 종합의 의미 해석·계획 생성을 맡는 어댑터이며, 각 모듈의 코드 검사·기억 조회·수치 계산을 대체하지 않는다. 기존 Codex TaskManager는 개발 작업의 실행 owner로 남는다. 라케시스의 학습된 선호는 **MaleCNS v1.0 부분회로**를 별도 Python 계산기로 실행한다. 이 회로는 엔진 완성의 필수 요소이며 뒤로 미루는 선택 사항이 아니다.
+LLM 실행 백엔드는 **Senpi**다. Senpi는 세 판단과 종합의 의미 해석·계획 생성을 맡는 어댑터이며, 각 모듈의 코드 검사·기억 조회·수치 계산을 대체하지 않는다. 개발 작업의 실행 엔진은 **OMO native**(`omo app-server`, Senpi의 app-server 모드)이고, 프로바이더 계정·모델 목록·인증·사용량은 **Senpi native**(`account/*`, `model/list`, `config/read`)가 소유한다. 현재 런타임의 Codex CLI와 OpenCodex Hub는 F2–F4 전환이 끝나면 폐기한다(D21). 라케시스의 학습된 선호는 **MaleCNS v1.0 부분회로**를 별도 Python 계산기로 실행한다. 이 회로는 엔진 완성의 필수 요소이며 뒤로 미루는 선택 사항이 아니다.
 
 ## 세 판단 모듈
 
@@ -144,7 +144,7 @@ flowchart TD
 | LIFE 욕구·목표·사건 선택 | 욕구 drift, 목표 우선순위, 사건/참여자 선택 | 욕구·목표 원본 재사용. 개인의 행동 선택은 `decisionMode: moirai`에서 엔진으로 이동 |
 | Ensemble 어댑터 | 사회적 의향·행동 그래프·상대 반응 | 사회 도메인 서비스. 의향 계산과 최종 행동 적용 포트 분리 |
 | NativePersonaGrowth·BehaviorStore | 유효 기억의 성향 해석과 투영 | 성향 owner. dimension별 `reflection \| neural` 생성자 중 하나 |
-| TaskManager·작업 도구 | 개발 작업 시작·지시·중단·인계 | 실행 owner. `task.*` 행동의 effect owner |
+| TaskManager·작업 도구 | 개발 작업 시작·지시·중단·인계 | 실행 owner. `task.*` 행동의 effect owner. 백엔드는 Codex CLI에서 OMO native app-server로 전환(D21), Lina 측 작업 ID·receipt·권한 계약은 유지 |
 | 이미지·LIFE 게시 | 생성·편집·게시·답글 | 표현·실행 owner. 무엇을 표현할지는 엔진, 검사·렌더링·전송은 owner |
 | AgentFleet·세션 조립 | 개인별 세션·저장소·도구 연결 | Host 조정기와 Senpi 역할 세션의 설치 지점 |
 | 실행 통제·DurableRuntime | 요청·응답 기록, 권한·취소·복구 | 확정된 판단을 실제 효과로 넘기는 경계 |
@@ -164,7 +164,7 @@ World 없는 개인이 엔진으로 확정할 수 있는 행동의 유한 목록
 | `intention.suspend` / `intention.resume` | 보류·재개 | 원래 수락 근거 참조, 보류 사유 | 상태 전이와 사유 기록 | JudgmentStore |
 | `intention.cancel` | 취소 | 원래 수락 근거와 권한, 사용자 약속이면 사용자 확인 또는 원래 조건 충족 | `→ cancelled` | JudgmentStore. 사용자 약속의 취소는 채널 확인 receipt |
 | `intention.complete` | 완료 확정 | 완료 조건에 대응하는 실제 결과 참조 | `→ completed` | JudgmentStore. 결과 없는 완료는 거부 |
-| `task.start` | 개발 작업 시작 | 작업 권한, 작업 내용, 관련 의도 참조 | 새 Codex 작업 | TaskManager receipt. 프로세스 종료는 목표 달성이 아님 |
+| `task.start` | 개발 작업 시작 | 작업 권한, 작업 내용, 관련 의도 참조 | 새 OMO 작업 thread | TaskManager receipt. 프로세스 종료는 목표 달성이 아님 |
 | `task.send` / `task.interrupt` / `task.handover` | 진행 작업에 지시·중단·인계 | 작업 ID·현재 owner·revision | 작업 상태 변경 | TaskManager receipt |
 | `inquire` | 자료·기억·도구의 읽기 조회 | 조회 권한 | 없음. 예산만 소비 | Host 조회 receipt |
 | `defer` | 보류 + 재개 조건 | 조건 명시 | 없음 | 다음 회차 입력 |
@@ -219,7 +219,7 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 
 ## 역할 프롬프트와 개선 루프
 
-엔진의 LLM 호출은 모두 버전 있는 **프롬프트 자산**을 사용한다. 프롬프트는 설정 파일이 아니라 메커니즘의 일부이며, 자산 revision은 각 판단의 `mechanismRevision`에 포함된다. 프롬프트가 바뀌면 같은 snapshot의 캐시된 평가는 재사용하지 않는다. 작성·개선 방법은 [PR #11의 방법론](https://github.com/thisisjun786/lina/blob/25346f15287a96d7e95e8c3e07c51fff1899f66f/docs/plans/platform/014_model_tuning_methodology_research.md)을 채택하되, 그 문서의 역할 표(라케시스=분석가, 아트로포스=결정자)와 "실행 엔진은 Codex" 문장은 이 정본의 목표 정의와 D13이 대체한다.
+엔진의 LLM 호출은 모두 버전 있는 **프롬프트 자산**을 사용한다. 프롬프트는 설정 파일이 아니라 메커니즘의 일부이며, 자산 revision은 각 판단의 `mechanismRevision`에 포함된다. 프롬프트가 바뀌면 같은 snapshot의 캐시된 평가는 재사용하지 않는다. 작성·개선 방법은 [PR #11의 방법론](https://github.com/thisisjun786/lina/blob/25346f15287a96d7e95e8c3e07c51fff1899f66f/docs/plans/platform/014_model_tuning_methodology_research.md)을 채택하되, 그 문서의 역할 표(라케시스=분석가, 아트로포스=결정자)와 "실행 엔진은 Codex" 문장은 이 정본의 목표 정의와 D13·D21이 대체한다.
 
 ### 프롬프트 자산과 층
 
@@ -276,6 +276,7 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | NeuralPreferenceStore | `state/neural-preferences.sqlite`와 상태 blob. 관측·`h`/`m`/`ΔW`/trace·조회 receipt·학습 inbox | 단일 writer는 Host. Python은 결과를 제안만 |
 | Python 계산기 | 설치당 상주 프로세스 하나. 불변 `W0` 공유, 개인·scope별 상태·가중치·RNG stream 분리, 준비된 요청만 배치 | SDK와 독립된 포트 |
 | 기존 owner 저장소 | ConversationStore·EngineStore·AgentStore·WorldStore·TaskManager·게시·이미지 | 원본과 실제 효과 |
+| OMO app-server | 설치당 하나의 `omo app-server` 프로세스(unix socket 또는 ws). Lina TaskManager가 `thread/*`·`turn/*`·`item/tool/call`·approval 메서드로 개발 작업을 실행하고, 프로바이더 계정·모델 목록·사용량은 `account/*`·`model/list`로 읽음 | 작업 thread와 프로바이더 자격 증명의 owner. Lina는 작업 ID·receipt·권한 정책과 검증된 프리셋만 소유 |
 
 두 저장소를 가로지르는 transaction은 없다. outbox/inbox와 receipt 대조로 중복을 막고, `decisionId → effectId → owner receipt → outcomeId`로 연결한다. checkpoint는 기존 owner가 조정하며 `CheckpointManifest`에 엔진 저장소·blob·대기 inbox/outbox를 함께 묶는다. manifest 확정 전 파일은 복원 가능한 checkpoint가 아니다.
 
@@ -301,7 +302,7 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | D10 | 목표 간 조정(`ArbitrationPolicy`·`BaselinePolicy`)과 신경 선호의 단일 반영(`p ∝ p0 × exp(λb)`)을 구분. `dimensionSource`로 성향 중복 생성 방지 |
 | D11 | 한 결과를 목표별 소비자에게 전달하고 각자 다르게 학습. 합의는 보상이 아님 |
 | D12 | 개인 연속성은 역할 세션 밖의 원본과 기록으로 유지. 개인·scope별 lease, 8명 = 정체성 8개 |
-| D13 | LLM 백엔드는 Senpi. Codex TaskManager는 개발 작업의 실행 owner로 유지. PR #10 역할 프롬프트는 F2에서 재작성 |
+| D13 | LLM 백엔드는 Senpi. PR #10 역할 프롬프트는 F2에서 재작성 |
 | D14 | MaleCNS 버섯체 부분회로는 엔진 완성의 필수 요소. 회로 프로필 v1의 인터페이스는 이 문서, 상수·세포 목록은 추출·측정 산출물 |
 | D15 | 개인 행동 catalog v1은 `intention.*`, `task.*`, `inquire`, `defer`, `noop`. 기억·선호·성장 저장은 catalog 밖 |
 | D16 | `IntentionRecord` v1 schema와 여섯 가지 재고 조건. `completed`는 결과 참조, `cancelled`는 수락 근거 참조 필수 |
@@ -309,6 +310,7 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | D18 | `PersonaSchema`의 소유자는 AgentStore. World는 자기 축을 schema dimension에 매핑. NativePersonaGrowth는 LifeDefinition 대신 schema를 읽음 |
 | D19 | 저장소는 `JudgmentStore`·`NeuralPreferenceStore`·기존 owner 셋. 교차 transaction 없음, outbox/inbox·receipt로 연결. Python 계산기는 설치당 하나 |
 | D20 | 프롬프트는 버전 있는 자산이며 `mechanismRevision`에 포함. 다섯 층 분리, 역할 계약은 `ObjectiveProfile`에서 생성. 개선은 PR #11 방법론의 8단계 루프(실패 고정 → A/B/C 분류 → 최소 후보 → 구조·전송 확인 → 짝 비교 → 고정 검증 → 프리셋 revision 적용)로만 수행. 자동 생성·자동 승격 없음 |
+| D21 | 개발 작업 실행 엔진은 OMO native(`omo app-server`), 프로바이더 계정·모델 목록·인증·사용량 관리는 Senpi native. Codex CLI와 OpenCodex Hub는 전환 완료 후 폐기. 근거: `lina-codex`가 사용하는 app-server 메서드 26개(`thread/*`, `turn/*`, `item/tool/call`, `item/*/requestApproval`, `model/list`, `skills/*`)가 Senpi app-server에 모두 있어 기존 `TaskManager`의 작업 ID·receipt·권한 계약을 유지한 채 백엔드만 교체 가능하고, 인지·작업·프로바이더가 한 런타임을 공유한다. 이 결정은 이전에 Senpi/OmO 경로를 퇴역시킨 결정을 명시적으로 뒤집는 것이며, 예전 `lina-jobs` 코드를 복원하는 것이 아니라 app-server 프로토콜과 Senpi SDK로 새 어댑터를 만드는 것이다 |
 
 ## 이 문서가 확정하지 않는 것
 
@@ -322,6 +324,8 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | 제품 프리셋의 모델 배치 | [030 모델 운영](plans/context-engines/030_moirai_refactor_plan.md#모델-운영-검증한-프리셋으로-제한) |
 | 프롬프트 비교의 judge 모델·rubric·반복 수·채택 임계값 | 실험 명세마다 선언. 이 문서는 절차와 독립성 조건만 확정 |
 | 네 역할 프롬프트의 실제 본문 | F2 산출물. 첫 revision은 위 층 구조와 `ObjectiveProfile`에서 작성하고 구조·전송 검사를 통과해야 함 |
+| Codex·OpenCodex 폐기 시점, 기존 세션 binding·`models.sqlite`·작업 이력의 이전 | F4 운영 전환. 자동 이전·자동 삭제 없음, 기존 데이터는 보존하고 전환 필요 상태로 표시 |
+| OMO app-server의 `dynamicTools`·approval·transport(unix/ws)·daemon 수명의 실제 검증 | F2에서 실제 소스/built SDK 전송 검사로 확인. 메서드 이름 일치는 의미 일치의 증거가 아님 |
 
 ## 관련 문서
 

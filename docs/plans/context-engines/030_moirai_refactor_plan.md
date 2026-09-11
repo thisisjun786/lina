@@ -100,7 +100,9 @@ flowchart TD
 
 실행 시 UI뿐 아니라 설정 API·저장된 설정·실제 송신 직전에도 프리셋과 모델을 확인한다. 지원 밖 모델, 사용 불가능한 필수 모델, 달라진 설정은 실행 전에 거부한다. 프리셋 내부에 검증된 대체 경로가 없다면 다른 모델로 조용히 전환하지 않는다. 프리셋 변경은 진행 회차의 모델을 바꾸지 않고 새 binding generation에 적용한다. 기존 사용자 모델 설정과 이력은 보존하고 지원 프리셋 전환이 필요한 상태로 처리한다. 자동 삭제·자동 원격 호출은 하지 않는다.
 
-이는 후속 제품 계약이다. 현재 제품의 자유 profile/tier 설정 API가 제거됐다는 뜻은 아니다. F2에서 역할·전송 계약을 적용하고 F4의 운영 전환에서 현재 `models/types.ts`, `validation.ts`, `settings.ts`, `selection.ts`, 설정 HTTP/UI와 Senpi 송신 소비자를 함께 전환한다. 이전 모델 온보딩 문서의 자유 선택 제안보다 이 계약을 우선한다.
+프로바이더 관리는 [정본 D21](../../MOIRAI_ENGINE.md#확정된-결정-목록)에 따라 Senpi native다. 계정 로그인·failover·pin·제거, 모델 목록, rate limit·사용량 조회는 app-server의 `account/*`·`model/list`·`config/read`를 사용하고, 자격 증명은 Senpi의 agent dir(`auth.json`/`oauth.json`)에 남는다. Lina는 개별 프로바이더 자격 증명을 저장하지 않으며 검증된 프리셋과 역할·티어 배치만 소유한다. OpenCodex Hub의 카탈로그·관리 GUI·환경 변수(`LINA_OPENCODEX_*`)는 전환 완료 후 제거한다.
+
+이는 후속 제품 계약이다. 현재 제품의 자유 profile/tier 설정 API와 OpenCodex 연결이 제거됐다는 뜻은 아니다. F2에서 역할·전송 계약을 적용하고 F4의 운영 전환에서 현재 `models/types.ts`, `validation.ts`, `settings.ts`, `selection.ts`, 설정 HTTP/UI와 Senpi 송신 소비자, `lina-opencodex` 소비자를 함께 전환한다. 이전 모델 온보딩 문서의 자유 선택 제안보다 이 계약을 우선한다.
 
 ## 판단·효과·의미 복구
 
@@ -130,9 +132,9 @@ flowchart TD
 
 R0는 합성 입력을 사용하는 QA 경로로 구현됐다. GLM 실제 호출, 세 판단의 동시 실행, 종합 순서, 같은 네 thread의 재개와 완료 회차 뒤 native 프로세스 강제 종료·복구를 확인했다. 실행 중 회차 복구, 인지 성능, 새 인지 계약과 모듈 분리, qualification은 미완료다. R0의 세 회차는 qualification의 새 전체 배치 3회가 아니다. 병합·배포는 이 계획의 범위가 아니다.
 
-## 채널·Codex 전환의 연결 지점
+## 채널·실행 엔진 전환의 연결 지점
 
-저장소 루트 기준:
+전환 대상은 Codex CLI → `omo app-server`(작업 실행), OpenCodex Hub → Senpi native(프로바이더·모델)다. `lina-codex`가 현재 호출하는 app-server 메서드(`thread/start|read|resume|compact/start|name/set|turns/list`, `turn/start|steer|interrupt`, `item/tool/call`, `item/commandExecution|fileChange|permissions/requestApproval`, `model/list`, `skills/list|extraRoots/set`)는 Senpi app-server에 동일 이름으로 존재한다. 이름 일치는 F2의 실전송 검사 대상이며 의미 일치의 증거가 아니다. 저장소 루트 기준:
 
 - `packages/lina-codex/src/tasks/protocol.ts` — thread start/read/resume와 turn 식별.
 - `packages/lina-codex/src/tasks/native.ts` — thread별 이벤트 식별.

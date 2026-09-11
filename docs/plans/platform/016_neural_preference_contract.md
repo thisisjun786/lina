@@ -325,7 +325,7 @@ checkpoint는 기존 설치/checkpoint owner가 조정한다. 대상 scope의 �
 
 후속 변경 순서·파일 후보·의존 관계는 [017의 F1–F4 지도](017_moirai_module_composition.md#후속-설계와-구현의-의존-순서) 하나로 관리한다. F1에서 원본 참조·채택·판단의 계약을 정하고, F2에서 World 없는 한 개인의 세 메커니즘·Senpi 대화·학습·결과·복구를 연결한다. F2는 대화 중 채택·약속 변경에 필요한 공통 후보·선택·finalize도 포함한다. F3는 이를 LIFE 행동 catalog로 확장하고 기회/행동을 분리하며, F4는 성장 투영·공개 범위·운영 전환이다. 개인정보·정정·중복 반영 방지는 F1/F2부터 적용한다.
 
-대조한 dev에는 PR #10의 Senpi 3+1 회차가 제품 통합돼 있지 않다. `session-app.ts`와 제안 `cognition/install.ts`가 Host 조정기·Senpi 역할 세션을 조립하고 `cognition/conversation.ts`는 `SessionPort`에 하나의 논리 대화 수명을 제공한다. 회차 ledger·채택·실행 권한은 SDK 어댑터 내부로 숨기지 않는다. 기존 [SessionEngine.kind](../../../packages/lina-runtime/src/session-engine.ts#L6)의 Codex 고정 타입·생성 소비자·잠근 의존성과 엔진 정책도 후속 전환 단위에서 갱신한다. 기존 Codex 개발 작업 서비스는 별도 실행 owner로 유지할 수 있다.
+대조한 dev에는 PR #10의 Senpi 3+1 회차가 제품 통합돼 있지 않다. `session-app.ts`와 제안 `cognition/install.ts`가 Host 조정기·Senpi 역할 세션을 조립하고 `cognition/conversation.ts`는 `SessionPort`에 하나의 논리 대화 수명을 제공한다. 회차 ledger·채택·실행 권한은 SDK 어댑터 내부로 숨기지 않는다. 기존 [SessionEngine.kind](../../../packages/lina-runtime/src/session-engine.ts#L6)의 Codex 고정 타입·생성 소비자·잠근 의존성과 엔진 정책도 후속 전환 단위에서 갱신한다. 개발 작업 실행은 [정본 D21](../../MOIRAI_ENGINE.md#확정된-결정-목록)에 따라 `TaskManager`의 RPC 백엔드를 `omo app-server`로 교체하며, 프로바이더 계정·모델 목록·사용량은 같은 app-server의 `account/*`·`model/list`를 읽는다. Lina의 작업 ID·request digest·receipt·권한 정책은 백엔드 교체와 무관하게 유지하고, app-server의 thread/turn 식별자를 Lina 작업 ID로 대체하지 않는다.
 
 ObjectiveProfile·ResolutionRecord·SelectionSpec·DialogueJudgmentRef는 F1에서 의미·생성/직렬화/복원 계약을 정하고 F2의 판단 입력·후보 평가·종합·캐시·선택 기록·결과 소비자에 연결한다. 실제 도입 때 이전 schema와의 변환·누락 처리도 함께 검증한다.
 
