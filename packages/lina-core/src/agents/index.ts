@@ -84,3 +84,8 @@ export {
 
 export * from "./judgment-catalog.ts";
 export * from "./judgment-policy.ts";
+
+// Judgment persistence.
+
+export { JUDGMENT_SCHEMA_VERSION } from "./judgment-schema.ts";
+export { JudgmentStore } from "./judgment-store.ts";
