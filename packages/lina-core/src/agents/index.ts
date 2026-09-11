@@ -79,3 +79,8 @@ export {
 	personaSchemaDigest,
 	personaSchemaFromLifeDefinition,
 } from "./persona-schema.ts";
+
+// Personal catalog and arbitration policy.
+
+export * from "./judgment-catalog.ts";
+export * from "./judgment-policy.ts";
