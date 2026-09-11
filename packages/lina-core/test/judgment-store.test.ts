@@ -27,16 +27,7 @@ import {
 	snapshotDigest,
 	transitionIntention,
 } from "../src/agents/index.ts";
-import { canonicalJson } from "../src/agents/judgment-validation.ts";
 import { Fixture } from "./fixture.ts";
-
-test("canonical JSON bytes are shared with judgment digests", () => {
-	const value = { b: [{ d: 1, c: 2 }], a: null };
-	expect(canonicalJson(value)).toBe('{"a":null,"b":[{"c":2,"d":1}]}');
-	expect(judgmentDigest(value)).toBe(
-		createHash("sha256").update(canonicalJson(value)).digest("hex"),
-	);
-});
 
 let fixture: Fixture;
 let path: string;
@@ -249,6 +240,30 @@ function canonical(value: unknown): unknown {
 		);
 	return value;
 }
+
+test("canonical JSON bytes are shared with judgment digests", () => {
+	const value = {
+		z: [
+			{ d: 1, c: 2 },
+			{ b: null, a: "\u65e5\u672c\u8a9e" },
+		],
+		a: null,
+		missing: undefined,
+		text: "caf\u00e9",
+	};
+	expect(judgmentDigest(value)).toBe(
+		createHash("sha256")
+			.update(JSON.stringify(canonical(value)))
+			.digest("hex"),
+	);
+	const store = open();
+	const saved = profile();
+	store.putObjectiveProfile(saved);
+	const db = fixture.keep(new DatabaseSync(path, { readOnly: true }));
+	expect(db.prepare("SELECT body FROM objective_profiles").get()).toEqual({
+		body: JSON.stringify(canonical(saved)),
+	});
+});
 
 test("fresh schema has exactly nine STRICT tables, metadata, WAL and unchanged DDL on reopen", () => {
 	let store = open();
