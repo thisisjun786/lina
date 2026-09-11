@@ -74,6 +74,26 @@ On 2026-09-10, this repository's Git commit `de0e4ab` identified the QA harness 
 
 The recorded run supplied `--evidence "$HOME/.local/state/lina-qa/senpi-live-20260910"`; the `/tmp` path above is an example for a new run. Raw evidence remains in the supplied directory and is not committed. The prior development attempt is retained in the sibling `senpi-live-20260910-failed-chat-completions/` directory: the Hub rejected `/v1/chat/completions` with two HTTP 404 responses, and no valid model answer was obtained. That failure led to the native Responses correction; it was not discarded or counted as a cognitive result.
 
+## Five actual role-conditioned cases
+
+To inspect actual Clotho, Lachesis, Atropos and Moirai replies, run from the repository root:
+
+```sh
+bun scripts/qa/senpi-sdk/moirai.ts --live --evidence /tmp/my-new-senpi-five-cases
+```
+
+This makes real model requests. The five authored Korean conversations are in [moirai-cases.ts](moirai-cases.ts): a brevity correction, conflicting delivery dates, a previous CSV failure, uncertain order execution, and a request for emotional listening. Each case creates three separate tool-less Senpi sessions with identical case input and different role instructions. Their requests run in parallel. Only after all three finish does the fourth session, labeled `moirai`, synthesize a final reply. It receives the original input and exact `{role, text}` proposals attributed in Clotho, Lachesis, Atropos order. Each case therefore has three proposal replies and one Moirai synthesis reply. All four roles use the same GLM model; no Codex executor or historical Codex output is used. OpenCodex provides the model connection only.
+
+Cases run sequentially, and successful cases require exactly four requests each. The existing six-request cap is a safety cutoff for unexpected traffic, not an allowance for normal retries; extra requests fail the case's wire validation. Every recorded case below used exactly four. No attempt is repeated to obtain more diverse or favorable replies. The role outputs are answer drafts, not executed external actions or hidden reasoning traces.
+
+On 2026-09-11, this repository's commit `5b7e6bf` produced five operationally complete cases: 20 distinct SDK session IDs and 20 HTTP 200 requests, all reporting `glm-5.3-flash`. The sum of case elapsed times was approximately 94.5 seconds; provider-reported usage totaled 8,519 input and 11,432 output tokens. Per-case captures match the exact role prompts, identical initial inputs, actual provider/SDK replies, and same-case synthesis inputs. All five scratch directories were removed and capture ports were independently confirmed closed.
+
+Recorded evidence is at `$HOME/.local/state/lina-qa/senpi-five-cases-20260911/`. `transcript.md` contains all five inputs and all 20 replies verbatim; `report.json` contains the combined structured result. Each case directory also retains its four role JSON files, native SDK session copies/events, wire captures, and cleanup receipt. The example `/tmp` path above is for a new run; existing evidence is not overwritten.
+
+Operational completion is not a quality score. The delivery-date case includes Clotho's unsupported provisional Thursday wording, while synthesis instead says the date is being checked. The order case includes Lachesis's ambiguous "not confirmed" retry condition, while Atropos and synthesis require confirmed non-acceptance. In the listening case the three drafts are very similar. These replies are preserved rather than repaired or presented as proof of added cognitive benefit.
+
+The local `moirai.check.ts` fixture uses a three-request barrier to prove actual SDK concurrency and withholds synthesis when one proposer fails. The package suite now has 71 passing checks, with the previous inventory, correction and crash checks preserved.
+
 ## Recovery boundary
 
 The checked `2026.9.10-2` SDK supports this tool loop, between-turn context replacement, cancellation, and fresh-process history reopening. Opening a saved session did not automatically resume the held request or unfinished tool before the probe's next explicit prompt.
@@ -84,8 +104,8 @@ This supports continuing with a small LINA-owned Senpi adapter experiment. It do
 
 ## Not established
 
-- General comprehension, reliable obedience across tasks, or Moirai's cognitive benefit. One bounded live correction case is not a quality benchmark or qualification batch.
-- Mid-turn correction, withdrawing permission to disclose prior context, suppressing outdated responses, concurrent conversations, or coordinating three judgments and one synthesis.
+- General comprehension, reliable obedience across tasks, or Moirai's cognitive benefit. The inventory case and five role-conditioned examples are not a comparative quality benchmark or qualification batch.
+- Mid-turn correction, withdrawing permission to disclose prior context, suppressing outdated responses, persistent four-role product conversations, or cross-case memory.
 - Automatic recovery of unknown executions or exactly-once user message delivery.
 - Production `SessionPort` admission, source lineage, memory/persona integration, compaction, authenticated remote-Hub setups, other model/API combinations, or cross-platform behavior.
 - Migration of existing Codex/Senpi state. Product execution remains Codex-only during this isolated probe.
