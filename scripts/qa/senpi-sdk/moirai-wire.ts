@@ -28,6 +28,7 @@ export function inspectMoiraiWire(
 			const body = z
 				.object({
 					model: z.literal("ollama-cloud/glm-5.3-flash"),
+					prompt_cache_key: z.string(),
 					input: z.array(
 						z.looseObject({
 							role: z.string().optional(),
@@ -43,11 +44,13 @@ export function inspectMoiraiWire(
 					(item) => item.role === "system" || item.role === "developer",
 				)?.content,
 			);
-			const role = z
-				.object({ module_id: z.string() })
-				.parse(JSON.parse(system)).module_id;
-			const expected = replies.find((reply) => reply.role === role);
-			if (!expected || observed.has(role))
+			const expected = replies.find(
+				(reply) => reply.sessionId === body.prompt_cache_key,
+			);
+			if (!expected)
+				throw new Error(`Unknown native session: ${body.prompt_cache_key}`);
+			const role = expected.role;
+			if (observed.has(role))
 				throw new Error(`Unexpected or duplicate role: ${role}`);
 			observed.add(role);
 			const userInput = text(

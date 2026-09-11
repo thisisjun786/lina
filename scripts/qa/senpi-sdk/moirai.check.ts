@@ -4,10 +4,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { MOIRAI_CASES, PROPOSERS } from "./moirai-cases.ts";
+import { MOIRAI_CASES, PROPOSERS, type Role } from "./moirai-cases.ts";
 import { runMoiraiCase } from "./moirai-runner.ts";
+import { atroposPrompt } from "./prompts/atropos.ts";
+import { clothoPrompt } from "./prompts/clotho.ts";
+import { lachesisPrompt } from "./prompts/lachesis.ts";
+import { moiraiPrompt } from "./prompts/moirai.ts";
 import { bounded } from "./protocol.ts";
 
+const publishedPrompts: Readonly<Record<Role, string>> = {
+	clotho: clothoPrompt,
+	lachesis: lachesisPrompt,
+	atropos: atroposPrompt,
+	moirai: moiraiPrompt,
+};
 const frame = (event: unknown) => `data: ${JSON.stringify(event)}\n\n`;
 function reply(text: string) {
 	const item = {
@@ -51,7 +61,6 @@ for (const failOne of [false, true]) {
 		const root = await mkdtemp(join(tmpdir(), "senpi-moirai-check-"));
 		const entered = new Set<string>();
 		const inputs: string[] = [];
-		const outputInstructions = new Map<string, string>();
 		const barrier = Promise.withResolvers<void>();
 		let released = 0;
 		let synthesis: unknown;
@@ -71,11 +80,10 @@ for (const failOne of [false, true]) {
 				const system = z
 					.string()
 					.parse(body.input.find((item) => item.role === "system")?.content);
-				const prompt = z
-					.object({ module_id: z.string(), output: z.string() })
-					.parse(JSON.parse(system));
-				const role = prompt.module_id;
-				outputInstructions.set(role, prompt.output);
+				const role = Object.entries(publishedPrompts).find(
+					([, prompt]) => prompt === system,
+				)?.[0];
+				if (!role) throw new Error("Request did not carry a published prompt");
 				const content = z
 					.array(z.object({ type: z.literal("input_text"), text: z.string() }))
 					.parse(body.input.find((item) => item.role === "user")?.content);
@@ -115,12 +123,9 @@ for (const failOne of [false, true]) {
 				expect(synthesis).toBeUndefined();
 				expect(result.errors.length).toBeGreaterThan(0);
 			} else {
-				// The three proposal sessions share a format; synthesis has its own audience.
-				const proposalOutputs = PROPOSERS.map((role) =>
-					outputInstructions.get(role),
-				);
-				expect(new Set(proposalOutputs).size).toBe(1);
-				expect(proposalOutputs).not.toContain(outputInstructions.get("moirai"));
+				// Compare shipped copies, not prompt wording or implementation-generated expectations.
+				for (const reply of result.replies)
+					expect(reply.systemPrompt).toBe(publishedPrompts[reply.role]);
 				expect(new Set(result.replies.map((r) => r.sessionId)).size).toBe(4);
 				expect(result.replies.map((r) => r.text)).toEqual([
 					"clotho_reply",
@@ -131,7 +136,7 @@ for (const failOne of [false, true]) {
 				expect(synthesis).toEqual({
 					caseId: scenario.id,
 					conversation: scenario.conversation,
-					proposals: PROPOSERS.map((role) => ({ role, text: `${role}_reply` })),
+					proposals: PROPOSERS.map((role) => `${role}_reply`),
 				});
 			}
 		} finally {
