@@ -16,6 +16,7 @@ export type CaptureOptions = {
 	readonly upstreamBaseUrl: string;
 	readonly credential?: string;
 	readonly evidenceDir: string;
+	readonly outputLimit?: "provider-default";
 };
 
 export type LiveCapture = {
@@ -73,7 +74,8 @@ export function startLiveCapture(options: CaptureOptions): LiveCapture {
 			return new Response("Episode dispatch unavailable", { status: 429 });
 		const forwarded: Record<string, unknown> = {
 			...parsed.data,
-			max_output_tokens: 4096,
+			max_output_tokens:
+				options.outputLimit === "provider-default" ? undefined : 4096,
 			stream: true,
 		};
 		const sequence = ++dispatched;

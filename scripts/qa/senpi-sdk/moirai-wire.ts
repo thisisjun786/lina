@@ -23,6 +23,7 @@ export function inspectMoiraiWire(
 	let outputTokens: number | null = 0;
 	const models = new Set<string>();
 	for (const record of records) {
+		let usageAccounted = false;
 		try {
 			if (record.status !== 200) throw new Error(`HTTP ${record.status}`);
 			const body = z
@@ -74,6 +75,32 @@ export function inspectMoiraiWire(
 				response: z.unknown().optional(),
 			});
 			const parsedEvents = events.map((event) => eventShape.parse(event));
+			const terminals = parsedEvents.filter((event) =>
+				[
+					"response.completed",
+					"response.incomplete",
+					"response.failed",
+				].includes(event.type),
+			);
+			if (terminals.length !== 1)
+				throw new Error(`Missing or repeated terminal response: ${role}`);
+			const { usage } = z
+				.object({
+					usage: z
+						.object({
+							input_tokens: z.number().int().nonnegative().optional(),
+							output_tokens: z.number().int().nonnegative().optional(),
+						})
+						.nullish(),
+				})
+				.parse(terminals[0]?.response);
+			if (usage?.input_tokens === undefined || inputTokens === null)
+				inputTokens = null;
+			else inputTokens += usage.input_tokens;
+			if (usage?.output_tokens === undefined || outputTokens === null)
+				outputTokens = null;
+			else outputTokens += usage.output_tokens;
+			usageAccounted = true;
 			if (
 				parsedEvents.some((event) =>
 					["error", "response.failed", "response.incomplete"].includes(
@@ -104,17 +131,6 @@ export function inspectMoiraiWire(
 								.optional(),
 						}),
 					),
-					usage: z
-						.object({
-							input_tokens: z.number().int().nonnegative().optional(),
-							output_tokens: z
-								.number()
-								.int()
-								.nonnegative()
-								.max(4096)
-								.optional(),
-						})
-						.nullish(),
 				})
 				.parse(completions[0]?.response);
 			models.add(response.model);
@@ -126,13 +142,11 @@ export function inspectMoiraiWire(
 				.join("");
 			if (!providerText || providerText !== expected.text)
 				throw new Error(`Provider/SDK reply mismatch: ${role}`);
-			if (response.usage?.input_tokens === undefined || inputTokens === null)
-				inputTokens = null;
-			else inputTokens += response.usage.input_tokens;
-			if (response.usage?.output_tokens === undefined || outputTokens === null)
-				outputTokens = null;
-			else outputTokens += response.usage.output_tokens;
 		} catch (error) {
+			if (!usageAccounted) {
+				inputTokens = null;
+				outputTokens = null;
+			}
 			errors.push(error instanceof Error ? error.message : String(error));
 		}
 	}

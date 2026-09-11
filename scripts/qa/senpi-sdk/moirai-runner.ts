@@ -91,6 +91,7 @@ export async function runMoiraiCase(options: {
 		capture = startLiveCapture({
 			upstreamBaseUrl: options.upstreamBaseUrl,
 			evidenceDir: join(options.evidenceDir, "wire"),
+			outputLimit: "provider-default",
 			...(options.credential ? { credential: options.credential } : {}),
 		});
 		const baseUrl = capture.baseUrl;
@@ -117,12 +118,13 @@ export async function runMoiraiCase(options: {
 				),
 			);
 			await session.prompt(userInput);
+			const message = session.messages.at(-1);
 			const reply: RoleReply = {
 				role,
 				sessionId: session.sessionId,
 				input: userInput,
 				systemPrompt,
-				text: assistantText(session.messages.at(-1)),
+				text: assistantText(message),
 			};
 			replies.set(role, reply);
 			save(`${role}.json`, reply);
@@ -132,7 +134,11 @@ export async function runMoiraiCase(options: {
 					readFileSync(session.sessionFile),
 					{ mode: 0o600 },
 				);
-			if (!reply.text.trim())
+			if (
+				message?.role !== "assistant" ||
+				message.stopReason !== "stop" ||
+				!reply.text.trim()
+			)
 				throw new Error(`No completed reply from ${role}`);
 			return reply;
 		}

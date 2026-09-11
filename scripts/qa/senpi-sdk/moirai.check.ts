@@ -19,23 +19,23 @@ const publishedPrompts: Readonly<Record<Role, string>> = {
 	moirai: moiraiPrompt,
 };
 const frame = (event: unknown) => `data: ${JSON.stringify(event)}\n\n`;
-function reply(text: string) {
+function reply(text: string, complete = true) {
 	const item = {
 		id: `msg_${text}`,
 		type: "message",
 		role: "assistant",
-		status: "completed",
+		status: complete ? "completed" : "incomplete",
 		content: [{ type: "output_text", text, annotations: [] }],
 	};
 	return new Response(
 		[
 			frame({ type: "response.output_item.done", output_index: 0, item }),
 			frame({
-				type: "response.completed",
+				type: complete ? "response.completed" : "response.incomplete",
 				response: {
 					id: `resp_${text}`,
 					model: "glm-5.3-flash",
-					status: "completed",
+					status: complete ? "completed" : "incomplete",
 					output: [item],
 					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
 				},
@@ -55,12 +55,14 @@ test("five authored cases have distinct machine identities", () => {
 	]);
 });
 
-for (const failOne of [false, true]) {
-	test(`actual Senpi roles are parallel and isolated; failed proposer=${failOne}`, async () => {
+for (const failure of ["none", "http", "partial"] as const) {
+	test(`actual Senpi roles are parallel and isolated; failure=${failure}`, async () => {
+		const failOne = failure !== "none";
 		// Given a real HTTP barrier which cannot release until all three proposals arrive.
 		const root = await mkdtemp(join(tmpdir(), "senpi-moirai-check-"));
 		const entered = new Set<string>();
 		const inputs: string[] = [];
+		const outputLimits: unknown[] = [];
 		const barrier = Promise.withResolvers<void>();
 		let released = 0;
 		let synthesis: unknown;
@@ -74,9 +76,11 @@ for (const failOne of [false, true]) {
 							z.object({ role: z.string(), content: z.unknown() }),
 						),
 						tools: z.array(z.unknown()).optional(),
+						max_output_tokens: z.unknown().optional(),
 					})
 					.parse(await request.json());
 				expect(body.tools ?? []).toEqual([]);
+				outputLimits.push(body.max_output_tokens);
 				const system = z
 					.string()
 					.parse(body.input.find((item) => item.role === "system")?.content);
@@ -98,8 +102,16 @@ for (const failOne of [false, true]) {
 				if (entered.size === 3) barrier.resolve();
 				await bounded(barrier.promise, "three parallel SDK requests");
 				released++;
-				if (failOne && role === "lachesis")
-					return new Response("fixture failure", { status: 503 });
+				if (role === "lachesis") {
+					switch (failure) {
+						case "http":
+							return new Response("fixture failure", { status: 503 });
+						case "partial":
+							return reply("partial_lachesis", false);
+						case "none":
+							break;
+					}
+				}
 				return reply(`${role}_reply`);
 			},
 		});
@@ -123,6 +135,12 @@ for (const failOne of [false, true]) {
 				expect(synthesis).toBeUndefined();
 				expect(result.errors.length).toBeGreaterThan(0);
 			} else {
+				expect(outputLimits).toEqual([
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+				]);
 				// Compare shipped copies, not prompt wording or implementation-generated expectations.
 				for (const reply of result.replies)
 					expect(reply.systemPrompt).toBe(publishedPrompts[reply.role]);

@@ -50,6 +50,54 @@ test("accepts exact native-session, input and output joins", () => {
 	expect(result.usage).toEqual({ inputTokens: 40, outputTokens: 20 });
 });
 
+test("accepts completed output above the former application token cap", () => {
+	// Given valid provider completions reporting more than 4096 output tokens.
+	const large = records.map((record) => ({
+		...record,
+		response: record.response.replace(
+			'"output_tokens":5',
+			'"output_tokens":9000',
+		),
+	}));
+	// When validating the completed responses.
+	const result = inspectMoiraiWire(large, replies);
+	// Then usage does not become a local output restriction.
+	expect(result.errors).toEqual([]);
+	expect(result.usage).toEqual({ inputTokens: 40, outputTokens: 36000 });
+});
+
+test("retains usage from an incomplete provider response without accepting it", () => {
+	// Given one incomplete response with real reported usage.
+	const incomplete = records.map((record, index) => {
+		if (index !== 0) return record;
+		return {
+			...record,
+			response: record.response
+				.replace("response.completed", "response.incomplete")
+				.replace('"status":"completed"', '"status":"incomplete"')
+				.replace('"output_tokens":5', '"output_tokens":4096'),
+		};
+	});
+	// When inspecting the whole run.
+	const result = inspectMoiraiWire(incomplete, replies);
+	// Then failure remains a failure but its token use is not silently zero.
+	expect(result.errors.length).toBeGreaterThan(0);
+	expect(result.usage).toEqual({ inputTokens: 40, outputTokens: 4111 });
+});
+
+test("unknown usage after an HTTP failure stays unknown", () => {
+	// Given one response without a provider usage receipt.
+	const failed = records.map((record, index) => {
+		if (index !== 0) return record;
+		return { ...record, status: 503, response: "unavailable" };
+	});
+	// When inspecting the aggregate.
+	const result = inspectMoiraiWire(failed, replies);
+	// Then no complete cost total is fabricated from the successful subset.
+	expect(result.errors.length).toBeGreaterThan(0);
+	expect(result.usage).toEqual({ inputTokens: null, outputTokens: null });
+});
+
 type Corruption = {
 	readonly name: string;
 	readonly apply: () => readonly CapturedRequest[];
