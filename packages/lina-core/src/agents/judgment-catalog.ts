@@ -154,8 +154,13 @@ function parsePrecondition(
 	value: unknown,
 	kind: PersonalOptionKind,
 ): PersonalPrecondition {
-	const row = object(value, "personal precondition");
-	if (row["kind"] !== kind) throw Error("precondition kind mismatch");
+	const row: Record<string, unknown> & {
+		kind?: unknown;
+		intentionKind?: unknown;
+		userConfirmationRef?: unknown;
+		revision?: unknown;
+	} = object(value, "personal precondition");
+	if (row.kind !== kind) throw Error("precondition kind mismatch");
 	const check = (...keys: string[]) =>
 		fields(row, ["kind", ...keys], "personal precondition");
 	const id = (key: string) => boundedId(row[key], key);
@@ -163,7 +168,7 @@ function parsePrecondition(
 	switch (kind) {
 		case "intention.adopt": {
 			check("intentionKind", "sourceRef");
-			const intentionKind = row["intentionKind"];
+			const intentionKind = row.intentionKind;
 			if (
 				intentionKind !== "user_commitment" &&
 				intentionKind !== "autonomous_goal"
@@ -196,9 +201,7 @@ function parsePrecondition(
 				acceptanceSourceRef: id("acceptanceSourceRef"),
 				authorityRef: id("authorityRef"),
 				userConfirmationRef:
-					row["userConfirmationRef"] === null
-						? null
-						: id("userConfirmationRef"),
+					row.userConfirmationRef === null ? null : id("userConfirmationRef"),
 			};
 		case "intention.complete":
 			check("intentionId", "outcomeRef");
@@ -219,7 +222,7 @@ function parsePrecondition(
 		case "task.interrupt":
 		case "task.handover": {
 			check("taskId", "ownerId", "revision");
-			const revision = row["revision"];
+			const revision = row.revision;
 			if (
 				typeof revision !== "number" ||
 				!Number.isSafeInteger(revision) ||
@@ -241,8 +244,12 @@ function parsePrecondition(
 }
 
 export function parseCanonicalOption(value: unknown): CanonicalOption {
-	const row = object(value, "canonical option");
-	if (row["schemaVersion"] !== 1)
+	const row: Record<string, unknown> &
+		Partial<Record<keyof CanonicalOption, unknown>> = object(
+		value,
+		"canonical option",
+	);
+	if (row.schemaVersion !== 1)
 		throw Error("Unsupported canonical option schema version");
 	fields(
 		row,
@@ -259,33 +266,42 @@ export function parseCanonicalOption(value: unknown): CanonicalOption {
 		],
 		"canonical option",
 	);
-	if (row["catalogId"] !== PERSONAL_CATALOG_ID)
+	if (row.catalogId !== PERSONAL_CATALOG_ID)
 		throw Error("unsupported option catalog");
-	const kind = optionKind(row["kind"]);
-	const actor = object(row["actor"], "option actor");
+	const kind = optionKind(row.kind);
+	const preconditions = parsePrecondition(row.preconditions, kind);
+	const actor: Record<string, unknown> &
+		Partial<Record<keyof CanonicalOption["actor"], unknown>> = object(
+		row.actor,
+		"option actor",
+	);
 	fields(actor, ["agentId", "scopeId"], "option actor");
-	const effect = object(row["effect"], "option effect");
+	const effect: Record<string, unknown> &
+		Partial<Record<keyof CanonicalOption["effect"], unknown>> = object(
+		row.effect,
+		"option effect",
+	);
 	fields(effect, ["owner", "scope"], "option effect");
-	if (effect["owner"] !== owners[kind])
+	if (effect.owner !== owners[kind])
 		throw Error("option effect owner mismatch");
-	const args = object(row["args"], "option args");
+	const args = object(row.args, "option args");
 	// normalizeOptionArgs validates each value at this unknown-data boundary.
 	const result: CanonicalOption = {
 		schemaVersion: 1,
 		catalogId: PERSONAL_CATALOG_ID,
 		kind,
 		actor: {
-			agentId: boundedId(actor["agentId"], "agent id"),
-			scopeId: boundedId(actor["scopeId"], "scope id"),
+			agentId: boundedId(actor.agentId, "agent id"),
+			scopeId: boundedId(actor.scopeId, "scope id"),
 		},
-		targetId: target(row["targetId"]),
+		targetId: target(row.targetId),
 		args: normalizeOptionArgs(args as Record<string, string>),
-		preconditions: parsePrecondition(row["preconditions"], kind),
+		preconditions,
 		effect: {
 			owner: owners[kind],
-			scope: boundedId(effect["scope"], "effect scope"),
+			scope: boundedId(effect.scope, "effect scope"),
 		},
-		optionKey: boundedId(row["optionKey"], "option key"),
+		optionKey: boundedId(row.optionKey, "option key"),
 	};
 	if (result.optionKey !== canonicalOptionKey(result))
 		throw Error("canonical option key mismatch");

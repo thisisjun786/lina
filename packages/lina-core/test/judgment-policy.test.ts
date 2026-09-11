@@ -369,6 +369,28 @@ test("(2) golden option parses byte-identically and rejects invalid boundary dat
 		).toThrow();
 });
 
+test("precondition kind mismatch precedes effect owner mismatch", () => {
+	const o = buildCanonicalOption({
+		kind: "task.start",
+		actor: { agentId: "agent", scopeId: "scope" },
+		targetId: "x",
+		args: {},
+		preconditions: {
+			kind: "task.start",
+			authorityRef: "authority",
+			taskText: "work",
+			intentionId: "intention",
+		},
+	});
+	expect(() =>
+		parseCanonicalOption({
+			...o,
+			preconditions: { kind: "noop", reason: "x" },
+			effect: { owner: "host", scope: "scope" },
+		}),
+	).toThrow(/^precondition kind mismatch$/);
+});
+
 const orders: Record<Situation, [ModuleKind, ModuleKind, ModuleKind]> = {
 	user_request: ["atropos", "clotho", "lachesis"],
 	autonomous: ["lachesis", "clotho", "atropos"],
