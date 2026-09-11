@@ -1,6 +1,6 @@
 # 모이라이 코어의 판단·선택·학습·실행 계약
 
-상태: 2026-09-12 설계 제안. [015 모이라이 에이전트 코어 설계](015_neural_preference_engine_research.md)의 세 판단 모듈을 입력·계산·결과·학습 계약으로 구체화한다. 타입·포트·파일은 제안이며 현재 Senpi QA가 이 구조를 구현했다는 뜻이 아니다. 015는 제품 목표·구조·근거를, 이 문서는 회차·판단·선택·영속화·수용 조건을 소유한다. 기존 모듈 배치와 후속 변경 순서의 정본은 [017 구성 초안](017_moirai_module_composition.md)이다.
+상태: 2026-09-12 확정 계약. 정본 [MOIRAI_ENGINE](../../MOIRAI_ENGINE.md)의 세 판단 모듈·조정 정책·행동 catalog·의도 schema·회로 프로필을 입력·계산·결과·학습·저장·복구 계약으로 구체화한다. 타입·포트는 F1–F2가 구현할 계약이며 현재 코드나 Senpi QA가 이 구조를 구현했다는 뜻이 아니다. [015](015_neural_preference_engine_research.md)는 근거와 출처를, [017](017_moirai_module_composition.md)은 소스 재료·F1–F4 로드맵·검증 가설을 소유한다.
 
 모이라이는 한 개인 안에서 서로 다른 목표를 추구하는 세 판단을 종합한다. 클로토는 미래 성과·성장 가능성, 라케시스는 자신의 욕구·선호 충족, 아트로포스는 채택한 목표·약속·정체성의 연속성을 우선한다. 라케시스의 학습된 선호는 Google Research가 소개한 **MaleCNS v1.0** 부분회로로 구현한다. 개인 대화·학습·LIFE 선택·재시작·8명 운영을 연결하며 비교 실험은 구현을 선택하는 증거로 사용한다.
 
@@ -25,9 +25,21 @@ Senpi 연결은 PR #10의 [세션 생성](https://github.com/thisisjun786/lina/b
 
 ## 세 판단 모듈의 계약
 
-분리 기준은 각 모듈의 고유 목표와 답을 비교하는 기준이다. 목표 정의는 [017의 목표 표](017_moirai_module_composition.md#각-모듈의-고유-목표가-설계의-중심이다)를 따른다. 상태·계산·결과 확인 방법은 그 목표를 판단하는 수단이다. 세 모듈에 같은 목표를 주고 근거만 달리 읽히는 구조나 계획/점수/승인 기능만 분업하는 구조로 축소하지 않는다. 기억·정정·권한 원본은 공유한다.
+분리 기준은 각 모듈의 고유 목표와 답을 비교하는 기준이다. 목표 정의는 [정본의 세 판단 모듈](../../MOIRAI_ENGINE.md#세-판단-모듈)을 따른다. 상태·계산·결과 확인 방법은 그 목표를 판단하는 수단이다. 세 모듈에 같은 목표를 주고 근거만 달리 읽히는 구조나 계획/점수/승인 기능만 분업하는 구조로 축소하지 않는다. 기억·정정·권한 원본은 공유한다.
 
 의존 방향은 `Host → 판단 포트 → 허용된 기억/목표/계산 포트`다. Senpi는 LLM 호출 어댑터, Python은 라케시스의 수치 계산 어댑터다. 모듈은 서로의 내부 상태를 수정하지 않는다. 기존 QA의 `proposals: string[]`에서 아래 버전 있는 판단 계약으로 옮기는 변경은 제품 Senpi 연결과 소비자 검증을 함께 요구한다.
+
+```text
+PromptAsset = { promptId, revision, role, layerHashes: { common, role, model },
+  objectiveProfileRef?, presetRef, evidenceRefs }
+PromptExperiment = { experimentId, revision, baseline: PromptAsset[], candidate: PromptAsset[],
+  presetRef, cases: { caseId, revision, inputDigest, split: dev | holdout, category }[],
+  repetitions, orderRule, judge: { kind, revision, rubricRef }, adoptionCriteria }
+PromptRun = { runId, attemptId, configuration: baseline | candidate, caseId, repetition,
+  wireCaptureRef, outcomeRefs, judgeScore | unscorable, usage, elapsed, terminationReason }
+```
+
+`mechanismRevision`은 프롬프트 자산 revision, encoder/readout 버전, 정책 코드 버전을 포함하는 digest다. 역할 자산의 역할 계약 층은 `ObjectiveProfile`에서 생성하므로 프로필 revision 변경은 자산 revision 변경이다. 자산 변경은 새 revision과 새 binding generation으로만 적용하고 진행 회차의 프롬프트를 바꾸지 않는다. 실험은 완전한 쌍만 품질 비교에 넣고 누락·중복·장애·`unscorable`을 별도 분모로 보고하며, `split: holdout` 사례는 결과를 보고 수정한 순간 `dev`로 이동한다. 절차·층 구조·독립성 조건은 [정본 D20](../../MOIRAI_ENGINE.md#역할-프롬프트와-개선-루프)이 소유한다.
 
 | 판단 모듈·고유 목표 | 입력과 계산 | 출력과 결과 확인 |
 | --- | --- | --- |
@@ -45,7 +57,7 @@ Senpi 연결은 PR #10의 [세션 생성](https://github.com/thisisjun786/lina/b
 JudgmentSnapshot = { schemaVersion, roundId, agentId, scopeId, sourceRefs,
   workingRevision, instructionRevision, policyRevision, identityRevision,
   domainRevisions, intentionRevision, objectiveProfileRefs,
-  observationRef, frozenNeuralRef, clockId, sequence, bindingGeneration }
+  observationRef, frozenNeuralRef, situation, clockId, sequence, bindingGeneration }
 Assessment = { schemaVersion, moduleKind, snapshotId, inputDigest,
   objectiveRef, mechanismRevision, completeText, evidenceRefs, proposedOptions,
   objectiveAssessments, recommendedOptionKeys,
