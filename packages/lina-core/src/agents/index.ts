@@ -60,3 +60,22 @@ export {
 	snapshotDigest,
 	transitionIntention,
 } from "./judgment-validation.ts";
+
+// Persona schema contracts.
+
+export type {
+	DimensionSource,
+	NeuralProjectionRef,
+	PersonaDimensionRef,
+} from "./behavior-types.ts";
+export { DIMENSION_SOURCES } from "./behavior-types.ts";
+export type {
+	PersonaDimension,
+	PersonaDimensionKind,
+	PersonaSchema,
+} from "./persona-schema.ts";
+export {
+	parsePersonaSchema,
+	personaSchemaDigest,
+	personaSchemaFromLifeDefinition,
+} from "./persona-schema.ts";
