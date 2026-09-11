@@ -12,6 +12,7 @@
 | 이미지·파일 붙여넣기 | [첨부 계획](plans/codex-ui/003_clipboard_attachment.md) | 공통 첨부 큐와 플랫폼별 검증이 필요한 계획 |
 | 전용 컴퓨터의 공통 계약 | [컴퓨터·실행·입력 소유권](plans/platform/001_runtime_contracts.md) | API·저장 계약 제안, 독립 GUI 입력은 아직 미검증 |
 | 검증 모델 프리셋과 연결 | [Moirai 모델 계약](plans/context-engines/030_moirai_refactor_plan.md#모델-운영-검증한-프리셋으로-제한), [모델 온보딩](plans/platform/005_model_onboarding.md) | 사용자 백엔드 임의 설정 취소. 유지보수자가 검증한 모델·역할 프리셋으로 제한하는 전환 계획이며 기존 설정 API는 아직 유지 |
+| 모델·역할 시스템 프롬프트 작성과 개선 | [작성·비교 평가 방법론](plans/platform/014_model_tuning_methodology_research.md) | Senpi 공개 소스 기반 연구와 Lina 적용 제안. 역할·모델·실행 경계, 작성·수정 절차, 비교 자동화·독립 판정·채택 기준을 정리했으며 실행기 구현·운영 프롬프트 변경·실모델 검증은 미실행 |
 | 설치 구성과 전체 상태 버전관리 | [리팩터링 요구](plans/platform/008_refactor_preparation.md) | 홈·패키지 분리·로컬 체크포인트 구현, 자동 이력·선택 복원·외부 내보내기는 후속 |
 | ima2 이미지 엔진 | [생성·편집 연동](plans/platform/009_ima2_image_engine.md), [LIFE 통합 계약](plans/life/070_images_and_avatars.md) | 기존 이미지 엔진과 LIFE 게시·아바타 연결 구현. 070에서 전체 테스트 3,357개·HTTP 27건·독립 리뷰 통과. 실제 이미지 품질·UI는 별도 검증 |
 | 주기적 프로필 사진과 내부 SNS | [에이전트 일상](plans/platform/010_agent_daily_life_ideas.md), [LIFE 전체 구현 계획](plans/life/000_plan.md) | 내부 게시물·에이전트 답글·댓글·반응·재공유와 다음 경험 연결 구현·검토 통과. 이미지·주기적 프로필 사진 연결도 로컬 검증 통과. UI와 실제 생성 품질은 별도 검증. 주기·예산·공유 대상은 명시적 설정 |
