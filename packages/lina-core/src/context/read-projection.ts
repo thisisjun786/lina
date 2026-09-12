@@ -57,10 +57,6 @@ function sha256Hex(text: string): string {
 	return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-function isNonBlankId(value: unknown): value is string {
-	return typeof value === "string" && value.trim().length > 0;
-}
-
 const ISO_8601_PATTERN =
 	/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-](\d{2}):(\d{2}))$/;
 
@@ -152,13 +148,15 @@ function parseInstructionRef(value: unknown): InstructionRef {
 		if (!["requestId", "entryId", "textDigest"].includes(key))
 			reject(`unknown context read projection instruction field ${key}`);
 	}
-	const requestId = obj.requestId;
-	const entryId = obj.entryId;
+	const requestId = validId(
+		obj.requestId,
+		"context read projection instruction requestId",
+	);
+	const entryId = validId(
+		obj.entryId,
+		"context read projection instruction entryId",
+	);
 	const textDigest = obj.textDigest;
-	if (!isNonBlankId(requestId))
-		reject("invalid context read projection instruction requestId");
-	if (!isNonBlankId(entryId))
-		reject("invalid context read projection instruction entryId");
 	if (typeof textDigest !== "string" || !/^[0-9a-f]{64}$/.test(textDigest))
 		reject("invalid context read projection instruction textDigest");
 	return { requestId, entryId, textDigest };
@@ -196,17 +194,15 @@ function validateInput(
 	// Validate working against the same bounds the store uses.
 	try {
 		parseWorking(working);
+		if (instruction !== null) {
+			validId(instruction.requestId, "instruction requestId");
+			validId(instruction.entryId, "instruction entryId");
+		}
 	} catch {
 		reject("invalid context read projection input");
 	}
 	if (typeof projectedAt !== "string" || !isIso8601(projectedAt))
 		reject("invalid context read projection input");
-	if (instruction !== null) {
-		if (!isNonBlankId(instruction.requestId))
-			reject("invalid context read projection input");
-		if (!isNonBlankId(instruction.entryId))
-			reject("invalid context read projection input");
-	}
 }
 
 /**

@@ -262,6 +262,33 @@ describe("ContextReadProjection", () => {
 		).toThrow(/invalid context read projection instructionRevision/);
 	});
 
+	it.each(["requestId", "entryId"] as const)(
+		"rejects invalid instruction %s in both builder and restored state",
+		(field) => {
+			const input = {
+				working: store.working(),
+				instruction: makeInstruction("bounded-entry", "hello"),
+				previous: null,
+				projectedAt: "2026-09-12T00:00:00.000Z",
+			};
+			const projection = buildContextReadProjection(input);
+			for (const id of ["entry\0hidden", "x".repeat(100_000)]) {
+				expect(() =>
+					buildContextReadProjection({
+						...input,
+						instruction: { ...input.instruction, [field]: id },
+					}),
+				).toThrow(/invalid context read projection/);
+				expect(() =>
+					parseContextReadProjection({
+						...projection,
+						instruction: { ...projection.instruction, [field]: id },
+					}),
+				).toThrow(/invalid context read projection/);
+			}
+		},
+	);
+
 	it.each([
 		[""],
 		[" "],
