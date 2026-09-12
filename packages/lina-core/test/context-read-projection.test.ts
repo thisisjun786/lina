@@ -104,6 +104,29 @@ describe("ContextReadProjection", () => {
 		expect(p1.workingRevision).toBe(p0.workingRevision);
 	});
 
+	it("rejects instruction revision overflow but retains the maximum revision for unchanged input", () => {
+		const input = {
+			working: store.working(),
+			instruction: makeInstruction("overflow-entry", "original"),
+			previous: null,
+			projectedAt: "2026-09-12T00:00:00.000Z",
+		};
+		const previous = {
+			...buildContextReadProjection(input),
+			instructionRevision: Number.MAX_SAFE_INTEGER,
+		};
+		expect(parseContextReadProjection(previous)).toEqual(previous);
+		const unchanged = buildContextReadProjection({ ...input, previous });
+		expect(unchanged).toEqual(previous);
+		expect(() =>
+			buildContextReadProjection({
+				...input,
+				instruction: { ...input.instruction, text: "changed" },
+				previous,
+			}),
+		).toThrow(/instructionRevision/);
+	});
+
 	it("increments instructionRevision when text changes for the same entry", () => {
 		const instruction1 = makeInstruction("i1", "hello");
 		const projectedAt = "2026-09-10T00:00:00.000Z";
@@ -238,6 +261,64 @@ describe("ContextReadProjection", () => {
 			}),
 		).toThrow(/invalid context read projection instructionRevision/);
 	});
+
+	it.each([
+		[""],
+		[" "],
+		["entry\0id"],
+		["x".repeat(100_000)],
+		["entry-1", "entry-1"],
+	])("rejects invalid restored source identifiers: %j", (...sourceEntryIds) => {
+		const projection = buildContextReadProjection({
+			working: store.working(),
+			instruction: null,
+			previous: null,
+			projectedAt: "2026-09-12T00:00:00.000Z",
+		});
+		expect(() =>
+			parseContextReadProjection({
+				...projection,
+				working: { ...projection.working, sourceEntryIds },
+			}),
+		).toThrow(/sourceEntryIds/);
+	});
+
+	it.each(["bogus", "a".repeat(63), "a".repeat(65), "g".repeat(64)])(
+		"rejects invalid restored instruction digest: %s",
+		(textDigest) => {
+			const projection = buildContextReadProjection({
+				working: store.working(),
+				instruction: makeInstruction("digest-entry", "hello"),
+				previous: null,
+				projectedAt: "2026-09-12T00:00:00.000Z",
+			});
+			expect(() =>
+				parseContextReadProjection({
+					...projection,
+					instruction: { ...projection.instruction, textDigest },
+				}),
+			).toThrow(/instruction textDigest/);
+		},
+	);
+
+	it.each(["decisions", "openItems", "nextSteps"] as const)(
+		"rejects blank restored working %s",
+		(field) => {
+			const projection = buildContextReadProjection({
+				working: store.working(),
+				instruction: null,
+				previous: null,
+				projectedAt: "2026-09-12T00:00:00.000Z",
+			});
+			for (const item of ["", " \n\t "])
+				expect(() =>
+					parseContextReadProjection({
+						...projection,
+						working: { ...projection.working, [field]: [item] },
+					}),
+				).toThrow(/invalid working/);
+		},
+	);
 
 	it("rejects non-ISO projectedAt in builder and parser", () => {
 		const working = store.working();

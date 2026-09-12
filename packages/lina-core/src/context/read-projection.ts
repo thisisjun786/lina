@@ -15,6 +15,7 @@ import {
 	WORKING_SOURCES_MAX,
 	type WorkingState,
 } from "./types.ts";
+import { validId } from "./validation.ts";
 
 /** Identifies the instruction whose text was last projected. */
 export interface InstructionRef {
@@ -101,7 +102,8 @@ function parseBoundedStringList(value: unknown, field: string): string[] {
 	if (!Array.isArray(value)) reject(`invalid working ${field}`);
 	if (value.length > WORKING_LIST_MAX_ITEMS) reject(`invalid working ${field}`);
 	for (const item of value) {
-		if (typeof item !== "string") reject(`invalid working ${field}`);
+		if (typeof item !== "string" || item.trim().length === 0)
+			reject(`invalid working ${field}`);
 		if (item.length > WORKING_ITEM_MAX_CHARS)
 			reject(`invalid working ${field}`);
 	}
@@ -136,10 +138,10 @@ function parseSourceEntryIds(value: unknown): string[] {
 	if (!Array.isArray(value)) reject("invalid working sourceEntryIds");
 	if (value.length > WORKING_SOURCES_MAX)
 		reject("invalid working sourceEntryIds");
-	for (const item of value) {
-		if (typeof item !== "string") reject("invalid working sourceEntryIds");
-	}
-	return [...(value as string[])];
+	const ids = value.map((item) => validId(item, "working sourceEntryIds"));
+	if (new Set(ids).size !== ids.length)
+		reject("working sourceEntryIds must be unique");
+	return ids;
 }
 
 function parseInstructionRef(value: unknown): InstructionRef {
@@ -157,7 +159,7 @@ function parseInstructionRef(value: unknown): InstructionRef {
 		reject("invalid context read projection instruction requestId");
 	if (!isNonBlankId(entryId))
 		reject("invalid context read projection instruction entryId");
-	if (typeof textDigest !== "string" || textDigest.length === 0)
+	if (typeof textDigest !== "string" || !/^[0-9a-f]{64}$/.test(textDigest))
 		reject("invalid context read projection instruction textDigest");
 	return { requestId, entryId, textDigest };
 }
@@ -221,22 +223,21 @@ export function buildContextReadProjection(input: {
 	const { working, instruction, previous, projectedAt } = input;
 	validateInput(working, projectedAt, instruction);
 
-	const instructionRef: InstructionRef | null =
-		instruction === null
-			? null
-			: {
-					requestId: instruction.requestId,
-					entryId: instruction.entryId,
-					textDigest: sha256Hex(instruction.text),
-				};
-
-	const instructionRevision =
-		previous === null
-			? instructionRef === null
-				? 0
-				: 1
-			: previous.instructionRevision +
-				(sameInstruction(previous.instruction, instructionRef) ? 0 : 1);
+	let instructionRef: InstructionRef | null = null;
+	if (instruction !== null) {
+		instructionRef = {
+			requestId: instruction.requestId,
+			entryId: instruction.entryId,
+			textDigest: sha256Hex(instruction.text),
+		};
+	}
+	let instructionRevision = instructionRef === null ? 0 : 1;
+	if (previous !== null)
+		instructionRevision =
+			previous.instructionRevision +
+			(sameInstruction(previous.instruction, instructionRef) ? 0 : 1);
+	if (!Number.isSafeInteger(instructionRevision))
+		reject("invalid context read projection instructionRevision");
 
 	return {
 		schemaVersion: 1,
