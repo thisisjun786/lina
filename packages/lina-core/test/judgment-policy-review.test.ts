@@ -232,6 +232,101 @@ test("personal.v1 revision one rejects altered or malformed declarations", () =>
 	).toEqual(resolvePersonalRound(input));
 });
 
+test("a module omitted from round ordering makes no concession", () => {
+	const input = fixture();
+	const original = input.options[0];
+	if (!original) throw Error("missing candidate");
+	const alternative = buildCanonicalOption({
+		...original,
+		targetId: "alternative",
+	});
+	input.options.push(alternative);
+	input.eligibility.push({
+		optionKey: alternative.optionKey,
+		eligible: true,
+		reason: null,
+	});
+	for (const assessment of input.set.assessments) {
+		const opinion = assessment.objectiveAssessments[0];
+		if (!opinion) throw Error("missing opinion");
+		opinion.stance = assessment.moduleKind === "clotho" ? "prefer" : "accept";
+		assessment.objectiveAssessments.push({
+			...opinion,
+			optionKey: alternative.optionKey,
+			stance: assessment.moduleKind === "clotho" ? "unavailable" : "prefer",
+			unavailableReason:
+				assessment.moduleKind === "clotho" ? "missing forecast" : null,
+		});
+	}
+	const result = resolvePersonalRound(input);
+	expect(result.resolution.ranking).toContainEqual({
+		optionKey: original.optionKey,
+		rank: 2,
+	});
+	expect(result.resolution.abstentions).toContainEqual({
+		moduleKind: "clotho",
+		optionKey: alternative.optionKey,
+		reason: "missing forecast",
+	});
+	expect(result.resolution.conceded).toEqual([]);
+});
+
+test("partial neural lookup failure keeps the entire decision at its baseline distribution", () => {
+	const input = fixture();
+	const original = input.options[0];
+	if (!original) throw Error("missing candidate");
+	const alternative = buildCanonicalOption({
+		...original,
+		targetId: "alternative",
+	});
+	input.options.push(alternative);
+	input.eligibility.push({
+		optionKey: alternative.optionKey,
+		eligible: true,
+		reason: null,
+	});
+	for (const assessment of input.set.assessments) {
+		const opinion = assessment.objectiveAssessments[0];
+		if (!opinion) throw Error("missing opinion");
+		assessment.objectiveAssessments.push({
+			...opinion,
+			optionKey: alternative.optionKey,
+			stance: "accept",
+		});
+	}
+	input.bias = { [original.optionKey]: null, [alternative.optionKey]: 1 };
+	const { spec } = resolvePersonalRound(input);
+	if (!spec) throw Error("missing selection spec");
+	const restored = JSON.parse(JSON.stringify(spec));
+	const sampled = sampleSelection(restored, 0.5);
+	expect(
+		sampled.probabilities.find((row) => row.optionKey === original.optionKey)
+			?.p,
+	).toBeCloseTo(2 / 3, 12);
+	expect(
+		sampled.probabilities.find((row) => row.optionKey === alternative.optionKey)
+			?.p,
+	).toBeCloseTo(1 / 3, 12);
+
+	const excluded = buildCanonicalOption({
+		...original,
+		targetId: "excluded",
+	});
+	input.options.push(excluded);
+	input.bias = { [original.optionKey]: 0, [alternative.optionKey]: 1 };
+	const complete = resolvePersonalRound(input).spec;
+	if (!complete) throw Error("missing complete spec");
+	const modulated = sampleSelection(complete, 0.5);
+	expect(
+		modulated.probabilities.find((row) => row.optionKey === original.optionKey)
+			?.p,
+	).toBeCloseTo(2 / (2 + Math.E), 12);
+	expect(
+		modulated.probabilities.find((row) => row.optionKey === excluded.optionKey)
+			?.p,
+	).toBe(0);
+});
+
 for (const outcome of ["resolved", "held", "deferred"] as const) {
 	function round() {
 		const input = fixture();

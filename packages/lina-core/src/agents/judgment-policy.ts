@@ -274,6 +274,7 @@ export function resolvePersonalRound(input: {
 	);
 	const ranked = new Set(record.ranking.map((r) => r.optionKey));
 	for (const assessment of set.assessments) {
+		if (!orderingModules.includes(assessment.moduleKind)) continue;
 		for (const opinion of assessment.objectiveAssessments) {
 			if (
 				ranked.has(opinion.optionKey) &&
@@ -347,7 +348,10 @@ export function sampleSelection(
 		};
 	if (!Number.isFinite(u) || u < 0 || u >= 1)
 		throw Error("invalid selection draw");
-	const logs = positive.map((c) => Math.log(c.p0) + parsed.lambda * (c.b ?? 0));
+	// Preserve lookup evidence in the spec; a partial failure disables the
+	// decision's entire modulation, not just the unavailable candidate's bias.
+	const lambda = positive.some((c) => c.b === null) ? 0 : parsed.lambda;
+	const logs = positive.map((c) => Math.log(c.p0) + lambda * (c.b ?? 0));
 	const max = Math.max(...logs);
 	const total = logs.reduce((sum, log) => sum + Math.exp(log - max), 0);
 	const probabilities = parsed.candidates.map((c) => ({
@@ -355,7 +359,7 @@ export function sampleSelection(
 		p:
 			c.p0 === 0
 				? 0
-				: Math.exp(Math.log(c.p0) + parsed.lambda * (c.b ?? 0) - max) / total,
+				: Math.exp(Math.log(c.p0) + lambda * (c.b ?? 0) - max) / total,
 	}));
 	let cumulative = 0;
 	let lastPositive: OptionKey | undefined;
