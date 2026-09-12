@@ -298,6 +298,14 @@ function p0(spec: SelectionSpec, optionKey: string): number | undefined {
 	return spec.candidates.find((row) => row.optionKey === optionKey)?.p0;
 }
 
+function sortedAssessments(rows: Assessment[]): Assessment[] {
+	return [...rows].sort((a, b) =>
+		a.moduleKind < b.moduleKind ? -1 : a.moduleKind > b.moduleKind ? 1 : 0,
+	);
+}
+
+const AUTONOMOUS_ORDER = ["lachesis", "clotho", "atropos"] as const;
+
 function playRound(store: JudgmentStore, situation: Situation) {
 	const projection = contextProjection();
 	const profiles = putActivatedProfiles(store);
@@ -309,12 +317,15 @@ function playRound(store: JudgmentStore, situation: Situation) {
 		options.noop,
 	];
 	const snapshot = snapshotRef(situation, profiles.refs, projection);
-	expect(store.openRound(snapshot)).toEqual({
+	const opened = store.openRound(snapshot);
+	expect(opened).toEqual({
 		roundId: snapshot.roundId,
 		snapshotDigest: snapshotDigest(snapshot),
 	});
-	for (const moduleKind of ["clotho", "lachesis", "atropos"] as const)
-		store.putAssessment(assessmentFor(snapshot, moduleKind, candidates));
+	const assessments = (["clotho", "lachesis", "atropos"] as const).map(
+		(moduleKind) => assessmentFor(snapshot, moduleKind, candidates),
+	);
+	for (const assessment of assessments) store.putAssessment(assessment);
 	const set = store.assessmentSet(snapshot.roundId);
 	const resolved = resolvePersonalRound({
 		policy: PERSONAL_POLICY_V1,
@@ -329,13 +340,30 @@ function playRound(store: JudgmentStore, situation: Situation) {
 		bias: {},
 	});
 	store.recordResolution(snapshot.roundId, resolved.resolution, resolved.spec);
-	return { projection, profiles, options, candidates, snapshot, set, resolved };
+	return {
+		projection,
+		profiles,
+		options,
+		candidates,
+		snapshot,
+		opened,
+		assessments,
+		resolved,
+	};
 }
 
 test("autonomous personal.v1 round persists selection, sampling and adopted intention", () => {
 	const store = open();
-	const { projection, profiles, options, candidates, snapshot, set, resolved } =
-		playRound(store, "autonomous");
+	const {
+		projection,
+		profiles,
+		options,
+		candidates,
+		snapshot,
+		opened,
+		assessments,
+		resolved,
+	} = playRound(store, "autonomous");
 
 	expect(projection.workingRevision).toBe(7);
 	expect(projection.instructionRevision).toBe(2);
@@ -364,37 +392,37 @@ test("autonomous personal.v1 round persists selection, sampling and adopted inte
 	expect(options.inquireVariant.optionKey).toBe(options.inquire.optionKey);
 	expect(new Set(candidates.map((option) => option.optionKey)).size).toBe(4);
 
-	const spec = store.getSelectionSpec(snapshot.roundId);
-	const resolution = store.getResolution(snapshot.roundId);
-	expect(spec).not.toBeNull();
-	expect(resolution).not.toBeNull();
-	if (spec === null || resolution === null)
-		throw Error("missing resolution artifacts");
+	expect(resolved.spec).not.toBeNull();
+	if (resolved.spec === null) throw Error("expected resolved selection spec");
+	const spec = resolved.spec;
+	const resolution = resolved.resolution;
+	expect(store.getSelectionSpec(snapshot.roundId)).toEqual(spec);
+	expect(store.getResolution(snapshot.roundId)).toEqual(resolution);
 
 	expect(p0(spec, options.start.optionKey)).toBe(0);
 	expect(p0(spec, options.noop.optionKey)).toBe(0);
 
-	expect(set.assessments.map((row) => row.moduleKind)).toEqual([
+	expect(assessments.map((row) => row.moduleKind)).toEqual([
 		"clotho",
 		"lachesis",
 		"atropos",
 	]);
 	expect(
-		set.assessments
+		assessments
 			.find((row) => row.moduleKind === "lachesis")
 			?.objectiveAssessments.find(
 				(row) => row.optionKey === options.adopt.optionKey,
 			)?.stance,
 	).toBe("prefer");
 	expect(
-		set.assessments
+		assessments
 			.find((row) => row.moduleKind === "clotho")
 			?.objectiveAssessments.find(
 				(row) => row.optionKey === options.start.optionKey,
 			),
 	).toMatchObject({ stance: "oppose", severity: "infeasible" });
 	expect(
-		set.assessments
+		assessments
 			.find((row) => row.moduleKind === "atropos")
 			?.objectiveAssessments.find(
 				(row) => row.optionKey === options.noop.optionKey,
@@ -411,6 +439,7 @@ test("autonomous personal.v1 round persists selection, sampling and adopted inte
 	expect(spec.specDigest).toBe(
 		judgmentDigest({ ...spec, specDigest: undefined }),
 	);
+	expect(resolution.order).toEqual([...AUTONOMOUS_ORDER]);
 	expect(resolution.excluded).toContainEqual({
 		optionKey: options.start.optionKey,
 		stage: "infeasible",
@@ -443,7 +472,6 @@ test("autonomous personal.v1 round persists selection, sampling and adopted inte
 		adopted,
 	);
 
-	const round = store.getRound(snapshot.roundId);
 	close(store);
 	const reopened = open();
 	expect(reopened.getObjectiveProfile("objective-clotho", 1)).toEqual(
@@ -456,12 +484,26 @@ test("autonomous personal.v1 round persists selection, sampling and adopted inte
 		profiles.atropos,
 	);
 	expect(reopened.activeObjectiveProfiles(AGENT, SCOPE)).toEqual(profiles.refs);
-	expect(reopened.getRound(snapshot.roundId)).toEqual(round);
-	expect(reopened.assessmentSet(snapshot.roundId)).toEqual(set);
+	const reopenedRound = reopened.getRound(snapshot.roundId);
+	expect(reopenedRound).toEqual({
+		snapshot,
+		status: "resolved",
+		snapshotDigest: opened.snapshotDigest,
+	});
+	expect(reopenedRound?.snapshot).toEqual(snapshot);
+	expect(reopenedRound?.snapshot.roundId).toBe(opened.roundId);
+	expect(reopenedRound?.snapshot.situation).toBe("autonomous");
+	expect(reopenedRound?.snapshotDigest).toBe(snapshotDigest(snapshot));
+	expect(reopenedRound?.status).toBe("resolved");
+	expect(
+		sortedAssessments(reopened.assessmentSet(snapshot.roundId).assessments),
+	).toEqual(sortedAssessments(assessments));
 	expect(reopened.getResolution(snapshot.roundId)).toEqual(resolution);
+	expect(reopened.getResolution(snapshot.roundId)?.order).toEqual([
+		...AUTONOMOUS_ORDER,
+	]);
 	expect(reopened.getSelectionSpec(snapshot.roundId)).toEqual(spec);
 	expect(reopened.getIntention(proposed.intentionId)).toEqual(adopted);
-	expect(resolved.spec).toEqual(spec);
 });
 
 test("user_request personal.v1 round sets lambda 0 and atropos-first order", () => {
