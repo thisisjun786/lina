@@ -95,18 +95,14 @@ function digestValue(value: unknown, label: string): string {
 }
 
 function canonical(item: unknown): unknown {
-	return Array.isArray(item)
-		? item.map(canonical)
-		: item !== null && typeof item === "object"
-			? Object.fromEntries(
-					Object.keys(item)
-						.sort()
-						.map((key) => [
-							key,
-							canonical((item as Record<string, unknown>)[key]),
-						]),
-				)
-			: item;
+	if (Array.isArray(item)) return item.map(canonical);
+	if (item !== null && typeof item === "object")
+		return Object.fromEntries(
+			Object.keys(item)
+				.sort()
+				.map((key) => [key, canonical((item as Record<string, unknown>)[key])]),
+		);
+	return item;
 }
 
 export function personaSchemaDigest(
@@ -315,43 +311,57 @@ export function personaSchemaFromLifeDefinition(input: {
 	const schemaRevision = revision(input.revision, "persona schema revision");
 	const definition = parseLifeDefinition(input.definition);
 	const policy = profileFor(input.identity, agentId);
-	const dimensions: PersonaDimension[] = [
-		...definition.traits.map((axis) => ({
-			id: axis.id,
-			kind: "trait" as const,
-			label: axis.label,
-			source: "reflection" as const,
-			range: { min: axis.min, max: axis.max },
-			initial: axis.initial,
-			locked: lockedFor(policy, "trait", axis.id),
-			originAxisId: axis.id,
-		})),
-		...definition.habits.map((habit) => ({
-			id: habit.id,
-			kind: "habit" as const,
-			label: habit.label,
-			source: "reflection" as const,
-			range: null,
-			initial: habit.initial,
-			locked: lockedFor(policy, "habit", habit.id),
-			originAxisId: habit.id,
-		})),
-		...definition.attitudes.map((axis) => ({
-			id: axis.id,
-			kind: "attitude" as const,
-			label: axis.label,
-			source: "reflection" as const,
-			range: { min: axis.min, max: axis.max },
-			initial: axis.initial,
-			locked: lockedFor(policy, "attitude", axis.id),
-			originAxisId: axis.id,
-		})),
-	].sort(compareDimensions);
 	const ids = new Set<string>();
-	for (const dimension of dimensions) {
+	for (const dimension of [
+		...definition.traits,
+		...definition.habits,
+		...definition.attitudes,
+	]) {
 		if (ids.has(dimension.id)) throw Error("duplicate persona dimension id");
 		ids.add(dimension.id);
 	}
+	const dimensions: PersonaDimension[] = [
+		...definition.traits
+			.filter((axis) => definition.projection.sharedTraitIds.includes(axis.id))
+			.map((axis) => ({
+				id: axis.id,
+				kind: "trait" as const,
+				label: axis.label,
+				source: "reflection" as const,
+				range: { min: axis.min, max: axis.max },
+				initial: axis.initial,
+				locked: lockedFor(policy, "trait", axis.id),
+				originAxisId: axis.id,
+			})),
+		...definition.habits
+			.filter((habit) =>
+				definition.projection.sharedHabitIds.includes(habit.id),
+			)
+			.map((habit) => ({
+				id: habit.id,
+				kind: "habit" as const,
+				label: habit.label,
+				source: "reflection" as const,
+				range: null,
+				initial: habit.initial,
+				locked: lockedFor(policy, "habit", habit.id),
+				originAxisId: habit.id,
+			})),
+		...definition.attitudes
+			.filter((axis) =>
+				definition.projection.sharedAttitudeIds.includes(axis.id),
+			)
+			.map((axis) => ({
+				id: axis.id,
+				kind: "attitude" as const,
+				label: axis.label,
+				source: "reflection" as const,
+				range: { min: axis.min, max: axis.max },
+				initial: axis.initial,
+				locked: lockedFor(policy, "attitude", axis.id),
+				originAxisId: axis.id,
+			})),
+	].sort(compareDimensions);
 	const parsed: Omit<PersonaSchema, "digest"> = {
 		schemaVersion: 1,
 		agentId,

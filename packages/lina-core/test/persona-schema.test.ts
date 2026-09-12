@@ -138,6 +138,46 @@ test("derivation maps two traits, one habit and one attitude in kind then id ord
 	expect(schema.sourceIdentity).toEqual({ profileRevision: 4 });
 });
 
+test.each([
+	{
+		sharedTraitIds: ["warmth"],
+		sharedHabitIds: ["tea"],
+		sharedAttitudeIds: [],
+		expected: ["warmth", "tea"],
+	},
+	{
+		sharedTraitIds: [],
+		sharedHabitIds: [],
+		sharedAttitudeIds: ["trust"],
+		expected: ["trust"],
+	},
+	{
+		sharedTraitIds: [],
+		sharedHabitIds: [],
+		sharedAttitudeIds: [],
+		expected: [],
+	},
+])("derivation preserves projection allowlists: %j", (projection) => {
+	const schema = personaSchemaFromLifeDefinition({
+		agentId: "lina",
+		revision: 1,
+		definition: {
+			...definition,
+			projection: {
+				...definition.projection,
+				sharedTraitIds: [...projection.sharedTraitIds],
+				sharedHabitIds: [...projection.sharedHabitIds],
+				sharedAttitudeIds: [...projection.sharedAttitudeIds],
+			},
+		},
+		identity: identityV2,
+	});
+	expect(schema.dimensions.map((dimension) => dimension.id)).toEqual([
+		...projection.expected,
+	]);
+	expect(parsePersonaSchema(schema)).toEqual(schema);
+});
+
 test("derivation digest is idempotent and ignores v2-only identity fields", () => {
 	const first = derive();
 	const second = derive();
