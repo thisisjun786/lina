@@ -165,7 +165,8 @@ export function canonicalOptionKey(
 			scope: boundedId(option.effect.scope, "effect scope"),
 		},
 	});
-	return `${option.catalogId}:${kind}:${targetId ?? "-"}:${hash}`;
+	// The digest binds the target without exceeding the shared ID bound.
+	return `${option.catalogId}:${kind}:${hash}`;
 }
 
 function parsePrecondition(

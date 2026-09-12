@@ -310,14 +310,16 @@ test("(1) canonical keys normalize case, target, sorted args, NFC, whitespace an
 	expect(built.targetId).toBe("task");
 	expect(built.args).toEqual(b.args);
 	expect(built.optionKey).toBe(canonicalOptionKey(b));
-	expect(canonicalOptionKey({ ...base, targetId: null })).toContain(":-:");
+	expect(canonicalOptionKey({ ...base, targetId: null })).not.toBe(
+		canonicalOptionKey(base),
+	);
 });
 
 test("reserved target sentinel is rejected without changing null keys", () => {
 	const base = option("target");
 	const untargeted = buildCanonicalOption({ ...base, targetId: null });
 	expect(untargeted.targetId).toBeNull();
-	expect(untargeted.optionKey).toContain(":noop:-:");
+	expect(untargeted.optionKey).toMatch(/^personal\.v1:noop:[a-f0-9]{64}$/);
 	expect(parseCanonicalOption(untargeted)).toEqual(untargeted);
 	for (const targetId of ["-", " - "])
 		for (const action of [
@@ -339,7 +341,7 @@ test("(2) golden option parses byte-identically and rejects invalid boundary dat
 		preconditions: { kind: "noop", reason: "nothing needed" },
 		effect: { owner: "none", scope: "scope" },
 		optionKey:
-			"personal.v1:noop:-:87529c8e7be62a166697c588491676440f0dd893f67561788cb6c2462904ddcf",
+			"personal.v1:noop:87529c8e7be62a166697c588491676440f0dd893f67561788cb6c2462904ddcf",
 	};
 	expect(JSON.stringify(parseCanonicalOption(golden))).toBe(
 		JSON.stringify(golden),

@@ -69,6 +69,28 @@ test("identity fixtures cover every personal option kind", () => {
 });
 
 for (const precondition of preconditions) {
+	for (const length of [100, 160]) {
+		test(`${precondition.kind} round-trips a ${length}-character target with a bounded key`, () => {
+			const original = option(precondition);
+			const targetId = "x".repeat(length);
+			const built = buildCanonicalOption({ ...original, targetId });
+			expect(built.targetId).toBe(targetId);
+			expect(built.optionKey.length).toBeLessThanOrEqual(160);
+			expect(built.optionKey.length).toBe(original.optionKey.length);
+			expect(parseCanonicalOption(JSON.parse(JSON.stringify(built)))).toEqual(
+				built,
+			);
+			const changed = buildCanonicalOption({
+				...built,
+				targetId: `${targetId.slice(0, -1)}y`,
+			});
+			expect(changed.optionKey).not.toBe(built.optionKey);
+			expect(() =>
+				parseCanonicalOption({ ...changed, optionKey: built.optionKey }),
+			).toThrow("canonical option key mismatch");
+		});
+	}
+
 	for (const [field, value] of Object.entries(precondition)) {
 		if (field === "kind") continue;
 		test(`${precondition.kind} identity binds preconditions.${field}`, () => {
@@ -164,19 +186,24 @@ for (const effect of [
 	});
 }
 
-test("keys retain catalog/kind/target prefix, argument sensitivity and null sentinel", () => {
+test("bounded keys retain catalog/kind prefix and bind arguments and nullable target", () => {
 	const original = option({ kind: "noop", reason: "nothing needed" });
-	expect(original.optionKey).toMatch(/^personal\.v1:noop:target:[a-f0-9]{64}$/);
-	expect(canonicalOptionKey({ ...original, targetId: null })).toMatch(
-		/^personal\.v1:noop:-:[a-f0-9]{64}$/,
-	);
+	expect(original.optionKey).toMatch(/^personal\.v1:noop:[a-f0-9]{64}$/);
+	const untargeted = buildCanonicalOption({ ...original, targetId: null });
+	expect(untargeted.optionKey).toMatch(/^personal\.v1:noop:[a-f0-9]{64}$/);
+	expect(untargeted.optionKey).not.toBe(original.optionKey);
+	expect(parseCanonicalOption(untargeted)).toEqual(untargeted);
 	expect(canonicalOptionKey({ ...original, targetId: "other" })).not.toBe(
 		original.optionKey,
 	);
 	expect(
 		canonicalOptionKey({ ...original, args: { text: "different" } }),
 	).not.toBe(original.optionKey);
-	expect(() => canonicalOptionKey({ ...original, targetId: " - " })).toThrow();
+	for (const targetId of [" - ", "x".repeat(161)]) {
+		expect(() => canonicalOptionKey({ ...original, targetId })).toThrow();
+		expect(() => buildCanonicalOption({ ...original, targetId })).toThrow();
+		expect(() => parseCanonicalOption({ ...original, targetId })).toThrow();
+	}
 });
 
 test("precondition text is not normalized like display arguments", () => {
