@@ -14,6 +14,8 @@ import {
 	personaSchemaDigest,
 	personaSchemaFromLifeDefinition,
 } from "../src/agents/index.ts";
+import type { IdentityPolicySnapshot } from "../src/world/life-types.ts";
+import { parseIdentityPolicy } from "../src/world/life-validation.ts";
 
 const HASH = "a".repeat(64);
 const PINNED_BEHAVIOR_FINGERPRINT =
@@ -64,7 +66,7 @@ const identityV2 = {
 };
 
 function derive(
-	identity: typeof identityV1 | typeof identityV2 | null = identityV2,
+	identity: IdentityPolicySnapshot | null = identityV2,
 ): PersonaSchema {
 	return personaSchemaFromLifeDefinition({
 		agentId: "lina",
@@ -275,6 +277,92 @@ test("derivation digest is idempotent and ignores v2-only identity fields", () =
 	expect(missing.sourceIdentity).toBeNull();
 	expect(missing.dimensions.every((row) => row.locked === false)).toBe(true);
 	expect(missing.digest).toBe(unlocked.digest);
+});
+
+test.each([identityV1, identityV2])(
+	"derivation rejects duplicate profiles: %j",
+	(identity) => {
+		const profile = identity.profiles[0];
+		if (!profile) throw Error("expected profile");
+		const manual = { ...profile, evolution: "manual" as const };
+		for (const profiles of [
+			[profile, manual],
+			[manual, profile],
+		]) {
+			const invalid = { ...identity, profiles } as IdentityPolicySnapshot;
+			expect(() => parseIdentityPolicy(invalid)).toThrow();
+			expect(() => derive(invalid)).toThrow();
+		}
+	},
+);
+
+test.each([
+	{ ...identityV1, version: 3 },
+	{ ...identityV1, extra: true as const },
+	{ profiles: identityV1.profiles },
+	{ version: 1, profiles: {} },
+])("derivation rejects malformed identity snapshots: %j", (identity) => {
+	expect(() => parseIdentityPolicy(identity)).toThrow();
+	expect(() => derive(identity as IdentityPolicySnapshot)).toThrow();
+});
+
+test.each([
+	{ evolution: "automatic" },
+	{ profileRevision: 0 },
+	{ extra: true },
+	{ lockedTraitIds: "warmth" },
+	{ lockedTraitIds: ["warmth", "warmth"] },
+	{ lockedHabitIds: [1] },
+	{ lockedAttitudeIds: null },
+	{ personalBehavior: {} },
+	{ personalBehavior: { traits: [], habits: [] } },
+	{ sourceStamp: {} },
+	{
+		personalBehavior: { traits: [], habits: [] },
+		sourceStamp: {
+			digest: HASH,
+			receiptRevision: 1,
+			profileRevision: 5,
+			definitionRevision: 1,
+			projectionRevision: 1,
+		},
+	},
+])(
+	"derivation validates every identity profile before selection: %j",
+	(patch) => {
+		const valid = { ...lockProfile, personalBehavior: null, sourceStamp: null };
+		const invalid = { ...valid, ...patch };
+		const unrelated = { ...invalid, agentId: "mira" };
+		for (const profiles of [[invalid], [valid, unrelated], [unrelated]]) {
+			const identity = { version: 2, profiles } as IdentityPolicySnapshot;
+			expect(() => parseIdentityPolicy(identity)).toThrow();
+			expect(() => derive(identity)).toThrow();
+		}
+	},
+);
+
+test("valid v2 personal values and source anchors do not affect derivation", () => {
+	const identity: IdentityPolicySnapshot = {
+		version: 2,
+		profiles: [
+			{
+				...lockProfile,
+				personalBehavior: {
+					traits: [{ axisId: "other-world-axis", value: 42 }],
+					habits: [{ habitId: "other-world-habit", value: false }],
+				},
+				sourceStamp: {
+					digest: HASH,
+					receiptRevision: 1,
+					profileRevision: lockProfile.profileRevision,
+					definitionRevision: 2,
+					projectionRevision: 2,
+				},
+			},
+		],
+	};
+	expect(parseIdentityPolicy(identity)).toEqual(identity);
+	expect(derive(identity)).toEqual(derive(identityV1));
 });
 
 test("parsePersonaSchema round-trips a derived schema", () => {

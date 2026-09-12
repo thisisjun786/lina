@@ -5,7 +5,10 @@ import type {
 	IdentityProfilePolicy,
 	LifeDefinition,
 } from "../world/life-types.ts";
-import { parseLifeDefinition } from "../world/life-validation.ts";
+import {
+	parseIdentityPolicy,
+	parseLifeDefinition,
+} from "../world/life-validation.ts";
 import { knownAgents } from "../world/validation.ts";
 import { DIMENSION_SOURCES, type DimensionSource } from "./behavior-types.ts";
 import { boundedId } from "./validation.ts";
@@ -278,7 +281,7 @@ function profileFor(
 	agentId: string,
 ): IdentityProfilePolicy | null {
 	if (identity === null) return null;
-	for (const profile of identity.profiles)
+	for (const profile of parseIdentityPolicy(identity).profiles)
 		if (profile.agentId === agentId) return profile;
 	return null;
 }
