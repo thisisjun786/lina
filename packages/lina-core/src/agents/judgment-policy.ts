@@ -90,6 +90,13 @@ export function resolvePersonalRound(input: {
 		);
 	const keys = new Set(options.map((o) => o.optionKey));
 	if (keys.size !== options.length) throw Error("duplicate option key");
+	for (const option of options) {
+		if (
+			option.actor.agentId !== snapshot.agentId ||
+			option.actor.scopeId !== snapshot.scopeId
+		)
+			throw Error("option actor snapshot mismatch");
+	}
 	const eligibility = new Map<OptionKey, HostEligibility[number]>();
 	for (const row of input.eligibility) {
 		if (!keys.has(row.optionKey)) throw Error("unknown eligibility option key");
@@ -265,10 +272,11 @@ export function resolvePersonalRound(input: {
 	const winners = new Set(
 		record.ranking.filter((r) => r.rank === 1).map((r) => r.optionKey),
 	);
+	const ranked = new Set(record.ranking.map((r) => r.optionKey));
 	for (const assessment of set.assessments) {
 		for (const opinion of assessment.objectiveAssessments) {
 			if (
-				keys.has(opinion.optionKey) &&
+				ranked.has(opinion.optionKey) &&
 				opinion.stance === "prefer" &&
 				!winners.has(opinion.optionKey)
 			)

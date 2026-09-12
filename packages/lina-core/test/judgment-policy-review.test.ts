@@ -114,6 +114,92 @@ function fixture(): Parameters<typeof resolvePersonalRound>[0] {
 	};
 }
 
+for (const field of ["agentId", "scopeId"] as const) {
+	test(`rejects candidate ${field} outside its frozen round`, () => {
+		const input = fixture();
+		const original = input.options[0];
+		if (!original) throw Error("missing candidate");
+		const foreign = buildCanonicalOption({
+			...original,
+			actor: { ...original.actor, [field]: "foreign" },
+		});
+		input.options = [foreign];
+		input.eligibility = [
+			{ optionKey: foreign.optionKey, eligible: true, reason: null },
+		];
+		for (const assessment of input.set.assessments) {
+			assessment.proposedOptionKeys = [foreign.optionKey];
+			assessment.recommendedOptionKeys = [foreign.optionKey];
+			for (const opinion of assessment.objectiveAssessments)
+				opinion.optionKey = foreign.optionKey;
+		}
+		expect(parseAssessmentSet(input.set)).toEqual(input.set);
+		expect(() => resolvePersonalRound(input)).toThrow(
+			"option actor snapshot mismatch",
+		);
+	});
+}
+
+for (const removal of ["host", "commitment", "infeasible", "ranked"] as const) {
+	test(`concessions distinguish ${removal} exclusion from a ranked preference loss`, () => {
+		const input = fixture();
+		const preferred = input.options[0];
+		if (!preferred) throw Error("missing candidate");
+		const alternative = buildCanonicalOption({
+			...preferred,
+			targetId: "alternative",
+		});
+		input.options.push(alternative);
+		input.eligibility = [
+			{
+				optionKey: preferred.optionKey,
+				eligible: removal !== "host",
+				reason: removal === "host" ? "not authorized" : null,
+			},
+			{ optionKey: alternative.optionKey, eligible: true, reason: null },
+		];
+		for (const assessment of input.set.assessments) {
+			const opinion = assessment.objectiveAssessments[0];
+			if (!opinion) throw Error("missing opinion");
+			assessment.objectiveAssessments.push({
+				...opinion,
+				optionKey: alternative.optionKey,
+				stance:
+					removal === "ranked" && assessment.moduleKind === "lachesis"
+						? "prefer"
+						: "accept",
+			});
+			if (removal === "ranked" && assessment.moduleKind === "lachesis")
+				opinion.stance = "accept";
+			if (removal === "commitment" && assessment.moduleKind === "atropos") {
+				opinion.stance = "oppose";
+				opinion.severity = "commitment_breach";
+			}
+			if (removal === "infeasible" && assessment.moduleKind === "clotho") {
+				opinion.stance = "oppose";
+				opinion.severity = "infeasible";
+			}
+		}
+		const { resolution } = resolvePersonalRound(input);
+		expect(resolution.status).toBe("resolved");
+		if (removal === "ranked") {
+			expect(resolution.conceded).toContainEqual({
+				moduleKind: "clotho",
+				optionKey: preferred.optionKey,
+			});
+			expect(resolution.ranking).toContainEqual({
+				optionKey: preferred.optionKey,
+				rank: 2,
+			});
+		} else {
+			expect(resolution.excluded.map((row) => row.optionKey)).toContain(
+				preferred.optionKey,
+			);
+			expect(resolution.conceded).toEqual([]);
+		}
+	});
+}
+
 test("personal.v1 revision one rejects altered or malformed declarations", () => {
 	const input = fixture();
 	for (const change of [
