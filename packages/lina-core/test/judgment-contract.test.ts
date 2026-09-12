@@ -400,6 +400,42 @@ test("snapshot opaque refs and independently bounded revisions", () => {
 	).toThrow(/unknown/);
 });
 
+test("snapshot source IDs use context owner bounds without widening agent or unknown-owner IDs", () => {
+	for (const kind of ["request", "entry", "summary"]) {
+		for (const length of [160, 161, 256]) {
+			const source = { kind, id: "x".repeat(length), revision: 0 };
+			expect(
+				parseJudgmentSnapshotRef({ ...snapshot, sourceRefs: [source] })
+					.sourceRefs,
+			).toEqual([source]);
+		}
+		for (const id of ["x".repeat(257), "", " ", "x\u0000y", null, 42])
+			expect(() =>
+				parseJudgmentSnapshotRef({
+					...snapshot,
+					sourceRefs: [{ kind, id, revision: 0 }],
+				}),
+			).toThrow("invalid source id");
+	}
+	for (const kind of ["custom-owner", "Entry", " entry "]) {
+		const source = { kind, id: "x".repeat(160), revision: 0 };
+		expect(
+			parseJudgmentSnapshotRef({ ...snapshot, sourceRefs: [source] })
+				.sourceRefs,
+		).toEqual([source]);
+		expect(() =>
+			parseJudgmentSnapshotRef({
+				...snapshot,
+				sourceRefs: [{ ...source, id: "x".repeat(161) }],
+			}),
+		).toThrow("invalid source id");
+	}
+	for (const agentId of ["x".repeat(161), "x".repeat(256)])
+		expect(() => parseJudgmentSnapshotRef({ ...snapshot, agentId })).toThrow(
+			"invalid agent id",
+		);
+});
+
 test("snapshot requires a bounded policy identity without a fallback", () => {
 	const { policyRevision: _revision, ...withoutRevision } = snapshot;
 	expect(() => parseJudgmentSnapshotRef(withoutRevision)).toThrow();
@@ -606,6 +642,27 @@ test("resolution hold reason is present exactly when unresolved", () => {
 			ranking: [{ optionKey: "a", rank: 0 }],
 		}),
 	).toThrow();
+});
+
+test("intention acceptance requires user authority only for user commitments", () => {
+	for (const kind of INTENTION_KINDS) {
+		for (const acceptedBy of ACCEPTED_BY) {
+			const record = {
+				...intention,
+				kind,
+				acceptance: { ...intention.acceptance, acceptedBy },
+			};
+			if (kind === "user_commitment" && acceptedBy === "host_autonomy") {
+				for (const candidate of [record, adopt(record)])
+					expect(() => parseIntentionRecord(candidate)).toThrow(
+						"user commitment requires user acceptance",
+					);
+			} else {
+				expect(parseIntentionRecord(record)).toEqual(record);
+				expect(parseIntentionRecord(adopt(record))).toEqual(adopt(record));
+			}
+		}
+	}
 });
 
 function adopt(record = intention): IntentionRecord {

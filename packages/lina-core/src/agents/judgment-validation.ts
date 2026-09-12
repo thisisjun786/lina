@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { validId } from "../context/validation.ts";
 import {
 	ACCEPTED_BY,
 	type Assessment,
@@ -289,9 +290,15 @@ export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
 			row["sourceRefs"],
 			(value) => {
 				const source = fields(value, ["kind", "id", "revision"], "source ref");
+				const kind = boundedId(source["kind"], "source kind");
+				// Context-owned refs keep their owner's bound; unknown kinds stay opaque.
+				const parseId =
+					kind === "request" || kind === "entry" || kind === "summary"
+						? validId
+						: boundedId;
 				return {
-					kind: boundedId(source["kind"], "source kind"),
-					id: boundedId(source["id"], "source id"),
+					kind,
+					id: parseId(source["id"], "source id"),
 					revision: revision(source["revision"], "source revision"),
 				};
 			},
@@ -826,6 +833,14 @@ export function parseIntentionRecord(value: unknown): IntentionRecord {
 		["sourceRef", "acceptedBy", "policyRevision", "acceptedAt"],
 		"intention acceptance",
 	);
+	const kind = enumeration(row["kind"], INTENTION_KINDS, "intention kind");
+	const acceptedBy = enumeration(
+		acceptance["acceptedBy"],
+		ACCEPTED_BY,
+		"accepted by",
+	);
+	if (kind === "user_commitment" && acceptedBy !== "user")
+		throw Error("user commitment requires user acceptance");
 	const sourceRef = boundedId(acceptance["sourceRef"], "acceptance source ref");
 	const history = list(
 		row["history"],
@@ -854,16 +869,12 @@ export function parseIntentionRecord(value: unknown): IntentionRecord {
 		agentId: boundedId(row["agentId"], "agent id"),
 		scopeId: boundedId(row["scopeId"], "scope id"),
 		revision: recordRevision,
-		kind: enumeration(row["kind"], INTENTION_KINDS, "intention kind"),
+		kind,
 		purposeRef: boundedId(row["purposeRef"], "purpose ref"),
 		text: boundedText(row["text"], "intention text"),
 		acceptance: {
 			sourceRef,
-			acceptedBy: enumeration(
-				acceptance["acceptedBy"],
-				ACCEPTED_BY,
-				"accepted by",
-			),
+			acceptedBy,
 			policyRevision: revision(
 				acceptance["policyRevision"],
 				"acceptance policy revision",
