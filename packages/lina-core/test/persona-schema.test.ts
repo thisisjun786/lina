@@ -1,6 +1,4 @@
 import { expect, test } from "bun:test";
-// Pre-existing symbol used only by the pinned-fingerprint guard; all NEW symbols must still be imported from ../src/agents/index.ts.
-import { behaviorFingerprint } from "../src/agents/behavior-validation.ts";
 import type {
 	DimensionSource,
 	NeuralProjectionRef,
@@ -10,6 +8,7 @@ import type {
 	PersonaSchema,
 } from "../src/agents/index.ts";
 import {
+	behaviorFingerprint,
 	DIMENSION_SOURCES,
 	parsePersonaSchema,
 	personaSchemaDigest,
