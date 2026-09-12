@@ -11,6 +11,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { atomicJson } from "../../lina-core/src/attachments/filesystem.ts";
+import { ImageArchives } from "../src/images/image-store-archive.ts";
 import { ImageJobStore } from "../src/images/store.ts";
 
 const roots: string[] = [];
@@ -236,21 +238,48 @@ test("LIFE dedupe freezes real origin and reference identity without conversatio
 test("257 LIFE identities survive terminal archival, reopen and replay without using the conversation cap", () => {
 	const f = fixture();
 	let store = new ImageJobStore(f.root, owner, limits);
-	const ids: string[] = [];
-	for (let n = 0; n < 257; n++) {
-		const job = store.create({
-			...input,
-			origin: { ...input.origin, attemptId: `attempt-${n}` },
-		});
-		ids.push(job.id);
-		store.update(job.id, { state: "cancelled" });
-		store.update(job.id, {
-			delivery: { kind: "life", receiptId: `receipt-${n}` },
-		});
-		store.archive(job.id);
-	}
+	const seed = store.create({
+		...input,
+		origin: { ...input.origin, attemptId: "attempt-0" },
+	});
+	store.update(seed.id, { state: "cancelled" });
+	const terminal = store.update(seed.id, {
+		delivery: { kind: "life", receiptId: "receipt-0" },
+	});
+	// Persist the starting population once; the regression is crossing the
+	// conversation ceiling, then reopening and replaying every LIFE identity.
+	const prefix = Array.from({ length: 256 }, (_, n) => ({
+		...terminal,
+		id: n === 0 ? terminal.id : randomUUID(),
+		origin: { ...input.origin, attemptId: `attempt-${n}` },
+		delivery: { kind: "life" as const, receiptId: `receipt-${n}` },
+	}));
+	const archives = new ImageArchives(
+		join(f.root, "images"),
+		owner,
+		limits.maxArchiveBytes,
+	);
+	atomicJson(f.file, {
+		version: 2,
+		owner,
+		jobs: [],
+		archives: prefix.map((job) => archives.write(job)),
+	});
+	store = new ImageJobStore(f.root, owner, limits);
+	expect(store.list()).toEqual(prefix);
+	const job = store.create({
+		...input,
+		origin: { ...input.origin, attemptId: "attempt-256" },
+	});
+	store.update(job.id, { state: "cancelled" });
+	store.update(job.id, {
+		delivery: { kind: "life", receiptId: "receipt-256" },
+	});
+	const last = store.archive(job.id);
+	const ids = [...prefix.map((item) => item.id), job.id];
 	store = new ImageJobStore(f.root, owner, limits);
 	expect(store.list()).toHaveLength(257);
+	expect(store.list()).toEqual([...prefix, last]);
 	for (let n = 0; n < 257; n++)
 		expect(
 			store.create({
