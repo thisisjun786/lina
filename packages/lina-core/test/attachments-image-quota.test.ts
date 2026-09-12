@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -8,12 +9,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { atomicJson } from "../src/attachments/filesystem.ts";
 import {
 	ATTACHMENT_MAX_BYTES,
 	ATTACHMENT_MAX_FILES,
 	ATTACHMENT_MAX_TOTAL_BYTES,
 	AttachmentStore,
 } from "../src/attachments/store.ts";
+import type { AttachmentManifest } from "../src/attachments/types.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -43,12 +46,30 @@ test.each(["files", "bytes"] as const)(
 				? ATTACHMENT_MAX_TOTAL_BYTES / bytes.length
 				: ATTACHMENT_MAX_FILES;
 		const store = new AttachmentStore(root, binding);
-		for (let index = 0; index < limit - 1; index++)
-			store.put(`saved-${index}.txt`, bytes);
+		const seed = store.put("saved-0.txt", bytes);
 		store.close();
+		// Persist the inert population once, using a real upload's metadata.
+		// Reopen still validates every file; adoption and replay use the real store.
+		const files = [seed];
+		for (let index = 1; index < limit - 1; index++) {
+			const saved = {
+				...seed,
+				id: randomUUID(),
+				name: `saved-${index}.txt`,
+			};
+			writeFileSync(join(root, "attachments/files", saved.id), bytes);
+			files.push(saved);
+		}
+		atomicJson(join(root, "attachments/manifest.json"), {
+			version: 1,
+			binding,
+			files,
+			totalBytes: bytes.length * files.length,
+		} satisfies AttachmentManifest);
 		const id = "33333333-3333-4333-8333-333333333333";
 		writeFileSync(join(root, "attachments/files", id), bytes);
 		const recovered = new AttachmentStore(root, binding);
+		expect(() => recovered.get(id)).toThrow(/not found/);
 		expect(() => recovered.preflight(1)).toThrow(/quota/);
 		expect(() =>
 			recovered.put("overflow.txt", new TextEncoder().encode("x")),
@@ -63,6 +84,7 @@ test.each(["files", "bytes"] as const)(
 		const reopened = new AttachmentStore(root, binding);
 		expect(() => reopened.preflight(1)).toThrow(/quota/);
 		expect(reopened.put("result.txt", bytes, id)).toEqual(receipt);
+		expect(reopened.bytes(id)).toEqual(bytes);
 		expect(() =>
 			reopened.put("overflow.txt", new TextEncoder().encode("x")),
 		).toThrow(/quota/);
@@ -70,6 +92,7 @@ test.each(["files", "bytes"] as const)(
 			readFileSync(join(root, "attachments/manifest.json"), "utf8"),
 		);
 		expect(manifest.files).toHaveLength(limit);
+		expect(manifest.files).toEqual([...files, receipt]);
 		expect(manifest.totalBytes).toBe(bytes.length * limit);
 		reopened.close();
 	},
