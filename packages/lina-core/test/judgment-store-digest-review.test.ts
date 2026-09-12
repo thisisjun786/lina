@@ -299,7 +299,14 @@ for (const tamper of ["body", "digest"] as const) {
 					)
 					.all(),
 			).toEqual(before);
-			expect(store.getRound("round-2")).toBeNull();
+			expect(() => store.getRound("round-2")).toThrow(
+				"objective profile digest mismatch",
+			);
+			expect(
+				db
+					.prepare("SELECT round_id FROM rounds WHERE round_id = 'round-2'")
+					.get(),
+			).toBeUndefined();
 		});
 	}
 	for (const action of ["get", "list", "filtered", "transition"] as const) {
@@ -416,9 +423,19 @@ for (const tamper of [
 						? "assessment snapshot digest mismatch"
 						: "assessment digest mismatch",
 			);
-			expect(store.getRound(ref.roundId)?.status).toBe("open");
-			expect(store.getResolution(ref.roundId)).toBeNull();
-			expect(store.getSelectionSpec(ref.roundId)).toBeNull();
+			// A corrupt ledger fails closed even for queries that would return no rows.
+			expect(() => store.getResolution(ref.roundId)).toThrow(
+				/assessment .*mismatch/,
+			);
+			expect(db.prepare("SELECT status FROM rounds").get()).toEqual({
+				status: "open",
+			});
+			expect(
+				db.prepare("SELECT count(*) AS n FROM resolution_records").get(),
+			).toEqual({ n: 0 });
+			expect(
+				db.prepare("SELECT count(*) AS n FROM selection_specs").get(),
+			).toEqual({ n: 0 });
 		});
 	}
 }
@@ -452,16 +469,12 @@ test("3995355426: parser-normalized digests and valid lifecycle survive reopen",
 		judgmentDigest(originalAssessment),
 		JSON.stringify({ ...originalAssessment, evidenceRefs: ["b", "a"] }),
 	);
-	const originalResolution = parseResolutionRecord({
-		...record,
-		recommendations: { ...record.recommendations, clotho: ["a", "b"] },
-	});
+	const originalResolution = record;
 	db.prepare("UPDATE resolution_records SET digest = ?, body = ?").run(
 		judgmentDigest(originalResolution),
-		JSON.stringify({
-			...originalResolution,
-			recommendations: { ...record.recommendations, clotho: ["b", "a"] },
-		}),
+		JSON.stringify(
+			Object.fromEntries(Object.entries(originalResolution).reverse()),
+		),
 	);
 	replaceBody(
 		"intention_records",
@@ -469,9 +482,25 @@ test("3995355426: parser-normalized digests and valid lifecycle survive reopen",
 		"intention_id = 'intention-2'",
 	);
 	// Selection has no sortable set-like list; JSON key order/whitespace are not digest input.
-	replaceBody(
-		"selection_specs",
-		Object.fromEntries(Object.entries(selection).reverse()),
+	// Keep the downstream anchor consistent with the changed assessment evidence.
+	const normalizedSelection = rehashSpec({
+		...selection,
+		assessmentSetDigest: judgmentDigest(
+			parseAssessmentSet({
+				schemaVersion: 1,
+				roundId: ref.roundId,
+				snapshotDigest: snapshotDigest(ref),
+				assessments: MODULE_KINDS.map((module) =>
+					module === "clotho" ? originalAssessment : assessment(ref, module),
+				),
+			}),
+		),
+	});
+	db.prepare("UPDATE selection_specs SET body = ?, spec_digest = ?").run(
+		JSON.stringify(
+			Object.fromEntries(Object.entries(normalizedSelection).reverse()),
+		),
+		normalizedSelection.specDigest,
 	);
 	reopen();
 	expect(store.getObjectiveProfile("objective-clotho", 1)).toEqual(profile());
@@ -482,7 +511,7 @@ test("3995355426: parser-normalized digests and valid lifecycle survive reopen",
 		originalAssessment,
 	);
 	expect(store.getResolution(ref.roundId)).toEqual(originalResolution);
-	expect(store.getSelectionSpec(ref.roundId)).toEqual(selection);
+	expect(store.getSelectionSpec(ref.roundId)).toEqual(normalizedSelection);
 	expect(store.getIntention(initial.intentionId)).toEqual(initial);
 	expect(store.listIntentions(ref.agentId, ref.scopeId, "proposed")).toEqual([
 		intention(),

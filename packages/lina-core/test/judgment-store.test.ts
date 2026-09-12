@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -436,7 +436,12 @@ for (const tamper of ["snapshot", "snapshot_digest"] as const) {
 		expect(db.prepare("SELECT count(*) AS n FROM assessments").get()).toEqual({
 			n: 0,
 		});
-		expect(store.getResolution(ref.roundId)).toBeNull();
+		expect(() => store.getResolution(ref.roundId)).toThrow(
+			"snapshot digest mismatch",
+		);
+		expect(
+			db.prepare("SELECT count(*) AS n FROM resolution_records").get(),
+		).toEqual({ n: 0 });
 	});
 }
 
@@ -902,6 +907,403 @@ test("every public method rejects use after close", () => {
 		expect(action).toThrow(/closed/);
 });
 
+for (const reopen of [false, true]) {
+	for (const [table, column, value] of [
+		["intention_records", "intention_id", "hidden"],
+		["intention_records", "agent_id", "hidden"],
+		["intention_records", "scope_id", "hidden"],
+		["intention_records", "status", "completed"],
+		["intention_records", "revision", 99],
+		["objective_profiles", "objective_id", "hidden"],
+		["objective_profiles", "revision", 99],
+		["objective_profiles", "module_kind", "lachesis"],
+		["objective_profile_active", "module_kind", "hidden"],
+		["rounds", "round_id", "hidden"],
+		["rounds", "agent_id", "hidden"],
+		["rounds", "scope_id", "hidden"],
+		["rounds", "situation", "autonomous"],
+		["rounds", "sequence", 99],
+		["rounds", "status", "open"],
+		["assessments", "round_id", "hidden"],
+		["assessments", "module_kind", "hidden"],
+		["resolution_records", "round_id", "hidden"],
+		["selection_specs", "round_id", "hidden"],
+	] as const) {
+		test(`3995956579/3995958859: ${table}.${column} cannot hide a row (reopen=${reopen})`, () => {
+			let store = open();
+			const ref = snapshot(store);
+			store.openRound(ref);
+			for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
+			store.recordResolution(ref.roundId, resolution(ref), spec(ref));
+			store.putIntention(intention());
+			expect(
+				store.listIntentions("agent-1", "scope-1", "proposed"),
+			).toHaveLength(1);
+			const db = database();
+			db.exec("PRAGMA foreign_keys = OFF");
+			db.prepare(
+				`UPDATE ${table} SET ${column} = ? WHERE rowid = (SELECT min(rowid) FROM ${table})`,
+			).run(value);
+			if (reopen) {
+				close(store);
+				store = open();
+			}
+			expect(() =>
+				store.listIntentions("agent-1", "scope-1", "proposed"),
+			).toThrow(/metadata mismatch/);
+			expect(() => store.putIntention(intention("new"))).toThrow(
+				/metadata mismatch/,
+			);
+			expect(
+				db.prepare("SELECT count(*) AS n FROM intention_records").get(),
+			).toEqual({ n: 1 });
+		});
+	}
+	for (const sql of [
+		"UPDATE intention_transitions SET intention_id = 'hidden'",
+		"UPDATE intention_transitions SET revision = 99",
+		"UPDATE intention_transitions SET from_status = 'active'",
+		"UPDATE intention_transitions SET to_status = 'cancelled'",
+		"UPDATE intention_transitions SET reason = 'changed'",
+		"UPDATE intention_transitions SET evidence_ref = NULL",
+		"UPDATE intention_transitions SET at = '2026-09-12T00:00:00.000Z'",
+		"DELETE FROM intention_transitions",
+		"INSERT INTO intention_transitions SELECT intention_id, 2, from_status, to_status, reason, evidence_ref, at FROM intention_transitions",
+	]) {
+		test(`3995958859: transition ledger agrees with history (reopen=${reopen}): ${sql}`, () => {
+			let store = open();
+			store.putIntention(intention());
+			store.transitionIntention("intention-1", transition("adopted"), 0);
+			database().exec(`PRAGMA foreign_keys = OFF; ${sql}`);
+			if (reopen) {
+				close(store);
+				store = open();
+			}
+			expect(() => store.getIntention("intention-1")).toThrow(
+				"intention transition metadata mismatch",
+			);
+			expect(() =>
+				store.transitionIntention("intention-1", transition("active"), 1),
+			).toThrow("intention transition metadata mismatch");
+		});
+	}
+}
+
+function rehashSelection(selection: SelectionSpec): SelectionSpec {
+	return parseSelectionSpec({
+		...selection,
+		eligibleDigest: judgmentDigest(
+			selection.candidates.filter((c) => c.p0 > 0).map((c) => c.optionKey),
+		),
+		specDigest: judgmentDigest({
+			...selection,
+			specDigest: undefined,
+			eligibleDigest: judgmentDigest(
+				selection.candidates.filter((c) => c.p0 > 0).map((c) => c.optionKey),
+			),
+		}),
+	});
+}
+
+test("3995958855: valid hashes cannot substitute a candidate", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
+	const record = resolution(ref);
+	const original = spec(ref);
+	for (const candidates of [
+		[{ optionKey: "forged", p0: 1, b: null }],
+		[
+			{ optionKey: "a", p0: 1, b: null },
+			{ optionKey: "forged", p0: 0, b: null },
+		],
+	]) {
+		const forged = rehashSelection({ ...original, candidates });
+		expect(() => store.recordResolution(ref.roundId, record, forged)).toThrow(
+			"selection candidate universe mismatch",
+		);
+		expect(store.getResolution(ref.roundId)).toBeNull();
+		expect(store.getRound(ref.roundId)?.status).toBe("open");
+	}
+	const forgedRecord = parseResolutionRecord({
+		...record,
+		ranking: [{ optionKey: "forged", rank: 1 }],
+	});
+	const forged = rehashSelection({
+		...original,
+		resolutionDigest: judgmentDigest(forgedRecord),
+		candidates: [{ optionKey: "forged", p0: 1, b: null }],
+	});
+	expect(() =>
+		store.recordResolution(ref.roundId, forgedRecord, forged),
+	).toThrow("selection candidate universe mismatch");
+	store.recordResolution(ref.roundId, record, original);
+});
+
+test("3995958855: baseline uses declared ratio and retains unassessed host exclusions", () => {
+	let store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	for (const m of MODULE_KINDS) {
+		const original = assessment(ref, m);
+		store.putAssessment(
+			parseAssessment({
+				...original,
+				objectiveAssessments: [
+					...original.objectiveAssessments,
+					{
+						...original.objectiveAssessments[0],
+						optionKey: "b",
+						stance: "accept",
+					},
+				],
+			}),
+		);
+	}
+	const record = parseResolutionRecord({
+		...resolution(ref),
+		ranking: [
+			{ optionKey: "a", rank: 1 },
+			{ optionKey: "b", rank: 2 },
+		],
+		excluded: [
+			{
+				optionKey: "excluded",
+				stage: "host_eligibility",
+				byModule: null,
+				reason: "not eligible",
+			},
+		],
+	});
+	const candidates = [
+		{ optionKey: "a", p0: 2 / 3, b: null },
+		{ optionKey: "b", p0: 1 / 3, b: null },
+		{ optionKey: "excluded", p0: 0, b: null },
+	];
+	const selection = rehashSelection({
+		...spec(ref, record),
+		assessmentSetDigest: judgmentDigest(store.assessmentSet(ref.roundId)),
+		candidates,
+	});
+	for (const altered of [
+		{
+			candidates: candidates.map((c) => ({
+				...c,
+				p0: c.optionKey === "excluded" ? 0 : 0.5,
+			})),
+		},
+		{
+			candidates: candidates.map((c) => ({
+				...c,
+				p0: c.optionKey === "excluded" ? 0.1 : 0.45,
+			})),
+		},
+		{ candidates: candidates.filter((c) => c.optionKey !== "excluded") },
+		{ lambda: 1 },
+	]) {
+		const invalid = rehashSelection({ ...selection, ...altered });
+		expect(() => store.recordResolution(ref.roundId, record, invalid)).toThrow(
+			/selection (baseline|candidate universe|policy) mismatch/,
+		);
+		expect(store.getResolution(ref.roundId)).toBeNull();
+	}
+	store.recordResolution(ref.roundId, record, selection);
+	close(store);
+	store = open();
+	expect(store.getSelectionSpec(ref.roundId)).toEqual(selection);
+	expect(store.assessmentSet(ref.roundId).assessments).toHaveLength(3);
+});
+
+test("3995956579: owner writes reuse validation; reopen and external commits invalidate it", () => {
+	let store = open();
+	const prepare = spyOn(DatabaseSync.prototype, "prepare");
+	const scans = () =>
+		prepare.mock.calls.filter(
+			([sql]) => sql === "SELECT * FROM intention_records",
+		).length;
+	try {
+		for (let i = 0; i < 12; i += 1) {
+			const id = `intention-${i}`;
+			store.putIntention(intention(id));
+			store.transitionIntention(id, transition("adopted"), 0);
+			expect(store.getIntention(id)?.status).toBe("adopted");
+		}
+		expect(scans()).toBe(1);
+		close(store);
+		store = open();
+		expect(store.listIntentions("agent-1", "scope-1", "adopted")).toHaveLength(
+			12,
+		);
+		expect(scans()).toBe(2);
+		database().exec("UPDATE intention_records SET created_at = created_at + 1");
+		expect(store.listIntentions("agent-1", "scope-1", "adopted")).toHaveLength(
+			12,
+		);
+		expect(scans()).toBe(3);
+		expect(store.getIntention("intention-0")?.revision).toBe(1);
+		expect(scans()).toBe(3);
+	} finally {
+		prepare.mockRestore();
+	}
+});
+
+test("3995956579: validation and filtered read share one SQLite snapshot", () => {
+	const store = open();
+	store.putIntention(intention());
+	const db = database();
+	const original = DatabaseSync.prototype.prepare;
+	let changed = false;
+	const prepare = spyOn(DatabaseSync.prototype, "prepare").mockImplementation(
+		function (this: DatabaseSync, sql: string) {
+			if (!changed && sql.includes("FROM intention_records WHERE agent_id")) {
+				changed = true;
+				db.exec("UPDATE intention_records SET status = 'completed'");
+			}
+			return original.call(this, sql);
+		},
+	);
+	try {
+		expect(store.listIntentions("agent-1", "scope-1", "proposed")).toEqual([
+			intention(),
+		]);
+		expect(changed).toBe(true);
+		expect(() =>
+			store.listIntentions("agent-1", "scope-1", "proposed"),
+		).toThrow("intention metadata mismatch");
+	} finally {
+		prepare.mockRestore();
+	}
+});
+
+test("3995958855: rehashed ranking must reflect persisted stances", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	for (const module of MODULE_KINDS) {
+		const original = assessment(ref, module);
+		store.putAssessment(
+			parseAssessment({
+				...original,
+				objectiveAssessments: [
+					...original.objectiveAssessments,
+					{
+						...original.objectiveAssessments[0],
+						optionKey: "b",
+						stance: "accept",
+					},
+				],
+			}),
+		);
+	}
+	for (const ranking of [
+		[
+			{ optionKey: "b", rank: 1 },
+			{ optionKey: "a", rank: 2 },
+		],
+		[
+			{ optionKey: "a", rank: 1 },
+			{ optionKey: "b", rank: 1 },
+		],
+		[
+			{ optionKey: "a", rank: 2 },
+			{ optionKey: "b", rank: 3 },
+		],
+	]) {
+		const record = parseResolutionRecord({ ...resolution(ref), ranking });
+		const selection = rehashSelection({
+			...spec(ref, record),
+			assessmentSetDigest: judgmentDigest(store.assessmentSet(ref.roundId)),
+			candidates: [
+				{ optionKey: "a", p0: 0.5, b: null },
+				{ optionKey: "b", p0: 0.5, b: null },
+			],
+		});
+		expect(() =>
+			store.recordResolution(ref.roundId, record, selection),
+		).toThrow("selection ranking mismatch");
+		expect(store.getRound(ref.roundId)?.status).toBe("open");
+	}
+});
+
+test("3995958855: missing ranked assessments reject without inventing excluded coverage", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	for (const module of MODULE_KINDS)
+		store.putAssessment(assessment(ref, module));
+	const record = parseResolutionRecord({
+		...resolution(ref),
+		ranking: [
+			{ optionKey: "a", rank: 1 },
+			{ optionKey: "b", rank: 2 },
+		],
+	});
+	const selection = rehashSelection({
+		...spec(ref, record),
+		candidates: [
+			{ optionKey: "a", p0: 2 / 3, b: null },
+			{ optionKey: "b", p0: 1 / 3, b: null },
+		],
+	});
+	expect(() => store.recordResolution(ref.roundId, record, selection)).toThrow(
+		"selection missing ranked assessment",
+	);
+	expect(store.getSelectionSpec(ref.roundId)).toBeNull();
+});
+
+for (const reopen of [false, true]) {
+	test(`3995958855: persisted rehashed candidate remains bound to assessments (reopen=${reopen})`, () => {
+		let store = open();
+		const ref = snapshot(store);
+		store.openRound(ref);
+		for (const module of MODULE_KINDS)
+			store.putAssessment(assessment(ref, module));
+		const record = resolution(ref);
+		const selection = spec(ref);
+		store.recordResolution(ref.roundId, record, selection);
+		const forged = rehashSelection({
+			...selection,
+			candidates: [{ optionKey: "forged", p0: 1, b: null }],
+		});
+		database()
+			.prepare("UPDATE selection_specs SET body = ?, spec_digest = ?")
+			.run(JSON.stringify(forged), forged.specDigest);
+		if (reopen) {
+			close(store);
+			store = open();
+		}
+		expect(() => store.getSelectionSpec(ref.roundId)).toThrow(
+			"selection candidate universe mismatch",
+		);
+	});
+}
+
+test("3995958855: no baseline is guessed for undeclared policy revisions", () => {
+	const store = open();
+	const ref = { ...snapshot(store), policyRevision: 2 };
+	store.openRound(ref);
+	for (const module of MODULE_KINDS)
+		store.putAssessment(assessment(ref, module));
+	const record = parseResolutionRecord({
+		...resolution(ref),
+		policyRevision: 2,
+	});
+	const selection = rehashSelection({
+		...spec(ref, record),
+		policyRevision: 2,
+	});
+	expect(() => store.recordResolution(ref.roundId, record, selection)).toThrow(
+		"unsupported selection policy declaration",
+	);
+	store.recordResolution(
+		ref.roundId,
+		{ ...record, status: "held", holdReason: "no policy declaration" },
+		null,
+	);
+	expect(store.getRound(ref.roundId)?.status).toBe("held");
+});
+
 test("missing parent is private; directory and database symlinks are rejected", () => {
 	const parent = join(fixture.dir, "private");
 	open(join(parent, "judgment.sqlite"));
@@ -915,4 +1317,102 @@ test("missing parent is private; directory and database symlinks are rejected", 
 	writeFileSync(file, "");
 	symlinkSync(file, path);
 	expect(() => open()).toThrow(/unsafe regular file/);
+});
+
+test("ledger audit rejects a resolved round whose selection was deleted", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	for (const module of MODULE_KINDS)
+		store.putAssessment(assessment(ref, module));
+	store.recordResolution(ref.roundId, resolution(ref), spec(ref));
+	database().exec("DELETE FROM selection_specs");
+	expect(() => store.getSelectionSpec(ref.roundId)).toThrow(
+		"selection spec metadata mismatch",
+	);
+});
+
+test("ledger audit rejects orphaned assessments before unrelated reads", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	store.putAssessment(assessment(ref, "clotho"));
+	const db = database();
+	db.exec("PRAGMA foreign_keys = OFF; DELETE FROM rounds");
+	expect(() => store.getIntention("missing")).toThrow(
+		"judgment foreign key mismatch",
+	);
+});
+
+for (const change of [
+	{ policyId: "other-policy" },
+	{ policyRevision: 2 },
+	{ situation: "autonomous" as const },
+]) {
+	test(`ledger audit binds rehashed resolution ${Object.keys(change)[0]} to its snapshot`, () => {
+		const store = open();
+		const ref = snapshot(store);
+		store.openRound(ref);
+		store.recordResolution(ref.roundId, resolution(ref, "held"), null);
+		const changed = { ...resolution(ref, "held"), ...change };
+		database()
+			.prepare("UPDATE resolution_records SET body = ?, digest = ?")
+			.run(JSON.stringify(changed), judgmentDigest(changed));
+		expect(() => store.getResolution(ref.roundId)).toThrow(
+			"resolution snapshot mismatch",
+		);
+	});
+}
+
+test("ledger audit retains the historical objective referenced by a round", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	const next = store.putObjectiveProfile(profile("clotho", 2));
+	store.activateObjectiveProfile(ref.agentId, ref.scopeId, next);
+	database().exec(
+		"DELETE FROM objective_profiles WHERE module_kind = 'clotho' AND revision = 1",
+	);
+	expect(() => store.getRound(ref.roundId)).toThrow(
+		"snapshot objective profile mismatch",
+	);
+});
+
+test("ledger audit binds rehashed assessment evidence to its frozen snapshot", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	store.putAssessment(assessment(ref, "clotho"));
+	const changed = assessment(ref, "clotho", "b".repeat(64));
+	database()
+		.prepare(
+			"UPDATE assessments SET body = ?, digest = ?, snapshot_digest = ?, input_digest = ?",
+		)
+		.run(
+			JSON.stringify(changed),
+			judgmentDigest(changed),
+			changed.snapshotDigest,
+			changed.inputDigest,
+		);
+	expect(() => store.getRound(ref.roundId)).toThrow(
+		"assessment snapshot mismatch",
+	);
+});
+
+test("ledger audit binds rehashed assessment objectives to the frozen module", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	store.putAssessment(assessment(ref, "clotho"));
+	const changed = {
+		...assessment(ref, "clotho"),
+		objectiveRef: ref.objectiveProfileRefs.atropos,
+	};
+	changed.inputDigest = assessmentInputDigest(changed);
+	database()
+		.prepare("UPDATE assessments SET body = ?, digest = ?, input_digest = ?")
+		.run(JSON.stringify(changed), judgmentDigest(changed), changed.inputDigest);
+	expect(() => store.getRound(ref.roundId)).toThrow(
+		"assessment objective mismatch",
+	);
 });

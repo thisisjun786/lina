@@ -16,6 +16,7 @@ import {
 	type RoundStatus,
 	type SelectionSpec,
 } from "./judgment.ts";
+import { PERSONAL_POLICY_V1, rankMass } from "./judgment-policy.ts";
 import { initializeJudgmentSchema } from "./judgment-schema.ts";
 import {
 	canonicalJson,
@@ -44,11 +45,126 @@ function revision(value: number, minimum = 0): number {
 	return value;
 }
 
+function validateCandidateBinding(
+	resolution: ResolutionRecord,
+	selection: SelectionSpec,
+	set: AssessmentSet,
+	snapshot: JudgmentSnapshotRef,
+): void {
+	if (selection.assessmentSetDigest !== judgmentDigest(set))
+		throw Error("selection assessment set mismatch");
+	if (selection.resolutionDigest !== judgmentDigest(resolution))
+		throw Error("selection resolution digest mismatch");
+	if (
+		selection.policyId !== resolution.policyId ||
+		selection.policyRevision !== resolution.policyRevision ||
+		selection.situation !== resolution.situation
+	)
+		throw Error("selection policy mismatch");
+	if (
+		body(selection.objectiveProfileRefs) !== body(snapshot.objectiveProfileRefs)
+	)
+		throw Error("selection objective refs mismatch");
+	const ranked = new Set(resolution.ranking.map((r) => r.optionKey));
+	const universe = new Set([
+		...ranked,
+		...resolution.excluded.map((r) => r.optionKey),
+	]);
+	if (
+		universe.size !== ranked.size + resolution.excluded.length ||
+		selection.candidates.length !== universe.size ||
+		selection.candidates.some((c) => !universe.has(c.optionKey)) ||
+		[
+			...Object.values(resolution.recommendations).flat(),
+			...resolution.conflicts.map((r) => r.optionKey),
+			...resolution.abstentions.map((r) => r.optionKey),
+			...resolution.conceded.map((r) => r.optionKey),
+			...set.assessments.flatMap((a) => [
+				...a.proposedOptionKeys,
+				...a.recommendedOptionKeys,
+				...a.objectiveAssessments.map((o) => o.optionKey),
+			]),
+		].some((key) => !universe.has(key))
+	)
+		throw Error("selection candidate universe mismatch");
+	// Only this policy has a declared baseline in F1. Do not guess a ratio for
+	// another catalog/revision; held/deferred records do not need a baseline.
+	const policy = PERSONAL_POLICY_V1;
+	if (
+		selection.policyId !== policy.policyId ||
+		selection.policyRevision !== policy.revision
+	)
+		throw Error("unsupported selection policy declaration");
+	if (
+		body(resolution.order) !== body(policy.orders[selection.situation]) ||
+		selection.lambda !== policy.lambda[selection.situation]
+	)
+		throw Error("selection policy mismatch");
+	const opinions = new Map(
+		set.assessments.map((a) => [
+			a.moduleKind,
+			new Map(a.objectiveAssessments.map((o) => [o.optionKey, o])),
+		]),
+	);
+	for (const assessment of set.assessments) {
+		if (
+			body(resolution.recommendations[assessment.moduleKind]) !==
+			body(assessment.recommendedOptionKeys)
+		)
+			throw Error("selection assessment recommendations mismatch");
+		if (
+			[...ranked].some((key) => !opinions.get(assessment.moduleKind)?.has(key))
+		)
+			throw Error("selection missing ranked assessment");
+	}
+	// Unavailable modules are dropped for the whole ranking, as in the policy.
+	const order = policy.orders[selection.situation].filter((m) =>
+		[...ranked].every(
+			(key) => opinions.get(m)?.get(key)?.stance !== "unavailable",
+		),
+	);
+	if (order.length === 0) throw Error("selection unavailable ranking");
+	const compare = (a: string, b: string): number => {
+		for (const module of order) {
+			const left = opinions.get(module)?.get(a);
+			const right = opinions.get(module)?.get(b);
+			if (!left || !right) throw Error("selection missing ranked assessment");
+			const difference =
+				policy.stanceOrder.indexOf(left.stance) -
+				policy.stanceOrder.indexOf(right.stance);
+			if (difference !== 0) return difference;
+		}
+		return 0;
+	};
+	let rank = 0;
+	let previous: string | undefined;
+	for (const item of resolution.ranking) {
+		const difference =
+			previous === undefined ? -1 : compare(previous, item.optionKey);
+		if (difference > 0) throw Error("selection ranking mismatch");
+		if (difference < 0) rank += 1;
+		if (item.rank !== rank) throw Error("selection ranking mismatch");
+		previous = item.optionKey;
+	}
+	const masses = rankMass(
+		resolution.ranking.map((r) => r.rank),
+		policy.ratio,
+	);
+	const baseline = new Map(
+		resolution.ranking.map((r, i) => [r.optionKey, masses[i]]),
+	);
+	if (
+		selection.candidates.some((c) => c.p0 !== (baseline.get(c.optionKey) ?? 0))
+	)
+		throw Error("selection baseline mismatch");
+}
+
 /** The Host owns the single writer; this ledger is independent of session lifetimes. */
 export class JudgmentStore {
 	private readonly db: DatabaseSync;
 	private readonly now: () => number;
 	private closed = false;
+	private validatedDataVersion: number | undefined;
 
 	constructor(path: string, options: { now?: () => number } = {}) {
 		const opened = openCheckedDatabase(path);
@@ -102,21 +218,22 @@ export class JudgmentStore {
 		objectiveId: string,
 		profileRevision: number,
 	): ObjectiveProfile | null {
-		this.assertOpen();
-		const row = this.db
-			.prepare(
-				"SELECT body, digest FROM objective_profiles WHERE objective_id = ? AND revision = ?",
-			)
-			.get(
-				boundedId(objectiveId, "objective id"),
-				revision(profileRevision, 1),
-			);
-		if (!row) return null;
-		const { body: json, digest } = row;
-		const parsed = parseObjectiveProfile(JSON.parse(String(json)));
-		if (judgmentDigest(parsed) !== digest)
-			throw Error("objective profile digest mismatch");
-		return parsed;
+		return this.transaction(() => {
+			const row = this.db
+				.prepare(
+					"SELECT body, digest FROM objective_profiles WHERE objective_id = ? AND revision = ?",
+				)
+				.get(
+					boundedId(objectiveId, "objective id"),
+					revision(profileRevision, 1),
+				);
+			if (!row) return null;
+			const { body: json, digest } = row;
+			const parsed = parseObjectiveProfile(JSON.parse(String(json)));
+			if (judgmentDigest(parsed) !== digest)
+				throw Error("objective profile digest mismatch");
+			return parsed;
+		}, false);
 	}
 
 	activateObjectiveProfile(
@@ -172,28 +289,29 @@ export class JudgmentStore {
 		agentId: string,
 		scopeId: string,
 	): Record<ModuleKind, ObjectiveProfileRef> | null {
-		this.assertOpen();
-		const rows = this.db
-			.prepare(`SELECT p.body, p.digest FROM objective_profile_active a JOIN objective_profiles p
-			ON p.objective_id = a.objective_id AND p.revision = a.revision WHERE a.agent_id = ? AND a.scope_id = ?`)
-			.all(boundedId(agentId, "agent id"), boundedId(scopeId, "scope id"));
-		const refs: Partial<Record<ModuleKind, ObjectiveProfileRef>> = {};
-		for (const { body: json, digest } of rows) {
-			const profile = parseObjectiveProfile(JSON.parse(String(json)));
-			if (judgmentDigest(profile) !== digest)
-				throw Error("objective profile digest mismatch");
-			refs[profile.moduleKind] = parseObjectiveProfileRef({
-				objectiveId: profile.objectiveId,
-				revision: profile.revision,
-				digest: judgmentDigest(profile),
-			});
-		}
-		if (!refs.clotho || !refs.lachesis || !refs.atropos) return null;
-		return {
-			clotho: refs.clotho,
-			lachesis: refs.lachesis,
-			atropos: refs.atropos,
-		};
+		return this.transaction(() => {
+			const rows = this.db
+				.prepare(`SELECT p.body, p.digest FROM objective_profile_active a JOIN objective_profiles p
+				ON p.objective_id = a.objective_id AND p.revision = a.revision WHERE a.agent_id = ? AND a.scope_id = ?`)
+				.all(boundedId(agentId, "agent id"), boundedId(scopeId, "scope id"));
+			const refs: Partial<Record<ModuleKind, ObjectiveProfileRef>> = {};
+			for (const { body: json, digest } of rows) {
+				const profile = parseObjectiveProfile(JSON.parse(String(json)));
+				if (judgmentDigest(profile) !== digest)
+					throw Error("objective profile digest mismatch");
+				refs[profile.moduleKind] = parseObjectiveProfileRef({
+					objectiveId: profile.objectiveId,
+					revision: profile.revision,
+					digest: judgmentDigest(profile),
+				});
+			}
+			if (!refs.clotho || !refs.lachesis || !refs.atropos) return null;
+			return {
+				clotho: refs.clotho,
+				lachesis: refs.lachesis,
+				atropos: refs.atropos,
+			};
+		}, false);
 	}
 
 	openRound(snapshot: JudgmentSnapshotRef): {
@@ -234,22 +352,23 @@ export class JudgmentStore {
 		status: RoundStatus;
 		snapshotDigest: string;
 	} | null {
-		this.assertOpen();
-		const row = this.db
-			.prepare(
-				"SELECT snapshot, status, snapshot_digest FROM rounds WHERE round_id = ?",
-			)
-			.get(boundedId(roundId, "round id"));
-		if (!row) return null;
-		const { snapshot, status, snapshot_digest: digest } = row;
-		const parsed = parseJudgmentSnapshotRef(JSON.parse(String(snapshot)));
-		if (snapshotDigest(parsed) !== digest)
-			throw Error("snapshot digest mismatch");
-		return {
-			snapshot: parsed,
-			status: status as RoundStatus,
-			snapshotDigest: String(digest),
-		};
+		return this.transaction(() => {
+			const row = this.db
+				.prepare(
+					"SELECT snapshot, status, snapshot_digest FROM rounds WHERE round_id = ?",
+				)
+				.get(boundedId(roundId, "round id"));
+			if (!row) return null;
+			const { snapshot, status, snapshot_digest: digest } = row;
+			const parsed = parseJudgmentSnapshotRef(JSON.parse(String(snapshot)));
+			if (snapshotDigest(parsed) !== digest)
+				throw Error("snapshot digest mismatch");
+			return {
+				snapshot: parsed,
+				status: status as RoundStatus,
+				snapshotDigest: String(digest),
+			};
+		}, false);
 	}
 
 	putAssessment(assessment: Assessment): void {
@@ -294,40 +413,41 @@ export class JudgmentStore {
 	}
 
 	assessmentSet(roundId: string): AssessmentSet {
-		this.assertOpen();
-		const round = this.getRound(roundId);
-		const rows = this.db
-			.prepare(
-				"SELECT body, digest, input_digest, snapshot_digest FROM assessments WHERE round_id = ?",
-			)
-			.all(boundedId(roundId, "round id"));
-		if (!round || rows.length !== MODULE_KINDS.length)
-			throw Error("incomplete assessment set");
-		const assessments = rows.map(
-			({
-				body: json,
-				digest,
-				input_digest: inputDigest,
-				snapshot_digest: snapshot,
-			}) => {
-				const parsed = parseAssessment(JSON.parse(String(json)));
-				if (judgmentDigest(parsed) !== digest)
-					throw Error("assessment digest mismatch");
-				if (parsed.inputDigest !== inputDigest)
-					throw Error("assessment input digest mismatch");
-				if (parsed.snapshotDigest !== snapshot)
-					throw Error("assessment snapshot digest mismatch");
-				return parsed;
-			},
-		);
-		return parseAssessmentSet({
-			schemaVersion: 1,
-			roundId,
-			snapshotDigest: round.snapshotDigest,
-			assessments: MODULE_KINDS.map((module) =>
-				assessments.find((item) => item.moduleKind === module),
-			),
-		});
+		return this.transaction(() => {
+			const round = this.getRound(roundId);
+			const rows = this.db
+				.prepare(
+					"SELECT body, digest, input_digest, snapshot_digest FROM assessments WHERE round_id = ?",
+				)
+				.all(boundedId(roundId, "round id"));
+			if (!round || rows.length !== MODULE_KINDS.length)
+				throw Error("incomplete assessment set");
+			const assessments = rows.map(
+				({
+					body: json,
+					digest,
+					input_digest: inputDigest,
+					snapshot_digest: snapshot,
+				}) => {
+					const parsed = parseAssessment(JSON.parse(String(json)));
+					if (judgmentDigest(parsed) !== digest)
+						throw Error("assessment digest mismatch");
+					if (parsed.inputDigest !== inputDigest)
+						throw Error("assessment input digest mismatch");
+					if (parsed.snapshotDigest !== snapshot)
+						throw Error("assessment snapshot digest mismatch");
+					return parsed;
+				},
+			);
+			return parseAssessmentSet({
+				schemaVersion: 1,
+				roundId,
+				snapshotDigest: round.snapshotDigest,
+				assessments: MODULE_KINDS.map((module) =>
+					assessments.find((item) => item.moduleKind === module),
+				),
+			});
+		}, false);
 	}
 
 	recordResolution(
@@ -357,21 +477,7 @@ export class JudgmentStore {
 				throw Error("selection spec mismatch");
 			if (selection) {
 				const set = this.assessmentSet(id);
-				if (selection.assessmentSetDigest !== judgmentDigest(set))
-					throw Error("selection assessment set mismatch");
-				if (selection.resolutionDigest !== judgmentDigest(parsed))
-					throw Error("selection resolution digest mismatch");
-				if (
-					selection.policyId !== parsed.policyId ||
-					selection.policyRevision !== parsed.policyRevision ||
-					selection.situation !== parsed.situation
-				)
-					throw Error("selection policy mismatch");
-				if (
-					canonicalJson(selection.objectiveProfileRefs) !==
-					canonicalJson(round.snapshot.objectiveProfileRefs)
-				)
-					throw Error("selection objective refs mismatch");
+				validateCandidateBinding(parsed, selection, set, round.snapshot);
 			}
 			const now = this.now();
 			this.db
@@ -394,31 +500,35 @@ export class JudgmentStore {
 	}
 
 	getResolution(roundId: string): ResolutionRecord | null {
-		this.assertOpen();
-		const row = this.db
-			.prepare("SELECT body, digest FROM resolution_records WHERE round_id = ?")
-			.get(boundedId(roundId, "round id"));
-		if (!row) return null;
-		const { body: json, digest } = row;
-		const parsed = parseResolutionRecord(JSON.parse(String(json)));
-		if (judgmentDigest(parsed) !== digest)
-			throw Error("resolution digest mismatch");
-		return parsed;
+		return this.transaction(() => {
+			const row = this.db
+				.prepare(
+					"SELECT body, digest FROM resolution_records WHERE round_id = ?",
+				)
+				.get(boundedId(roundId, "round id"));
+			if (!row) return null;
+			const { body: json, digest } = row;
+			const parsed = parseResolutionRecord(JSON.parse(String(json)));
+			if (judgmentDigest(parsed) !== digest)
+				throw Error("resolution digest mismatch");
+			return parsed;
+		}, false);
 	}
 
 	getSelectionSpec(roundId: string): SelectionSpec | null {
-		this.assertOpen();
-		const row = this.db
-			.prepare(
-				"SELECT body, spec_digest FROM selection_specs WHERE round_id = ?",
-			)
-			.get(boundedId(roundId, "round id"));
-		if (!row) return null;
-		const { body: json, spec_digest: digest } = row;
-		const parsed = parseSelectionSpec(JSON.parse(String(json)));
-		if (parsed.specDigest !== digest)
-			throw Error("selection spec digest mismatch");
-		return parsed;
+		return this.transaction(() => {
+			const row = this.db
+				.prepare(
+					"SELECT body, spec_digest FROM selection_specs WHERE round_id = ?",
+				)
+				.get(boundedId(roundId, "round id"));
+			if (!row) return null;
+			const { body: json, spec_digest: digest } = row;
+			const parsed = parseSelectionSpec(JSON.parse(String(json)));
+			if (parsed.specDigest !== digest)
+				throw Error("selection spec digest mismatch");
+			return parsed;
+		}, false);
 	}
 
 	putIntention(record: IntentionRecord): void {
@@ -504,18 +614,19 @@ export class JudgmentStore {
 	}
 
 	getIntention(intentionId: string): IntentionRecord | null {
-		this.assertOpen();
-		const row = this.db
-			.prepare(
-				"SELECT body, digest FROM intention_records WHERE intention_id = ?",
-			)
-			.get(boundedId(intentionId, "intention id"));
-		if (!row) return null;
-		const { body: json, digest } = row;
-		const parsed = parseIntentionRecord(JSON.parse(String(json)));
-		if (intentionDigest(parsed) !== digest)
-			throw Error("intention digest mismatch");
-		return parsed;
+		return this.transaction(() => {
+			const row = this.db
+				.prepare(
+					"SELECT body, digest FROM intention_records WHERE intention_id = ?",
+				)
+				.get(boundedId(intentionId, "intention id"));
+			if (!row) return null;
+			const { body: json, digest } = row;
+			const parsed = parseIntentionRecord(JSON.parse(String(json)));
+			if (intentionDigest(parsed) !== digest)
+				throw Error("intention digest mismatch");
+			return parsed;
+		}, false);
 	}
 
 	listIntentions(
@@ -523,29 +634,30 @@ export class JudgmentStore {
 		scopeId: string,
 		status?: IntentionStatus,
 	): IntentionRecord[] {
-		this.assertOpen();
-		const agent = boundedId(agentId, "agent id");
-		const scope = boundedId(scopeId, "scope id");
-		if (status !== undefined && !INTENTION_STATUSES.includes(status))
-			throw Error("invalid intention status");
-		const rows =
-			status === undefined
-				? this.db
-						.prepare(
-							"SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? ORDER BY intention_id",
-						)
-						.all(agent, scope)
-				: this.db
-						.prepare(
-							"SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? AND status = ? ORDER BY intention_id",
-						)
-						.all(agent, scope, status);
-		return rows.map(({ body: json, digest }) => {
-			const parsed = parseIntentionRecord(JSON.parse(String(json)));
-			if (intentionDigest(parsed) !== digest)
-				throw Error("intention digest mismatch");
-			return parsed;
-		});
+		return this.transaction(() => {
+			const agent = boundedId(agentId, "agent id");
+			const scope = boundedId(scopeId, "scope id");
+			if (status !== undefined && !INTENTION_STATUSES.includes(status))
+				throw Error("invalid intention status");
+			const rows =
+				status === undefined
+					? this.db
+							.prepare(
+								"SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? ORDER BY intention_id",
+							)
+							.all(agent, scope)
+					: this.db
+							.prepare(
+								"SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? AND status = ? ORDER BY intention_id",
+							)
+							.all(agent, scope, status);
+			return rows.map(({ body: json, digest }) => {
+				const parsed = parseIntentionRecord(JSON.parse(String(json)));
+				if (intentionDigest(parsed) !== digest)
+					throw Error("intention digest mismatch");
+				return parsed;
+			});
+		}, false);
 	}
 
 	close(): void {
@@ -566,11 +678,261 @@ export class JudgmentStore {
 		return round;
 	}
 
-	private transaction<T>(fn: () => T): T {
+	/** Scan before any indexed filter, on the same SQLite snapshot as the call.
+	 * Own writes preserve these invariants; only an external commit (or reopen)
+	 * requires another scan. Never recurse through public getters here.
+	 */
+	private validateLedger(): void {
+		const rows = <T>(
+			table: string,
+			label: string,
+			parse: (value: unknown) => T,
+			metadata: (value: T) => Record<string, unknown>,
+			digest: (value: T) => string = judgmentDigest,
+			jsonColumn = "body",
+			digestColumn = "digest",
+		) =>
+			this.db
+				.prepare(`SELECT * FROM ${table}`)
+				.all()
+				.map((row) => {
+					const value = parse(JSON.parse(String(row[jsonColumn])));
+					if (digest(value) !== row[digestColumn])
+						throw Error(`${label} digest mismatch`);
+					for (const [column, expected] of Object.entries(metadata(value))) {
+						if (row[column] !== expected) {
+							if (table === "assessments" && column === "input_digest")
+								throw Error("assessment input digest mismatch");
+							if (table === "assessments" && column === "snapshot_digest")
+								throw Error("assessment snapshot digest mismatch");
+							throw Error(`${label} metadata mismatch`);
+						}
+					}
+					return { row, value };
+				});
+		const profiles = rows(
+			"objective_profiles",
+			"objective profile",
+			parseObjectiveProfile,
+			(p) => ({
+				objective_id: p.objectiveId,
+				revision: p.revision,
+				module_kind: p.moduleKind,
+			}),
+		);
+		const profilesByRef = new Map(
+			profiles.map((entry) => [
+				body([entry.value.objectiveId, entry.value.revision]),
+				entry,
+			]),
+		);
+		for (const row of this.db
+			.prepare("SELECT * FROM objective_profile_active")
+			.all()) {
+			const {
+				objective_id,
+				revision: profileRevision,
+				module_kind,
+				agent_id,
+				scope_id,
+				activation_revision,
+			} = row;
+			if (
+				profilesByRef.get(body([objective_id, profileRevision]))?.value
+					.moduleKind !== module_kind
+			)
+				throw Error("objective activation metadata mismatch");
+			boundedId(agent_id, "agent id");
+			boundedId(scope_id, "scope id");
+			revision(Number(activation_revision), 1);
+		}
+		const rounds = rows(
+			"rounds",
+			"snapshot",
+			parseJudgmentSnapshotRef,
+			(p) => ({
+				round_id: p.roundId,
+				agent_id: p.agentId,
+				scope_id: p.scopeId,
+				situation: p.situation,
+				sequence: p.sequence,
+			}),
+			snapshotDigest,
+			"snapshot",
+			"snapshot_digest",
+		);
+		const assessments = rows(
+			"assessments",
+			"assessment",
+			parseAssessment,
+			(p) => ({
+				round_id: p.snapshotId,
+				module_kind: p.moduleKind,
+				input_digest: p.inputDigest,
+				snapshot_digest: p.snapshotDigest,
+			}),
+		);
+		const resolutions = rows(
+			"resolution_records",
+			"resolution",
+			parseResolutionRecord,
+			(p) => ({ round_id: p.roundId }),
+		);
+		const statuses = new Map(
+			resolutions.map(({ value: p }) => [p.roundId, p.status]),
+		);
+		for (const {
+			row: { status },
+			value,
+		} of rounds) {
+			if (status !== (statuses.get(value.roundId) ?? "open"))
+				throw Error("round status metadata mismatch");
+			for (const module of MODULE_KINDS) {
+				const ref = value.objectiveProfileRefs[module];
+				const profile = profilesByRef.get(
+					body([ref.objectiveId, ref.revision]),
+				);
+				if (
+					!profile ||
+					profile.value.moduleKind !== module ||
+					profile.row["digest"] !== ref.digest
+				)
+					throw Error("snapshot objective profile mismatch");
+			}
+		}
+		const selections = rows(
+			"selection_specs",
+			"selection spec",
+			parseSelectionSpec,
+			(p) => ({ round_id: p.roundId }),
+			(p) => p.specDigest,
+			"body",
+			"spec_digest",
+		);
+		const selectedRounds = new Set(
+			selections.map(({ value }) => value.roundId),
+		);
+		for (const { value } of resolutions) {
+			if ((value.status === "resolved") !== selectedRounds.has(value.roundId))
+				throw Error("selection spec metadata mismatch");
+		}
+		const snapshots = new Map(
+			rounds.map(({ value }) => [value.roundId, value]),
+		);
+		const records = new Map(
+			resolutions.map(({ value }) => [value.roundId, value]),
+		);
+		for (const { value } of resolutions) {
+			const snapshot = snapshots.get(value.roundId);
+			if (
+				!snapshot ||
+				value.policyId !== snapshot.policyId ||
+				value.policyRevision !== snapshot.policyRevision ||
+				value.situation !== snapshot.situation
+			)
+				throw Error("resolution snapshot mismatch");
+		}
+		const sets = new Map<string, Assessment[]>();
+		for (const { value } of assessments) {
+			const snapshot = snapshots.get(value.snapshotId);
+			if (!snapshot) throw Error("judgment foreign key mismatch");
+			if (value.snapshotDigest !== snapshotDigest(snapshot))
+				throw Error("assessment snapshot mismatch");
+			if (
+				body(value.objectiveRef) !==
+				body(snapshot.objectiveProfileRefs[value.moduleKind])
+			)
+				throw Error("assessment objective mismatch");
+			const set = sets.get(value.snapshotId) ?? [];
+			set.push(value);
+			sets.set(value.snapshotId, set);
+		}
+		for (const { value: selection } of selections) {
+			const snapshot = snapshots.get(selection.roundId);
+			const record = records.get(selection.roundId);
+			if (
+				!snapshot ||
+				!record ||
+				record.status !== "resolved" ||
+				selection.snapshotDigest !== snapshotDigest(snapshot)
+			)
+				throw Error("selection spec metadata mismatch");
+			const set = parseAssessmentSet({
+				schemaVersion: 1,
+				roundId: selection.roundId,
+				snapshotDigest: selection.snapshotDigest,
+				assessments: MODULE_KINDS.map((module) =>
+					sets.get(selection.roundId)?.find((a) => a.moduleKind === module),
+				),
+			});
+			validateCandidateBinding(record, selection, set, snapshot);
+		}
+		const intentions = rows(
+			"intention_records",
+			"intention",
+			parseIntentionRecord,
+			(p) => ({
+				intention_id: p.intentionId,
+				agent_id: p.agentId,
+				scope_id: p.scopeId,
+				revision: p.revision,
+				status: p.status,
+			}),
+			intentionDigest,
+		);
+		const histories = new Map(
+			intentions.map(({ value: p }) => [p.intentionId, p.history]),
+		);
+		const transitions = this.db
+			.prepare("SELECT * FROM intention_transitions")
+			.all();
+		if (
+			transitions.length !==
+			intentions.reduce((n, { value }) => n + value.history.length, 0)
+		)
+			throw Error("intention transition metadata mismatch");
+		for (const row of transitions) {
+			const {
+				intention_id,
+				revision: transitionRevision,
+				from_status,
+				to_status,
+				reason,
+				evidence_ref,
+				at,
+			} = row;
+			const history = histories.get(String(intention_id));
+			const entry = history?.[Number(transitionRevision) - 1];
+			if (
+				!entry ||
+				entry.from !== from_status ||
+				entry.to !== to_status ||
+				entry.reason !== reason ||
+				entry.evidenceRef !== evidence_ref ||
+				entry.at !== at
+			)
+				throw Error("intention transition metadata mismatch");
+		}
+		if (this.db.prepare("PRAGMA foreign_key_check").all().length > 0)
+			throw Error("judgment foreign key mismatch");
+	}
+
+	private transaction<T>(fn: () => T, write = true): T {
 		this.assertOpen();
 		if (this.db.isTransaction) return fn();
-		this.db.exec("BEGIN IMMEDIATE");
+		this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
 		try {
+			// Establish the read snapshot before observing data_version. Otherwise an
+			// external commit could be scanned under one version and cached as another.
+			this.db
+				.prepare("SELECT value FROM judgment_meta WHERE key = 'store'")
+				.get();
+			const { data_version: dataVersion } =
+				this.db.prepare("PRAGMA data_version").get() ?? {};
+			if (dataVersion !== this.validatedDataVersion) {
+				this.validateLedger();
+				this.validatedDataVersion = Number(dataVersion);
+			}
 			const result = fn();
 			this.db.exec("COMMIT");
 			return result;
