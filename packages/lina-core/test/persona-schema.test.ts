@@ -178,6 +178,58 @@ test.each([
 	expect(parsePersonaSchema(schema)).toEqual(schema);
 });
 
+test.each([1, 2] as const)(
+	"manual v%i identity locks every projected kind without per-axis locks",
+	(version) => {
+		const profile = {
+			...lockProfile,
+			evolution: "manual" as const,
+			lockedTraitIds: [],
+		};
+		const schema = personaSchemaFromLifeDefinition({
+			agentId: "lina",
+			revision: 1,
+			definition: {
+				...definition,
+				projection: {
+					...definition.projection,
+					sharedTraitIds: ["warmth"],
+				},
+			},
+			identity:
+				version === 1
+					? { version, profiles: [profile] }
+					: {
+							version,
+							profiles: [
+								{ ...profile, personalBehavior: null, sourceStamp: null },
+							],
+						},
+		});
+		expect(schema.dimensions.map((row) => [row.id, row.locked])).toEqual([
+			["warmth", true],
+			["tea", true],
+			["trust", true],
+		]);
+		expect(schema.sourceIdentity).toEqual({ profileRevision: 4 });
+		expect(parsePersonaSchema(schema)).toEqual(schema);
+	},
+);
+
+test.each([null, identityV1, identityV2])(
+	"derivation rejects nonparticipants regardless of identity: %j",
+	(identity) => {
+		expect(() =>
+			personaSchemaFromLifeDefinition({
+				agentId: "lina",
+				revision: 1,
+				definition: { ...definition, participants: ["mira"] },
+				identity,
+			}),
+		).toThrow("Unknown world agent");
+	},
+);
+
 test("derivation digest is idempotent and ignores v2-only identity fields", () => {
 	const first = derive();
 	const second = derive();
@@ -213,6 +265,7 @@ test("derivation digest is idempotent and ignores v2-only identity fields", () =
 				{
 					...lockProfile,
 					agentId: "mira",
+					evolution: "manual",
 					personalBehavior: null,
 					sourceStamp: null,
 				},

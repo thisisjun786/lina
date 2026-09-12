@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { lifeDigest } from "../world/life-json.ts";
 import type {
 	IdentityPolicySnapshot,
+	IdentityProfilePolicy,
 	LifeDefinition,
 } from "../world/life-types.ts";
 import { parseLifeDefinition } from "../world/life-validation.ts";
+import { knownAgents } from "../world/validation.ts";
 import { DIMENSION_SOURCES, type DimensionSource } from "./behavior-types.ts";
 import { boundedId } from "./validation.ts";
 
@@ -274,12 +276,7 @@ function compareDimensions(a: PersonaDimension, b: PersonaDimension): number {
 function profileFor(
 	identity: IdentityPolicySnapshot | null,
 	agentId: string,
-): {
-	profileRevision: number;
-	lockedTraitIds: string[];
-	lockedHabitIds: string[];
-	lockedAttitudeIds: string[];
-} | null {
+): IdentityProfilePolicy | null {
 	if (identity === null) return null;
 	for (const profile of identity.profiles)
 		if (profile.agentId === agentId) return profile;
@@ -287,15 +284,12 @@ function profileFor(
 }
 
 function lockedFor(
-	policy: {
-		lockedTraitIds: string[];
-		lockedHabitIds: string[];
-		lockedAttitudeIds: string[];
-	} | null,
+	policy: IdentityProfilePolicy | null,
 	kind: PersonaDimensionKind,
 	id: string,
 ): boolean {
 	if (policy === null) return false;
+	if (policy.evolution === "manual") return true;
 	if (kind === "trait") return policy.lockedTraitIds.includes(id);
 	if (kind === "habit") return policy.lockedHabitIds.includes(id);
 	return policy.lockedAttitudeIds.includes(id);
@@ -310,6 +304,7 @@ export function personaSchemaFromLifeDefinition(input: {
 	const agentId = boundedId(input.agentId, "agent id");
 	const schemaRevision = revision(input.revision, "persona schema revision");
 	const definition = parseLifeDefinition(input.definition);
+	knownAgents([agentId], definition.participants);
 	const policy = profileFor(input.identity, agentId);
 	const ids = new Set<string>();
 	for (const dimension of [
