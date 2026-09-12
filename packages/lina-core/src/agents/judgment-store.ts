@@ -105,14 +105,18 @@ export class JudgmentStore {
 		this.assertOpen();
 		const row = this.db
 			.prepare(
-				"SELECT body FROM objective_profiles WHERE objective_id = ? AND revision = ?",
+				"SELECT body, digest FROM objective_profiles WHERE objective_id = ? AND revision = ?",
 			)
 			.get(
 				boundedId(objectiveId, "objective id"),
 				revision(profileRevision, 1),
 			);
-		const { body: json } = row ?? {};
-		return row ? parseObjectiveProfile(JSON.parse(String(json))) : null;
+		if (!row) return null;
+		const { body: json, digest } = row;
+		const parsed = parseObjectiveProfile(JSON.parse(String(json)));
+		if (judgmentDigest(parsed) !== digest)
+			throw Error("objective profile digest mismatch");
+		return parsed;
 	}
 
 	activateObjectiveProfile(
@@ -170,12 +174,14 @@ export class JudgmentStore {
 	): Record<ModuleKind, ObjectiveProfileRef> | null {
 		this.assertOpen();
 		const rows = this.db
-			.prepare(`SELECT p.body FROM objective_profile_active a JOIN objective_profiles p
+			.prepare(`SELECT p.body, p.digest FROM objective_profile_active a JOIN objective_profiles p
 			ON p.objective_id = a.objective_id AND p.revision = a.revision WHERE a.agent_id = ? AND a.scope_id = ?`)
 			.all(boundedId(agentId, "agent id"), boundedId(scopeId, "scope id"));
 		const refs: Partial<Record<ModuleKind, ObjectiveProfileRef>> = {};
-		for (const { body: json } of rows) {
+		for (const { body: json, digest } of rows) {
 			const profile = parseObjectiveProfile(JSON.parse(String(json)));
+			if (judgmentDigest(profile) !== digest)
+				throw Error("objective profile digest mismatch");
 			refs[profile.moduleKind] = parseObjectiveProfileRef({
 				objectiveId: profile.objectiveId,
 				revision: profile.revision,
@@ -291,12 +297,28 @@ export class JudgmentStore {
 		this.assertOpen();
 		const round = this.getRound(roundId);
 		const rows = this.db
-			.prepare("SELECT body FROM assessments WHERE round_id = ?")
+			.prepare(
+				"SELECT body, digest, input_digest, snapshot_digest FROM assessments WHERE round_id = ?",
+			)
 			.all(boundedId(roundId, "round id"));
 		if (!round || rows.length !== MODULE_KINDS.length)
 			throw Error("incomplete assessment set");
-		const assessments = rows.map(({ body: json }) =>
-			parseAssessment(JSON.parse(String(json))),
+		const assessments = rows.map(
+			({
+				body: json,
+				digest,
+				input_digest: inputDigest,
+				snapshot_digest: snapshot,
+			}) => {
+				const parsed = parseAssessment(JSON.parse(String(json)));
+				if (judgmentDigest(parsed) !== digest)
+					throw Error("assessment digest mismatch");
+				if (parsed.inputDigest !== inputDigest)
+					throw Error("assessment input digest mismatch");
+				if (parsed.snapshotDigest !== snapshot)
+					throw Error("assessment snapshot digest mismatch");
+				return parsed;
+			},
 		);
 		return parseAssessmentSet({
 			schemaVersion: 1,
@@ -374,19 +396,29 @@ export class JudgmentStore {
 	getResolution(roundId: string): ResolutionRecord | null {
 		this.assertOpen();
 		const row = this.db
-			.prepare("SELECT body FROM resolution_records WHERE round_id = ?")
+			.prepare("SELECT body, digest FROM resolution_records WHERE round_id = ?")
 			.get(boundedId(roundId, "round id"));
-		const { body: json } = row ?? {};
-		return row ? parseResolutionRecord(JSON.parse(String(json))) : null;
+		if (!row) return null;
+		const { body: json, digest } = row;
+		const parsed = parseResolutionRecord(JSON.parse(String(json)));
+		if (judgmentDigest(parsed) !== digest)
+			throw Error("resolution digest mismatch");
+		return parsed;
 	}
 
 	getSelectionSpec(roundId: string): SelectionSpec | null {
 		this.assertOpen();
 		const row = this.db
-			.prepare("SELECT body FROM selection_specs WHERE round_id = ?")
+			.prepare(
+				"SELECT body, spec_digest FROM selection_specs WHERE round_id = ?",
+			)
 			.get(boundedId(roundId, "round id"));
-		const { body: json } = row ?? {};
-		return row ? parseSelectionSpec(JSON.parse(String(json))) : null;
+		if (!row) return null;
+		const { body: json, spec_digest: digest } = row;
+		const parsed = parseSelectionSpec(JSON.parse(String(json)));
+		if (parsed.specDigest !== digest)
+			throw Error("selection spec digest mismatch");
+		return parsed;
 	}
 
 	putIntention(record: IntentionRecord): void {
@@ -474,10 +506,16 @@ export class JudgmentStore {
 	getIntention(intentionId: string): IntentionRecord | null {
 		this.assertOpen();
 		const row = this.db
-			.prepare("SELECT body FROM intention_records WHERE intention_id = ?")
+			.prepare(
+				"SELECT body, digest FROM intention_records WHERE intention_id = ?",
+			)
 			.get(boundedId(intentionId, "intention id"));
-		const { body: json } = row ?? {};
-		return row ? parseIntentionRecord(JSON.parse(String(json))) : null;
+		if (!row) return null;
+		const { body: json, digest } = row;
+		const parsed = parseIntentionRecord(JSON.parse(String(json)));
+		if (intentionDigest(parsed) !== digest)
+			throw Error("intention digest mismatch");
+		return parsed;
 	}
 
 	listIntentions(
@@ -494,17 +532,20 @@ export class JudgmentStore {
 			status === undefined
 				? this.db
 						.prepare(
-							"SELECT body FROM intention_records WHERE agent_id = ? AND scope_id = ? ORDER BY intention_id",
+							"SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? ORDER BY intention_id",
 						)
 						.all(agent, scope)
 				: this.db
 						.prepare(
-							"SELECT body FROM intention_records WHERE agent_id = ? AND scope_id = ? AND status = ? ORDER BY intention_id",
+							"SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? AND status = ? ORDER BY intention_id",
 						)
 						.all(agent, scope, status);
-		return rows.map(({ body: json }) =>
-			parseIntentionRecord(JSON.parse(String(json))),
-		);
+		return rows.map(({ body: json, digest }) => {
+			const parsed = parseIntentionRecord(JSON.parse(String(json)));
+			if (intentionDigest(parsed) !== digest)
+				throw Error("intention digest mismatch");
+			return parsed;
+		});
 	}
 
 	close(): void {
