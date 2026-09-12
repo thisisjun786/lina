@@ -93,6 +93,7 @@ function snapshot(
 		sourceRefs: [],
 		workingRevision: 2,
 		instructionRevision: 1,
+		policyId: "personal.v1",
 		policyRevision: 1,
 		identityRevision: 1,
 		domainRevisions: { life: 0 },
@@ -409,6 +410,57 @@ test("rounds freeze active references and reject duplicate ids or scope sequence
 	).toThrow("stale objective profile refs");
 });
 
+for (const tamper of ["snapshot", "snapshot_digest"] as const) {
+	test(`3995117504: ${tamper} tampering is rejected on read and writes after reopen`, () => {
+		let store = open();
+		const ref = snapshot(store);
+		store.openRound(ref);
+		close(store);
+		const db = database();
+		db.prepare(`UPDATE rounds SET ${tamper} = ? WHERE round_id = ?`).run(
+			tamper === "snapshot"
+				? JSON.stringify({ ...ref, clockId: "tampered-clock" })
+				: "tampered-digest",
+			ref.roundId,
+		);
+		store = open();
+		expect(() => store.getRound(ref.roundId)).toThrow(
+			"snapshot digest mismatch",
+		);
+		expect(() => store.putAssessment(assessment(ref, "clotho"))).toThrow(
+			"snapshot digest mismatch",
+		);
+		expect(() =>
+			store.recordResolution(ref.roundId, resolution(ref, "held"), null),
+		).toThrow("snapshot digest mismatch");
+		expect(db.prepare("SELECT count(*) AS n FROM assessments").get()).toEqual({
+			n: 0,
+		});
+		expect(store.getResolution(ref.roundId)).toBeNull();
+	});
+}
+
+test("3995117504: snapshot digest is checked after parser normalization", () => {
+	const store = open();
+	const ref = snapshot(store);
+	ref.sourceRefs = [
+		{ kind: "request", id: "a", revision: 1 },
+		{ kind: "request", id: "b", revision: 1 },
+	];
+	store.openRound(ref);
+	database()
+		.prepare("UPDATE rounds SET snapshot = ? WHERE round_id = ?")
+		.run(
+			JSON.stringify({ ...ref, sourceRefs: [...ref.sourceRefs].reverse() }),
+			ref.roundId,
+		);
+	expect(store.getRound(ref.roundId)).toEqual({
+		snapshot: ref,
+		status: "open",
+		snapshotDigest: snapshotDigest(ref),
+	});
+});
+
 test("assessments require an open matching snapshot and exactly one of each module", () => {
 	const store = open();
 	const ref = snapshot(store);
@@ -474,6 +526,7 @@ for (const change of [
 for (const status of ["resolved", "held", "deferred"] as const) {
 	for (const change of [
 		{ situation: "autonomous" as const },
+		{ policyId: "other-policy" },
 		{ policyRevision: 999 },
 	]) {
 		test(`${status} resolution must match snapshot ${Object.keys(change)[0]}`, () => {

@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import type { OptionKey } from "./judgment.ts";
+import { judgmentDigest } from "./judgment-validation.ts";
 import { boundedId, boundedText } from "./validation.ts";
 
 export const PERSONAL_CATALOG_ID = "personal.v1" as const;
@@ -146,10 +146,26 @@ export function normalizeOptionArgs(
 export function canonicalOptionKey(
 	option: Omit<CanonicalOption, "optionKey">,
 ): OptionKey {
-	const hash = createHash("sha256")
-		.update(JSON.stringify(normalizeOptionArgs(option.args)))
-		.digest("hex");
-	return `${option.catalogId}:${optionKind(option.kind)}:${target(option.targetId) ?? "-"}:${hash}`;
+	const kind = optionKind(option.kind);
+	const targetId = target(option.targetId);
+	// Bind execution semantics, not just display arguments, in sorted JSON.
+	const hash = judgmentDigest({
+		schemaVersion: option.schemaVersion,
+		catalogId: option.catalogId,
+		kind,
+		actor: {
+			agentId: boundedId(option.actor.agentId, "agent id"),
+			scopeId: boundedId(option.actor.scopeId, "scope id"),
+		},
+		targetId,
+		args: normalizeOptionArgs(option.args),
+		preconditions: parsePrecondition(option.preconditions, kind),
+		effect: {
+			owner: option.effect.owner,
+			scope: boundedId(option.effect.scope, "effect scope"),
+		},
+	});
+	return `${option.catalogId}:${kind}:${targetId ?? "-"}:${hash}`;
 }
 
 function parsePrecondition(
@@ -305,6 +321,8 @@ export function parseCanonicalOption(value: unknown): CanonicalOption {
 		},
 		optionKey: boundedId(row.optionKey, "option key"),
 	};
+	if (result.effect.scope !== result.actor.scopeId)
+		throw Error("option effect scope mismatch");
 	if (result.optionKey !== canonicalOptionKey(result))
 		throw Error("canonical option key mismatch");
 	return result;

@@ -52,16 +52,19 @@ export type HostEligibility = Array<{
 export function rankMass(ranks: number[], ratio: number): number[] {
 	if (!Number.isFinite(ratio) || ratio <= 0) throw Error("invalid rank ratio");
 	const counts = new Map<number, number>();
+	let anchor = ranks[0] ?? 1;
 	for (const rank of ranks) {
 		if (!Number.isSafeInteger(rank) || rank < 1) throw Error("invalid rank");
 		counts.set(rank, (counts.get(rank) ?? 0) + 1);
+		anchor = ratio <= 1 ? Math.min(anchor, rank) : Math.max(anchor, rank);
 	}
+	// Divide all weights by the largest geometric weight before summing.
 	const total = [...counts.keys()].reduce(
-		(sum, rank) => sum + ratio ** (rank - 1),
+		(sum, rank) => sum + ratio ** (rank - anchor),
 		0,
 	);
 	return ranks.map(
-		(rank) => ratio ** (rank - 1) / total / (counts.get(rank) ?? 1),
+		(rank) => ratio ** (rank - anchor) / total / (counts.get(rank) ?? 1),
 	);
 }
 
@@ -97,6 +100,26 @@ export function resolvePersonalRound(input: {
 	const digest = snapshotDigest(snapshot);
 	if (set.roundId !== snapshot.roundId || set.snapshotDigest !== digest)
 		throw Error("assessment set snapshot mismatch");
+	if (
+		policy.policyId !== snapshot.policyId ||
+		policy.revision !== snapshot.policyRevision
+	)
+		throw Error("policy snapshot mismatch");
+	for (const assessment of set.assessments) {
+		const objective = snapshot.objectiveProfileRefs[assessment.moduleKind];
+		if (
+			assessment.objectiveRef.objectiveId !== objective.objectiveId ||
+			assessment.objectiveRef.revision !== objective.revision ||
+			assessment.objectiveRef.digest !== objective.digest
+		)
+			throw Error("assessment objective mismatch");
+		if (
+			assessment.proposedOptionKeys.some((key) => !keys.has(key)) ||
+			assessment.objectiveAssessments.some((o) => !keys.has(o.optionKey)) ||
+			assessment.recommendedOptionKeys.some((key) => !keys.has(key))
+		)
+			throw Error("unknown assessment option key");
+	}
 	const order = [...policy.orders[snapshot.situation]];
 	const record: ResolutionRecord = {
 		schemaVersion: 1,

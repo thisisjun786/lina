@@ -53,6 +53,7 @@ const snapshot: JudgmentSnapshotRef = {
 	sourceRefs: [{ kind: "request", id: "request-1", revision: 0 }],
 	workingRevision: 2,
 	instructionRevision: 1,
+	policyId: "personal.v1",
 	policyRevision: 1,
 	identityRevision: 1,
 	domainRevisions: { life: 0 },
@@ -399,6 +400,38 @@ test("snapshot opaque refs and independently bounded revisions", () => {
 	).toThrow(/unknown/);
 });
 
+test("snapshot requires a bounded policy identity without a fallback", () => {
+	const { policyRevision: _revision, ...withoutRevision } = snapshot;
+	expect(() => parseJudgmentSnapshotRef(withoutRevision)).toThrow();
+	for (const policyId of [undefined, null, "", " ", 42, "x".repeat(161)])
+		expect(() => parseJudgmentSnapshotRef({ ...snapshot, policyId })).toThrow();
+	const withPolicy = { ...snapshot, policyId: "personal.v1" };
+	const { policyId: _policyId, ...withoutPolicy } = withPolicy;
+	expect(() => parseJudgmentSnapshotRef(withoutPolicy)).toThrow();
+	expect(parseJudgmentSnapshotRef(withPolicy)).toEqual(withPolicy);
+	expect(snapshotDigest({ ...withPolicy, policyId: "other-policy" })).not.toBe(
+		snapshotDigest(withPolicy),
+	);
+});
+
+test("selection bias is bounded even for excluded candidates and zero lambda", () => {
+	for (const b of [-1 - Number.EPSILON, 1 + Number.EPSILON, -2, 2]) {
+		for (const p0 of [0, 1]) {
+			const candidates = [
+				{ optionKey: "a", p0, b },
+				{ optionKey: "b", p0: 1 - p0, b: null },
+			];
+			expect(() => parseSelectionSpec(signedSpec({ candidates }))).toThrow(
+				"invalid bias",
+			);
+		}
+	}
+	for (const b of [null, -1, -0.5, 0, 0.5, 1]) {
+		const valid = signedSpec({ candidates: [{ optionKey: "a", p0: 1, b }] });
+		expect(parseSelectionSpec(valid)).toEqual(valid);
+	}
+});
+
 test("bounded text, ids, lists, uniqueness and canonical list order", () => {
 	for (const objective of ["", " ", "x\u0000y", "x".repeat(1001)])
 		expect(() => parseObjectiveProfile({ ...profile, objective })).toThrow();
@@ -534,7 +567,7 @@ test("selection rejects invalid mass, lambda, bias, order, duplicates, and tampe
 	expect(() => parseSelectionSpec({ ...spec, specDigest: "wrong" })).toThrow();
 	const withExcluded = signedSpec({
 		candidates: [
-			{ optionKey: "a", p0: 1, b: -2 },
+			{ optionKey: "a", p0: 1, b: -1 },
 			{ optionKey: "b", p0: 0, b: null },
 		],
 	});
@@ -605,7 +638,7 @@ test("intention transitions complete the legal lifecycle without mutating input"
 		const evidenceRef =
 			to === "completed"
 				? "outcome-1"
-				: to === "suspended"
+				: to === "suspended" || record.status === "suspended"
 					? intention.acceptance.sourceRef
 					: null;
 		const next = transitionIntention(record, {

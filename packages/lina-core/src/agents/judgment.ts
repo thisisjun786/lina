@@ -65,6 +65,7 @@ export type JudgmentSnapshotRef = {
 	sourceRefs: SourceRef[];
 	workingRevision: number;
 	instructionRevision: number;
+	policyId: string;
 	policyRevision: number;
 	identityRevision: number;
 	domainRevisions: Record<string, number>;

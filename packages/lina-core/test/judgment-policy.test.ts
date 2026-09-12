@@ -103,6 +103,7 @@ function snapshot(situation: Situation): JudgmentSnapshotRef {
 		sourceRefs: [],
 		workingRevision: 0,
 		instructionRevision: 0,
+		policyId: PERSONAL_POLICY_V1.policyId,
 		policyRevision: 1,
 		identityRevision: 0,
 		domainRevisions: {},
@@ -148,21 +149,20 @@ function fixture(
 			const objectiveRef = snap.objectiveProfileRefs[moduleKind];
 			const objectiveAssessments = options.flatMap((o) => {
 				const change = assess(moduleKind, o);
-				return change === null
-					? []
-					: [
-							{
-								optionKey: o.optionKey,
-								stance: "accept",
-								severity: null,
-								unavailableReason: null,
-								gain: "gain",
-								loss: "loss",
-								uncertainty: "uncertainty",
-								evidenceRefs: [],
-								...change,
-							},
-						];
+				if (change === null) return [];
+				return [
+					{
+						optionKey: o.optionKey,
+						stance: "accept",
+						severity: null,
+						unavailableReason: null,
+						gain: "gain",
+						loss: "loss",
+						uncertainty: "uncertainty",
+						evidenceRefs: [],
+						...change,
+					},
+				];
 			});
 			return {
 				schemaVersion: 1,
@@ -339,7 +339,7 @@ test("(2) golden option parses byte-identically and rejects invalid boundary dat
 		preconditions: { kind: "noop", reason: "nothing needed" },
 		effect: { owner: "none", scope: "scope" },
 		optionKey:
-			"personal.v1:noop:-:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+			"personal.v1:noop:-:87529c8e7be62a166697c588491676440f0dd893f67561788cb6c2462904ddcf",
 	};
 	expect(JSON.stringify(parseCanonicalOption(golden))).toBe(
 		JSON.stringify(golden),
@@ -444,12 +444,12 @@ for (const situation of SITUATIONS) {
 		);
 		const biased = resolve({
 			...input,
-			bias: Object.fromEntries(options.map((o) => [o.optionKey, 100])),
+			bias: Object.fromEntries(options.map((o) => [o.optionKey, 1])),
 		});
 		expect(biased.spec?.candidates.map((c) => c.p0)).toEqual(
 			spec.candidates.map((c) => c.p0),
 		);
-		expect(biased.spec?.candidates.every((c) => c.b === 100)).toBe(true);
+		expect(biased.spec?.candidates.every((c) => c.b === 1)).toBe(true);
 	});
 }
 
@@ -722,7 +722,7 @@ test("(9) normalized duplicate options cannot double activity mass", () => {
 
 test("(10) single positive candidate consumes no draw, including NaN", () => {
 	const spec = samplingSpec([
-		{ optionKey: "a", p0: 0, b: 1000 },
+		{ optionKey: "a", p0: 0, b: 1 },
 		{ optionKey: "b", p0: 1, b: null },
 	]);
 	expect(sampleSelection(spec, NaN)).toEqual({
@@ -737,8 +737,8 @@ test("(10) single positive candidate consumes no draw, including NaN", () => {
 
 test("(10) sampling uses normalized log weights and strict cumulative boundaries", () => {
 	const spec = samplingSpec([
-		{ optionKey: "a", p0: 0.5, b: Math.log(3) },
-		{ optionKey: "b", p0: 0.5, b: 0 },
+		{ optionKey: "a", p0: 0.5, b: Math.log(3) / 2 },
+		{ optionKey: "b", p0: 0.5, b: -Math.log(3) / 2 },
 	]);
 	const sample = sampleSelection(spec, 0);
 	expect(sample.optionKey).toBe("a");
@@ -772,16 +772,16 @@ test("(10) asymmetric and extreme log-space weights remain finite and normalized
 			{ optionKey: "b", p0: 1, b: null },
 		],
 		[
-			{ optionKey: "a", p0: 0.5, b: 1000 },
-			{ optionKey: "b", p0: 0.5, b: 999 },
+			{ optionKey: "a", p0: 0.5, b: 1 },
+			{ optionKey: "b", p0: 0.5, b: 0.999 },
 		],
 		[
-			{ optionKey: "a", p0: 0.5, b: -1000 },
-			{ optionKey: "b", p0: 0.5, b: -999 },
+			{ optionKey: "a", p0: 0.5, b: -1 },
+			{ optionKey: "b", p0: 0.5, b: -0.999 },
 		],
 	]) {
 		const result = sampleSelection(
-			samplingSpec(candidates),
+			samplingSpec(candidates, 1000),
 			1 - Number.EPSILON,
 		);
 		expect(result.probabilities.every((c) => Number.isFinite(c.p))).toBe(true);

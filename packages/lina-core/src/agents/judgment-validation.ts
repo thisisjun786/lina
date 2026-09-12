@@ -268,6 +268,7 @@ export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
 			"sourceRefs",
 			"workingRevision",
 			"instructionRevision",
+			"policyId",
 			"policyRevision",
 			"identityRevision",
 			"domainRevisions",
@@ -311,6 +312,7 @@ export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
 			row["instructionRevision"],
 			"instruction revision",
 		),
+		policyId: boundedId(row["policyId"], "policy id"),
 		policyRevision: revision(row["policyRevision"], "policy revision"),
 		identityRevision: revision(row["identityRevision"], "identity revision"),
 		domainRevisions: Object.fromEntries(
@@ -689,10 +691,12 @@ export function parseSelectionSpec(value: unknown): SelectionSpec {
 				);
 				const p0 = finite(item["p0"], "p0");
 				if (p0 < 0) throw Error("invalid p0");
+				const b = item["b"] === null ? null : finite(item["b"], "bias");
+				if (b !== null && (b < -1 || b > 1)) throw Error("invalid bias");
 				return {
 					optionKey: boundedId(item["optionKey"], "option key"),
 					p0,
-					b: item["b"] === null ? null : finite(item["b"], "bias"),
+					b,
 				};
 			},
 			"selection candidates",
@@ -785,7 +789,9 @@ function validateTransition(
 	if (to === "completed" && evidenceRef === null)
 		throw Error("completed intention requires outcome ref");
 	if (
-		(to === "cancelled" || to === "suspended") &&
+		(to === "cancelled" ||
+			to === "suspended" ||
+			(from === "suspended" && to === "active")) &&
 		evidenceRef !== acceptanceSourceRef
 	)
 		throw Error("intention change requires original acceptance ref");

@@ -236,8 +236,11 @@ export class JudgmentStore {
 			.get(boundedId(roundId, "round id"));
 		if (!row) return null;
 		const { snapshot, status, snapshot_digest: digest } = row;
+		const parsed = parseJudgmentSnapshotRef(JSON.parse(String(snapshot)));
+		if (snapshotDigest(parsed) !== digest)
+			throw Error("snapshot digest mismatch");
 		return {
-			snapshot: parseJudgmentSnapshotRef(JSON.parse(String(snapshot))),
+			snapshot: parsed,
 			status: status as RoundStatus,
 			snapshotDigest: String(digest),
 		};
@@ -319,6 +322,7 @@ export class JudgmentStore {
 			if (parsed.roundId !== id) throw Error("resolution round mismatch");
 			if (
 				parsed.situation !== round.snapshot.situation ||
+				parsed.policyId !== round.snapshot.policyId ||
 				parsed.policyRevision !== round.snapshot.policyRevision
 			)
 				throw Error("resolution snapshot mismatch");

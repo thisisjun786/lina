@@ -190,6 +190,7 @@ function snapshotRef(
 		sourceRefs: [],
 		workingRevision: projection.workingRevision,
 		instructionRevision: projection.instructionRevision,
+		policyId: PERSONAL_POLICY_V1.policyId,
 		policyRevision: 1,
 		identityRevision: 1,
 		domainRevisions: {},
