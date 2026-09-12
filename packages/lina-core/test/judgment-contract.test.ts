@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
 	ACCEPTED_BY,
 	type Assessment,
@@ -34,7 +35,6 @@ import {
 	snapshotDigest,
 	transitionIntention,
 } from "../src/agents/index.ts";
-import { canonicalJson } from "../src/agents/judgment-validation.ts";
 
 const profile: ObjectiveProfile = {
 	schemaVersion: 1,
@@ -348,17 +348,19 @@ test("digests canonicalize nested object keys, preserve arrays, and omit undefin
 
 test("canonical JSON rejects unsupported top-level values", () => {
 	for (const value of [undefined, () => 1, Symbol("value"), 1n])
-		expect(() => canonicalJson(value)).toThrow("unsupported canonical value");
+		expect(() => judgmentDigest(value)).toThrow("unsupported canonical value");
 });
 
 test("canonical JSON bounds nesting and rejects cycles clearly", () => {
 	let value: unknown = null;
 	for (let depth = 0; depth < 64; depth += 1) value = [value];
-	expect(canonicalJson(value)).toBe(JSON.stringify(value));
-	expect(() => canonicalJson([value])).toThrow("canonical value too deep");
+	expect(judgmentDigest(value)).toBe(
+		createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+	);
+	expect(() => judgmentDigest([value])).toThrow("canonical value too deep");
 	const cyclic: { self?: unknown } = {};
 	cyclic.self = cyclic;
-	expect(() => canonicalJson(cyclic)).toThrow("canonical value too deep");
+	expect(() => judgmentDigest(cyclic)).toThrow("canonical value too deep");
 });
 
 test("snapshot opaque refs and independently bounded revisions", () => {
