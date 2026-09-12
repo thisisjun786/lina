@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
 	type AssessmentSet,
 	type JudgmentSnapshotRef,
@@ -105,6 +106,8 @@ export function resolvePersonalRound(input: {
 		policy.revision !== snapshot.policyRevision
 	)
 		throw Error("policy snapshot mismatch");
+	if (!isDeepStrictEqual(policy, PERSONAL_POLICY_V1))
+		throw Error("unsupported personal policy declaration");
 	for (const assessment of set.assessments) {
 		const objective = snapshot.objectiveProfileRefs[assessment.moduleKind];
 		if (

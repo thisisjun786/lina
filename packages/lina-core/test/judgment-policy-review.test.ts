@@ -114,6 +114,38 @@ function fixture(): Parameters<typeof resolvePersonalRound>[0] {
 	};
 }
 
+test("personal.v1 revision one rejects altered or malformed declarations", () => {
+	const input = fixture();
+	for (const change of [
+		{ ratio: 0.9 },
+		{ ratio: 0 },
+		{ orders: { ...PERSONAL_POLICY_V1.orders, autonomous: [] } },
+		{
+			orders: {
+				...PERSONAL_POLICY_V1.orders,
+				user_request: PERSONAL_POLICY_V1.orders.autonomous,
+			},
+		},
+		{ lambda: { ...PERSONAL_POLICY_V1.lambda, user_request: 1 } },
+		{ lambda: { ...PERSONAL_POLICY_V1.lambda, autonomous: 0 } },
+		{ stanceOrder: [] },
+		{ stanceOrder: [...PERSONAL_POLICY_V1.stanceOrder].reverse() },
+	]) {
+		expect(() =>
+			resolvePersonalRound({
+				...input,
+				policy: { ...PERSONAL_POLICY_V1, ...change },
+			}),
+		).toThrow("unsupported personal policy declaration");
+	}
+	expect(
+		resolvePersonalRound({
+			...input,
+			policy: structuredClone(PERSONAL_POLICY_V1),
+		}),
+	).toEqual(resolvePersonalRound(input));
+});
+
 for (const outcome of ["resolved", "held", "deferred"] as const) {
 	function round() {
 		const input = fixture();
