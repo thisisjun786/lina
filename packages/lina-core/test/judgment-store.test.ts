@@ -443,6 +443,158 @@ test("assessments require an open matching snapshot and exactly one of each modu
 	);
 });
 
+for (const change of [
+	{ objectiveId: "unregistered-objective" },
+	{ revision: 999 },
+	{ digest: "wrong-objective-digest" },
+]) {
+	test(`assessment must match frozen objective ${Object.keys(change)[0]}`, () => {
+		const store = open();
+		const ref = snapshot(store);
+		store.openRound(ref);
+		const original = assessment(ref, "clotho");
+		const changed = {
+			...original,
+			objectiveRef: { ...original.objectiveRef, ...change },
+		};
+		const invalid = parseAssessment({
+			...changed,
+			inputDigest: assessmentInputDigest(changed),
+		});
+		expect(() => store.putAssessment(invalid)).toThrow(
+			"assessment objective mismatch",
+		);
+		expect(
+			database().prepare("SELECT count(*) AS n FROM assessments").get(),
+		).toEqual({ n: 0 });
+		store.putAssessment(original);
+	});
+}
+
+for (const status of ["resolved", "held", "deferred"] as const) {
+	for (const change of [
+		{ situation: "autonomous" as const },
+		{ policyRevision: 999 },
+	]) {
+		test(`${status} resolution must match snapshot ${Object.keys(change)[0]}`, () => {
+			const store = open();
+			const ref = snapshot(store);
+			store.openRound(ref);
+			for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
+			const record = { ...resolution(ref, status), ...change };
+			expect(() =>
+				store.recordResolution(
+					ref.roundId,
+					record,
+					status === "resolved" ? spec(ref, record) : null,
+				),
+			).toThrow("resolution snapshot mismatch");
+			expect(store.getRound(ref.roundId)?.status).toBe("open");
+			expect(store.getResolution(ref.roundId)).toBeNull();
+			expect(store.getSelectionSpec(ref.roundId)).toBeNull();
+		});
+	}
+}
+
+test("resolved round requires all three persisted assessments", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	store.putAssessment(assessment(ref, "clotho"));
+	expect(() =>
+		store.recordResolution(ref.roundId, resolution(ref), spec(ref)),
+	).toThrow("incomplete assessment set");
+	expect(store.getRound(ref.roundId)?.status).toBe("open");
+	expect(store.getResolution(ref.roundId)).toBeNull();
+	expect(store.getSelectionSpec(ref.roundId)).toBeNull();
+});
+
+const selectionMismatches: Array<{
+	label: string;
+	change: (selection: SelectionSpec) => Partial<SelectionSpec>;
+	error: string;
+}> = [
+	{
+		label: "assessment set digest",
+		change: () => ({ assessmentSetDigest: "nonexistent-set" }),
+		error: "selection assessment set mismatch",
+	},
+	{
+		label: "resolution digest",
+		change: () => ({ resolutionDigest: "wrong-resolution" }),
+		error: "selection resolution digest mismatch",
+	},
+	{
+		label: "policy id",
+		change: () => ({ policyId: "other-policy" }),
+		error: "selection policy mismatch",
+	},
+	{
+		label: "policy revision",
+		change: () => ({ policyRevision: 999 }),
+		error: "selection policy mismatch",
+	},
+	{
+		label: "situation",
+		change: () => ({ situation: "autonomous" }),
+		error: "selection policy mismatch",
+	},
+	...[
+		{ objectiveId: "other-objective" },
+		{ revision: 999 },
+		{ digest: "wrong-objective" },
+	].map((change) => ({
+		label: `objective ${Object.keys(change)[0]}`,
+		change: (selection: SelectionSpec) => ({
+			objectiveProfileRefs: {
+				...selection.objectiveProfileRefs,
+				clotho: { ...selection.objectiveProfileRefs.clotho, ...change },
+			},
+		}),
+		error: "selection objective refs mismatch",
+	})),
+];
+for (const { label, change, error } of selectionMismatches) {
+	test(`selection rejects inconsistent ${label} atomically`, () => {
+		const store = open();
+		const ref = snapshot(store);
+		store.openRound(ref);
+		for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
+		const selection = spec(ref);
+		const changed = { ...selection, ...change(selection) };
+		const invalid = parseSelectionSpec({
+			...changed,
+			specDigest: judgmentDigest({ ...changed, specDigest: undefined }),
+		});
+		expect(() =>
+			store.recordResolution(ref.roundId, resolution(ref), invalid),
+		).toThrow(error);
+		expect(store.getRound(ref.roundId)?.status).toBe("open");
+		expect(store.getResolution(ref.roundId)).toBeNull();
+		expect(store.getSelectionSpec(ref.roundId)).toBeNull();
+		store.recordResolution(ref.roundId, resolution(ref), selection);
+		expect(store.getRound(ref.roundId)?.status).toBe("resolved");
+		expect(store.getResolution(ref.roundId)).toEqual(resolution(ref));
+		expect(store.getSelectionSpec(ref.roundId)).toEqual(selection);
+	});
+}
+
+test("assessment and selection use frozen refs after objective activation changes", () => {
+	const store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	const next = store.putObjectiveProfile(profile("clotho", 2));
+	store.activateObjectiveProfile(ref.agentId, ref.scopeId, next);
+	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
+	const selection = spec(ref);
+	expect(selection.assessmentSetDigest).toBe(
+		judgmentDigest(store.assessmentSet(ref.roundId)),
+	);
+	store.recordResolution(ref.roundId, resolution(ref), selection);
+	expect(store.getSelectionSpec(ref.roundId)).toEqual(selection);
+	expect(store.getRound(ref.roundId)?.status).toBe("resolved");
+});
+
 test("resolution and selection persist atomically and survive reopen with canonical JSON", () => {
 	let store = open();
 	const ref = snapshot(store);
@@ -524,6 +676,7 @@ test("SQLite failure during resolution rolls back the already inserted resolutio
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 	const db = database();
 	db.exec(
 		"CREATE TRIGGER fail_spec BEFORE INSERT ON selection_specs BEGIN SELECT RAISE(ABORT, 'fixture spec failure'); END",
@@ -647,6 +800,7 @@ test("external records are reparsed and malformed persisted bodies are rejected 
 		expect(action).toThrow();
 	const db = database();
 	store.putIntention(intention());
+	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 	store.recordResolution(ref.roundId, resolution(ref), spec(ref));
 	for (const [table, column, read] of [
 		[

@@ -34,6 +34,7 @@ import {
 	snapshotDigest,
 	transitionIntention,
 } from "../src/agents/index.ts";
+import { canonicalJson } from "../src/agents/judgment-validation.ts";
 
 const profile: ObjectiveProfile = {
 	schemaVersion: 1,
@@ -345,6 +346,21 @@ test("digests canonicalize nested object keys, preserve arrays, and omit undefin
 	expect(assessmentInputDigest(assessment)).toBe(assessment.inputDigest);
 });
 
+test("canonical JSON rejects unsupported top-level values", () => {
+	for (const value of [undefined, () => 1, Symbol("value"), 1n])
+		expect(() => canonicalJson(value)).toThrow("unsupported canonical value");
+});
+
+test("canonical JSON bounds nesting and rejects cycles clearly", () => {
+	let value: unknown = null;
+	for (let depth = 0; depth < 64; depth += 1) value = [value];
+	expect(canonicalJson(value)).toBe(JSON.stringify(value));
+	expect(() => canonicalJson([value])).toThrow("canonical value too deep");
+	const cyclic: { self?: unknown } = {};
+	cyclic.self = cyclic;
+	expect(() => canonicalJson(cyclic)).toThrow("canonical value too deep");
+});
+
 test("snapshot opaque refs and independently bounded revisions", () => {
 	for (const field of ["frozenNeuralRef", "observationRef"] as const) {
 		for (const ref of [null, "any-opaque-id"])
@@ -620,6 +636,70 @@ test("intention transitions complete the legal lifecycle without mutating input"
 				at: transition.at,
 			}),
 		).toThrow(`invalid intention transition: completed -> ${to}`);
+});
+
+test("caller-supplied from cannot skip intention states", () => {
+	const forged = {
+		...transition,
+		from: "active",
+		to: "completed" as const,
+		evidenceRef: "outcome-1",
+	};
+	expect(() => transitionIntention(intention, forged)).toThrow(
+		/intention transition/,
+	);
+	expect(intention.status).toBe("proposed");
+	expect(intention.history).toEqual([]);
+});
+
+test("intention changes reject unknown fields", () => {
+	const change = {
+		to: "adopted" as const,
+		reason: "accepted",
+		evidenceRef: null,
+		at: transition.at,
+	};
+	for (const extra of [{ unexpected: true }, { from: "proposed" }])
+		expect(() =>
+			transitionIntention(intention, { ...change, ...extra }),
+		).toThrow(/intention transition/);
+});
+
+test("intention transition table is frozen at every level", () => {
+	expect(Object.isFrozen(INTENTION_TRANSITIONS)).toBe(true);
+	for (const edges of Object.values(INTENTION_TRANSITIONS))
+		expect(Object.isFrozen(edges)).toBe(true);
+});
+
+test("assignment cannot enable a forbidden intention edge", () => {
+	const original = INTENTION_TRANSITIONS.proposed;
+	try {
+		expect(Reflect.set(INTENTION_TRANSITIONS, "proposed", ["completed"])).toBe(
+			false,
+		);
+		expect(Reflect.set(original, "0", "completed")).toBe(false);
+		const change = {
+			to: "completed" as const,
+			reason: "done",
+			evidenceRef: "outcome-1",
+			at: transition.at,
+		};
+		expect(() => transitionIntention(intention, change)).toThrow(
+			"invalid intention transition",
+		);
+		expect(() =>
+			parseIntentionRecord({
+				...intention,
+				revision: 1,
+				status: "completed",
+				history: [{ ...change, from: "proposed" }],
+			}),
+		).toThrow("invalid intention transition");
+		expect(parseIntentionRecord(adopt()).status).toBe("adopted");
+	} finally {
+		Reflect.set(INTENTION_TRANSITIONS, "proposed", original);
+		Reflect.set(original, "0", "adopted");
+	}
 });
 
 test("intention table and all prohibited edges are explicit", () => {

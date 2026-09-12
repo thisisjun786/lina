@@ -313,6 +313,21 @@ test("(1) canonical keys normalize case, target, sorted args, NFC, whitespace an
 	expect(canonicalOptionKey({ ...base, targetId: null })).toContain(":-:");
 });
 
+test("reserved target sentinel is rejected without changing null keys", () => {
+	const base = option("target");
+	const untargeted = buildCanonicalOption({ ...base, targetId: null });
+	expect(untargeted.targetId).toBeNull();
+	expect(untargeted.optionKey).toContain(":noop:-:");
+	expect(parseCanonicalOption(untargeted)).toEqual(untargeted);
+	for (const targetId of ["-", " - "])
+		for (const action of [
+			() => canonicalOptionKey({ ...base, targetId }),
+			() => buildCanonicalOption({ ...base, targetId }),
+			() => parseCanonicalOption({ ...untargeted, targetId }),
+		])
+			expect(action).toThrow("reserved target id");
+});
+
 test("(2) golden option parses byte-identically and rejects invalid boundary data", () => {
 	const golden = {
 		schemaVersion: 1,
@@ -773,6 +788,51 @@ test("(10) asymmetric and extreme log-space weights remain finite and normalized
 		expect(
 			Math.abs(result.probabilities.reduce((sum, c) => sum + c.p, 0) - 1),
 		).toBeLessThanOrEqual(1e-12);
+	}
+});
+
+test("personal policy is frozen at every level", () => {
+	for (const value of [
+		PERSONAL_POLICY_V1,
+		PERSONAL_POLICY_V1.orders,
+		...Object.values(PERSONAL_POLICY_V1.orders),
+		PERSONAL_POLICY_V1.lambda,
+		PERSONAL_POLICY_V1.stanceOrder,
+	])
+		expect(Object.isFrozen(value)).toBe(true);
+});
+
+test("assignment cannot change personal policy arbitration", () => {
+	const input = fixture(
+		"autonomous",
+		MODULE_KINDS.map((m) => option(m)),
+		(m, o) => opinion(m === o.targetId ? "prefer" : "accept"),
+	);
+	const before = resolve(input);
+	const changes: Array<[object, string, unknown]> = [
+		[PERSONAL_POLICY_V1, "ratio", 0.25],
+		[PERSONAL_POLICY_V1, "revision", 999],
+		[PERSONAL_POLICY_V1, "policyId", "other"],
+		[PERSONAL_POLICY_V1, "orders", {}],
+		[PERSONAL_POLICY_V1, "lambda", {}],
+		[PERSONAL_POLICY_V1, "stanceOrder", []],
+		[
+			PERSONAL_POLICY_V1.orders,
+			"autonomous",
+			["atropos", "clotho", "lachesis"],
+		],
+		[PERSONAL_POLICY_V1.orders.autonomous, "0", "atropos"],
+		[PERSONAL_POLICY_V1.lambda, "autonomous", 99],
+		[PERSONAL_POLICY_V1.stanceOrder, "0", "oppose"],
+	];
+	for (const [target, key, value] of changes) {
+		const original: unknown = Reflect.get(target, key);
+		try {
+			expect(Reflect.set(target, key, value)).toBe(false);
+			expect(resolve(input)).toEqual(before);
+		} finally {
+			Reflect.set(target, key, original);
+		}
 	}
 });
 

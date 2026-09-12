@@ -119,7 +119,9 @@ function optionKind(value: unknown): PersonalOptionKind {
 	return kind;
 }
 function target(value: unknown): string | null {
-	return value === null ? null : boundedId(value, "target id").trim();
+	const id = value === null ? null : boundedId(value, "target id").trim();
+	if (id === "-") throw Error("reserved target id");
+	return id;
 }
 
 export function normalizeOptionArgs(

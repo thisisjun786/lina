@@ -157,22 +157,30 @@ function jsonObject(value: unknown): JsonObject {
 	);
 }
 
-function canonical(item: unknown): unknown {
+function canonical(item: unknown, depth = 0): unknown {
+	if (depth > 64) throw Error("canonical value too deep");
 	return Array.isArray(item)
-		? item.map(canonical)
+		? item.map((value) => canonical(value, depth + 1))
 		: item !== null && typeof item === "object"
 			? Object.fromEntries(
 					Object.keys(item)
 						.sort()
 						.map((key) => [
 							key,
-							canonical((item as Record<string, unknown>)[key]),
+							canonical((item as Record<string, unknown>)[key], depth + 1),
 						]),
 				)
 			: item;
 }
 
 export function canonicalJson(value: unknown): string {
+	if (
+		value === undefined ||
+		typeof value === "function" ||
+		typeof value === "symbol" ||
+		typeof value === "bigint"
+	)
+		throw Error("unsupported canonical value");
 	return JSON.stringify(canonical(value));
 }
 
@@ -741,17 +749,16 @@ export function parseSelectionSpec(value: unknown): SelectionSpec {
 	return result;
 }
 
-export const INTENTION_TRANSITIONS: Record<
-	IntentionStatus,
-	readonly IntentionStatus[]
-> = {
-	proposed: ["adopted", "cancelled"],
-	adopted: ["active", "suspended", "cancelled"],
-	active: ["suspended", "completed", "cancelled"],
-	suspended: ["active", "cancelled"],
-	completed: [],
-	cancelled: [],
-};
+export const INTENTION_TRANSITIONS: Readonly<
+	Record<IntentionStatus, readonly IntentionStatus[]>
+> = Object.freeze({
+	proposed: Object.freeze(["adopted", "cancelled"] as const),
+	adopted: Object.freeze(["active", "suspended", "cancelled"] as const),
+	active: Object.freeze(["suspended", "completed", "cancelled"] as const),
+	suspended: Object.freeze(["active", "cancelled"] as const),
+	completed: Object.freeze([]),
+	cancelled: Object.freeze([]),
+});
 
 export function parseIntentionTransition(value: unknown): IntentionTransition {
 	const row = fields(
@@ -903,9 +910,18 @@ export function transitionIntention(
 	record: IntentionRecord,
 	transition: Omit<IntentionTransition, "from">,
 ): IntentionRecord {
+	for (const key of Reflect.ownKeys(transition))
+		if (
+			typeof key !== "string" ||
+			!["to", "reason", "evidenceRef", "at"].includes(key)
+		)
+			throw Error("invalid intention transition");
 	const entry = parseIntentionTransition({
 		from: record.status,
-		...transition,
+		to: transition.to,
+		reason: transition.reason,
+		evidenceRef: transition.evidenceRef,
+		at: transition.at,
 	});
 	validateTransition(entry, record.acceptance.sourceRef);
 	if (record.history.length >= MAX_LIST)

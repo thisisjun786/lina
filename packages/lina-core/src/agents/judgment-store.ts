@@ -253,6 +253,13 @@ export class JudgmentStore {
 				parsed.snapshotDigest !== round.snapshotDigest
 			)
 				throw Error("assessment snapshot mismatch");
+			const objective = round.snapshot.objectiveProfileRefs[parsed.moduleKind];
+			if (
+				parsed.objectiveRef.objectiveId !== objective.objectiveId ||
+				parsed.objectiveRef.revision !== objective.revision ||
+				parsed.objectiveRef.digest !== objective.digest
+			)
+				throw Error("assessment objective mismatch");
 			if (
 				this.db
 					.prepare(
@@ -311,12 +318,35 @@ export class JudgmentStore {
 			const round = this.requireOpenRound(id);
 			if (parsed.roundId !== id) throw Error("resolution round mismatch");
 			if (
+				parsed.situation !== round.snapshot.situation ||
+				parsed.policyRevision !== round.snapshot.policyRevision
+			)
+				throw Error("resolution snapshot mismatch");
+			if (
 				(parsed.status === "resolved") !== (selection !== null) ||
 				(selection &&
 					(selection.roundId !== id ||
 						selection.snapshotDigest !== round.snapshotDigest))
 			)
 				throw Error("selection spec mismatch");
+			if (selection) {
+				const set = this.assessmentSet(id);
+				if (selection.assessmentSetDigest !== judgmentDigest(set))
+					throw Error("selection assessment set mismatch");
+				if (selection.resolutionDigest !== judgmentDigest(parsed))
+					throw Error("selection resolution digest mismatch");
+				if (
+					selection.policyId !== parsed.policyId ||
+					selection.policyRevision !== parsed.policyRevision ||
+					selection.situation !== parsed.situation
+				)
+					throw Error("selection policy mismatch");
+				if (
+					canonicalJson(selection.objectiveProfileRefs) !==
+					canonicalJson(round.snapshot.objectiveProfileRefs)
+				)
+					throw Error("selection objective refs mismatch");
+			}
 			const now = this.now();
 			this.db
 				.prepare(

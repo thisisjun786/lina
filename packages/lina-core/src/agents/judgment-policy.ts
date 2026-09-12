@@ -22,26 +22,26 @@ import {
 	snapshotDigest,
 } from "./judgment-validation.ts";
 
-export type ArbitrationPolicy = {
+export type ArbitrationPolicy = Readonly<{
 	policyId: string;
 	revision: number;
 	ratio: number;
-	orders: Record<Situation, readonly ModuleKind[]>;
-	lambda: Record<Situation, number>;
+	orders: Readonly<Record<Situation, readonly ModuleKind[]>>;
+	lambda: Readonly<Record<Situation, number>>;
 	stanceOrder: readonly Stance[];
-};
-export const PERSONAL_POLICY_V1: ArbitrationPolicy = {
+}>;
+export const PERSONAL_POLICY_V1: ArbitrationPolicy = Object.freeze({
 	policyId: "personal.v1",
 	revision: 1,
 	ratio: 0.5,
-	orders: {
-		user_request: ["atropos", "clotho", "lachesis"],
-		autonomous: ["lachesis", "clotho", "atropos"],
-		transition: ["clotho", "atropos", "lachesis"],
-	},
-	lambda: { user_request: 0, autonomous: 1, transition: 1 },
-	stanceOrder: ["prefer", "accept", "oppose"],
-};
+	orders: Object.freeze({
+		user_request: Object.freeze(["atropos", "clotho", "lachesis"] as const),
+		autonomous: Object.freeze(["lachesis", "clotho", "atropos"] as const),
+		transition: Object.freeze(["clotho", "atropos", "lachesis"] as const),
+	}),
+	lambda: Object.freeze({ user_request: 0, autonomous: 1, transition: 1 }),
+	stanceOrder: Object.freeze(["prefer", "accept", "oppose"] as const),
+});
 export type HostEligibility = Array<{
 	optionKey: OptionKey;
 	eligible: boolean;
