@@ -32,7 +32,7 @@
 | [현재 MoiraiProbe](../../../packages/lina-codex/src/moirai-probe.ts#L67) | Codex QA 전용 3판단+종합·이력 대조. 제품 채널·도메인 포트는 연결되지 않음. QA 코드를 제품 조정기로 복제하지 않음 |
 | [PR #10 Senpi](https://github.com/thisisjun786/lina/blob/5b22aee53f9f7c01cc508289099f662aed613140/scripts/qa/senpi-sdk/README.md) | 병합된 비교용 SDK QA. `createAgentSession`·`ModelRuntime`·`SessionManager` 사용 예와 세션·취소·재개 검증. 역할 프롬프트는 이전 렌즈(라케시스=근거, 아트로포스=상황 선택)이므로 F2에서 정본의 목표로 재작성(D13) |
 | [PR #8 채택 커널](https://github.com/thisisjun786/lina/blob/ab9f1f073eca80ecef8dda0b0f7d338f4d6cb35c/scripts/qa/adoption-kernel/types.ts#L24) | PR은 미병합 종료. `Purpose`·`Adoption(understanding \| plan \| intention)`·`Judgment(method, expectation)`·`ToolReceipt`·`ProposalAction(answer \| adopt \| tool \| defer \| noop)`의 의미를 정본의 `IntentionRecord`와 catalog v1로 이전. Frame·DB·독립 평가 통과는 전제하지 않음 |
-| [PR #11 프롬프트 방법론](https://github.com/thisisjun786/lina/blob/25346f15287a96d7e95e8c3e07c51fff1899f66f/docs/plans/platform/014_model_tuning_methodology_research.md) | 병합된 방법론. 작성 순서·A/B/C 진단·비교 자동화·누출 점검을 정본 D20이 채택. 그 문서의 역할 표(라케시스=분석가, 아트로포스=결정자)와 "실행 엔진은 Codex" 문장, 030의 옛 anchor 링크는 병합 시 정본에 맞춰 갱신 필요 |
+| [PR #11 프롬프트 방법론](https://github.com/thisisjun786/lina/blob/25346f15287a96d7e95e8c3e07c51fff1899f66f/docs/plans/platform/014_model_tuning_methodology_research.md) | 병합된 방법론. 작성 순서·A/B/C 진단·비교 자동화·누출 점검을 정본 D20이 채택. 그 문서의 이전 역할 표(라케시스=분석가, 아트로포스=결정자)는 F2 프롬프트 작성 때 정본의 세 목표로 바꾼다. 실행 엔진 Codex는 D22와 일치한다 |
 | PR #8 이후 로컬 검증 후보 `0cdfd43` | 프로세스 복구·실패 결과 검증을 추가한 별도 후보. 제품 의존성으로 채택하지 않고 후속 설계 때 공개 가능한 리비전과 결과를 다시 확인 |
 | [PR #5 UI](https://github.com/thisisjun786/lina/pull/5) | 별도 UI·공통 client·Electron 구현. 인지 원본을 UI 패키지로 옮기지 않음. 엔진 완성 뒤 고도화 |
 

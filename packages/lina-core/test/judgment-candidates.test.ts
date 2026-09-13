@@ -360,19 +360,25 @@ test("closure requires an open matching frozen round and is immutable and detach
 });
 
 for (const complete of [false, true])
-	test(`only held/no-spec can record missing candidate evidence (assessments complete=${complete})`, () => {
-		if (complete) assess();
-		expect(() =>
-			store.recordResolution(
-				snapshot.roundId,
-				{ ...held(), status: "deferred" },
-				null,
-			),
-		).toThrow();
-		store.recordResolution(snapshot.roundId, held(), null);
-		reopen();
-		expect(store.getResolution(snapshot.roundId)).toEqual(held());
-	});
+	for (const status of ["held", "deferred"] as const)
+		test(`${status}/no-spec can record missing candidate evidence (assessments complete=${complete})`, () => {
+			if (complete) assess();
+			const record = { ...held(), status };
+			expect(() =>
+				store.recordResolution(
+					snapshot.roundId,
+					{ ...held(), status: "invalidated" },
+					null,
+				),
+			).toThrow();
+			store.recordResolution(snapshot.roundId, record, null);
+			expect(() =>
+				store.recordResolution(snapshot.roundId, record, null),
+			).toThrow("judgment round is not open");
+			reopen();
+			expect(store.getResolution(snapshot.roundId)).toEqual(record);
+			expect(store.getSelectionSpec(snapshot.roundId)).toBeNull();
+		});
 
 test("complete inputs replay held and deferred, rejecting descriptive mutations atomically", () => {
 	const set = candidate();

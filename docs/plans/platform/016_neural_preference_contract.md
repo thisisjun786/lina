@@ -86,7 +86,9 @@ Forecast의 결과·비용·기한은 각각 `Claim { claimId, kind: observed | 
 
 새 근거가 공통 세계 사실을 바꾸면 snapshot을 무효화하고 새 회차에서 셋 모두에게 공급한다. 새 후보·효과 범위가 추가되면 candidate revision을 올려 해당 평가를 완료한 뒤 선택한다. 평가 횟수·시간·모델·수치 계산 예산과 실패를 기록하며 예산 부족을 가짜 완전성으로 숨기지 않는다.
 
-Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회차 deadline을 먼저 고정한다. 이 예산은 후보 revision이나 무효화 후 후속 회차에서도 같은 원래 요청/자율 활동 슬롯에 누적한다. `closeCandidateSet`이 후보 hash와 coverage를 확정한 뒤에는 새 후보를 같은 선택에 끼워 넣지 못한다. 확정 뒤 제안은 후속 회차에 남기고 실제 전제를 바꾸는 근거만 현재 회차를 무효화한다. 예산 소진 시 `deferred`로 끝내며 선택 RNG·outbox는 진행하지 않는다. 후보 또는 평가가 불완전한 행동 회차도 비실행 종료 기록을 저장할 수 있다. 이때 `SelectionSpec`·순위·양보·충돌 판정은 없고, `holdReason`에 종료 원인을 남긴다. 제공된 후보 근거와 현재성 검사는 그대로 수행한다. 이미 선택한 뒤의 실패라면 기존 `held` 결정을 유지하거나 취소한다.
+Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회차 deadline을 먼저 고정한다. 이 예산은 후보 revision이나 무효화 후 후속 회차에서도 같은 원래 요청/자율 활동 슬롯에 누적한다. `closeCandidateSet`이 후보 hash와 coverage를 확정한 뒤에는 새 후보를 같은 선택에 끼워 넣지 못한다. 확정 뒤 제안은 후속 회차에 남기고 실제 전제를 바꾸는 근거만 현재 회차를 무효화한다. 예산 소진 시 `deferred`로 끝내며 선택 RNG·outbox는 진행하지 않는다. 후보 또는 평가가 불완전한 행동 회차도 비실행 종료 기록을 저장할 수 있다. 이때 `SelectionSpec`·순위·양보·충돌 판정은 없고, `holdReason`에 종료 원인을 남긴다. 제공된 후보 근거와 현재성 검사는 그대로 수행한다.
+
+세 Assessment가 모두 도착했어도 판단 불가가 남으면 policy revision 2의 결과는 `held`다. 예산까지 끝났다면 Host는 이 결과의 `status`만 `deferred`, `holdReason`만 공통 상수 `EVALUATION_BUDGET_EXHAUSTED`로 바꿔 최초 종료 기록을 저장할 수 있다. 나머지 필드는 정책 재생 결과와 같아야 하고 `SelectionSpec`은 없다. 이미 저장한 `held` 회차를 수정하거나 재개하지 않는다. 이미 선택한 뒤의 실패라면 기존 `held` 결정을 유지하거나 취소한다.
 
 `AssessmentSet`은 snapshotId·candidateSetHash·objectiveProfileRefs·모듈별 평가 해시·누락 사유를 묶는다. Host는 현재성·필수 조건으로 적격 후보를 확인한다. 모이라이의 종합 기능은 LLM 해석과 `ArbitrationPolicy`를 포함하며, 각자의 추천을 유지한 채 목표 충돌을 조정한다. 종합 LLM이나 Host가 선언된 정책 밖의 임의 우선순위를 적용하지 않는다.
 

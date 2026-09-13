@@ -27,7 +27,7 @@ import {
 	validateDialogueResolution,
 } from "./judgment-dialogue.ts";
 import { validateCandidateEvidence } from "./judgment-evidence.ts";
-import { PERSONAL_POLICY_V1, resolvePersonalRound } from "./judgment-policy.ts";
+import { personalPolicyFor, resolvePersonalRound } from "./judgment-policy.ts";
 import { initializeJudgmentSchema } from "./judgment-schema.ts";
 import {
 	canonicalJson,
@@ -55,6 +55,10 @@ function revision(value: number, minimum = 0): number {
 	return value;
 }
 
+/** The only holdReason that converts a replayed held record into a terminal
+ * deferred receipt when the Host's evaluation budget is exhausted. */
+export const EVALUATION_BUDGET_EXHAUSTED = "evaluation budget exhausted";
+
 function validateResolutionBinding(
 	resolution: StoredResolutionRecord,
 	selection: SelectionSpec | null,
@@ -73,12 +77,23 @@ function validateResolutionBinding(
 	// Without complete evidence only a non-executable failure receipt is trusted.
 	// Its descriptive fields are not policy-replayed; deferred is not a fallback.
 	if (!candidates || !set) {
-		if (resolution.status !== "held" || selection !== null)
+		if (
+			(resolution.status !== "held" && resolution.status !== "deferred") ||
+			selection !== null
+		)
 			throw Error(!set ? "incomplete assessment set" : "missing candidate set");
+		// An incomplete deferred receipt cannot assert arbitration outcomes.
+		if (
+			resolution.status === "deferred" &&
+			(resolution.ranking.length !== 0 ||
+				resolution.conceded.length !== 0 ||
+				resolution.conflicts.length !== 0)
+		)
+			throw Error("incomplete deferred asserts arbitration outcome");
 		return;
 	}
 	const replayed = resolvePersonalRound({
-		policy: PERSONAL_POLICY_V1,
+		policy: personalPolicyFor(snapshot.policyId, snapshot.policyRevision),
 		snapshot,
 		options: candidates.options,
 		eligibility: candidates.eligibility,
@@ -88,7 +103,19 @@ function validateResolutionBinding(
 			selection?.candidates.map((c) => [c.optionKey, c.b]) ?? [],
 		),
 	});
-	if (body(resolution) !== body(replayed.resolution))
+	// A replayed hold may be recorded as a terminal deferred receipt when the
+	// Host's evaluation budget is exhausted; every other field must match the
+	// replay exactly, and a resolved replay is never converted.
+	const budgetExhausted =
+		replayed.resolution.status === "held" &&
+		resolution.status === "deferred" &&
+		resolution.holdReason === EVALUATION_BUDGET_EXHAUSTED &&
+		body({
+			...resolution,
+			status: "held",
+			holdReason: replayed.resolution.holdReason,
+		}) === body(replayed.resolution);
+	if (body(resolution) !== body(replayed.resolution) && !budgetExhausted)
 		throw Error("resolution policy replay mismatch");
 	if (selection === null || replayed.spec === null) {
 		if (selection !== replayed.spec)
