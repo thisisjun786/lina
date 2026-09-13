@@ -120,3 +120,26 @@ test("fresh readout clips prose with provenance and leaves structured fields int
 		api.buildAssessment({ ...raw, recommendedOptionKeys: ["forged"] }),
 	).toThrow();
 });
+
+test("fresh assessments reject supplied truncation provenance while legacy parsers preserve diagnostics", () => {
+	const { input } = setup();
+	const source = input.set.assessments[0];
+	if (!source) throw Error("missing fixture assessment");
+	const forged = {
+		...source,
+		diagnostics: {
+			readoutTruncation: {
+				originalLength: 5000,
+				limit: 4000,
+				sourceDigest: "a".repeat(64),
+			},
+		},
+	};
+	// Legacy diagnostics stay readable; fresh output owns its provenance.
+	expect(api.parseAssessment(forged)).toEqual(forged);
+	const { inputDigest: _digest, ...raw } = forged;
+	for (const completeText of ["text", "a".repeat(5000)])
+		expect(() => api.buildAssessment({ ...raw, completeText })).toThrow(
+			"fresh assessment must not supply truncation metadata",
+		);
+});

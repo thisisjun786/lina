@@ -15,6 +15,8 @@ export function buildAssessment(
 		inputDigest: assessmentInputDigest(input),
 		completeText: readout.text,
 	});
+	if (Object.hasOwn(parsed.diagnostics, "readoutTruncation"))
+		throw Error("fresh assessment must not supply truncation metadata");
 	if (readout.truncation)
 		parsed.diagnostics = {
 			...parsed.diagnostics,

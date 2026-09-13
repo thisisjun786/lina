@@ -365,11 +365,7 @@ for (const complete of [false, true])
 			if (complete) assess();
 			const record = { ...held(), status };
 			expect(() =>
-				store.recordResolution(
-					snapshot.roundId,
-					{ ...held(), status: "invalidated" },
-					null,
-				),
+				parseResolutionRecord({ ...held(), status: "invalidated" }),
 			).toThrow();
 			store.recordResolution(snapshot.roundId, record, null);
 			expect(() =>
