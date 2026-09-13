@@ -346,6 +346,10 @@ export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
 }
 
 export function parseOptionAssessment(value: unknown): OptionAssessment {
+	const hasBreaches =
+		typeof value === "object" &&
+		value !== null &&
+		Object.hasOwn(value, "breachedIntentionIds");
 	const row = fields(
 		value,
 		[
@@ -357,6 +361,7 @@ export function parseOptionAssessment(value: unknown): OptionAssessment {
 			"loss",
 			"uncertainty",
 			"evidenceRefs",
+			...(hasBreaches ? ["breachedIntentionIds"] : []),
 		],
 		"option assessment",
 	);
@@ -373,7 +378,7 @@ export function parseOptionAssessment(value: unknown): OptionAssessment {
 		throw Error("severity requires oppose stance");
 	if ((stance === "unavailable") !== (unavailableReason !== null))
 		throw Error("unavailable stance requires reason");
-	return {
+	const result: OptionAssessment = {
 		optionKey: boundedId(row["optionKey"], "option key"),
 		stance,
 		severity,
@@ -383,6 +388,15 @@ export function parseOptionAssessment(value: unknown): OptionAssessment {
 		uncertainty: boundedText(row["uncertainty"], "uncertainty"),
 		evidenceRefs: strings(row["evidenceRefs"], "evidence refs"),
 	};
+	if (hasBreaches) {
+		if (severity !== "commitment_breach")
+			throw Error("breach attribution requires commitment opposition");
+		result.breachedIntentionIds = strings(
+			row["breachedIntentionIds"],
+			"breached intention ids",
+		);
+	}
+	return result;
 }
 
 export function parseAssessment(value: unknown): Assessment {
@@ -828,6 +842,7 @@ export function parseIntentionRecord(value: unknown): IntentionRecord {
 		"intention record",
 		true,
 	);
+	const intentionId = boundedId(row["intentionId"], "intention id");
 	const acceptance = fields(
 		row["acceptance"],
 		["sourceRef", "acceptedBy", "policyRevision", "acceptedAt"],
@@ -865,7 +880,7 @@ export function parseIntentionRecord(value: unknown): IntentionRecord {
 	if (previous !== status) throw Error("intention history status mismatch");
 	return {
 		schemaVersion: 1,
-		intentionId: boundedId(row["intentionId"], "intention id"),
+		intentionId,
 		agentId: boundedId(row["agentId"], "agent id"),
 		scopeId: boundedId(row["scopeId"], "scope id"),
 		revision: recordRevision,
@@ -904,8 +919,14 @@ export function parseIntentionRecord(value: unknown): IntentionRecord {
 						["intentionId", "relation"],
 						"related intention",
 					);
+					const relatedId = boundedId(
+						item["intentionId"],
+						"related intention id",
+					);
+					if (relatedId === intentionId)
+						throw Error("self-referential intention relation");
 					return {
-						intentionId: boundedId(item["intentionId"], "related intention id"),
+						intentionId: relatedId,
 						relation: enumeration(
 							item["relation"],
 							INTENTION_RELATIONS,

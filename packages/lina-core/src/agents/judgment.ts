@@ -91,6 +91,8 @@ export type OptionAssessment = {
 	loss: string;
 	uncertainty: string;
 	evidenceRefs: string[];
+	/** Absent or empty means an unattributed breach and cannot justify a waiver. */
+	breachedIntentionIds?: string[];
 };
 export type JsonValue =
 	| null

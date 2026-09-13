@@ -560,6 +560,34 @@ test("option stance requires exactly the corresponding severity or unavailable r
 		expect(() => parseOptionAssessment({ ...option, ...change })).toThrow();
 });
 
+test("commitment opposition can identify the protected intentions explicitly", () => {
+	const attributed = {
+		...option,
+		stance: "oppose",
+		severity: "commitment_breach",
+		breachedIntentionIds: ["intention-a", "intention-b"],
+	};
+	expect(JSON.stringify(parseOptionAssessment(attributed))).toBe(
+		JSON.stringify(attributed),
+	);
+	for (const breachedIntentionIds of [
+		[""],
+		["a", "a"],
+		["x".repeat(161)],
+		"not-an-array",
+	])
+		expect(() =>
+			parseOptionAssessment({ ...attributed, breachedIntentionIds }),
+		).toThrow();
+	expect(() =>
+		parseOptionAssessment({
+			...attributed,
+			stance: "prefer",
+			severity: null,
+		}),
+	).toThrow();
+});
+
 test("assessment sets require one of each module in declared order and matching snapshot", () => {
 	const set = assessmentSet();
 	expect(parseAssessmentSet(set).assessments.map((a) => a.moduleKind)).toEqual([
@@ -664,6 +692,22 @@ test("intention acceptance requires user authority only for user commitments", (
 		}
 	}
 });
+
+for (const relation of ["conflicts", "supersedes", "depends"] as const) {
+	test(`intention rejects self-${relation} while retaining an independent target`, () => {
+		const independent = {
+			...intention,
+			relatedIntentions: [{ intentionId: "intention-2", relation }],
+		};
+		expect(parseIntentionRecord(independent)).toEqual(independent);
+		expect(() =>
+			parseIntentionRecord({
+				...intention,
+				relatedIntentions: [{ intentionId: intention.intentionId, relation }],
+			}),
+		).toThrow("self-referential intention relation");
+	});
+}
 
 function adopt(record = intention): IntentionRecord {
 	return transitionIntention(record, {
