@@ -17,12 +17,16 @@ F1에서 확정하지 않는 것은 배선이다. 개인별 잠금 목록을 담
 | 층 | 내용 | 현재 소유 타입 | 근거 |
 | --- | --- | --- | --- |
 | 잠금과 권한 | `evolution`과 축별 잠금이 성장을 막고, 공개 허용 목록은 공유·투영 범위를 정한다. 역할이 다르다 | [`IdentityProfilePolicy`](../../../packages/lina-core/src/world/life-types.ts#L121), [`ProjectionPolicy`](../../../packages/lina-core/src/world/life-types.ts#L38) | [manual 단락](../../../packages/lina-core/src/agents/persona.ts#L96), [성장 차단](../../../packages/lina-core/src/world/growth.ts#L40), [사회 효과 차단](../../../packages/lina-core/src/world/social-effect-state.ts#L127) |
-| 작성 정체성 | 이름·역할·성격·말투·전기·외형·관심사 | [`AgentProfile`](../../../packages/lina-core/src/agents/types.ts#L3) | [핵심 권위 문구](../../../packages/lina-core/src/agents/persona.ts#L38) |
+| 작성 정체성 | 이름·역할·성격·말투·전기·외형·관심사, 확정된 온보딩 장(가치·기질·관심·관계·표현), 대화 방식과 예시 | [`AgentProfile`](../../../packages/lina-core/src/agents/types.ts#L3), [확정 장](../../../packages/lina-core/src/onboarding/types.ts#L3), [대화 설정](../../../packages/lina-core/src/agents/conversation.ts#L26) | [핵심 권위 문구](../../../packages/lina-core/src/agents/persona.ts#L38), [세 출처를 함께 렌더링](../../../packages/lina-core/src/agents/persona.ts#L167) |
 | 검증된 성장 | 근거가 확인된 현재 성향 값 | [`SharedPersonaView`](../../../packages/lina-core/src/world/views.ts#L253), 개인 투영 | [공유 성향 권위 문구](../../../packages/lina-core/src/agents/persona.ts#L53) |
 | 초기 기질 | 축별 시작값 | [`PersonaDimension.initial`](../../../packages/lina-core/src/agents/persona-schema.ts#L43) | 같은 문구가 초기 기질을 "출발점"으로 규정 |
 | 일시 상태 | 기분과 최근 관심·선호·관계 메모 | [`Dynamics`](../../../packages/lina-core/src/agents/types.ts#L19) | [변동 맥락 문구](../../../packages/lina-core/src/agents/persona.ts#L48) |
 
 검증된 성장은 **자기가 올라간 축에서만** 초기 기질을 대체한다. 작성 정체성의 성격 문장은 숫자로 대체되지 않는다. 두 가지가 모두 "작성한 것"이지만 성격은 표현의 기준이고 초기 기질은 축의 시작값이다.
+
+작성 정체성은 한 곳에서 오지 않는다. `corePrompt`는 `AgentProfile` 필드와 대화 방식·예시, 확정된 온보딩 장을 한 블록에 렌더링하고 그 전체를 완전한 작성 정체성이라고 선언한다([조립 지점](../../../packages/lina-core/src/agents/persona.ts#L167)). 대화 설정은 ConversationStore에서, 확정 장은 OnboardingStore에서 온다([훅 배선](../../../packages/lina-runtime/src/persona/hooks.ts#L65), [확정 장 공급](../../../packages/lina-runtime/src/fleet/manager.ts#L355)). 셋 다 작성물이고 학습이 덮어쓰지 못한다.
+
+층 안의 순서는 이렇다. `AgentProfile` 필드가 안정된 기준점이다. 확정 장은 덧붙인 작성 설정이며 겪은 일이 아니다([표시 문구](../../../packages/lina-core/src/agents/persona.ts#L186)). 대화 예시는 허구의 문체 참고여서 현재 요청과 정한 말투보다 뒤에 온다([예시 표시](../../../packages/lina-core/src/agents/persona.ts#L160)).
 
 ## 명시적 대화 선호의 범위
 
