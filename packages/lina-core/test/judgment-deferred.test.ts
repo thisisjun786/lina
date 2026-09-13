@@ -42,17 +42,20 @@ function deferredRecord(
 		ranking: [],
 		conceded: [],
 		status: "deferred",
-		holdReason: "assessment evidence incomplete",
+		holdReason: EVALUATION_BUDGET_EXHAUSTED,
 		...patch,
 	});
 }
 
-function v2Round(context: ReturnType<typeof policyEvidenceFixture>) {
+function v2Round(
+	context: ReturnType<typeof policyEvidenceFixture>,
+	policyRevision = PERSONAL_POLICY_V2.revision,
+) {
 	const { store, input } = context;
 	const snapshot = parseJudgmentSnapshotRef({
 		...input.snapshot,
-		roundId: "policy-evidence-round-v2",
-		policyRevision: PERSONAL_POLICY_V2.revision,
+		roundId: `policy-evidence-round-v${policyRevision}`,
+		policyRevision,
 		sequence: input.snapshot.sequence + 1,
 	});
 	store.openRound(snapshot);
@@ -127,9 +130,7 @@ test("deferred resolution with a closed candidate set but partial assessments re
 	store.closeCandidateSet(round.candidates);
 	for (const assessment of round.set.assessments.slice(0, 1))
 		store.putAssessment(assessment);
-	const record = deferredRecord(round.input, {
-		holdReason: "module assessments incomplete",
-	});
+	const record = deferredRecord(round.input);
 
 	store.recordResolution(round.snapshot.roundId, record, null);
 
@@ -144,9 +145,7 @@ test("deferred resolution with no candidates and no assessments records", () => 
 	fixtures.push(context);
 	const { store } = context;
 	const round = v2Round(context);
-	const record = deferredRecord(round.input, {
-		holdReason: "no candidate evidence",
-	});
+	const record = deferredRecord(round.input);
 
 	store.recordResolution(round.snapshot.roundId, record, null);
 	expect(store.getRound(round.snapshot.roundId)?.status).toBe("deferred");
@@ -163,7 +162,7 @@ test("a revision-1 incomplete round ends held and never deferred", () => {
 	// Revision 1 declares no terminal receipt, so its rounds stay retryable.
 	expect(() =>
 		store.recordResolution(input.snapshot.roundId, deferredRecord(input), null),
-	).toThrow("incomplete assessment set");
+	).toThrow("incomplete deferred requires policy revision 2");
 	expect(store.getRound(input.snapshot.roundId)?.status).toBe("open");
 
 	const held = deferredRecord(input, {
@@ -173,6 +172,56 @@ test("a revision-1 incomplete round ends held and never deferred", () => {
 	store.recordResolution(input.snapshot.roundId, held, null);
 	expect(store.getRound(input.snapshot.roundId)?.status).toBe("held");
 	expect(store.getResolution(input.snapshot.roundId)).toEqual(held);
+});
+
+test("an incomplete round terminates only on an exhausted evaluation budget", () => {
+	const context = policyEvidenceFixture();
+	fixtures.push(context);
+	const { store } = context;
+	const round = v2Round(context);
+	for (const assessment of round.set.assessments.slice(0, 2))
+		store.putAssessment(assessment);
+	// Budget may remain, so an arbitrary reason cannot close the round.
+	expect(() =>
+		store.recordResolution(
+			round.snapshot.roundId,
+			deferredRecord(round.input, {
+				holdReason: "module assessments incomplete",
+			}),
+			null,
+		),
+	).toThrow("incomplete deferred requires exhausted evaluation budget");
+	expect(store.getRound(round.snapshot.roundId)?.status).toBe("open");
+
+	const held = deferredRecord(round.input, {
+		status: "held",
+		holdReason: "module assessments incomplete",
+	});
+	store.recordResolution(round.snapshot.roundId, held, null);
+	expect(store.getRound(round.snapshot.roundId)?.status).toBe("held");
+	expect(store.getResolution(round.snapshot.roundId)).toEqual(held);
+});
+
+test("a legacy incomplete hold under an undeclared policy stays readable", () => {
+	const context = policyEvidenceFixture();
+	fixtures.push(context);
+	const { store, path, fixture, input } = context;
+	// Revision 3 is not declared by this binary, as a later catalog would be.
+	const round = v2Round(context, 3);
+	for (const assessment of round.set.assessments.slice(0, 2))
+		store.putAssessment(assessment);
+	const held = deferredRecord(round.input, {
+		status: "held",
+		holdReason: "historical missing input",
+	});
+
+	store.recordResolution(round.snapshot.roundId, held, null);
+
+	const reopened = fixture.keep(new JudgmentStore(path));
+	expect(reopened.getResolution(round.snapshot.roundId)).toEqual(held);
+	// One unsupported historical row must not fail unrelated ledger reads.
+	expect(reopened.getIntention("promise")).not.toBeNull();
+	expect(reopened.getRound(input.snapshot.roundId)?.status).toBe("open");
 });
 
 test("held resolution with a partial assessment set still records", () => {

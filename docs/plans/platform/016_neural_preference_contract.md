@@ -90,7 +90,7 @@ Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회�
 
 세 Assessment가 모두 도착했어도 판단 불가가 남으면 policy revision 2의 결과는 `held`다. 예산까지 끝났다면 Host는 이 결과의 `status`만 `deferred`, `holdReason`만 공통 상수 `EVALUATION_BUDGET_EXHAUSTED`로 바꿔 최초 종료 기록을 저장할 수 있다. 나머지 필드는 정책 재생 결과와 같아야 하고 `SelectionSpec`은 없다. 예산 소진 전환은 revision 2의 규칙이므로 revision 1로 재생한 `held`는 전환하지 않고 재시도 가능한 상태로 남긴다. 이미 저장한 `held` 회차를 수정하거나 재개하지 않는다. 이미 선택한 뒤의 실패라면 기존 `held` 결정을 유지하거나 취소한다.
 
-증거가 불완전한 회차의 비실행 종료 기록도 policy revision 2의 규칙이다. revision 1 회차는 재시도 가능한 `held`로만 끝나며 새 종료 상태로 닫지 않는다. 정책 재생이 불가능하므로 revision 2의 `deferred` 기록은 스스로 증명할 수 있는 값만 담는다. 판단 순서는 선언된 정책의 해당 상황 순서와 같아야 하고, 모듈별 추천은 실제 저장된 Assessment의 `recommendedOptionKeys`와 같아야 하며 평가가 없는 모듈은 비어 있어야 한다. 제외·기권·충돌·순위·양보는 후보 집합과 완결된 평가에서만 나오므로 비운다. 기존 `held` 기록의 서술 필드 범위는 PR #14 계약을 유지하며, 과거 바이트·해시를 보존하기 위해 별도 버전 규칙 없이 좁히지 않는다.
+증거가 불완전한 회차의 비실행 종료 기록도 policy revision 2의 규칙이다. revision 1 회차는 재시도 가능한 `held`로만 끝나며 새 종료 상태로 닫지 않는다. 종료 기록의 `holdReason`은 `EVALUATION_BUDGET_EXHAUSTED`여야 한다. 예산이 남아 있으면 회차를 열어 두고 보완하며, 다른 사유의 중단은 `held`로 남긴다. 기록을 남기면 그 회차에는 더 이상 평가를 저장할 수 없으므로 남은 보완 기회를 임의로 버리지 않는다. 정책 재생이 불가능하므로 revision 2의 `deferred` 기록은 스스로 증명할 수 있는 값만 담는다. 판단 순서는 선언된 정책의 해당 상황 순서와 같아야 하고, 모듈별 추천은 실제 저장된 Assessment의 `recommendedOptionKeys`와 같아야 하며 평가가 없는 모듈은 비어 있어야 한다. 제외·기권·충돌·순위·양보는 후보 집합과 완결된 평가에서만 나오므로 비운다. 기존 `held` 기록의 서술 필드 범위는 PR #14 계약을 유지하며, 과거 바이트·해시를 보존하기 위해 별도 버전 규칙 없이 좁히지 않는다. `held` 경로는 정책 선언을 조회하지 않는다. 이 binary가 모르는 catalog·revision으로 기록된 과거 행 하나가 저장소의 다른 읽기까지 막지 않아야 한다.
 
 `AssessmentSet`은 snapshotId·candidateSetHash·objectiveProfileRefs·모듈별 평가 해시·누락 사유를 묶는다. Host는 현재성·필수 조건으로 적격 후보를 확인한다. 모이라이의 종합 기능은 LLM 해석과 `ArbitrationPolicy`를 포함하며, 각자의 추천을 유지한 채 목표 충돌을 조정한다. 종합 LLM이나 Host가 선언된 정책 밖의 임의 우선순위를 적용하지 않는다.
 

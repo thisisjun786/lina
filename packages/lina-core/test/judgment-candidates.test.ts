@@ -372,7 +372,7 @@ for (const complete of [false, true])
 				{ ...held(), status: "deferred" },
 				null,
 			),
-		).toThrow(complete ? "missing candidate set" : "incomplete assessment set");
+		).toThrow("incomplete deferred requires policy revision 2");
 		const record = held();
 		store.recordResolution(snapshot.roundId, record, null);
 		expect(() =>

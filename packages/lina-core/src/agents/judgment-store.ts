@@ -55,8 +55,8 @@ function revision(value: number, minimum = 0): number {
 	return value;
 }
 
-/** The only holdReason that converts a replayed held record into a terminal
- * deferred receipt when the Host's evaluation budget is exhausted. */
+/** The only holdReason that ends a round as a terminal deferred receipt, whether
+ * its evidence is incomplete or it replayed to a hold under revision 2. */
 export const EVALUATION_BUDGET_EXHAUSTED = "evaluation budget exhausted";
 
 function validateResolutionBinding(
@@ -74,40 +74,52 @@ function validateResolutionBinding(
 		validateDialogueResolution(resolution, snapshot, assessments);
 		return;
 	}
-	const policy = personalPolicyFor(snapshot.policyId, snapshot.policyRevision);
-	// Without complete evidence only a non-executable failure receipt is trusted.
-	// Revision 2 owns the terminal receipt, and it cannot be policy-replayed, so
-	// it may restate only the declared order and what its stored assessments
-	// prove. Held rows stay retryable for every revision and keep their original
-	// latitude so historical bytes remain readable.
+	// Without complete evidence only a non-executable receipt is trusted, and it
+	// never carries a selection.
 	if (!candidates || !set) {
-		const terminal = policy.revision >= 2 && resolution.status === "deferred";
-		if ((resolution.status !== "held" && !terminal) || selection !== null)
+		if (
+			selection !== null ||
+			(resolution.status !== "held" && resolution.status !== "deferred")
+		)
 			throw Error(!set ? "incomplete assessment set" : "missing candidate set");
-		if (terminal) {
-			const recommendations: Record<ModuleKind, string[]> = {
-				clotho: [],
-				lachesis: [],
-				atropos: [],
-			};
-			for (const assessment of assessments)
-				recommendations[assessment.moduleKind] = [
-					...assessment.recommendedOptionKeys,
-				];
-			if (
-				body(resolution.order) !==
-					body([...policy.orders[snapshot.situation]]) ||
-				body(resolution.recommendations) !== body(recommendations) ||
-				resolution.excluded.length !== 0 ||
-				resolution.abstentions.length !== 0 ||
-				resolution.conflicts.length !== 0 ||
-				resolution.ranking.length !== 0 ||
-				resolution.conceded.length !== 0
-			)
-				throw Error("incomplete deferred asserts unsupported arbitration");
-		}
+		// A held round keeps its original latitude and declares no policy here;
+		// resolving one would reject historical bytes on every ledger read.
+		if (resolution.status === "held") return;
+		// Revision 2 owns the terminal receipt and only an exhausted budget earns
+		// it, so a round with remaining budget stays open for its missing work.
+		const declared = personalPolicyFor(
+			snapshot.policyId,
+			snapshot.policyRevision,
+		);
+		if (declared.revision < 2)
+			throw Error("incomplete deferred requires policy revision 2");
+		if (resolution.holdReason !== EVALUATION_BUDGET_EXHAUSTED)
+			throw Error("incomplete deferred requires exhausted evaluation budget");
+		// It cannot be policy-replayed, so it may restate only the declared order
+		// and what its stored assessments prove.
+		const recommendations: Record<ModuleKind, string[]> = {
+			clotho: [],
+			lachesis: [],
+			atropos: [],
+		};
+		for (const assessment of assessments)
+			recommendations[assessment.moduleKind] = [
+				...assessment.recommendedOptionKeys,
+			];
+		if (
+			body(resolution.order) !==
+				body([...declared.orders[snapshot.situation]]) ||
+			body(resolution.recommendations) !== body(recommendations) ||
+			resolution.excluded.length !== 0 ||
+			resolution.abstentions.length !== 0 ||
+			resolution.conflicts.length !== 0 ||
+			resolution.ranking.length !== 0 ||
+			resolution.conceded.length !== 0
+		)
+			throw Error("incomplete deferred asserts unsupported arbitration");
 		return;
 	}
+	const policy = personalPolicyFor(snapshot.policyId, snapshot.policyRevision);
 	const replayed = resolvePersonalRound({
 		policy,
 		snapshot,
