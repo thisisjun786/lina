@@ -127,6 +127,30 @@ describe("ContextReadProjection", () => {
 		).toThrow(/instructionRevision/);
 	});
 
+	it.each([-1, 0])(
+		"rejects malformed previous instruction revision %s before comparing instructions",
+		(instructionRevision) => {
+			const input = {
+				working: store.working(),
+				instruction: makeInstruction("previous-entry", "same"),
+				previous: null,
+				projectedAt: "2026-09-12T00:00:00.000Z",
+			};
+			const previous = {
+				...buildContextReadProjection(input),
+				instructionRevision,
+			};
+			for (const text of ["same", "changed"])
+				expect(() =>
+					buildContextReadProjection({
+						...input,
+						instruction: { ...input.instruction, text },
+						previous,
+					}),
+				).toThrow(/instructionRevision/);
+		},
+	);
+
 	it("increments instructionRevision when text changes for the same entry", () => {
 		const instruction1 = makeInstruction("i1", "hello");
 		const projectedAt = "2026-09-10T00:00:00.000Z";

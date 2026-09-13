@@ -216,7 +216,9 @@ export function buildContextReadProjection(input: {
 	previous: ContextReadProjection | null;
 	projectedAt: string;
 }): ContextReadProjection {
-	const { working, instruction, previous, projectedAt } = input;
+	const { working, instruction, projectedAt } = input;
+	const previous =
+		input.previous === null ? null : parseContextReadProjection(input.previous);
 	validateInput(working, projectedAt, instruction);
 
 	let instructionRef: InstructionRef | null = null;
