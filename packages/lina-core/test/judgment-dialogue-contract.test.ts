@@ -372,21 +372,26 @@ for (const tamper of [
 	});
 }
 
-test("3996179135 incomplete held dialogue explicitly preserves only available module refs", () => {
-	seed(2);
-	const value = {
-		...record(),
-		status: "held" as const,
-		holdReason: "missing module",
-		alignment: "incomplete" as const,
-		assessmentDigests: { ...record().assessmentDigests, atropos: null },
-		recommendations: { ...record().recommendations, atropos: null },
-	};
-	store.recordResolution(snapshot.roundId, value, null);
-	reopen();
-	expect(store.getResolution(snapshot.roundId)).toEqual(value);
-	expect(store.dialogueJudgmentRef(snapshot.roundId)).toBeNull();
-});
+test.each(["held", "deferred"] as const)(
+	"3999054852 incomplete %s dialogue preserves only available module refs",
+	(status) => {
+		seed(2);
+		const value = {
+			...record(),
+			status,
+			holdReason:
+				status === "held" ? "missing module" : "evaluation budget exhausted",
+			alignment: "incomplete" as const,
+			assessmentDigests: { ...record().assessmentDigests, atropos: null },
+			recommendations: { ...record().recommendations, atropos: null },
+		};
+		store.recordResolution(snapshot.roundId, value, null);
+		reopen();
+		expect(store.getResolution(snapshot.roundId)).toEqual(value);
+		expect(store.getRound(snapshot.roundId)?.status).toBe(status);
+		expect(store.dialogueJudgmentRef(snapshot.roundId)).toBeNull();
+	},
+);
 
 test("3996179135 conflicted dialogue retains textual conflict/concession reasons without option keys", () => {
 	seed();

@@ -307,7 +307,7 @@ export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
 			},
 			"source refs",
 		),
-		(source) => JSON.stringify([source.kind, source.id, source.revision]),
+		(source) => JSON.stringify([source.kind, source.id]),
 		"source refs",
 	);
 	const domains = object(row["domainRevisions"], "domain revisions");

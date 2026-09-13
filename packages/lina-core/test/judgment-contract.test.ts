@@ -436,6 +436,28 @@ test("snapshot source IDs use context owner bounds without widening agent or unk
 		);
 });
 
+test("3999054856 snapshot rejects conflicting revisions for one logical source", () => {
+	expect(() =>
+		parseJudgmentSnapshotRef({
+			...snapshot,
+			sourceRefs: [
+				{ kind: "request", id: "same-source", revision: 1 },
+				{ kind: "request", id: "same-source", revision: 2 },
+			],
+		}),
+	).toThrow("duplicate source refs");
+	expect(
+		parseJudgmentSnapshotRef({
+			...snapshot,
+			sourceRefs: [
+				{ kind: "request", id: "same-source", revision: 1 },
+				{ kind: "entry", id: "same-source", revision: 2 },
+				{ kind: "request", id: "other-source", revision: 2 },
+			],
+		}).sourceRefs,
+	).toHaveLength(3);
+});
+
 test("snapshot requires a bounded policy identity without a fallback", () => {
 	const { policyRevision: _revision, ...withoutRevision } = snapshot;
 	expect(() => parseJudgmentSnapshotRef(withoutRevision)).toThrow();

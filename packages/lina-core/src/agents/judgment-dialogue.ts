@@ -211,9 +211,9 @@ export function parseDialogueResolutionRecord(
 	);
 	if (
 		incomplete !== (result.alignment === "incomplete") ||
-		(incomplete && result.status !== "held")
+		(incomplete && result.status === "resolved")
 	)
-		throw Error("incomplete dialogue requires held status");
+		throw Error("invalid incomplete dialogue status");
 	for (const m of MODULE_KINDS)
 		if (
 			(result.assessmentDigests[m] === null) !==
