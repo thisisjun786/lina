@@ -12,19 +12,21 @@ F1에서 확정하지 않는 것은 배선이다. 개인별 잠금 목록을 담
 
 ## 층 모델과 우선순위
 
-한 개인의 현재 행동은 여러 층이 겹쳐 만들어진다. 위 행이 아래 행을 이긴다. 아래 층은 위 층을 다시 쓰지 못한다.
+한 개인의 현재 행동은 여러 층이 겹쳐 만들어진다. 위 행이 아래 행을 이긴다. 아래 층은 위 층을 다시 쓰지 못한다. 런타임 문구가 직접 규정하는 것은 인접한 일부 관계이고, 나머지 순서는 이 문서가 채택한 계약이다.
 
 | 층 | 내용 | 현재 소유 타입 | 근거 |
 | --- | --- | --- | --- |
 | 잠금과 권한 | `evolution`과 축별 잠금이 성장을 막고, 공개 허용 목록은 공유·투영 범위를 정한다. 역할이 다르다 | [`IdentityProfilePolicy`](../../../packages/lina-core/src/world/life-types.ts#L121), [`ProjectionPolicy`](../../../packages/lina-core/src/world/life-types.ts#L38) | [manual 단락](../../../packages/lina-core/src/agents/persona.ts#L96), [성장 차단](../../../packages/lina-core/src/world/growth.ts#L40), [사회 효과 차단](../../../packages/lina-core/src/world/social-effect-state.ts#L127) |
-| 작성 정체성 | 이름·역할·성격·말투·전기·외형·관심사, 확정된 온보딩 장(가치·기질·관심·관계·표현), 대화 방식과 예시 | [`AgentProfile`](../../../packages/lina-core/src/agents/types.ts#L3), [확정 장](../../../packages/lina-core/src/onboarding/types.ts#L3), [대화 설정](../../../packages/lina-core/src/agents/conversation.ts#L26) | [핵심 권위 문구](../../../packages/lina-core/src/agents/persona.ts#L38), [세 출처를 함께 렌더링](../../../packages/lina-core/src/agents/persona.ts#L167) |
+| 작성 정체성 | 이름·역할·성격·말투·전기·외형·관심사, 확정된 온보딩 장(정체·가치·기질·관심·관계·표현), 대화 방식과 예시 | [`AgentProfile`](../../../packages/lina-core/src/agents/types.ts#L3), [확정 장](../../../packages/lina-core/src/onboarding/types.ts#L3), [대화 설정](../../../packages/lina-core/src/agents/conversation.ts#L26) | [핵심 권위 문구](../../../packages/lina-core/src/agents/persona.ts#L38), [세 출처를 함께 렌더링](../../../packages/lina-core/src/agents/persona.ts#L167) |
 | 검증된 성장 | 근거가 확인된 현재 성향 값 | [`SharedPersonaView`](../../../packages/lina-core/src/world/views.ts#L253), 개인 투영 | [공유 성향 권위 문구](../../../packages/lina-core/src/agents/persona.ts#L53) |
 | 초기 기질 | 축별 시작값 | [`PersonaDimension.initial`](../../../packages/lina-core/src/agents/persona-schema.ts#L43) | 같은 문구가 초기 기질을 "출발점"으로 규정 |
-| 일시 상태 | 기분과 최근 관심·선호·관계 메모 | [`Dynamics`](../../../packages/lina-core/src/agents/types.ts#L19) | [변동 맥락 문구](../../../packages/lina-core/src/agents/persona.ts#L48) |
+| 일시 상태 | 기분과 최근 관심·선호·관계 메모. 경로가 둘이다 | [`Dynamics`](../../../packages/lina-core/src/agents/types.ts#L19), [EngineState 비공개 맥락](../../../packages/lina-runtime/src/persona/native-context.ts#L14) | [변동 맥락 문구](../../../packages/lina-core/src/agents/persona.ts#L48), [비공개 맥락 문구](../../../packages/lina-runtime/src/persona/native-context.ts#L10) |
 
 검증된 성장은 **자기가 올라간 축에서만** 초기 기질을 대체한다. 작성 정체성의 성격 문장은 숫자로 대체되지 않는다. 두 가지가 모두 "작성한 것"이지만 성격은 표현의 기준이고 초기 기질은 축의 시작값이다.
 
 작성 정체성은 한 곳에서 오지 않는다. `corePrompt`는 `AgentProfile` 필드와 대화 방식·예시, 확정된 온보딩 장을 한 블록에 렌더링하고 그 전체를 완전한 작성 정체성이라고 선언한다([조립 지점](../../../packages/lina-core/src/agents/persona.ts#L167)). 대화 설정은 ConversationStore에서, 확정 장은 OnboardingStore에서 온다([훅 배선](../../../packages/lina-runtime/src/persona/hooks.ts#L65), [확정 장 공급](../../../packages/lina-runtime/src/fleet/manager.ts#L355)). 셋 다 작성물이고 학습이 덮어쓰지 못한다.
+
+일시 상태도 한 곳에서 오지 않는다. 네이티브 모드에서는 `Dynamics`를 비운 채로 넘기고 EngineState의 비공개 개인 맥락을 대신 붙인다([빈 Dynamics](../../../packages/lina-runtime/src/persona/hooks.ts#L73), [맥락 구성](../../../packages/lina-runtime/src/persona/hooks.ts#L66), [상태 공급](../../../packages/lina-runtime/src/session-app.ts#L408)). 그 맥락에는 대상이 사용자가 아닌 적격 관심·선호·기분·태도 기록만 들어간다([선별 기준](../../../packages/lina-runtime/src/persona/native-context.ts#L38)). 지원된 항목은 표현에만 쓰고 잠정 항목은 확정된 성향으로 올리지 않으며, 공유 LIFE 행동이 아니고 권한을 주지 않는다([맥락 헤더](../../../packages/lina-runtime/src/persona/native-context.ts#L10)). `manual`이면 이 맥락도 붙지 않는다([manual 차단](../../../packages/lina-runtime/src/persona/native-context.ts#L19)).
 
 층 안의 순서는 이렇다. `AgentProfile` 필드가 안정된 기준점이다. 확정 장은 덧붙인 작성 설정이며 겪은 일이 아니다([표시 문구](../../../packages/lina-core/src/agents/persona.ts#L186)). 대화 예시는 허구의 문체 참고여서 현재 요청과 정한 말투보다 뒤에 온다([예시 표시](../../../packages/lina-core/src/agents/persona.ts#L160)).
 
@@ -113,7 +115,7 @@ revision이 바뀐 경우는 현재 관찰되는 것만 적는다. 파생은 호
 
 선택 잠금으로 쓴 개인은 `evolution`이 `adaptive`이고 `lockedTraitIds`가 `["warmth"]`다. `warmth`만 잠기고 `curiosity`·`tea`·`trust`는 변할 자격이 있다. 실제 변화는 각 경로의 근거·범위·현재성 검사를 통과해야 일어난다.
 
-자료를 주지 않으면 네 축 모두 잠기지 않고 참조한 프로필이 없다고 기록된다. 세 결과는 digest가 서로 다르다. 이 픽스처에서 각각 `b7ade1a1`, `87fb41e7`, `aa57cfc0`로 시작한다. 64자 digest의 앞 8자이고 축의 label 하나만 바꿔도 달라지므로 다른 예시의 기대값으로 쓰지 않는다.
+자료를 주지 않으면 네 축 모두 잠기지 않고 참조한 프로필이 없다고 기록된다. 세 결과는 digest가 서로 다르다. 이 픽스처에서 고정은 `87fb41e7`, 선택 잠금은 `aa57cfc0`, 자료 미제공은 `b7ade1a1`로 시작한다. 64자 digest의 앞 8자이고 축의 label 하나만 바꿔도 달라지므로 다른 예시의 기대값으로 쓰지 않는다.
 
 대상 개인이 없는 자료를 주면 파생이 실패한다. 참여자가 아닌 개인을 요청했을 때의 실패와는 메시지가 다르다. 이것은 이 문서가 채택한 규칙이며 별도 PR에서 적용된다. 이 문서가 기준으로 삼은 소스에서는 아직 거부하지 않고, 참조한 프로필이 없다고 기록된 잠금 해제 schema가 나온다.
 
