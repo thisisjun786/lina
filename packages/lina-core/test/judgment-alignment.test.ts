@@ -149,17 +149,19 @@ test("a readout whose bound holds only whitespace is reported, never stored", ()
 	const source = input.set.assessments[0];
 	if (!source) throw Error("missing fixture assessment");
 	const { inputDigest: _digest, ...raw } = source;
-	// The whole prose is valid, but its first 4,000 units carry no text.
-	expect(() =>
-		api.buildAssessment({
-			...raw,
-			completeText: `${" ".repeat(4000)}answer`,
-		}),
-	).toThrow("complete text is empty within its bound");
+	// The whole prose is valid, but its first 4,000 units carry no readable text.
+	// Zero-width and other format characters render as nothing, like whitespace.
+	for (const blank of [" ", "\n", "\u200b", "\ufeff"])
+		expect(() =>
+			api.buildAssessment({
+				...raw,
+				completeText: `${blank.repeat(4000)}answer`,
+			}),
+		).toThrow("complete text is empty within its bound");
 	// Leading whitespace with text inside the bound still clips with provenance.
 	const prepared = api.buildAssessment({
 		...raw,
-		completeText: `  ${"a".repeat(4100)}`,
+		completeText: `\u200b ${"a".repeat(4100)}`,
 	});
 	expect(prepared.completeText.length).toBe(4000);
 	expect(prepared.diagnostics["readoutTruncation"]).toMatchObject({

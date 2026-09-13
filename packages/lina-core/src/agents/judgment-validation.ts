@@ -217,6 +217,10 @@ function mechanismRevision(value: unknown): MechanismRevision {
 	return revision(value, "mechanism revision");
 }
 
+/** Whitespace, control and format characters render as nothing, so a readout
+ * made only of them carries no content even though it has length. */
+const READOUT_CONTENT = /[^\s\p{Cc}\p{Cf}]/u;
+
 /** Only fresh output preparation clips text; persisted record parsers never do. */
 export function prepareReadout(
 	value: string,
@@ -233,9 +237,9 @@ export function prepareReadout(
 	if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff)
 		end--;
 	const text = value.slice(0, end);
-	// A stored readout must say something, so a bound holding only whitespace is
-	// reported for repair instead of becoming an unreadable record.
-	if (text.trim().length === 0)
+	// A stored readout must say something, so a bound holding nothing readable is
+	// reported for repair instead of becoming an empty-looking record.
+	if (!READOUT_CONTENT.test(text))
 		throw Error(`${label} is empty within its bound`);
 	return {
 		text: boundedText(text, label, limit),
