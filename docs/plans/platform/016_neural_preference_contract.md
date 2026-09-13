@@ -70,7 +70,7 @@ Assessment = { schemaVersion, moduleKind, snapshotId, inputDigest,
 
 `workingRevision`은 현재 문맥의 revision이고 `instructionRevision`은 원본 request·현재 지시의 revision이다. 서로 대신하지 않는다. 도메인별 공개된 읽기 결과와 원본 참조를 조립하고 읽기 전후 버전·확정 직전 현재성을 확인한다. 여러 DB를 원자적으로 읽는다고 가정하지 않는다.
 
-위 표기는 필수 영역을 나타내며 `forecasts | values | continuity`는 moduleKind에 따른 구분 타입이다. `completeText`는 생성된 모듈 의견의 제한된 읽기 결과다(D23). 새 `buildAssessment`는 설명문이 4,000 UTF-16 code unit을 넘으면 surrogate pair를 보존하며 자르고 `diagnostics.readoutTruncation`에 원래 길이·상한·원문 SHA-256을 남긴다. 이 상한은 토큰 수가 아니다. 저장된 레코드의 파서는 절대로 자르거나 해시를 다시 쓰지 않는다. 구조화된 결과를 만들 수 없으면 텍스트만으로 정상 판단을 대신하지 않는다. 모델이 주장한 계산 결과·참조는 Host가 실제 도구/계산 receipt와 대조한다. 모델·세션 ID는 진단 자료이며 판단의 권위나 별도 인격이 아니다.
+위 표기는 필수 영역을 나타내며 `forecasts | values | continuity`는 moduleKind에 따른 구분 타입이다. `completeText`는 생성된 모듈 의견의 제한된 읽기 결과다(D23). 새 `buildAssessment`는 설명문이 4,000 UTF-16 code unit을 넘으면 surrogate pair를 보존하며 자르고 `diagnostics.readoutTruncation`에 원래 길이·상한·원문 SHA-256을 남긴다. 이 상한은 토큰 수가 아니다. 저장된 레코드의 파서는 절대로 자르거나 해시를 다시 쓰지 않는다. 잘린 원문은 보관하지 않으므로 이 해시는 생성 시점의 주장된 출처이며 파서가 대조할 수 있는 검증된 내용이 아니다. 원문 대조가 필요한 소비자는 생성 단계에서 원문을 따로 보존해야 한다. 구조화된 결과를 만들 수 없으면 텍스트만으로 정상 판단을 대신하지 않는다. 모델이 주장한 계산 결과·참조는 Host가 실제 도구/계산 receipt와 대조한다. 모델·세션 ID는 진단 자료이며 판단의 권위나 별도 인격이 아니다.
 
 클로토의 `projectConsequences`는 해당 개인에게 공개된 도메인 상태와 선언된 규칙만 사용하는 제안 조회 포트다. 실제 World 진행이나 비공개 상태의 정답 복사를 예측으로 사용하지 않는다. `forecastId`, `optionKey`, 관측 항목·시점과 `predictionMethodRevision`을 실제 결과에 연결한다.
 
@@ -88,7 +88,9 @@ Forecast의 결과·비용·기한은 각각 `Claim { claimId, kind: observed | 
 
 Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회차 deadline을 먼저 고정한다. 이 예산은 후보 revision이나 무효화 후 후속 회차에서도 같은 원래 요청/자율 활동 슬롯에 누적한다. `closeCandidateSet`이 후보 hash와 coverage를 확정한 뒤에는 새 후보를 같은 선택에 끼워 넣지 못한다. 확정 뒤 제안은 후속 회차에 남기고 실제 전제를 바꾸는 근거만 현재 회차를 무효화한다. 예산 소진 시 `deferred`로 끝내며 선택 RNG·outbox는 진행하지 않는다. 후보 또는 평가가 불완전한 행동 회차도 비실행 종료 기록을 저장할 수 있다. 이때 `SelectionSpec`·순위·양보·충돌 판정은 없고, `holdReason`에 종료 원인을 남긴다. 제공된 후보 근거와 현재성 검사는 그대로 수행한다.
 
-세 Assessment가 모두 도착했어도 판단 불가가 남으면 policy revision 2의 결과는 `held`다. 예산까지 끝났다면 Host는 이 결과의 `status`만 `deferred`, `holdReason`만 공통 상수 `EVALUATION_BUDGET_EXHAUSTED`로 바꿔 최초 종료 기록을 저장할 수 있다. 나머지 필드는 정책 재생 결과와 같아야 하고 `SelectionSpec`은 없다. 이미 저장한 `held` 회차를 수정하거나 재개하지 않는다. 이미 선택한 뒤의 실패라면 기존 `held` 결정을 유지하거나 취소한다.
+세 Assessment가 모두 도착했어도 판단 불가가 남으면 policy revision 2의 결과는 `held`다. 예산까지 끝났다면 Host는 이 결과의 `status`만 `deferred`, `holdReason`만 공통 상수 `EVALUATION_BUDGET_EXHAUSTED`로 바꿔 최초 종료 기록을 저장할 수 있다. 나머지 필드는 정책 재생 결과와 같아야 하고 `SelectionSpec`은 없다. 예산 소진 전환은 revision 2의 규칙이므로 revision 1로 재생한 `held`는 전환하지 않고 재시도 가능한 상태로 남긴다. 이미 저장한 `held` 회차를 수정하거나 재개하지 않는다. 이미 선택한 뒤의 실패라면 기존 `held` 결정을 유지하거나 취소한다.
+
+증거가 불완전한 회차는 정책 재생이 불가능하므로 그 `deferred` 기록은 스스로 증명할 수 있는 값만 담는다. 판단 순서는 선언된 정책의 해당 상황 순서와 같아야 하고, 모듈별 추천은 실제 저장된 Assessment의 `recommendedOptionKeys`와 같아야 하며 평가가 없는 모듈은 비어 있어야 한다. 제외·기권·충돌·순위·양보는 후보 집합과 완결된 평가에서만 나오므로 비운다. 기존 `held` 기록의 서술 필드 범위는 PR #14 계약을 유지하며, 과거 바이트·해시를 보존하기 위해 별도 버전 규칙 없이 좁히지 않는다.
 
 `AssessmentSet`은 snapshotId·candidateSetHash·objectiveProfileRefs·모듈별 평가 해시·누락 사유를 묶는다. Host는 현재성·필수 조건으로 적격 후보를 확인한다. 모이라이의 종합 기능은 LLM 해석과 `ArbitrationPolicy`를 포함하며, 각자의 추천을 유지한 채 목표 충돌을 조정한다. 종합 LLM이나 Host가 선언된 정책 밖의 임의 우선순위를 적용하지 않는다.
 

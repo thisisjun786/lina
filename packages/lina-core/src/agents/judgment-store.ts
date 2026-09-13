@@ -74,26 +74,43 @@ function validateResolutionBinding(
 		validateDialogueResolution(resolution, snapshot, assessments);
 		return;
 	}
+	const policy = personalPolicyFor(snapshot.policyId, snapshot.policyRevision);
 	// Without complete evidence only a non-executable failure receipt is trusted.
-	// Its descriptive fields are not policy-replayed; deferred is not a fallback.
+	// It cannot be policy-replayed, so the terminal deferred receipt introduced
+	// here may restate only the declared order and what its stored assessments
+	// prove. Held rows keep their original latitude so legacy bytes stay readable.
 	if (!candidates || !set) {
 		if (
 			(resolution.status !== "held" && resolution.status !== "deferred") ||
 			selection !== null
 		)
 			throw Error(!set ? "incomplete assessment set" : "missing candidate set");
-		// An incomplete deferred receipt cannot assert arbitration outcomes.
-		if (
-			resolution.status === "deferred" &&
-			(resolution.ranking.length !== 0 ||
-				resolution.conceded.length !== 0 ||
-				resolution.conflicts.length !== 0)
-		)
-			throw Error("incomplete deferred asserts arbitration outcome");
+		if (resolution.status === "deferred") {
+			const recommendations: Record<ModuleKind, string[]> = {
+				clotho: [],
+				lachesis: [],
+				atropos: [],
+			};
+			for (const assessment of assessments)
+				recommendations[assessment.moduleKind] = [
+					...assessment.recommendedOptionKeys,
+				];
+			if (
+				body(resolution.order) !==
+					body([...policy.orders[snapshot.situation]]) ||
+				body(resolution.recommendations) !== body(recommendations) ||
+				resolution.excluded.length !== 0 ||
+				resolution.abstentions.length !== 0 ||
+				resolution.conflicts.length !== 0 ||
+				resolution.ranking.length !== 0 ||
+				resolution.conceded.length !== 0
+			)
+				throw Error("incomplete deferred asserts unsupported arbitration");
+		}
 		return;
 	}
 	const replayed = resolvePersonalRound({
-		policy: personalPolicyFor(snapshot.policyId, snapshot.policyRevision),
+		policy,
 		snapshot,
 		options: candidates.options,
 		eligibility: candidates.eligibility,
@@ -103,10 +120,11 @@ function validateResolutionBinding(
 			selection?.candidates.map((c) => [c.optionKey, c.b]) ?? [],
 		),
 	});
-	// A replayed hold may be recorded as a terminal deferred receipt when the
-	// Host's evaluation budget is exhausted; every other field must match the
-	// replay exactly, and a resolved replay is never converted.
+	// Budget exhaustion is a revision 2 rule: only a hold that policy replayed
+	// under it becomes terminal, every other field still matches the replay, and
+	// a resolved replay is never converted. Revision 1 holds stay retryable.
 	const budgetExhausted =
+		policy.revision >= 2 &&
 		replayed.resolution.status === "held" &&
 		resolution.status === "deferred" &&
 		resolution.holdReason === EVALUATION_BUDGET_EXHAUSTED &&

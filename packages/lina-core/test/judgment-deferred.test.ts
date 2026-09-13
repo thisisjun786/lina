@@ -422,3 +422,91 @@ test("a replayed resolved record is never converted to deferred", () => {
 	expect(store.getRound(input.snapshot.roundId)?.status).toBe("open");
 	expect(store.getResolution(input.snapshot.roundId)).toBeNull();
 });
+
+test("a replayed revision-1 hold is never converted by budget exhaustion", () => {
+	const context = policyEvidenceFixture();
+	fixtures.push(context);
+	const { store, input } = context;
+	// The eligible option loses one module opinion, so revision 1 also holds.
+	const target = input.set.assessments.find((a) => a.moduleKind === "lachesis");
+	if (!target) throw Error("missing fixture assessment");
+	target.objectiveAssessments = [];
+	store.closeCandidateSet(input.evidence.candidates);
+	for (const assessment of input.set.assessments)
+		store.putAssessment(assessment);
+	const replayed = resolvePersonalRound(input);
+	expect(input.snapshot.policyRevision).toBe(1);
+	expect(replayed.resolution.status).toBe("held");
+	const record = parseResolutionRecord({
+		...replayed.resolution,
+		status: "deferred",
+		holdReason: EVALUATION_BUDGET_EXHAUSTED,
+	});
+
+	expect(() =>
+		store.recordResolution(input.snapshot.roundId, record, null),
+	).toThrow("resolution policy replay mismatch");
+	expect(store.getRound(input.snapshot.roundId)?.status).toBe("open");
+	expect(store.getResolution(input.snapshot.roundId)).toBeNull();
+});
+
+test("an incomplete deferred receipt rejects unsupported arbitration fields", () => {
+	const context = policyEvidenceFixture();
+	fixtures.push(context);
+	const { store, input, option } = context;
+	// Only clotho and lachesis are stored, and no candidate set exists.
+	for (const assessment of input.set.assessments.slice(0, 2))
+		store.putAssessment(assessment);
+	const optionKey = option.optionKey;
+	for (const patch of [
+		{
+			excluded: [
+				{
+					optionKey,
+					stage: "host_eligibility" as const,
+					byModule: null,
+					reason: "host ineligible",
+				},
+			],
+		},
+		{
+			abstentions: [
+				{ optionKey, moduleKind: "lachesis" as const, reason: "unavailable" },
+			],
+		},
+		// atropos has no stored assessment, so it can recommend nothing.
+		{ recommendations: { clotho: [], lachesis: [], atropos: [optionKey] } },
+		// The declared order for this round's situation is not the transition one.
+		{ order: [...PERSONAL_POLICY_V2.orders.transition] },
+	]) {
+		const record = deferredRecord(input, patch);
+		expect(() =>
+			store.recordResolution(input.snapshot.roundId, record, null),
+		).toThrow("incomplete deferred asserts unsupported arbitration");
+		expect(store.getRound(input.snapshot.roundId)?.status).toBe("open");
+		expect(store.getResolution(input.snapshot.roundId)).toBeNull();
+	}
+});
+
+test("an incomplete receipt keeps the recommendations its stored assessments prove", () => {
+	const context = policyEvidenceFixture();
+	fixtures.push(context);
+	const { store, path, fixture, input, option } = context;
+	const stored = input.set.assessments.slice(0, 2).map((assessment) =>
+		parseAssessment({
+			...assessment,
+			recommendedOptionKeys:
+				assessment.moduleKind === "clotho" ? [option.optionKey] : [],
+		}),
+	);
+	for (const assessment of stored) store.putAssessment(assessment);
+	const record = deferredRecord(input, {
+		recommendations: { clotho: [option.optionKey], lachesis: [], atropos: [] },
+	});
+
+	store.recordResolution(input.snapshot.roundId, record, null);
+
+	const reopened = fixture.keep(new JudgmentStore(path));
+	expect(reopened.getResolution(input.snapshot.roundId)).toEqual(record);
+	expect(reopened.getSelectionSpec(input.snapshot.roundId)).toBeNull();
+});
