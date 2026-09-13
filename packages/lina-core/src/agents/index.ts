@@ -88,7 +88,10 @@ export * from "./judgment-policy.ts";
 // Judgment persistence.
 
 export { JUDGMENT_SCHEMA_VERSION } from "./judgment-schema.ts";
-export { JudgmentStore } from "./judgment-store.ts";
+export {
+	EVALUATION_BUDGET_EXHAUSTED,
+	JudgmentStore,
+} from "./judgment-store.ts";
 
 // Behavior identity (pre-existing pure function; exposed so persona contract
 // tests can pin the BehaviorJobInput fingerprint through the public barrel).
@@ -97,3 +100,4 @@ export { behaviorFingerprint } from "./behavior-validation.ts";
 
 export * from "./judgment-candidates.ts";
 export * from "./judgment-dialogue.ts";
+export { buildAssessment } from "./judgment-output.ts";

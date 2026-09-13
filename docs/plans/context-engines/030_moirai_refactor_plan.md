@@ -1,6 +1,6 @@
 # 모이라이 시스템 리팩토링 계획
 
-상태: 2026-09-12. 모이라이 엔진의 사용자 경험 경계, 채널·세션 계약, 도메인 통폐합, 모델 프리셋 운영, 검증 게이트를 소유한다. 엔진 정의·세 판단 모듈·조정 정책·회차 순서는 정본 [MOIRAI_ENGINE](../../MOIRAI_ENGINE.md)이, 계약은 [016](../platform/016_neural_preference_contract.md)이, 로드맵은 [017](../platform/017_moirai_module_composition.md)이, 근거는 [015](../platform/015_neural_preference_engine_research.md)가 소유한다. 선택된 LLM 백엔드는 Senpi다. [R0의 Codex 실행 증거](031_moirai_r0_evidence.md)는 이전 QA 기록이며 현재 목표의 제품 통합·판단 성능·qualification 증거가 아니다.
+상태: 2026-09-13. 모이라이 엔진의 사용자 경험 경계, 채널·세션 계약, 도메인 통폐합, 모델 프리셋 운영, 검증 게이트를 소유한다. 엔진 정의·세 판단 모듈·조정 정책·회차 순서는 정본 [MOIRAI_ENGINE](../../MOIRAI_ENGINE.md)이, 계약은 [016](../platform/016_neural_preference_contract.md)이, 로드맵은 [017](../platform/017_moirai_module_composition.md)이, 근거는 [015](../platform/015_neural_preference_engine_research.md)가 소유한다. 선택된 인지·작업 백엔드는 Codex이고 프로바이더 owner는 OpenCodex다(D22). [R0의 Codex 실행 증거](031_moirai_r0_evidence.md)는 이전 QA 기록이며 현재 목표의 제품 통합·판단 성능·qualification 증거가 아니다.
 
 ## 최상위 어젠다
 
@@ -21,7 +21,7 @@
 - [PR #10](https://github.com/thisisjun786/lina/pull/10): 고정 리비전의 Senpi QA와 역할 프롬프트 실증. [016 연결 지점](../platform/016_neural_preference_contract.md#결정과-현재-연결-지점)의 자료를 기준으로 제품 계약을 구현한다.
 - 이 계획: 기존 도메인 소유권과 한 채널의 내부 판단 수명을 정한다. PR #8의 코드를 복사하거나 qualification을 대체하지 않는다.
 
-제품 코드 연결 지점의 기준은 `522101ff99e356b0ea6d27b4ea03ec7e599ee4b3`, 별도 채택 커널의 기준은 PR #8의 `ab9f1f073eca80ecef8dda0b0f7d338f4d6cb35c`다. 기존 `packages/lina-codex/src/moirai-probe*.ts`는 이전 Codex QA 증거로 보존하고 새 Senpi 제품 조정기로 복제하지 않는다. 설치/checkpoint 소유자는 재사용하며 코어·신경 상태의 일관된 snapshot 계약을 확장한다. 아래 신규 계약은 현재 구현된 공통 API로 간주하지 않는다.
+제품 코드 연결 지점의 기준은 `522101ff99e356b0ea6d27b4ea03ec7e599ee4b3`, 별도 채택 커널의 기준은 PR #8의 `ab9f1f073eca80ecef8dda0b0f7d338f4d6cb35c`다. 기존 `packages/lina-codex/src/moirai-probe*.ts`는 이전 Codex QA 증거로 보존하고 제품 조정기로 복제하지 않는다. 설치/checkpoint 소유자는 재사용하며 코어·신경 상태의 일관된 snapshot 계약을 확장한다. 아래 신규 계약은 현재 구현된 공통 API로 간주하지 않는다.
 
 ## 판단 계층
 
@@ -48,7 +48,7 @@ flowchart TD
   M --> D[일반 대화: Host 검증 뒤 응답]
 ```
 
-채널은 사용자 대화 식별자다. Senpi의 내부 역할 세션은 채널·인격·OS 프로세스와 일대일이 아니다. LLM은 모듈의 의미 해석과 계획 생성에 쓰며 각 모듈의 코드·기억 조회·수치 계산을 대체하지 않는다. 원문과 현재 채택 상태는 LINA가 소유한다.
+채널은 사용자 대화 식별자다. Codex의 내부 역할 thread은 채널·인격·OS 프로세스와 일대일이 아니다. LLM은 모듈의 의미 해석과 계획 생성에 쓰며 각 모듈의 코드·기억 조회·수치 계산을 대체하지 않는다. 원문과 현재 채택 상태는 LINA가 소유한다.
 
 | 회차 계약 | 내용 |
 | --- | --- |
@@ -64,7 +64,7 @@ flowchart TD
 
 개인·scope별 회차 lease와 큐가 순서를 정하고 회차 내부의 독립 계산은 병렬로 수행한다. 정정·권한 회수는 큐를 기다리지 않고 진행 중 회차를 무효화한다. lease가 끝난 이전 실행의 결과는 fencing token으로 거부한다. 외부 효과 완료를 기다리는 동안 회차 lease를 점유하지 않는다.
 
-재시작 시 Host의 회차 ledger와 Senpi가 제공하는 세션/run 상태를 대조한다. 응답 미수신만으로 같은 효과나 선택을 다시 시작하지 않는다. binding과 모델 변경은 generation을 올리고 이전 이력을 보존한다. Senpi의 지원 범위는 제품 어댑터에서 검증하며 Codex thread 제약이나 nativeEpoch를 그대로 이식하지 않는다.
+재시작 시 Host의 회차 ledger와 Codex가 제공하는 thread/turn 상태를 대조한다. 응답 미수신만으로 같은 효과나 선택을 다시 시작하지 않는다. binding과 모델 변경은 generation을 올리고 이전 이력을 보존한다. 기존 Codex thread·nativeEpoch·출처 계보 계약을 재사용하되 typed 판단의 실제 재개와 격리를 제품 어댑터에서 검증한다.
 
 세션 자체 이력이나 compaction만으로 필수 입력을 전달했다고 가정하지 않는다. 원문·정정·현재 의도·이전 결과의 snapshot과 실제 전송을 남긴다. 배치·프로세스 수는 이 수명과 관측 계약을 충족하는 배포 방식으로 선택한다. 수치 계산은 SDK 밖의 독립 포트다.
 
@@ -100,9 +100,9 @@ flowchart TD
 
 실행 시 UI뿐 아니라 설정 API·저장된 설정·실제 송신 직전에도 프리셋과 모델을 확인한다. 지원 밖 모델, 사용 불가능한 필수 모델, 달라진 설정은 실행 전에 거부한다. 프리셋 내부에 검증된 대체 경로가 없다면 다른 모델로 조용히 전환하지 않는다. 프리셋 변경은 진행 회차의 모델을 바꾸지 않고 새 binding generation에 적용한다. 기존 사용자 모델 설정과 이력은 보존하고 지원 프리셋 전환이 필요한 상태로 처리한다. 자동 삭제·자동 원격 호출은 하지 않는다.
 
-프로바이더 관리는 [정본 D21](../../MOIRAI_ENGINE.md#확정된-결정-목록)에 따라 Senpi native다. 계정 로그인·failover·pin·제거, 모델 목록, rate limit·사용량 조회는 app-server의 `account/*`·`model/list`·`config/read`를 사용하고, 자격 증명은 Senpi의 agent dir(`auth.json`/`oauth.json`)에 남는다. Lina는 개별 프로바이더 자격 증명을 저장하지 않으며 검증된 프리셋과 역할·티어 배치만 소유한다. OpenCodex Hub의 카탈로그·관리 GUI·환경 변수(`LINA_OPENCODEX_*`)는 전환 완료 후 제거한다.
+프로바이더 관리는 [정본 D22](../../MOIRAI_ENGINE.md#확정된-결정-목록)에 따라 OpenCodex가 소유한다. 기존 계정·카탈로그·사용량·관리 화면과 `LINA_OPENCODEX_*` 연결을 유지한다. Lina는 개별 프로바이더 자격 증명을 복사하지 않고 검증된 프리셋과 역할·티어 배치를 소유한다. Senpi native 계정으로 옮기는 D21 계획은 철회했다.
 
-이는 후속 제품 계약이다. 현재 제품의 자유 profile/tier 설정 API와 OpenCodex 연결이 제거됐다는 뜻은 아니다. F2에서 역할·전송 계약을 적용하고 F4의 운영 전환에서 현재 `models/types.ts`, `validation.ts`, `settings.ts`, `selection.ts`, 설정 HTTP/UI와 Senpi 송신 소비자, `lina-opencodex` 소비자를 함께 전환한다. 이전 모델 온보딩 문서의 자유 선택 제안보다 이 계약을 우선한다.
+검증 프리셋은 후속 제품 계약이다. F2에서 Codex 역할·전송 계약을 적용하고 F4에서 `models/types.ts`, `validation.ts`, `settings.ts`, `selection.ts`, 설정 HTTP/UI와 기존 OpenCodex 송신 소비자를 함께 검증한다. 현재 자유 profile/tier 설정이 이미 제거됐다는 뜻은 아니다.
 
 ## 판단·효과·의미 복구
 
@@ -124,7 +124,7 @@ flowchart TD
 - **G2 불변조건:** 원본 현재성, 권한, 단일 writer, 회차 격리, 효과 중복 방지, 부분 실패, 실제 프로세스 중단 후 실행/의미 복구를 검증한다.
 - **G3 기존 qualification:** PR #8의 기준 리비전 `ab9f1f073eca80ecef8dda0b0f7d338f4d6cb35c`에서 출발한 30개 기준, 중요 H 조건 전부, 전체 90점 이상·카테고리별 80점 이상, 고정 후보의 새 전체 배치 3회 연속을 유지한다. 새 표현과 기존 채점 계약의 호환이 안 되면 미충족으로 기록하며 기준을 약화하지 않는다. 후속 실행 전에 시나리오·scorer·실행 후보의 정확한 리비전과 변경점을 함께 고정하고, 로컬 후속 후보를 암묵적으로 같은 채점기로 취급하지 않는다.
 - **G4 추가 효용:** baseline/kernel/이해 제거군의 자원을 맞추고, 동일 전문 지원과 총자원의 단일 판단·재검토 경로와 MoA도 별도로 비교한다. 동점이면 추가 효용 미입증이다. 정답 누출·사례별 답 하드코딩을 금지한다.
-- **G5 비용:** 예전 하네스의 episode 6회·출력 4096토큰·120초는 해당 고정 실험의 조건이며 제품 출력 제한으로 복사하지 않는다. 대화 3+1·행동 3+2에 추가 평가·조회·재시도·신경 계산을 합산한다. 제품 원문을 잘라 예산을 맞추지 않으며 동일 총자원에서 실제 품질·지연을 비교한다.
+- **G5 비용:** 예전 하네스의 episode 6회·출력 4096토큰·120초는 해당 고정 실험의 조건이며 제품 출력 제한으로 복사하지 않는다. 대화 3+1·행동 3+2에 추가 평가·조회·재시도·신경 계산을 합산한다. 사용자 원문·정정·권한은 보존한다. D23의 역할별 생성 토큰 예산은 실제 전송에서 검사하고, 설명문 잘림과 불완전한 구조화 출력을 구분한다. 잘린 부분의 원래 길이·해시·잘림 표시를 보존하고 동일 총자원에서 실제 품질·지연을 비교한다.
 - **G6 문서·호환:** 구현 전후, 로컬/원격 CI/실모델 증거를 구분한다. 실제 구현 시 AGENTS와 README의 해당 계약을 반영하며, PR #8과 이 계획의 완료 상태를 혼동하지 않는다.
 - **G7 자연스러운 대화:** 단순 지시·정정·감정 대화에서 내부 코어·저장 절차를 중계하지 않고 해당 의도를 행동에 반영하는지 실모델로 확인한다. 실패·기억 한계는 사실대로 말하고, 구조를 직접 묻는 질문에는 검증된 설명을 제공한다. 단어 금지 검사만으로 통과시키지 않는다.
 - **G8 프리셋 경계:** UI를 거치지 않는 API 입력, 구형 저장 설정, 지원 모델 누락, 실행 중 설정 변경, native/provider의 임의 fallback을 포함해 지원 조합 밖 송신이 0회인지 검증한다. 새 프리셋 revision은 자체 호환·인지 평가를 통과해야 제품에 추가한다.
@@ -134,7 +134,9 @@ R0는 합성 입력을 사용하는 QA 경로로 구현됐다. GLM 실제 호출
 
 ## 채널·실행 엔진 전환의 연결 지점
 
-전환 대상은 Codex CLI → `omo app-server`(작업 실행), OpenCodex Hub → Senpi native(프로바이더·모델)다. `lina-codex`가 현재 호출하는 app-server 메서드(`thread/start|read|resume|compact/start|name/set|turns/list`, `turn/start|steer|interrupt`, `item/tool/call`, `item/commandExecution|fileChange|permissions/requestApproval`, `model/list`, `skills/list|extraRoots/set`)는 Senpi app-server에 동일 이름으로 존재한다. 이름 일치는 F2의 실전송 검사 대상이며 의미 일치의 증거가 아니다. 저장소 루트 기준:
+전환은 백엔드 교체가 아니라 기존 Codex 대화에 모이라이 판단 계약을 연결하는 작업이다.
+
+D22는 기존 Codex app-server와 OpenCodex를 유지한다. F2는 아래 연결 지점에 typed 판단과 역할 격리·도구·승인·출력 예산을 적용한다. R0 QA와 기존 일반 대화 성공은 새 모이라이 제품 회차의 호환 증거를 대신하지 않는다. 저장소 루트 기준:
 
 - `packages/lina-codex/src/tasks/protocol.ts` — thread start/read/resume와 turn 식별.
 - `packages/lina-codex/src/tasks/native.ts` — thread별 이벤트 식별.

@@ -116,6 +116,15 @@ export type JsonValue =
 	| JsonValue[]
 	| JsonObject;
 export type JsonObject = { [key: string]: JsonValue };
+/** Numeric revisions are legacy; new mechanism owners use a canonical content hash. */
+export type MechanismRevision = number | `sha256:${string}`;
+/** Storage/context bound, not a provider token budget. */
+export const MAX_READOUT_TEXT = 4000;
+export type ReadoutTruncation = {
+	originalLength: number;
+	limit: number;
+	sourceDigest: string;
+};
 export type AssessmentDetail = {
 	kind: "forecasts" | "values" | "continuity";
 	body: JsonObject;
@@ -126,7 +135,7 @@ export type Assessment = {
 	snapshotDigest: string;
 	inputDigest: string;
 	objectiveRef: ObjectiveProfileRef;
-	mechanismRevision: number;
+	mechanismRevision: MechanismRevision;
 	completeText: string;
 	evidenceRefs: string[];
 	proposedOptionKeys: OptionKey[];
