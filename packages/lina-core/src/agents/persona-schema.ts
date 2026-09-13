@@ -283,7 +283,11 @@ function profileFor(
 	if (identity === null) return null;
 	for (const profile of parseIdentityPolicy(identity).profiles)
 		if (profile.agentId === agentId) return profile;
-	return null;
+	// A supplied snapshot is a claim about every participant, so a missing target
+	// is bad data, not an absent policy. Collapsing it to null would unlock every
+	// axis and produce the same digest as identity: null. The LIFE paths already
+	// reject this: world/views.ts, world/growth.ts, world/autonomy-rules.ts.
+	throw Error("Missing persona identity policy");
 }
 
 function lockedFor(
