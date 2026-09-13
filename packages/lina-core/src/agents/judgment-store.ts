@@ -27,7 +27,11 @@ import {
 	validateDialogueResolution,
 } from "./judgment-dialogue.ts";
 import { validateCandidateEvidence } from "./judgment-evidence.ts";
-import { PERSONAL_POLICY_V1, resolvePersonalRound } from "./judgment-policy.ts";
+import {
+	personalPolicyFor,
+	personalPolicyIfDeclared,
+	resolvePersonalRound,
+} from "./judgment-policy.ts";
 import { initializeJudgmentSchema } from "./judgment-schema.ts";
 import {
 	canonicalJson,
@@ -55,6 +59,10 @@ function revision(value: number, minimum = 0): number {
 	return value;
 }
 
+/** The only holdReason that ends a round as a terminal deferred receipt, whether
+ * its evidence is incomplete or it replayed to a hold under revision 2. */
+export const EVALUATION_BUDGET_EXHAUSTED = "evaluation budget exhausted";
+
 function validateResolutionBinding(
 	resolution: StoredResolutionRecord,
 	selection: SelectionSpec | null,
@@ -63,6 +71,7 @@ function validateResolutionBinding(
 	candidates: CandidateSet | null,
 	lookupIntention: (id: string) => IntentionRecord | null,
 	assessments: Assessment[],
+	stored: boolean,
 ): void {
 	if (resolution.schemaVersion === 2) {
 		if (selection !== null || candidates !== null)
@@ -70,15 +79,60 @@ function validateResolutionBinding(
 		validateDialogueResolution(resolution, snapshot, assessments);
 		return;
 	}
-	// Without complete evidence only a non-executable failure receipt is trusted.
-	// Its descriptive fields are not policy-replayed; deferred is not a fallback.
+	// Without complete evidence only a non-executable receipt is trusted, and it
+	// never carries a selection.
 	if (!candidates || !set) {
-		if (resolution.status !== "held" || selection !== null)
+		if (
+			selection !== null ||
+			(resolution.status !== "held" && resolution.status !== "deferred")
+		)
 			throw Error(!set ? "incomplete assessment set" : "missing candidate set");
+		// A held round keeps its original latitude and declares no policy here;
+		// resolving one would reject historical bytes on every ledger read.
+		if (resolution.status === "held") return;
+		// Revision 2 owns the terminal receipt and only an exhausted budget earns
+		// it, so a round with remaining budget stays open for its missing work.
+		const declared = personalPolicyIfDeclared(
+			snapshot.policyId,
+			snapshot.policyRevision,
+		);
+		// A later build may have written this receipt. Auditing persisted bytes
+		// preserves it as history; a fresh write still needs a policy to check.
+		if (!declared) {
+			if (stored) return;
+			throw Error("unsupported personal policy declaration");
+		}
+		if (declared.revision < 2)
+			throw Error("incomplete deferred requires policy revision 2");
+		if (resolution.holdReason !== EVALUATION_BUDGET_EXHAUSTED)
+			throw Error("incomplete deferred requires exhausted evaluation budget");
+		// It cannot be policy-replayed, so it may restate only the declared order
+		// and what its stored assessments prove.
+		const recommendations: Record<ModuleKind, string[]> = {
+			clotho: [],
+			lachesis: [],
+			atropos: [],
+		};
+		for (const assessment of assessments)
+			recommendations[assessment.moduleKind] = [
+				...assessment.recommendedOptionKeys,
+			];
+		if (
+			body(resolution.order) !==
+				body([...declared.orders[snapshot.situation]]) ||
+			body(resolution.recommendations) !== body(recommendations) ||
+			resolution.excluded.length !== 0 ||
+			resolution.abstentions.length !== 0 ||
+			resolution.conflicts.length !== 0 ||
+			resolution.ranking.length !== 0 ||
+			resolution.conceded.length !== 0
+		)
+			throw Error("incomplete deferred asserts unsupported arbitration");
 		return;
 	}
+	const policy = personalPolicyFor(snapshot.policyId, snapshot.policyRevision);
 	const replayed = resolvePersonalRound({
-		policy: PERSONAL_POLICY_V1,
+		policy,
 		snapshot,
 		options: candidates.options,
 		eligibility: candidates.eligibility,
@@ -88,7 +142,20 @@ function validateResolutionBinding(
 			selection?.candidates.map((c) => [c.optionKey, c.b]) ?? [],
 		),
 	});
-	if (body(resolution) !== body(replayed.resolution))
+	// Budget exhaustion is a revision 2 rule: only a hold that policy replayed
+	// under it becomes terminal, every other field still matches the replay, and
+	// a resolved replay is never converted. Revision 1 holds stay retryable.
+	const budgetExhausted =
+		policy.revision >= 2 &&
+		replayed.resolution.status === "held" &&
+		resolution.status === "deferred" &&
+		resolution.holdReason === EVALUATION_BUDGET_EXHAUSTED &&
+		body({
+			...resolution,
+			status: "held",
+			holdReason: replayed.resolution.holdReason,
+		}) === body(replayed.resolution);
+	if (body(resolution) !== body(replayed.resolution) && !budgetExhausted)
 		throw Error("resolution policy replay mismatch");
 	if (selection === null || replayed.spec === null) {
 		if (selection !== replayed.spec)
@@ -554,6 +621,7 @@ export class JudgmentStore {
 				candidates,
 				(id) => this.getIntention(id),
 				assessments,
+				false,
 			);
 			const now = this.now();
 			this.db
@@ -1086,6 +1154,7 @@ export class JudgmentStore {
 				candidatesByRound.get(record.roundId) ?? null,
 				(id) => intentionsById.get(id) ?? null,
 				assessments,
+				true,
 			);
 		}
 		if (this.db.prepare("PRAGMA foreign_key_check").all().length > 0)

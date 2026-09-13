@@ -1,6 +1,6 @@
 # LINA 모이라이 엔진
 
-상태: 2026-09-12 확정 설계. 이 문서는 모이라이 엔진의 정의·세 판단 모듈·회차 실행 형태·기존 모듈 배치·확정된 결정의 정본이다. 타입·포트·저장·복구의 세부 규칙은 [016 계약](plans/platform/016_neural_preference_contract.md), 구현 순서는 [017 로드맵](plans/platform/017_moirai_module_composition.md), 과학적 근거와 출처는 [015 근거](plans/platform/015_neural_preference_engine_research.md), 채널·모델 프리셋 운영은 [030 운영](plans/context-engines/030_moirai_refactor_plan.md)이 소유한다. 이 설계는 아직 구현되지 않았다. 문서 확정은 판단 효용·회로 학습·운영 성능의 증거가 아니며, 그 검증은 [017의 F1–F4](plans/platform/017_moirai_module_composition.md#후속-설계와-구현의-의존-순서)에서 실제 입력·계산 receipt·결과로 수행한다.
+상태: 2026-09-13 확정 설계(D22·D23 반영). 이 문서는 모이라이 엔진의 정의·세 판단 모듈·회차 실행 형태·기존 모듈 배치·확정된 결정의 정본이다. 타입·포트·저장·복구의 세부 규칙은 [016 계약](plans/platform/016_neural_preference_contract.md), 구현 순서는 [017 로드맵](plans/platform/017_moirai_module_composition.md), 과학적 근거와 출처는 [015 근거](plans/platform/015_neural_preference_engine_research.md), 채널·모델 프리셋 운영은 [030 운영](plans/context-engines/030_moirai_refactor_plan.md)이 소유한다. PR #14에 F1 공통 계약이 구현됐고, 세 메커니즘과 제품 연결은 F2–F4에서 구현한다. 문서 확정은 판단 효용·회로 학습·운영 성능의 증거가 아니며, 그 검증은 [017의 F1–F4](plans/platform/017_moirai_module_composition.md#후속-설계와-구현의-의존-순서)에서 실제 입력·계산 receipt·결과로 수행한다.
 
 ## 한눈에 보기
 
@@ -22,7 +22,7 @@ LINA는 이 엔진을 사용하는 제품이다. 엔진은 개인 대화, 약속
 | --- | --- |
 | 세 판단·종합·선택 규칙, 목표 프로필, 회차 기록, 의도·약속의 채택 기록, 예측과 오차, 신경 선호 상태·학습, 선택 난수와 실행 요청 outbox | 사실 기억·대화 원문·정체성·사용자 지시·권한의 원본, 세계 상태, 작업 실행 상태, 게시·이미지 결과, 채널 전송 |
 
-LLM 실행 백엔드는 **Senpi**다. Senpi는 세 판단과 종합의 의미 해석·계획 생성을 맡는 어댑터이며, 각 모듈의 코드 검사·기억 조회·수치 계산을 대체하지 않는다. 개발 작업의 실행 엔진은 **OMO native**(`omo app-server`, Senpi의 app-server 모드)이고, 프로바이더 계정·모델 목록·인증·사용량은 **Senpi native**(`account/*`, `model/list`, `config/read`)가 소유한다. 현재 런타임의 Codex CLI와 OpenCodex Hub는 F2–F4 전환이 끝나면 폐기한다(D21). 라케시스의 학습된 선호는 **MaleCNS v1.0 부분회로**를 별도 Python 계산기로 실행한다. 이 회로는 엔진 완성의 필수 요소이며 뒤로 미루는 선택 사항이 아니다.
+LLM 실행 백엔드는 **Codex**다(D22). 기존 `lina-codex` 어댑터가 세 판단과 종합의 의미 해석·계획 생성을 연결하며, 각 모듈의 코드 검사·기억 조회·수치 계산은 별도 책임이다. 개발 작업은 기존 **Codex app-server와 TaskManager**, 프로바이더 계정·모델 목록·인증·사용량은 **OpenCodex**가 소유한다. Senpi/OMO 전환과 Codex·OpenCodex 폐기 계획(D13·D21)은 철회했다. 라케시스의 학습된 선호는 **MaleCNS v1.0 부분회로**를 별도 Python 계산기로 실행한다. 이 회로는 엔진 완성의 필수 요소다.
 
 ## 세 판단 모듈
 
@@ -74,12 +74,12 @@ PR #10의 역할 프롬프트는 라케시스를 "근거와 믿음의 타당성"
 
 ### personal.v1 조정 정책
 
-행동 catalog마다 정책을 선언한다. World 없는 개인의 첫 catalog `personal.v1`의 정책은 다음 순서로 동작한다.
+행동 catalog마다 정책을 선언한다. World 없는 개인의 첫 catalog `personal.v1`은 policy revision 2를 사용한다(D23). revision 1은 과거 기록 재생에만 유지한다. 현재 정책의 순서는 다음과 같다.
 
 1. **Host 적격성 검사(객관적 중단 조건).** 현재 권한 위반, 명시적 금지, 필수 근거 누락, 전제조건 실패인 후보는 제외한다. 제외 후보의 `p0`는 0이다. 이 단계는 목표 판단이 아니라 사실·권한 검사다.
 2. **목표별 평가 수집.** 각 모듈은 적격 후보마다 `stance ∈ { prefer, accept, oppose, unavailable }`, 이득·손실·불확실성, 근거를 남긴다. 숫자 점수는 단위와 비교 규칙이 선언된 경우에만 사용한다. `unavailable`은 정책이 허용한 사유가 있어야 하며 0점이나 중립으로 해석하지 않는다.
-3. **약속 보호.** 아트로포스가 `oppose`에 `severity: commitment_breach`(수락된 약속의 위반)를 붙인 후보는, 그 후보 자체가 원래 수락 근거를 참조하는 의도 변경 행동(`intention.suspend | cancel`)이 아니면 `p0`를 0으로 둔다. 취향이나 관심의 우선순위 의견은 이 단계에 해당하지 않는다.
-4. **실행 불가 제외.** 클로토가 `oppose`에 `severity: infeasible`(검증 가능한 전제 실패)를 붙인 후보는 `p0`를 0으로 둔다.
+3. **약속 보호.** 아트로포스의 `oppose`·`severity: commitment_breach`가 실제 수락된 의도로 귀속되고 Host가 의도 owner의 기록을 검증했을 때만 후보의 `p0`를 0으로 둔다. 검증된 위반 대상 하나와 정확히 같은 의도의 `intention.suspend | cancel`은 순위상 제외 예외이며 실행 권한을 주지는 않는다. 취향이나 관심의 우선순위 의견은 이 단계에 해당하지 않는다.
+4. **실행 불가 근거.** 클로토의 `infeasible` 라벨만으로 제외하지 않는다. 검증된 전제 실패는 1단계 Host 적격성에 반영한다. 별도 `infeasible` 제외 stage는 과거 receipt 해석에만 남는다.
 5. **상황별 목표 순서.** 남은 후보를 회차의 `situation`에 따라 선언된 목표 순서로 사전식 정렬한다. 같은 목표 안에서는 `prefer > accept > oppose` 순이다.
 
    | situation | 목표 순서 | 이유 |
@@ -88,11 +88,11 @@ PR #10의 역할 프롬프트는 라케시스를 "근거와 믿음의 타당성"
    | `autonomous` (사용자 요청 없는 자율 활동 슬롯) | 라케시스 → 클로토 → 아트로포스 | 자율 시간의 선택은 개인의 욕구가 주도하되 약속 보호(3단계)는 유지된다 |
    | `transition` (진행 중 작업·의도의 전환 판단) | 클로토 → 아트로포스 → 라케시스 | 전환의 이득과 비용이 우선, 기존 약속이 그다음 |
 
-   회차의 `situation`은 Host가 snapshot에서 결정하며 LLM이 바꾸지 못한다. 순위가 같은 후보는 동률이다.
-6. **기준 분포 `p0`.** 순위 `r = 1, 2, …`에 `p0(r) ∝ ratio^(r-1)`을 배정하고 동률은 같은 순위의 질량을 균등 분할한다. `personal.v1`의 `ratio = 0.5`는 policy revision 1의 선언값이다. 측정값이 아니며 변경 시 policy revision을 올린다.
+   회차의 `situation`은 Host가 snapshot에서 결정하며 LLM이 바꾸지 못한다. 순위가 같은 후보는 동률이다. 남은 후보 중 하나라도 필수 모듈의 평가가 `unavailable`이면 순위를 만들지 않고 보류한다. 해당 모듈의 다른 의견을 회차 전체에서 제거하지 않는다. Host는 원래 요청의 남은 예산 안에서 보완하며, 예산이 끝나면 `deferred`로 종료한다.
+6. **기준 분포 `p0`.** 순위 `r = 1, 2, …`에 `p0(r) ∝ ratio^(r-1)`을 배정하고 동률은 같은 순위의 질량을 균등 분할한다. `personal.v1`의 `ratio = 0.5`는 처음 policy revision 1에서 선언했고 revision 2에서도 유지하는 값이다. 측정값이 아니며 변경 시 policy revision을 올린다.
 7. **신경 선호 반영.** `p(a) ∝ p0(a) × exp(λ × b(a))`. `personal.v1`의 `λ`는 `user_request`에서 0, `autonomous`·`transition`에서 1이다. 사용자 지시가 있는 회차에서는 학습된 취향이 선택 확률을 바꾸지 않는다. `b`가 `unavailable`인 후보는 신경 장애 무변조 규칙을 따른다.
-8. **기록.** `ResolutionRecord`에 목표별 추천, 충돌한 요구, 3·4단계에서 제외된 후보와 이유, 5단계의 순서와 양보한 목표를 남긴다. `SelectionSpec`에 적격 후보·`p0`·`b`·`λ`·정책 revision을 고정한다.
-9. **보류.** 적격 후보가 없으면 `deferred`로 끝내고 확인 질문 또는 다음 회차로 넘긴다. 필요한 평가가 `unavailable` 사유 없이 비어 있으면 회차를 보류한다. 의견 불일치 자체는 보류 사유가 아니다.
+8. **기록.** `ResolutionRecord`에 목표별 추천, 충돌한 요구, Host 적격성·약속 보호에서 제외된 후보와 이유, 5단계의 순서와 양보한 목표를 남긴다. `SelectionSpec`에 적격 후보·`p0`·`b`·`λ`·정책 revision을 고정한다.
+9. **보류.** 적격 후보가 없으면 `deferred`로 끝내고 확인 질문 또는 다음 회차로 넘긴다. 필요한 평가가 없거나 남은 후보의 평가가 `unavailable`이면 회차를 보류한다. 의견 불일치 자체는 보류 사유가 아니다.
 
 LIFE catalog는 F3에서 같은 형식으로 자기 `situation`·목표 순서·`ratio`·`λ`를 선언한다. 선언한 정책이 없는 catalog는 실행하지 않는다.
 
@@ -144,9 +144,9 @@ flowchart TD
 | LIFE 욕구·목표·사건 선택 | 욕구 drift, 목표 우선순위, 사건/참여자 선택 | 욕구·목표 원본 재사용. 개인의 행동 선택은 `decisionMode: moirai`에서 엔진으로 이동 |
 | Ensemble 어댑터 | 사회적 의향·행동 그래프·상대 반응 | 사회 도메인 서비스. 의향 계산과 최종 행동 적용 포트 분리 |
 | NativePersonaGrowth·BehaviorStore | 유효 기억의 성향 해석과 투영 | 성향 owner. dimension별 `reflection \| neural` 생성자 중 하나 |
-| TaskManager·작업 도구 | 개발 작업 시작·지시·중단·인계 | 실행 owner. `task.*` 행동의 effect owner. 백엔드는 Codex CLI에서 OMO native app-server로 전환(D21), Lina 측 작업 ID·receipt·권한 계약은 유지 |
+| TaskManager·작업 도구 | 개발 작업 시작·지시·중단·인계 | 실행 owner. `task.*` 행동의 effect owner. Codex app-server를 유지(D22), Lina 측 작업 ID·receipt·권한 계약은 유지 |
 | 이미지·LIFE 게시 | 생성·편집·게시·답글 | 표현·실행 owner. 무엇을 표현할지는 엔진, 검사·렌더링·전송은 owner |
-| AgentFleet·세션 조립 | 개인별 세션·저장소·도구 연결 | Host 조정기와 Senpi 역할 세션의 설치 지점 |
+| AgentFleet·세션 조립 | 개인별 세션·저장소·도구 연결 | Host 조정기와 Codex 역할 세션의 설치 지점 |
 | 실행 통제·DurableRuntime | 요청·응답 기록, 권한·취소·복구 | 확정된 판단을 실제 효과로 넘기는 경계 |
 | 웹·Discord 채널 | 외부 입력·최종 응답 전달 | 세 의견을 세 메시지로 보내지 않음 |
 | 모델 서비스·체크포인트 | 모델 라우팅, 오프라인 캡처·복원 | 공통 인프라. 엔진 저장소를 기존 checkpoint manifest에 편입 |
@@ -164,7 +164,7 @@ World 없는 개인이 엔진으로 확정할 수 있는 행동의 유한 목록
 | `intention.suspend` / `intention.resume` | 보류·재개 | 원래 수락 근거 참조, 보류 사유 | 상태 전이와 사유 기록 | JudgmentStore |
 | `intention.cancel` | 취소 | 원래 수락 근거와 권한, 사용자 약속이면 사용자 확인 또는 원래 조건 충족 | `→ cancelled` | JudgmentStore. 사용자 약속의 취소는 채널 확인 receipt |
 | `intention.complete` | 완료 확정 | 완료 조건에 대응하는 실제 결과 참조 | `→ completed` | JudgmentStore. 결과 없는 완료는 거부 |
-| `task.start` | 개발 작업 시작 | 작업 권한, 작업 내용, 관련 의도 참조 | 새 OMO 작업 thread | TaskManager receipt. 프로세스 종료는 목표 달성이 아님 |
+| `task.start` | 개발 작업 시작 | 작업 권한, 작업 내용, 관련 의도 참조 | 새 Codex 작업 thread | TaskManager receipt. 프로세스 종료는 목표 달성이 아님 |
 | `task.send` / `task.interrupt` / `task.handover` | 진행 작업에 지시·중단·인계 | 작업 ID·현재 owner·revision | 작업 상태 변경 | TaskManager receipt |
 | `inquire` | 자료·기억·도구의 읽기 조회 | 조회 권한 | 없음. 예산만 소비 | Host 조회 receipt |
 | `defer` | 보류 + 재개 조건 | 조건 명시 | 없음 | 다음 회차 입력 |
@@ -219,7 +219,7 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 
 ## 역할 프롬프트와 개선 루프
 
-엔진의 LLM 호출은 모두 버전 있는 **프롬프트 자산**을 사용한다. 프롬프트는 설정 파일이 아니라 메커니즘의 일부이며, 자산 revision은 각 판단의 `mechanismRevision`에 포함된다. 프롬프트가 바뀌면 같은 snapshot의 캐시된 평가는 재사용하지 않는다. 작성·개선 방법은 [PR #11의 방법론](https://github.com/thisisjun786/lina/blob/25346f15287a96d7e95e8c3e07c51fff1899f66f/docs/plans/platform/014_model_tuning_methodology_research.md)을 채택하되, 그 문서의 역할 표(라케시스=분석가, 아트로포스=결정자)와 "실행 엔진은 Codex" 문장은 이 정본의 목표 정의와 D13·D21이 대체한다.
+엔진의 LLM 호출은 모두 버전 있는 **프롬프트 자산**을 사용한다. 프롬프트는 설정 파일이 아니라 메커니즘의 일부이며, 자산 revision은 각 판단의 `mechanismRevision`에 포함된다. 프롬프트가 바뀌면 같은 snapshot의 캐시된 평가는 재사용하지 않는다. 작성·개선 방법은 [PR #11의 방법론](https://github.com/thisisjun786/lina/blob/25346f15287a96d7e95e8c3e07c51fff1899f66f/docs/plans/platform/014_model_tuning_methodology_research.md)을 채택하되, 그 문서의 역할 표(라케시스=분석가, 아트로포스=결정자)는 이 정본의 목표 정의가 대체한다. 실행 엔진은 D22에 따라 Codex다.
 
 ### 프롬프트 자산과 층
 
@@ -253,7 +253,7 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | 2. 원인 분류 | A 잘못된 정보(지침이 실제 포트·권한과 다름), B 잘못된 판단 기준(지침대로 했는데 원치 않는 행동), C 빠진 정보, 또는 프롬프트 밖 결함(전송 누락·schema·복원·정책·회로) | 해당 층·자산과 반대 설명. 프롬프트 밖 결함은 이 루프에서 제외 |
 | 3. 가설 작성 | 어떤 층의 어떤 조건을 바꾸면 어떤 결과가 달라지는지, 무엇이 관측되면 기각하는지 | 측정할 결과와 정상·경계 회귀 사례 |
 | 4. 최소 후보 작성 | 한 자산·한 층의 한 의미 변화. 목표 프로필 변경이 필요하면 D 번호 갱신과 함께 별도 처방으로 표시 | 기준안·후보 diff, 근거, 조립 입력의 토큰 차이 |
-| 5. 구조·전송 확인 | 역할 선택, 층 중복·혼입, 필수 입력 존재, 실제 Senpi wire와 재개·압축 후 입력 | 구조 검사와 전송 capture. 품질 통과와 구분 |
+| 5. 구조·전송 확인 | 역할 선택, 층 중복·혼입, 필수 입력 존재, 실제 Codex wire와 재개·압축 후 입력 | 구조 검사와 전송 capture. 품질 통과와 구분 |
 | 6. 개발 비교 | 고정 사례 × 반복에서 기준안·후보를 짝으로 비교. 상태 격리, 실행 순서 교대, 독립 judge | 사례별 승·패·동점·회귀·누락·장애·비용 |
 | 7. 고정 검증 | 개발에 쓰지 않은 사례에서 수정 없이 검증 | 채택·보류·기각과 G1–G8 충족 여부 |
 | 8. 기록과 적용 | 자산 revision, 증거, 되돌릴 revision 기록. 새 프리셋 revision과 binding generation으로 적용 | 진행 회차의 프롬프트를 바꾸지 않음 |
@@ -264,23 +264,23 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 
 엔진용 사례 범주는 목표 충돌·일치(같은 사실에서 세 추천이 갈리거나 같은 경우), 약속 보호(취향 반대와 `commitment_breach` 구분), 정정(최신 정정이 세 판단에 반영), 역할 분리(첫 출력 비노출, 다른 목표 흡수 없음), 누락·복원(한 역할 실패·늦은 결과·재시작 뒤), 정상 회귀(명확한 요청에 불필요한 재질문·보류 증가)다. 판정 기준은 [030 G1–G8](plans/context-engines/030_moirai_refactor_plan.md#검증-게이트)이 소유한다.
 
-자동화하는 것은 실행·짝짓기·판정 호출·리포팅이다. 프롬프트 자동 생성·탐색, 후보 자동 승격, 통계적 유의성 인증은 자동화하지 않는다. 개발 비교에서 이긴 후보도 고정 검증과 프리셋 승인 없이는 제품에 들어가지 않는다. Senpi가 LLM 백엔드이므로 비교 harness는 Senpi의 evals 패턴(격리된 세션, 기준/후보 행 생성, 짝 집계)을 `scripts/qa/` 아래 엔진용으로 재사용할 수 있으며 제품 코드가 아니다.
+자동화하는 것은 실행·짝짓기·판정 호출·리포팅이다. 프롬프트 자동 생성·탐색, 후보 자동 승격, 통계적 유의성 인증은 자동화하지 않는다. 개발 비교에서 이긴 후보도 고정 검증과 프리셋 승인 없이는 제품에 들어가지 않는다. 비교 harness는 Codex의 실제 전송을 관찰한다. Senpi 연구에서 확인한 격리 세션·짝 집계 방법론은 참고할 수 있으나 SDK 의존성이나 제품 백엔드 선택을 뜻하지 않는다.
 
 ## 저장소·프로세스·8명 운영
 
 | 구성 요소 | 형태 | 소유 |
 | --- | --- | --- |
 | Host 조정기 | `lina-runtime` 안의 개인별 조정기. 개인·scope별 회차 lease와 큐 | 회차 순서·현재성·정책 실행·인계 |
-| Senpi 역할 세션 | Moirai·Clotho·Lachesis·Atropos 네 역할. 검증된 프리셋의 모델·티어 배치. 역할 수와 모델 수는 같지 않음 | 의미 해석·계획·종합 텍스트 |
+| Codex 역할 세션 | Moirai·Clotho·Lachesis·Atropos 네 역할. 검증된 프리셋의 모델·티어 배치. 역할 수와 모델 수는 같지 않음 | 의미 해석·계획·종합 텍스트 |
 | JudgmentStore | `state/judgment.sqlite`. 회차·판단·목표 프로필·`ResolutionRecord`·`SelectionSpec`·결정과 RNG·`IntentionRecord`·held/released outbox | 단일 writer는 Host |
 | NeuralPreferenceStore | `state/neural-preferences.sqlite`와 상태 blob. 관측·`h`/`m`/`ΔW`/trace·조회 receipt·학습 inbox | 단일 writer는 Host. Python은 결과를 제안만 |
 | Python 계산기 | 설치당 상주 프로세스 하나. 불변 `W0` 공유, 개인·scope별 상태·가중치·RNG stream 분리, 준비된 요청만 배치 | SDK와 독립된 포트 |
 | 기존 owner 저장소 | ConversationStore·EngineStore·AgentStore·WorldStore·TaskManager·게시·이미지 | 원본과 실제 효과 |
-| OMO app-server | 설치당 하나의 `omo app-server` 프로세스(unix socket 또는 ws). Lina TaskManager가 `thread/*`·`turn/*`·`item/tool/call`·approval 메서드로 개발 작업을 실행하고, 프로바이더 계정·모델 목록·사용량은 `account/*`·`model/list`로 읽음 | 작업 thread와 프로바이더 자격 증명의 owner. Lina는 작업 ID·receipt·권한 정책과 검증된 프리셋만 소유 |
+| Codex app-server·OpenCodex | 기존 `lina-codex` RPC·TaskManager가 작업 thread/turn과 도구·승인 수명을 연결. OpenCodex가 프로바이더 계정·카탈로그·사용량을 소유 | Lina는 작업 ID·receipt·권한 정책·검증된 프리셋을 소유. 프로세스·계정 운영은 기존 owner 계약 유지 |
 
 두 저장소를 가로지르는 transaction은 없다. outbox/inbox와 receipt 대조로 중복을 막고, `decisionId → effectId → owner receipt → outcomeId`로 연결한다. checkpoint는 기존 owner가 조정하며 `CheckpointManifest`에 엔진 저장소·blob·대기 inbox/outbox를 함께 묶는다. manifest 확정 전 파일은 복원 가능한 checkpoint가 아니다.
 
-8명은 정체성 8개다. 실제 상태 수는 공통 scope와 활성 세계 scope의 합이며 내부 역할 세션 수·비공개 scope 수와 같지 않다. 재시작 시 Host의 회차 ledger와 Senpi의 세션/run 상태를 대조하고, 응답 미수신만으로 같은 효과나 선택을 다시 시작하지 않는다. 정정·권한 회수·약속 변경·목표 프로필 변경은 큐를 기다리지 않고 진행 회차를 무효화한다. 단일 Python 프로세스 장애가 여러 개인의 신경 계산을 함께 멈출 수 있으므로 장애 시험을 F4에 포함한다.
+8명은 정체성 8개다. 실제 상태 수는 공통 scope와 활성 세계 scope의 합이며 내부 역할 세션 수·비공개 scope 수와 같지 않다. 재시작 시 Host의 회차 ledger와 Codex의 thread/turn 상태를 대조하고, 응답 미수신만으로 같은 효과나 선택을 다시 시작하지 않는다. 정정·권한 회수·약속 변경·목표 프로필 변경은 큐를 기다리지 않고 진행 회차를 무효화한다. 단일 Python 프로세스 장애가 여러 개인의 신경 계산을 함께 멈출 수 있으므로 장애 시험을 F4에 포함한다.
 
 성능 목표(신경 추가 지연 p95 100ms·deadline 250ms, 평균 2건/초·8건 동시 도착)는 **미측정 초기 목표**다. CPU 부분회로에서 먼저 측정하고 GPU는 동일 프로필·부하에서 실제 RAM/VRAM·처리량·오차를 비교한 뒤 결정한다.
 
@@ -302,15 +302,17 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | D10 | 목표 간 조정(`ArbitrationPolicy`·`BaselinePolicy`)과 신경 선호의 단일 반영(`p ∝ p0 × exp(λb)`)을 구분. `dimensionSource`로 성향 중복 생성 방지 |
 | D11 | 한 결과를 목표별 소비자에게 전달하고 각자 다르게 학습. 합의는 보상이 아님 |
 | D12 | 개인 연속성은 역할 세션 밖의 원본과 기록으로 유지. 개인·scope별 lease, 8명 = 정체성 8개 |
-| D13 | LLM 백엔드는 Senpi. PR #10 역할 프롬프트는 F2에서 재작성 |
+| D13 | 이전 결정: Senpi LLM 백엔드. 백엔드 선택은 D22가 대체한다. PR #10 역할 프롬프트를 고유 목표에 맞게 F2에서 다시 작성한다는 요구는 유지 |
 | D14 | MaleCNS 버섯체 부분회로는 엔진 완성의 필수 요소. 회로 프로필 v1의 인터페이스는 이 문서, 상수·세포 목록은 추출·측정 산출물 |
 | D15 | 개인 행동 catalog v1은 `intention.*`, `task.*`, `inquire`, `defer`, `noop`. 기억·선호·성장 저장은 catalog 밖 |
 | D16 | `IntentionRecord` v1 schema와 여섯 가지 재고 조건. `completed`는 결과 참조, `cancelled`는 수락 근거 참조 필수 |
-| D17 | `personal.v1` 조정 정책: Host 적격성 → 약속 보호 → 실행 불가 제외 → 상황별 목표 순서 → rank-mass `p0`(ratio 0.5) → `λ`(user_request 0, 그 외 1). 값은 policy revision 1의 선언값 |
+| D17 | `personal.v1` 정책의 상황별 목표 순서·rank-mass `p0`(ratio 0.5)·`λ`(user_request 0, 그 외 1)를 유지. 제외 근거와 판단 불가 처리는 D23 및 아래 현재 정책이 소유 |
 | D18 | `PersonaSchema`의 소유자는 AgentStore. World는 자기 축을 schema dimension에 매핑. NativePersonaGrowth는 LifeDefinition 대신 schema를 읽음 |
 | D19 | 저장소는 `JudgmentStore`·`NeuralPreferenceStore`·기존 owner 셋. 교차 transaction 없음, outbox/inbox·receipt로 연결. Python 계산기는 설치당 하나 |
 | D20 | 프롬프트는 버전 있는 자산이며 `mechanismRevision`에 포함. 다섯 층 분리, 역할 계약은 `ObjectiveProfile`에서 생성. 개선은 PR #11 방법론의 8단계 루프(실패 고정 → A/B/C 분류 → 최소 후보 → 구조·전송 확인 → 짝 비교 → 고정 검증 → 프리셋 revision 적용)로만 수행. 자동 생성·자동 승격 없음 |
-| D21 | 개발 작업 실행 엔진은 OMO native(`omo app-server`), 프로바이더 계정·모델 목록·인증·사용량 관리는 Senpi native. Codex CLI와 OpenCodex Hub는 전환 완료 후 폐기. 근거: `lina-codex`가 사용하는 app-server 메서드 26개(`thread/*`, `turn/*`, `item/tool/call`, `item/*/requestApproval`, `model/list`, `skills/*`)가 Senpi app-server에 모두 있어 기존 `TaskManager`의 작업 ID·receipt·권한 계약을 유지한 채 백엔드만 교체 가능하고, 인지·작업·프로바이더가 한 런타임을 공유한다. 이 결정은 이전에 Senpi/OmO 경로를 퇴역시킨 결정을 명시적으로 뒤집는 것이며, 예전 `lina-jobs` 코드를 복원하는 것이 아니라 app-server 프로토콜과 Senpi SDK로 새 어댑터를 만드는 것이다 |
+| D21 | 이전 결정: OMO native 작업 실행·Senpi native 프로바이더 관리로 옮기고 Codex/OpenCodex 폐기. 2026-09-13 D22로 철회. 과거 QA와 자료는 근거 이력으로 보존 |
+| D22 | 2026-09-13 소유자 결정: 인지·대화·개발 작업은 Codex, 프로바이더 관리는 OpenCodex로 유지한다. D13·D21의 Senpi/OMO 전환을 철회한다. 세 목표·MaleCNS·Host 소유권은 유지하며 기존 실행 경로에 연결한다 |
+| D23 | 출력은 생성 토큰 예산과 저장용 문장 길이를 분리한다. 새 설명문은 길이 때문에 판단 전체를 실패시키지 않고 자른 표시·원래 길이·해시를 남긴다. 구조화된 필수 판단은 자르지 않는다. policy revision 2는 필수 평가 불가 시 보완 후 보류, 예산 소진 시 deferred를 사용하고 revision 1은 과거 재생으로 보존 |
 
 ## 이 문서가 확정하지 않는 것
 
@@ -324,8 +326,8 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | 제품 프리셋의 모델 배치 | [030 모델 운영](plans/context-engines/030_moirai_refactor_plan.md#모델-운영-검증한-프리셋으로-제한) |
 | 프롬프트 비교의 judge 모델·rubric·반복 수·채택 임계값 | 실험 명세마다 선언. 이 문서는 절차와 독립성 조건만 확정 |
 | 네 역할 프롬프트의 실제 본문 | F2 산출물. 첫 revision은 위 층 구조와 `ObjectiveProfile`에서 작성하고 구조·전송 검사를 통과해야 함 |
-| Codex·OpenCodex 폐기 시점, 기존 세션 binding·`models.sqlite`·작업 이력의 이전 | F4 운영 전환. 자동 이전·자동 삭제 없음, 기존 데이터는 보존하고 전환 필요 상태로 표시 |
-| OMO app-server의 `dynamicTools`·approval·transport(unix/ws)·daemon 수명의 실제 검증 | F2에서 실제 소스/built SDK 전송 검사로 확인. 메서드 이름 일치는 의미 일치의 증거가 아님 |
+| 기존 세션 binding·`models.sqlite`·작업 이력 | 기존 Codex/OpenCodex owner에서 보존. 폐기·이전은 계획하지 않으며 F4에서 새 판단 저장소와 함께 복구 검사 |
+| Codex 역할 thread·도구·approval·출력 예산의 실제 연결 | F2 제품 입력·실전송·재개 검사. 이전 R0 QA는 typed 판단 계약의 제품 통합 증거가 아님 |
 
 ## 관련 문서
 

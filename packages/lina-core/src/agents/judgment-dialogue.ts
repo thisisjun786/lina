@@ -3,9 +3,11 @@ import {
 	type Assessment,
 	type DialogueSourceRef,
 	type JudgmentSnapshotRef,
+	MAX_READOUT_TEXT,
 	MODULE_KINDS,
 	type ModuleKind,
 	type ObjectiveProfileRef,
+	type ReadoutTruncation,
 	type ResolutionRecord,
 	type RoundStatus,
 	SITUATIONS,
@@ -17,10 +19,12 @@ import {
 	parseAssessment,
 	parseJudgmentSnapshotRef,
 	parseObjectiveProfileRef,
+	parseReadoutTruncation,
 	parseResolutionRecord,
+	prepareReadout,
 	snapshotDigest,
 } from "./judgment-validation.ts";
-import { boundedId, boundedText } from "./validation.ts";
+import { boundedId, boundedText, MAX_TEXT } from "./validation.ts";
 
 type DialogueProvenance = DialogueSourceRef & {
 	roundId: string;
@@ -45,6 +49,10 @@ export type DialogueResolutionRecord = DialogueProvenance & {
 	rationale: string;
 	status: Exclude<RoundStatus, "open">;
 	holdReason: string | null;
+	/** Absent in legacy records; only fresh output preparation adds this. */
+	readoutTruncations?: Partial<
+		Record<"synthesis" | "rationale", ReadoutTruncation>
+	>;
 };
 export type StoredResolutionRecord =
 	| ResolutionRecord
@@ -156,6 +164,10 @@ function provenance(row: Record<string, unknown>): DialogueProvenance {
 export function parseDialogueResolutionRecord(
 	value: unknown,
 ): DialogueResolutionRecord {
+	const hasTruncations =
+		value !== null &&
+		typeof value === "object" &&
+		Object.hasOwn(value, "readoutTruncations");
 	const row = fields(
 		value,
 		[
@@ -171,6 +183,7 @@ export function parseDialogueResolutionRecord(
 			"rationale",
 			"status",
 			"holdReason",
+			...(hasTruncations ? ["readoutTruncations"] : []),
 		],
 		"dialogue resolution",
 		2,
@@ -190,7 +203,11 @@ export function parseDialogueResolutionRecord(
 		),
 		conflicts: reasons(row["conflicts"]),
 		concessions: reasons(row["concessions"]),
-		synthesis: boundedText(row["synthesis"], "dialogue synthesis"),
+		synthesis: boundedText(
+			row["synthesis"],
+			"dialogue synthesis",
+			MAX_READOUT_TEXT,
+		),
 		rationale: boundedText(row["rationale"], "dialogue rationale"),
 		status: member(
 			row["status"],
@@ -202,6 +219,27 @@ export function parseDialogueResolutionRecord(
 				? null
 				: boundedText(row["holdReason"], "hold reason"),
 	};
+	if (hasTruncations) {
+		const raw = row["readoutTruncations"];
+		if (raw === null || typeof raw !== "object" || Array.isArray(raw))
+			throw Error("invalid dialogue truncations");
+		const keys = Object.keys(raw);
+		if (
+			!keys.length ||
+			keys.some((key) => key !== "synthesis" && key !== "rationale")
+		)
+			throw Error("invalid dialogue truncations");
+		const metadata = fields(raw, keys, "dialogue truncations");
+		result.readoutTruncations = {};
+		for (const field of ["synthesis", "rationale"] as const) {
+			if (Object.hasOwn(metadata, field))
+				result.readoutTruncations[field] = parseReadoutTruncation(
+					metadata[field],
+					result[field],
+					field === "synthesis" ? MAX_READOUT_TEXT : MAX_TEXT,
+				);
+		}
+	}
 	if ((result.status !== "resolved") !== (result.holdReason !== null))
 		throw Error("unresolved status requires hold reason");
 	const incomplete = MODULE_KINDS.some(
@@ -320,8 +358,24 @@ export function buildDialogueResolution(
 		const found = assessments.find((a) => a.moduleKind === module);
 		return found ? judgmentDigest(found) : null;
 	};
+	// Existing metadata belongs to already prepared output, not a fresh generation.
+	if (Object.hasOwn(synthesis, "readoutTruncations"))
+		throw Error("fresh dialogue must not supply truncation metadata");
+	const prose = prepareReadout(synthesis.synthesis, "dialogue synthesis");
+	const rationale = prepareReadout(
+		synthesis.rationale,
+		"dialogue rationale",
+		MAX_TEXT,
+	);
+	const readoutTruncations = {
+		...(prose.truncation ? { synthesis: prose.truncation } : {}),
+		...(rationale.truncation ? { rationale: rationale.truncation } : {}),
+	};
 	const result = parseDialogueResolutionRecord({
 		...synthesis,
+		synthesis: prose.text,
+		rationale: rationale.text,
+		...(Object.keys(readoutTruncations).length ? { readoutTruncations } : {}),
 		schemaVersion: 2,
 		mode: "dialogue",
 		roundId: snapshot.roundId,

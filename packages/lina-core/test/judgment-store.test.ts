@@ -1585,21 +1585,21 @@ for (const reopen of [false, true]) {
 
 test("3995958855: no baseline is guessed for undeclared policy revisions", () => {
 	const store = open();
-	const ref = { ...snapshot(store), policyRevision: 2 };
+	const ref = { ...snapshot(store), policyRevision: 3 };
 	store.openRound(ref);
 	closeCandidates(store, ref);
 	for (const module of MODULE_KINDS)
 		store.putAssessment(assessment(ref, module));
 	const record = parseResolutionRecord({
 		...resolution(ref),
-		policyRevision: 2,
+		policyRevision: 3,
 	});
 	const selection = rehashSelection({
 		...spec(ref, record),
-		policyRevision: 2,
+		policyRevision: 3,
 	});
 	expect(() => store.recordResolution(ref.roundId, record, selection)).toThrow(
-		"policy snapshot mismatch",
+		"unsupported personal policy declaration",
 	);
 	expect(() =>
 		store.recordResolution(
@@ -1607,7 +1607,7 @@ test("3995958855: no baseline is guessed for undeclared policy revisions", () =>
 			{ ...record, status: "held", holdReason: "no policy declaration" },
 			null,
 		),
-	).toThrow("policy snapshot mismatch");
+	).toThrow("unsupported personal policy declaration");
 	expect(store.getRound(ref.roundId)?.status).toBe("open");
 	expect(store.getResolution(ref.roundId)).toBeNull();
 });
