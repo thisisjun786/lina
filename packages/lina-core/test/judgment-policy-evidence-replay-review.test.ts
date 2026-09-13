@@ -72,7 +72,7 @@ for (const moduleKind of ["atropos", "clotho"] as const)
 		expect(
 			reopened.getSelectionSpec(input.snapshot.roundId)?.candidates[0]?.p0,
 		).toBe(1);
-		expect(reopened.getResolution(input.snapshot.roundId)?.excluded).toEqual(
-			[],
-		);
+		expect(
+			reopened.getResolution(input.snapshot.roundId, "action")?.excluded,
+		).toEqual([]);
 	});

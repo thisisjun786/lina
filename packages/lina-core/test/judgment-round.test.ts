@@ -564,7 +564,7 @@ test("autonomous personal.v1 round persists SelectionSpec and adopted intention,
 		sortedAssessments(reopened.assessmentSet(snapshot.roundId).assessments),
 	).toEqual(sortedAssessments(assessments));
 	expect(reopened.getResolution(snapshot.roundId)).toEqual(resolution);
-	expect(reopened.getResolution(snapshot.roundId)?.order).toEqual([
+	expect(reopened.getResolution(snapshot.roundId, "action")?.order).toEqual([
 		...AUTONOMOUS_ORDER,
 	]);
 	expect(reopened.getSelectionSpec(snapshot.roundId)).toEqual(spec);
@@ -575,7 +575,7 @@ test("user_request personal.v1 round sets lambda 0 and atropos-first order", () 
 	const store = open();
 	const { snapshot } = playRound(store, "user_request");
 	const spec = store.getSelectionSpec(snapshot.roundId);
-	const resolution = store.getResolution(snapshot.roundId);
+	const resolution = store.getResolution(snapshot.roundId, "action");
 	expect(spec).not.toBeNull();
 	expect(resolution).not.toBeNull();
 	if (spec === null || resolution === null)

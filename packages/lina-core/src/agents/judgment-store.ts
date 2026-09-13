@@ -17,6 +17,15 @@ import {
 	type SelectionSpec,
 } from "./judgment.ts";
 import { type CandidateSet, parseCandidateSet } from "./judgment-candidates.ts";
+import {
+	buildDialogueJudgmentRef,
+	type DialogueJudgmentRef,
+	type DialogueResolutionRecord,
+	parseDialogueJudgmentRef,
+	parseStoredResolutionRecord,
+	type StoredResolutionRecord,
+	validateDialogueResolution,
+} from "./judgment-dialogue.ts";
 import { validateCandidateEvidence } from "./judgment-evidence.ts";
 import { PERSONAL_POLICY_V1, resolvePersonalRound } from "./judgment-policy.ts";
 import { initializeJudgmentSchema } from "./judgment-schema.ts";
@@ -31,7 +40,6 @@ import {
 	parseJudgmentSnapshotRef,
 	parseObjectiveProfile,
 	parseObjectiveProfileRef,
-	parseResolutionRecord,
 	parseSelectionSpec,
 	snapshotDigest,
 	transitionIntention,
@@ -47,14 +55,21 @@ function revision(value: number, minimum = 0): number {
 	return value;
 }
 
-function validateCandidateBinding(
-	resolution: ResolutionRecord,
+function validateResolutionBinding(
+	resolution: StoredResolutionRecord,
 	selection: SelectionSpec | null,
 	set: AssessmentSet | null,
 	snapshot: JudgmentSnapshotRef,
 	candidates: CandidateSet | null,
 	lookupIntention: (id: string) => IntentionRecord | null,
+	assessments: Assessment[],
 ): void {
+	if (resolution.schemaVersion === 2) {
+		if (selection !== null || candidates !== null)
+			throw Error("dialogue forbids action candidates and selection");
+		validateDialogueResolution(resolution, snapshot, assessments);
+		return;
+	}
 	// Without complete evidence only a non-executable failure receipt is trusted.
 	// Its descriptive fields are not policy-replayed; deferred is not a fallback.
 	if (!candidates || !set) {
@@ -462,12 +477,12 @@ export class JudgmentStore {
 
 	recordResolution(
 		roundId: string,
-		resolution: ResolutionRecord,
+		resolution: StoredResolutionRecord,
 		spec: SelectionSpec | null,
 	): void {
 		this.assertOpen();
 		const id = boundedId(roundId, "round id");
-		const parsed = parseResolutionRecord(resolution);
+		const parsed = parseStoredResolutionRecord(resolution);
 		const selection = spec === null ? null : parseSelectionSpec(spec);
 		this.transaction(() => {
 			const round = this.requireOpenRound(id);
@@ -492,8 +507,10 @@ export class JudgmentStore {
 				parsed.policyRevision !== round.snapshot.policyRevision
 			)
 				throw Error("resolution snapshot mismatch");
+			const needsSelection =
+				parsed.schemaVersion === 1 && parsed.status === "resolved";
 			if (
-				(parsed.status === "resolved") !== (selection !== null) ||
+				needsSelection !== (selection !== null) ||
 				(selection &&
 					(selection.roundId !== id ||
 						selection.snapshotDigest !== round.snapshotDigest))
@@ -513,13 +530,14 @@ export class JudgmentStore {
 				assessments.length === MODULE_KINDS.length
 					? this.assessmentSet(id)
 					: null;
-			validateCandidateBinding(
+			validateResolutionBinding(
 				parsed,
 				selection,
 				set,
 				round.snapshot,
 				candidates,
 				(id) => this.getIntention(id),
+				assessments,
 			);
 			const now = this.now();
 			this.db
@@ -541,7 +559,16 @@ export class JudgmentStore {
 		});
 	}
 
-	getResolution(roundId: string): ResolutionRecord | null {
+	getResolution(roundId: string): StoredResolutionRecord | null;
+	getResolution(roundId: string, mode: "action"): ResolutionRecord | null;
+	getResolution(
+		roundId: string,
+		mode: "dialogue",
+	): DialogueResolutionRecord | null;
+	getResolution(
+		roundId: string,
+		mode?: "action" | "dialogue",
+	): StoredResolutionRecord | null {
 		return this.transaction(() => {
 			const row = this.db
 				.prepare(
@@ -550,10 +577,40 @@ export class JudgmentStore {
 				.get(boundedId(roundId, "round id"));
 			if (!row) return null;
 			const { body: json, digest } = row;
-			const parsed = parseResolutionRecord(JSON.parse(String(json)));
+			const parsed = parseStoredResolutionRecord(JSON.parse(String(json)));
 			if (judgmentDigest(parsed) !== digest)
 				throw Error("resolution digest mismatch");
+			if (mode !== undefined && mode !== "action" && mode !== "dialogue")
+				throw Error("invalid resolution mode");
+			if (
+				mode !== undefined &&
+				mode !== (parsed.schemaVersion === 1 ? "action" : "dialogue")
+			)
+				return null;
 			return parsed;
+		}, false);
+	}
+
+	/** Reconstructible immutable reference, not a response-acceptance receipt. */
+	dialogueJudgmentRef(roundId: string): DialogueJudgmentRef | null {
+		return this.transaction(() => {
+			const resolution = this.getResolution(roundId, "dialogue");
+			if (resolution?.status !== "resolved") return null;
+			const round = this.getRound(roundId);
+			if (!round) throw Error("dialogue round missing");
+			return buildDialogueJudgmentRef({
+				snapshot: round.snapshot,
+				assessments: this.storedAssessments(roundId),
+				resolution,
+			});
+		}, false);
+	}
+
+	validateDialogueJudgmentRef(value: DialogueJudgmentRef): void {
+		const ref = parseDialogueJudgmentRef(value);
+		this.transaction(() => {
+			if (body(ref) !== body(this.dialogueJudgmentRef(ref.roundId)))
+				throw Error("dialogue judgment ref mismatch");
 		}, false);
 	}
 
@@ -696,18 +753,15 @@ export class JudgmentStore {
 			const scope = boundedId(scopeId, "scope id");
 			if (status !== undefined && !INTENTION_STATUSES.includes(status))
 				throw Error("invalid intention status");
+			const statement = this.db.prepare(
+				status === undefined
+					? "SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? ORDER BY intention_id"
+					: "SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? AND status = ? ORDER BY intention_id",
+			);
 			const rows =
 				status === undefined
-					? this.db
-							.prepare(
-								"SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? ORDER BY intention_id",
-							)
-							.all(agent, scope)
-					: this.db
-							.prepare(
-								"SELECT body, digest FROM intention_records WHERE agent_id = ? AND scope_id = ? AND status = ? ORDER BY intention_id",
-							)
-							.all(agent, scope, status);
+					? statement.all(agent, scope)
+					: statement.all(agent, scope, status);
 			return rows.map(({ body: json, digest }) => {
 				const parsed = parseIntentionRecord(JSON.parse(String(json)));
 				if (intentionDigest(parsed) !== digest)
@@ -841,7 +895,7 @@ export class JudgmentStore {
 		const resolutions = rows(
 			"resolution_records",
 			"resolution",
-			parseResolutionRecord,
+			parseStoredResolutionRecord,
 			(p) => ({ round_id: p.roundId }),
 		);
 		const statuses = new Map(
@@ -879,7 +933,10 @@ export class JudgmentStore {
 			selections.map(({ value }) => value.roundId),
 		);
 		for (const { value } of resolutions) {
-			if ((value.status === "resolved") !== selectedRounds.has(value.roundId))
+			if (
+				(value.schemaVersion === 1 && value.status === "resolved") !==
+				selectedRounds.has(value.roundId)
+			)
 				throw Error("selection spec metadata mismatch");
 		}
 		const snapshots = new Map(
@@ -994,24 +1051,25 @@ export class JudgmentStore {
 			const snapshot = snapshots.get(record.roundId);
 			if (!snapshot) throw Error("resolution snapshot mismatch");
 			const assessments = sets.get(record.roundId) ?? [];
-			const set =
-				assessments.length === MODULE_KINDS.length
-					? parseAssessmentSet({
-							schemaVersion: 1,
-							roundId: record.roundId,
-							snapshotDigest: snapshotDigest(snapshot),
-							assessments: MODULE_KINDS.map((module) =>
-								assessments.find((a) => a.moduleKind === module),
-							),
-						})
-					: null;
-			validateCandidateBinding(
+			let set: AssessmentSet | null = null;
+			if (assessments.length === MODULE_KINDS.length) {
+				set = parseAssessmentSet({
+					schemaVersion: 1,
+					roundId: record.roundId,
+					snapshotDigest: snapshotDigest(snapshot),
+					assessments: MODULE_KINDS.map((module) =>
+						assessments.find((a) => a.moduleKind === module),
+					),
+				});
+			}
+			validateResolutionBinding(
 				record,
 				selectionsByRound.get(record.roundId) ?? null,
 				set,
 				snapshot,
 				candidatesByRound.get(record.roundId) ?? null,
 				(id) => intentionsById.get(id) ?? null,
+				assessments,
 			);
 		}
 		if (this.db.prepare("PRAGMA foreign_key_check").all().length > 0)
