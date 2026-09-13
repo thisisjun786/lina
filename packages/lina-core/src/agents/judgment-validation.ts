@@ -227,6 +227,24 @@ export function parseObjectiveProfileRef(value: unknown): ObjectiveProfileRef {
 	return objectiveProfileRef(value);
 }
 
+function objectiveProfileRefs(
+	value: unknown,
+): Record<ModuleKind, ObjectiveProfileRef> {
+	const refs = moduleRecord(
+		value,
+		objectiveProfileRef,
+		"objective profile refs",
+	);
+	// One immutable profile revision has exactly one module owner.
+	uniqueSorted(
+		Object.values(refs),
+		(ref) => JSON.stringify([ref.objectiveId, ref.revision]),
+		"objective profile refs",
+		false,
+	);
+	return refs;
+}
+
 export function parseObjectiveProfile(value: unknown): ObjectiveProfile {
 	const row = fields(
 		value,
@@ -334,11 +352,7 @@ export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
 				]),
 		),
 		intentionRevision: revision(row["intentionRevision"], "intention revision"),
-		objectiveProfileRefs: moduleRecord(
-			row["objectiveProfileRefs"],
-			objectiveProfileRef,
-			"objective profile refs",
-		),
+		objectiveProfileRefs: objectiveProfileRefs(row["objectiveProfileRefs"]),
 		observationRef: nullableId(row["observationRef"], "observation ref"),
 		frozenNeuralRef: nullableId(row["frozenNeuralRef"], "frozen neural ref"),
 		situation: enumeration(row["situation"], SITUATIONS, "situation"),
@@ -753,11 +767,7 @@ export function parseSelectionSpec(value: unknown): SelectionSpec {
 			row["assessmentSetDigest"],
 			"assessment set digest",
 		),
-		objectiveProfileRefs: moduleRecord(
-			row["objectiveProfileRefs"],
-			objectiveProfileRef,
-			"objective profile refs",
-		),
+		objectiveProfileRefs: objectiveProfileRefs(row["objectiveProfileRefs"]),
 		resolutionDigest: boundedId(row["resolutionDigest"], "resolution digest"),
 		policyId: boundedId(row["policyId"], "policy id"),
 		policyRevision: revision(row["policyRevision"], "policy revision"),
