@@ -16,10 +16,12 @@ import {
 	type RoundStatus,
 	type SelectionSpec,
 } from "./judgment.ts";
-import { PERSONAL_POLICY_V1, rankMass } from "./judgment-policy.ts";
+import { type CandidateSet, parseCandidateSet } from "./judgment-candidates.ts";
+import { PERSONAL_POLICY_V1, resolvePersonalRound } from "./judgment-policy.ts";
 import { initializeJudgmentSchema } from "./judgment-schema.ts";
 import {
 	canonicalJson,
+	INTENTION_TRANSITIONS,
 	intentionDigest,
 	judgmentDigest,
 	parseAssessment,
@@ -47,10 +49,35 @@ function revision(value: number, minimum = 0): number {
 
 function validateCandidateBinding(
 	resolution: ResolutionRecord,
-	selection: SelectionSpec,
-	set: AssessmentSet,
+	selection: SelectionSpec | null,
+	set: AssessmentSet | null,
 	snapshot: JudgmentSnapshotRef,
+	candidates: CandidateSet | null,
 ): void {
+	// Without complete evidence only a non-executable failure receipt is trusted.
+	// Its descriptive fields are not policy-replayed; deferred is not a fallback.
+	if (!candidates || !set) {
+		if (resolution.status !== "held" || selection !== null)
+			throw Error(!set ? "incomplete assessment set" : "missing candidate set");
+		return;
+	}
+	const replayed = resolvePersonalRound({
+		policy: PERSONAL_POLICY_V1,
+		snapshot,
+		options: candidates.options,
+		eligibility: candidates.eligibility,
+		set,
+		bias: Object.fromEntries(
+			selection?.candidates.map((c) => [c.optionKey, c.b]) ?? [],
+		),
+	});
+	if (body(resolution) !== body(replayed.resolution))
+		throw Error("resolution policy replay mismatch");
+	if (selection === null || replayed.spec === null) {
+		if (selection !== replayed.spec)
+			throw Error("selection policy replay mismatch");
+		return;
+	}
 	if (selection.assessmentSetDigest !== judgmentDigest(set))
 		throw Error("selection assessment set mismatch");
 	if (selection.resolutionDigest !== judgmentDigest(resolution))
@@ -65,98 +92,109 @@ function validateCandidateBinding(
 		body(selection.objectiveProfileRefs) !== body(snapshot.objectiveProfileRefs)
 	)
 		throw Error("selection objective refs mismatch");
-	const ranked = new Set(resolution.ranking.map((r) => r.optionKey));
-	const universe = new Set([
-		...ranked,
-		...resolution.excluded.map((r) => r.optionKey),
-	]);
+	if (body(selection) !== body(replayed.spec))
+		throw Error("selection policy replay mismatch");
+}
+
+function validateCandidateEvidence(
+	set: CandidateSet,
+	snapshot: JudgmentSnapshotRef,
+	lookup: (id: string) => IntentionRecord | null,
+	assessments: Assessment[],
+	current: boolean,
+): void {
 	if (
-		universe.size !== ranked.size + resolution.excluded.length ||
-		selection.candidates.length !== universe.size ||
-		selection.candidates.some((c) => !universe.has(c.optionKey)) ||
-		[
-			...Object.values(resolution.recommendations).flat(),
-			...resolution.conflicts.map((r) => r.optionKey),
-			...resolution.abstentions.map((r) => r.optionKey),
-			...resolution.conceded.map((r) => r.optionKey),
-			...set.assessments.flatMap((a) => [
-				...a.proposedOptionKeys,
-				...a.recommendedOptionKeys,
-				...a.objectiveAssessments.map((o) => o.optionKey),
-			]),
-		].some((key) => !universe.has(key))
+		set.roundId !== snapshot.roundId ||
+		set.snapshotDigest !== snapshotDigest(snapshot)
 	)
-		throw Error("selection candidate universe mismatch");
-	// Only this policy has a declared baseline in F1. Do not guess a ratio for
-	// another catalog/revision; held/deferred records do not need a baseline.
-	const policy = PERSONAL_POLICY_V1;
-	if (
-		selection.policyId !== policy.policyId ||
-		selection.policyRevision !== policy.revision
-	)
-		throw Error("unsupported selection policy declaration");
-	if (
-		body(resolution.order) !== body(policy.orders[selection.situation]) ||
-		selection.lambda !== policy.lambda[selection.situation]
-	)
-		throw Error("selection policy mismatch");
-	const opinions = new Map(
-		set.assessments.map((a) => [
-			a.moduleKind,
-			new Map(a.objectiveAssessments.map((o) => [o.optionKey, o])),
-		]),
-	);
-	for (const assessment of set.assessments) {
+		throw Error("candidate snapshot mismatch");
+	const referenced = new Map<string, IntentionRecord>();
+	for (const ref of set.intentionRefs) {
+		const record = lookup(ref.intentionId);
 		if (
-			body(resolution.recommendations[assessment.moduleKind]) !==
-			body(assessment.recommendedOptionKeys)
+			!record ||
+			record.agentId !== snapshot.agentId ||
+			record.scopeId !== snapshot.scopeId
 		)
-			throw Error("selection assessment recommendations mismatch");
+			throw Error("candidate intention scope or reference mismatch");
 		if (
-			[...ranked].some((key) => !opinions.get(assessment.moduleKind)?.has(key))
+			record.revision < ref.revision ||
+			(current && record.revision !== ref.revision)
 		)
-			throw Error("selection missing ranked assessment");
+			throw Error("stale candidate intention revision");
+		// This owner changes only status/revision/history. Preserve every original
+		// field while reconstructing the frozen revision from validated history.
+		const historical = parseIntentionRecord({
+			...record,
+			revision: ref.revision,
+			status: ref.status,
+			history: record.history.slice(0, ref.revision),
+		});
+		if (intentionDigest(historical) !== ref.digest)
+			throw Error("candidate intention digest mismatch");
+		referenced.set(ref.intentionId, historical);
 	}
-	// Unavailable modules are dropped for the whole ranking, as in the policy.
-	const order = policy.orders[selection.situation].filter((m) =>
-		[...ranked].every(
-			(key) => opinions.get(m)?.get(key)?.stance !== "unavailable",
-		),
+	const eligible = new Set(
+		set.eligibility.filter((r) => r.eligible).map((r) => r.optionKey),
 	);
-	if (order.length === 0) throw Error("selection unavailable ranking");
-	const compare = (a: string, b: string): number => {
-		for (const module of order) {
-			const left = opinions.get(module)?.get(a);
-			const right = opinions.get(module)?.get(b);
-			if (!left || !right) throw Error("selection missing ranked assessment");
-			const difference =
-				policy.stanceOrder.indexOf(left.stance) -
-				policy.stanceOrder.indexOf(right.stance);
-			if (difference !== 0) return difference;
+	for (const option of set.options) {
+		if (
+			option.actor.agentId !== snapshot.agentId ||
+			option.actor.scopeId !== snapshot.scopeId
+		)
+			throw Error("candidate actor snapshot mismatch");
+		const precondition = option.preconditions;
+		if (!eligible.has(option.optionKey) || !("intentionId" in precondition))
+			continue;
+		const record = referenced.get(precondition.intentionId);
+		if (!record) throw Error("missing candidate intention ref");
+		if (
+			"acceptanceSourceRef" in precondition &&
+			precondition.acceptanceSourceRef !== record.acceptance.sourceRef
+		)
+			throw Error("candidate original acceptance mismatch");
+		if (precondition.kind === "task.start") continue;
+		if (option.targetId !== record.intentionId)
+			throw Error("candidate intention target mismatch");
+		const to = {
+			"intention.activate": "active",
+			"intention.resume": "active",
+			"intention.suspend": "suspended",
+			"intention.cancel": "cancelled",
+			"intention.complete": "completed",
+		}[precondition.kind] as IntentionStatus;
+		if (
+			!INTENTION_TRANSITIONS[record.status].includes(to) ||
+			(precondition.kind === "intention.activate" &&
+				record.status !== "adopted") ||
+			(precondition.kind === "intention.resume" &&
+				record.status !== "suspended")
+		)
+			throw Error("illegal candidate intention transition");
+	}
+	const keys = new Set(set.options.map((o) => o.optionKey));
+	for (const assessment of assessments) {
+		if (
+			[
+				...assessment.proposedOptionKeys,
+				...assessment.recommendedOptionKeys,
+				...assessment.objectiveAssessments.map((o) => o.optionKey),
+			].some((key) => !keys.has(key))
+		)
+			throw Error("unknown assessment option key");
+		if (assessment.moduleKind !== "atropos") continue;
+		for (const opinion of assessment.objectiveAssessments) {
+			for (const id of opinion.breachedIntentionIds ?? []) {
+				const record = referenced.get(id);
+				if (
+					record?.kind !== "user_commitment" ||
+					record.acceptance.acceptedBy !== "user" ||
+					!["adopted", "active", "suspended"].includes(record.status)
+				)
+					throw Error("missing protected commitment evidence");
+			}
 		}
-		return 0;
-	};
-	let rank = 0;
-	let previous: string | undefined;
-	for (const item of resolution.ranking) {
-		const difference =
-			previous === undefined ? -1 : compare(previous, item.optionKey);
-		if (difference > 0) throw Error("selection ranking mismatch");
-		if (difference < 0) rank += 1;
-		if (item.rank !== rank) throw Error("selection ranking mismatch");
-		previous = item.optionKey;
 	}
-	const masses = rankMass(
-		resolution.ranking.map((r) => r.rank),
-		policy.ratio,
-	);
-	const baseline = new Map(
-		resolution.ranking.map((r, i) => [r.optionKey, masses[i]]),
-	);
-	if (
-		selection.candidates.some((c) => c.p0 !== (baseline.get(c.optionKey) ?? 0))
-	)
-		throw Error("selection baseline mismatch");
 }
 
 /** The Host owns the single writer; this ledger is independent of session lifetimes. */
@@ -371,6 +409,53 @@ export class JudgmentStore {
 		}, false);
 	}
 
+	/** Freeze the exact Host universe and provenance once, while its round is open. */
+	closeCandidateSet(set: CandidateSet): void {
+		this.assertOpen();
+		const parsed = parseCandidateSet(set);
+		this.transaction(() => {
+			const round = this.requireOpenRound(parsed.roundId);
+			if (this.candidateSet(parsed.roundId))
+				throw Error("candidate set already closed");
+			validateCandidateEvidence(
+				parsed,
+				round.snapshot,
+				(id) => this.getIntention(id),
+				this.storedAssessments(parsed.roundId),
+				true,
+			);
+			this.db
+				.prepare(
+					"INSERT INTO candidate_sets(round_id, snapshot_digest, candidate_digest, body, created_at) VALUES (?, ?, ?, ?, ?)",
+				)
+				.run(
+					parsed.roundId,
+					parsed.snapshotDigest,
+					parsed.candidateDigest,
+					body(parsed),
+					this.now(),
+				);
+		});
+	}
+
+	candidateSet(roundId: string): CandidateSet | null {
+		return this.transaction(() => {
+			const row = this.db
+				.prepare("SELECT body FROM candidate_sets WHERE round_id = ?")
+				.get(boundedId(roundId, "round id"));
+			if (!row) return null;
+			const { body: json } = row;
+			return parseCandidateSet(JSON.parse(String(json)));
+		}, false);
+	}
+
+	private storedAssessments(roundId: string): Assessment[] {
+		return this.db
+			.prepare("SELECT body FROM assessments WHERE round_id = ?")
+			.all(roundId)
+			.map(({ body: json }) => parseAssessment(JSON.parse(String(json))));
+	}
+
 	putAssessment(assessment: Assessment): void {
 		this.assertOpen();
 		const parsed = parseAssessment(assessment);
@@ -388,6 +473,15 @@ export class JudgmentStore {
 				parsed.objectiveRef.digest !== objective.digest
 			)
 				throw Error("assessment objective mismatch");
+			const candidates = this.candidateSet(parsed.snapshotId);
+			if (candidates)
+				validateCandidateEvidence(
+					candidates,
+					round.snapshot,
+					(id) => this.getIntention(id),
+					[parsed],
+					false,
+				);
 			if (
 				this.db
 					.prepare(
@@ -475,10 +569,27 @@ export class JudgmentStore {
 						selection.snapshotDigest !== round.snapshotDigest))
 			)
 				throw Error("selection spec mismatch");
-			if (selection) {
-				const set = this.assessmentSet(id);
-				validateCandidateBinding(parsed, selection, set, round.snapshot);
-			}
+			const candidates = this.candidateSet(id);
+			const assessments = this.storedAssessments(id);
+			if (candidates)
+				validateCandidateEvidence(
+					candidates,
+					round.snapshot,
+					(id) => this.getIntention(id),
+					assessments,
+					false,
+				);
+			const set =
+				assessments.length === MODULE_KINDS.length
+					? this.assessmentSet(id)
+					: null;
+			validateCandidateBinding(
+				parsed,
+				selection,
+				set,
+				round.snapshot,
+				candidates,
+			);
 			const now = this.now();
 			this.db
 				.prepare(
@@ -761,6 +872,15 @@ export class JudgmentStore {
 			"snapshot",
 			"snapshot_digest",
 		);
+		const candidates = rows(
+			"candidate_sets",
+			"candidate set",
+			parseCandidateSet,
+			(p) => ({ round_id: p.roundId, snapshot_digest: p.snapshotDigest }),
+			(p) => p.candidateDigest,
+			"body",
+			"candidate_digest",
+		);
 		const assessments = rows(
 			"assessments",
 			"assessment",
@@ -857,15 +977,6 @@ export class JudgmentStore {
 				selection.snapshotDigest !== snapshotDigest(snapshot)
 			)
 				throw Error("selection spec metadata mismatch");
-			const set = parseAssessmentSet({
-				schemaVersion: 1,
-				roundId: selection.roundId,
-				snapshotDigest: selection.snapshotDigest,
-				assessments: MODULE_KINDS.map((module) =>
-					sets.get(selection.roundId)?.find((a) => a.moduleKind === module),
-				),
-			});
-			validateCandidateBinding(record, selection, set, snapshot);
 		}
 		const intentions = rows(
 			"intention_records",
@@ -912,6 +1023,49 @@ export class JudgmentStore {
 				entry.at !== at
 			)
 				throw Error("intention transition metadata mismatch");
+		}
+		const intentionsById = new Map(
+			intentions.map(({ value }) => [value.intentionId, value]),
+		);
+		const candidatesByRound = new Map(
+			candidates.map(({ value }) => [value.roundId, value]),
+		);
+		for (const { value } of candidates) {
+			const snapshot = snapshots.get(value.roundId);
+			if (!snapshot) throw Error("judgment foreign key mismatch");
+			validateCandidateEvidence(
+				value,
+				snapshot,
+				(id) => intentionsById.get(id) ?? null,
+				sets.get(value.roundId) ?? [],
+				false,
+			);
+		}
+		const selectionsByRound = new Map(
+			selections.map(({ value }) => [value.roundId, value]),
+		);
+		for (const { value: record } of resolutions) {
+			const snapshot = snapshots.get(record.roundId);
+			if (!snapshot) throw Error("resolution snapshot mismatch");
+			const assessments = sets.get(record.roundId) ?? [];
+			const set =
+				assessments.length === MODULE_KINDS.length
+					? parseAssessmentSet({
+							schemaVersion: 1,
+							roundId: record.roundId,
+							snapshotDigest: snapshotDigest(snapshot),
+							assessments: MODULE_KINDS.map((module) =>
+								assessments.find((a) => a.moduleKind === module),
+							),
+						})
+					: null;
+			validateCandidateBinding(
+				record,
+				selectionsByRound.get(record.roundId) ?? null,
+				set,
+				snapshot,
+				candidatesByRound.get(record.roundId) ?? null,
+			);
 		}
 		if (this.db.prepare("PRAGMA foreign_key_check").all().length > 0)
 			throw Error("judgment foreign key mismatch");

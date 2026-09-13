@@ -6,6 +6,8 @@ import { DatabaseSync } from "node:sqlite";
 import {
 	type Assessment,
 	assessmentInputDigest,
+	buildCandidateSet,
+	buildCanonicalOption,
 	type IntentionRecord,
 	type IntentionTransition,
 	type JudgmentSnapshotRef,
@@ -93,6 +95,26 @@ function snapshot(
 		bindingGeneration: 0,
 	});
 }
+const optionA = buildCanonicalOption({
+	kind: "noop",
+	actor: { agentId: "agent-1", scopeId: "scope-1" },
+	targetId: null,
+	args: {},
+	preconditions: { kind: "noop", reason: "fixture" },
+});
+const A = optionA.optionKey;
+function closeCandidates(store: JudgmentStore, ref: JudgmentSnapshotRef) {
+	store.closeCandidateSet(
+		buildCandidateSet({
+			roundId: ref.roundId,
+			snapshotDigest: snapshotDigest(ref),
+			options: [optionA],
+			eligibility: [{ optionKey: A, eligible: true, reason: null }],
+			intentionRefs: [],
+		}),
+	);
+}
+
 function assessment(
 	ref: JudgmentSnapshotRef,
 	moduleKind: ModuleKind,
@@ -111,10 +133,10 @@ function assessment(
 		inputDigest: assessmentInputDigest(input),
 		completeText: "Fixture assessment",
 		evidenceRefs: [],
-		proposedOptionKeys: ["a"],
+		proposedOptionKeys: [A],
 		objectiveAssessments: [
 			{
-				optionKey: "a",
+				optionKey: A,
 				stance: "prefer",
 				severity: null,
 				unavailableReason: null,
@@ -124,7 +146,7 @@ function assessment(
 				evidenceRefs: [],
 			},
 		],
-		recommendedOptionKeys: ["a"],
+		recommendedOptionKeys: [A],
 		detail: {
 			kind: { clotho: "forecasts", lachesis: "values", atropos: "continuity" }[
 				moduleKind
@@ -145,11 +167,11 @@ function resolution(
 		policyRevision: 1,
 		situation: ref.situation,
 		order: ["atropos", "clotho", "lachesis"],
-		recommendations: { clotho: ["a"], lachesis: ["a"], atropos: ["a"] },
+		recommendations: { clotho: [A], lachesis: [A], atropos: [A] },
 		conflicts: [],
 		excluded: [],
 		abstentions: [],
-		ranking: [{ optionKey: "a", rank: 1 }],
+		ranking: [{ optionKey: A, rank: 1 }],
 		conceded: [],
 		status,
 		holdReason: status === "resolved" ? null : "no eligible candidate",
@@ -177,8 +199,8 @@ function spec(
 		policyRevision: record.policyRevision,
 		situation: ref.situation,
 		lambda: 0,
-		candidates: [{ optionKey: "a", p0: 1, b: null }],
-		eligibleDigest: judgmentDigest(["a"]),
+		candidates: [{ optionKey: A, p0: 1, b: null }],
+		eligibleDigest: judgmentDigest([A]),
 	};
 	return parseSelectionSpec({ ...body, specDigest: judgmentDigest(body) });
 }
@@ -221,6 +243,7 @@ function transition(
 function seed() {
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	for (const module of MODULE_KINDS)
 		store.putAssessment(assessment(ref, module));
 	store.putIntention(intention());
@@ -347,7 +370,7 @@ for (const tamper of ["body", "digest"] as const) {
 			store.recordResolution(ref.roundId, record, selection);
 			const changedRecord = parseResolutionRecord({
 				...record,
-				ranking: [{ optionKey: "a", rank: 2 }],
+				ranking: [{ optionKey: A, rank: 2 }],
 			});
 			// Keep the embedded selection digest valid: only its persisted anchor is stale.
 			const changedSelection = rehashSpec({ ...selection, lambda: 1 });

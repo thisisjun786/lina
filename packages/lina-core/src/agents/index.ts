@@ -94,3 +94,5 @@ export { JudgmentStore } from "./judgment-store.ts";
 // tests can pin the BehaviorJobInput fingerprint through the public barrel).
 
 export { behaviorFingerprint } from "./behavior-validation.ts";
+
+export * from "./judgment-candidates.ts";

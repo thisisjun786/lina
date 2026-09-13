@@ -6,6 +6,9 @@ import { DatabaseSync } from "node:sqlite";
 import {
 	type Assessment,
 	assessmentInputDigest,
+	buildCandidateSet,
+	buildCanonicalOption,
+	type CanonicalOption,
 	type IntentionRecord,
 	type IntentionTransition,
 	JUDGMENT_SCHEMA_VERSION,
@@ -107,6 +110,43 @@ function snapshot(
 		bindingGeneration: 0,
 	});
 }
+const fixtureOptions = ["a", "b", "excluded"]
+	.map((reason) =>
+		buildCanonicalOption({
+			kind: "noop",
+			actor: { agentId: "agent-1", scopeId: "scope-1" },
+			targetId: null,
+			args: {},
+			preconditions: { kind: "noop", reason },
+		}),
+	)
+	.sort((a, b) => (a.optionKey < b.optionKey ? -1 : 1));
+const [optionA, optionB, optionExcluded] = fixtureOptions;
+if (!optionA || !optionB || !optionExcluded)
+	throw Error("missing fixture options");
+const A = optionA.optionKey,
+	B = optionB.optionKey,
+	EXCLUDED = optionExcluded.optionKey;
+function closeCandidates(
+	store: JudgmentStore,
+	ref: JudgmentSnapshotRef,
+	options: CanonicalOption[] = fixtureOptions.slice(0, 1),
+) {
+	store.closeCandidateSet(
+		buildCandidateSet({
+			roundId: ref.roundId,
+			snapshotDigest: snapshotDigest(ref),
+			options,
+			eligibility: options.map((o) => ({
+				optionKey: o.optionKey,
+				eligible: o.optionKey !== EXCLUDED,
+				reason: o.optionKey === EXCLUDED ? "not eligible" : null,
+			})),
+			intentionRefs: [],
+		}),
+	);
+}
+
 function assessment(
 	ref: JudgmentSnapshotRef,
 	moduleKind: ModuleKind,
@@ -125,10 +165,10 @@ function assessment(
 		inputDigest: assessmentInputDigest(input),
 		completeText: "Fixture assessment",
 		evidenceRefs: [],
-		proposedOptionKeys: ["a"],
+		proposedOptionKeys: [A],
 		objectiveAssessments: [
 			{
-				optionKey: "a",
+				optionKey: A,
 				stance: "prefer",
 				severity: null,
 				unavailableReason: null,
@@ -138,7 +178,7 @@ function assessment(
 				evidenceRefs: [],
 			},
 		],
-		recommendedOptionKeys: ["a"],
+		recommendedOptionKeys: [A],
 		detail: {
 			kind: { clotho: "forecasts", lachesis: "values", atropos: "continuity" }[
 				moduleKind
@@ -159,11 +199,11 @@ function resolution(
 		policyRevision: 1,
 		situation: ref.situation,
 		order: ["atropos", "clotho", "lachesis"],
-		recommendations: { clotho: ["a"], lachesis: ["a"], atropos: ["a"] },
+		recommendations: { clotho: [A], lachesis: [A], atropos: [A] },
 		conflicts: [],
 		excluded: [],
 		abstentions: [],
-		ranking: [{ optionKey: "a", rank: 1 }],
+		ranking: [{ optionKey: A, rank: 1 }],
 		conceded: [],
 		status,
 		holdReason: status === "resolved" ? null : "no eligible candidate",
@@ -191,8 +231,8 @@ function spec(
 		policyRevision: record.policyRevision,
 		situation: ref.situation,
 		lambda: 0,
-		candidates: [{ optionKey: "a", p0: 1, b: null }],
-		eligibleDigest: judgmentDigest(["a"]),
+		candidates: [{ optionKey: A, p0: 1, b: null }],
+		eligibleDigest: judgmentDigest([A]),
 	};
 	return parseSelectionSpec({ ...body, specDigest: judgmentDigest(body) });
 }
@@ -242,6 +282,61 @@ function canonical(value: unknown): unknown {
 	return value;
 }
 
+for (const stage of [
+	"infeasible",
+	"commitment_protection",
+	"host_eligibility",
+] as const) {
+	test(`3996172412: recomputed forged ${stage} exclusion is rejected by the existing store API`, () => {
+		const store = open();
+		const ref = snapshot(store);
+		store.openRound(ref);
+		closeCandidates(store, ref, [optionA, optionB]);
+		for (const module of MODULE_KINDS) {
+			const original = assessment(ref, module);
+			store.putAssessment(
+				parseAssessment({
+					...original,
+					objectiveAssessments: [A, B].map((optionKey) => ({
+						...original.objectiveAssessments[0],
+						optionKey,
+						stance: "accept",
+					})),
+				}),
+			);
+		}
+		const record = parseResolutionRecord({
+			...resolution(ref),
+			excluded: [
+				{
+					optionKey: B,
+					stage,
+					byModule:
+						stage === "infeasible"
+							? "clotho"
+							: stage === "commitment_protection"
+								? "atropos"
+								: null,
+					reason: "forged exclusion",
+				},
+			],
+		});
+		const selection = rehashSelection({
+			...spec(ref, record),
+			assessmentSetDigest: judgmentDigest(store.assessmentSet(ref.roundId)),
+			candidates: [
+				{ optionKey: A, p0: 1, b: null },
+				{ optionKey: B, p0: 0, b: null },
+			],
+		});
+		expect(() =>
+			store.recordResolution(ref.roundId, record, selection),
+		).toThrow();
+		expect(store.getRound(ref.roundId)?.status).toBe("open");
+		expect(store.getResolution(ref.roundId)).toBeNull();
+	});
+}
+
 test("canonical JSON bytes are shared with judgment digests", () => {
 	const value = {
 		z: [
@@ -266,7 +361,7 @@ test("canonical JSON bytes are shared with judgment digests", () => {
 	});
 });
 
-test("fresh schema has exactly nine STRICT tables, metadata, WAL and unchanged DDL on reopen", () => {
+test("fresh schema has exactly ten STRICT tables, metadata, WAL and unchanged DDL on reopen", () => {
 	let store = open();
 	const db = database();
 	const original = ddl(db);
@@ -277,6 +372,7 @@ test("fresh schema has exactly nine STRICT tables, metadata, WAL and unchanged D
 	});
 	expect(original.map(({ name }) => name)).toEqual([
 		"assessments",
+		"candidate_sets",
 		"intention_records",
 		"intention_transitions",
 		"judgment_meta",
@@ -314,6 +410,7 @@ for (const change of [
 
 for (const change of [
 	"ALTER TABLE rounds ADD COLUMN extra TEXT",
+	"DROP TABLE candidate_sets",
 	"UPDATE judgment_meta SET value='other' WHERE key='store'",
 	"UPDATE judgment_meta SET value='2' WHERE key='schema_version'",
 	"DELETE FROM judgment_meta WHERE key='store'",
@@ -415,6 +512,7 @@ for (const tamper of ["snapshot", "snapshot_digest"] as const) {
 		let store = open();
 		const ref = snapshot(store);
 		store.openRound(ref);
+		closeCandidates(store, ref);
 		close(store);
 		const db = database();
 		db.prepare(`UPDATE rounds SET ${tamper} = ? WHERE round_id = ?`).run(
@@ -453,6 +551,7 @@ test("3995117504: snapshot digest is checked after parser normalization", () => 
 		{ kind: "request", id: "b", revision: 1 },
 	];
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	database()
 		.prepare("UPDATE rounds SET snapshot = ? WHERE round_id = ?")
 		.run(
@@ -509,6 +608,7 @@ for (const change of [
 		const store = open();
 		const ref = snapshot(store);
 		store.openRound(ref);
+		closeCandidates(store, ref);
 		const original = assessment(ref, "clotho");
 		const changed = {
 			...original,
@@ -538,6 +638,7 @@ for (const status of ["resolved", "held", "deferred"] as const) {
 			const store = open();
 			const ref = snapshot(store);
 			store.openRound(ref);
+			closeCandidates(store, ref);
 			for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 			const record = { ...resolution(ref, status), ...change };
 			expect(() =>
@@ -558,6 +659,7 @@ test("resolved round requires all three persisted assessments", () => {
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	store.putAssessment(assessment(ref, "clotho"));
 	expect(() =>
 		store.recordResolution(ref.roundId, resolution(ref), spec(ref)),
@@ -617,6 +719,7 @@ for (const { label, change, error } of selectionMismatches) {
 		const store = open();
 		const ref = snapshot(store);
 		store.openRound(ref);
+		closeCandidates(store, ref);
 		for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 		const selection = spec(ref);
 		const changed = { ...selection, ...change(selection) };
@@ -641,6 +744,7 @@ test("assessment and selection use frozen refs after objective activation change
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	const next = store.putObjectiveProfile(profile("clotho", 2));
 	store.activateObjectiveProfile(ref.agentId, ref.scopeId, next);
 	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
@@ -657,6 +761,7 @@ test("resolution and selection persist atomically and survive reopen with canoni
 	let store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 	const record = resolution(ref);
 	const selection = spec(ref);
@@ -681,6 +786,7 @@ test("resolution and selection persist atomically and survive reopen with canoni
 		["objective_profiles", "body"],
 		["rounds", "snapshot"],
 		["assessments", "body"],
+		["candidate_sets", "body"],
 		["resolution_records", "body"],
 		["selection_specs", "body"],
 		["intention_records", "body"],
@@ -701,6 +807,7 @@ test("resolution rejects mismatched selection presence, round id and snapshot wi
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	const other = { ...ref, roundId: "other" };
 	const db = database();
 	for (const [record, selection] of [
@@ -724,8 +831,8 @@ test("resolution rejects mismatched selection presence, round id and snapshot wi
 	expect(() =>
 		store.recordResolution(ref.roundId, resolution(other), spec(ref)),
 	).toThrow();
-	store.recordResolution(ref.roundId, resolution(ref, "deferred"), null);
-	expect(store.getRound(ref.roundId)?.status).toBe("deferred");
+	store.recordResolution(ref.roundId, resolution(ref, "held"), null);
+	expect(store.getRound(ref.roundId)?.status).toBe("held");
 	expect(store.getSelectionSpec(ref.roundId)).toBeNull();
 	expect(store.getResolution("missing")).toBeNull();
 });
@@ -734,6 +841,7 @@ test("SQLite failure during resolution rolls back the already inserted resolutio
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 	const db = database();
 	db.exec(
@@ -825,6 +933,7 @@ test("external records are reparsed and malformed persisted bodies are rejected 
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	for (const action of [
 		() =>
 			store.putObjectiveProfile({
@@ -894,6 +1003,8 @@ test("every public method rejects use after close", () => {
 		() => store.activeObjectiveProfiles("agent-1", "scope-1"),
 		() => store.openRound(ref),
 		() => store.getRound(ref.roundId),
+		() => store.candidateSet(ref.roundId),
+		() => closeCandidates(store, ref),
 		() => store.putAssessment(assessment(ref, "clotho")),
 		() => store.assessmentSet(ref.roundId),
 		() => store.recordResolution(ref.roundId, resolution(ref), spec(ref)),
@@ -933,6 +1044,7 @@ for (const reopen of [false, true]) {
 			let store = open();
 			const ref = snapshot(store);
 			store.openRound(ref);
+			closeCandidates(store, ref);
 			for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 			store.recordResolution(ref.roundId, resolution(ref), spec(ref));
 			store.putIntention(intention());
@@ -1009,35 +1121,36 @@ test("3995958855: valid hashes cannot substitute a candidate", () => {
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 	const record = resolution(ref);
 	const original = spec(ref);
 	for (const candidates of [
-		[{ optionKey: "forged", p0: 1, b: null }],
+		[{ optionKey: "zz-forged", p0: 1, b: null }],
 		[
-			{ optionKey: "a", p0: 1, b: null },
-			{ optionKey: "forged", p0: 0, b: null },
+			{ optionKey: A, p0: 1, b: null },
+			{ optionKey: "zz-forged", p0: 0, b: null },
 		],
 	]) {
 		const forged = rehashSelection({ ...original, candidates });
 		expect(() => store.recordResolution(ref.roundId, record, forged)).toThrow(
-			"selection candidate universe mismatch",
+			"selection policy replay mismatch",
 		);
 		expect(store.getResolution(ref.roundId)).toBeNull();
 		expect(store.getRound(ref.roundId)?.status).toBe("open");
 	}
 	const forgedRecord = parseResolutionRecord({
 		...record,
-		ranking: [{ optionKey: "forged", rank: 1 }],
+		ranking: [{ optionKey: "zz-forged", rank: 1 }],
 	});
 	const forged = rehashSelection({
 		...original,
 		resolutionDigest: judgmentDigest(forgedRecord),
-		candidates: [{ optionKey: "forged", p0: 1, b: null }],
+		candidates: [{ optionKey: "zz-forged", p0: 1, b: null }],
 	});
 	expect(() =>
 		store.recordResolution(ref.roundId, forgedRecord, forged),
-	).toThrow("selection candidate universe mismatch");
+	).toThrow("resolution policy replay mismatch");
 	store.recordResolution(ref.roundId, record, original);
 });
 
@@ -1045,6 +1158,7 @@ test("3995958855: baseline uses declared ratio and retains unassessed host exclu
 	let store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref, [optionA, optionB, optionExcluded]);
 	for (const m of MODULE_KINDS) {
 		const original = assessment(ref, m);
 		store.putAssessment(
@@ -1054,7 +1168,7 @@ test("3995958855: baseline uses declared ratio and retains unassessed host exclu
 					...original.objectiveAssessments,
 					{
 						...original.objectiveAssessments[0],
-						optionKey: "b",
+						optionKey: B,
 						stance: "accept",
 					},
 				],
@@ -1064,12 +1178,12 @@ test("3995958855: baseline uses declared ratio and retains unassessed host exclu
 	const record = parseResolutionRecord({
 		...resolution(ref),
 		ranking: [
-			{ optionKey: "a", rank: 1 },
-			{ optionKey: "b", rank: 2 },
+			{ optionKey: A, rank: 1 },
+			{ optionKey: B, rank: 2 },
 		],
 		excluded: [
 			{
-				optionKey: "excluded",
+				optionKey: EXCLUDED,
 				stage: "host_eligibility",
 				byModule: null,
 				reason: "not eligible",
@@ -1077,9 +1191,9 @@ test("3995958855: baseline uses declared ratio and retains unassessed host exclu
 		],
 	});
 	const candidates = [
-		{ optionKey: "a", p0: 2 / 3, b: null },
-		{ optionKey: "b", p0: 1 / 3, b: null },
-		{ optionKey: "excluded", p0: 0, b: null },
+		{ optionKey: A, p0: 2 / 3, b: null },
+		{ optionKey: B, p0: 1 / 3, b: null },
+		{ optionKey: EXCLUDED, p0: 0, b: null },
 	];
 	const selection = rehashSelection({
 		...spec(ref, record),
@@ -1090,21 +1204,21 @@ test("3995958855: baseline uses declared ratio and retains unassessed host exclu
 		{
 			candidates: candidates.map((c) => ({
 				...c,
-				p0: c.optionKey === "excluded" ? 0 : 0.5,
+				p0: c.optionKey === EXCLUDED ? 0 : 0.5,
 			})),
 		},
 		{
 			candidates: candidates.map((c) => ({
 				...c,
-				p0: c.optionKey === "excluded" ? 0.1 : 0.45,
+				p0: c.optionKey === EXCLUDED ? 0.1 : 0.45,
 			})),
 		},
-		{ candidates: candidates.filter((c) => c.optionKey !== "excluded") },
+		{ candidates: candidates.filter((c) => c.optionKey !== EXCLUDED) },
 		{ lambda: 1 },
 	]) {
 		const invalid = rehashSelection({ ...selection, ...altered });
 		expect(() => store.recordResolution(ref.roundId, record, invalid)).toThrow(
-			/selection (baseline|candidate universe|policy) mismatch/,
+			"selection policy replay mismatch",
 		);
 		expect(store.getResolution(ref.roundId)).toBeNull();
 	}
@@ -1180,6 +1294,7 @@ test("3995958855: rehashed ranking must reflect persisted stances", () => {
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref, [optionA, optionB]);
 	for (const module of MODULE_KINDS) {
 		const original = assessment(ref, module);
 		store.putAssessment(
@@ -1189,7 +1304,7 @@ test("3995958855: rehashed ranking must reflect persisted stances", () => {
 					...original.objectiveAssessments,
 					{
 						...original.objectiveAssessments[0],
-						optionKey: "b",
+						optionKey: B,
 						stance: "accept",
 					},
 				],
@@ -1198,16 +1313,16 @@ test("3995958855: rehashed ranking must reflect persisted stances", () => {
 	}
 	for (const ranking of [
 		[
-			{ optionKey: "b", rank: 1 },
-			{ optionKey: "a", rank: 2 },
+			{ optionKey: B, rank: 1 },
+			{ optionKey: A, rank: 2 },
 		],
 		[
-			{ optionKey: "a", rank: 1 },
-			{ optionKey: "b", rank: 1 },
+			{ optionKey: A, rank: 1 },
+			{ optionKey: B, rank: 1 },
 		],
 		[
-			{ optionKey: "a", rank: 2 },
-			{ optionKey: "b", rank: 3 },
+			{ optionKey: A, rank: 2 },
+			{ optionKey: B, rank: 3 },
 		],
 	]) {
 		const record = parseResolutionRecord({ ...resolution(ref), ranking });
@@ -1215,13 +1330,13 @@ test("3995958855: rehashed ranking must reflect persisted stances", () => {
 			...spec(ref, record),
 			assessmentSetDigest: judgmentDigest(store.assessmentSet(ref.roundId)),
 			candidates: [
-				{ optionKey: "a", p0: 0.5, b: null },
-				{ optionKey: "b", p0: 0.5, b: null },
+				{ optionKey: A, p0: 0.5, b: null },
+				{ optionKey: B, p0: 0.5, b: null },
 			],
 		});
 		expect(() =>
 			store.recordResolution(ref.roundId, record, selection),
-		).toThrow("selection ranking mismatch");
+		).toThrow("resolution policy replay mismatch");
 		expect(store.getRound(ref.roundId)?.status).toBe("open");
 	}
 });
@@ -1230,24 +1345,25 @@ test("3995958855: missing ranked assessments reject without inventing excluded c
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref, [optionA, optionB]);
 	for (const module of MODULE_KINDS)
 		store.putAssessment(assessment(ref, module));
 	const record = parseResolutionRecord({
 		...resolution(ref),
 		ranking: [
-			{ optionKey: "a", rank: 1 },
-			{ optionKey: "b", rank: 2 },
+			{ optionKey: A, rank: 1 },
+			{ optionKey: B, rank: 2 },
 		],
 	});
 	const selection = rehashSelection({
 		...spec(ref, record),
 		candidates: [
-			{ optionKey: "a", p0: 2 / 3, b: null },
-			{ optionKey: "b", p0: 1 / 3, b: null },
+			{ optionKey: A, p0: 2 / 3, b: null },
+			{ optionKey: B, p0: 1 / 3, b: null },
 		],
 	});
 	expect(() => store.recordResolution(ref.roundId, record, selection)).toThrow(
-		"selection missing ranked assessment",
+		"resolution policy replay mismatch",
 	);
 	expect(store.getSelectionSpec(ref.roundId)).toBeNull();
 });
@@ -1257,6 +1373,7 @@ for (const reopen of [false, true]) {
 		let store = open();
 		const ref = snapshot(store);
 		store.openRound(ref);
+		closeCandidates(store, ref);
 		for (const module of MODULE_KINDS)
 			store.putAssessment(assessment(ref, module));
 		const record = resolution(ref);
@@ -1264,7 +1381,7 @@ for (const reopen of [false, true]) {
 		store.recordResolution(ref.roundId, record, selection);
 		const forged = rehashSelection({
 			...selection,
-			candidates: [{ optionKey: "forged", p0: 1, b: null }],
+			candidates: [{ optionKey: "zz-forged", p0: 1, b: null }],
 		});
 		database()
 			.prepare("UPDATE selection_specs SET body = ?, spec_digest = ?")
@@ -1274,7 +1391,7 @@ for (const reopen of [false, true]) {
 			store = open();
 		}
 		expect(() => store.getSelectionSpec(ref.roundId)).toThrow(
-			"selection candidate universe mismatch",
+			"selection policy replay mismatch",
 		);
 	});
 }
@@ -1283,6 +1400,7 @@ test("3995958855: no baseline is guessed for undeclared policy revisions", () =>
 	const store = open();
 	const ref = { ...snapshot(store), policyRevision: 2 };
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	for (const module of MODULE_KINDS)
 		store.putAssessment(assessment(ref, module));
 	const record = parseResolutionRecord({
@@ -1294,14 +1412,17 @@ test("3995958855: no baseline is guessed for undeclared policy revisions", () =>
 		policyRevision: 2,
 	});
 	expect(() => store.recordResolution(ref.roundId, record, selection)).toThrow(
-		"unsupported selection policy declaration",
+		"policy snapshot mismatch",
 	);
-	store.recordResolution(
-		ref.roundId,
-		{ ...record, status: "held", holdReason: "no policy declaration" },
-		null,
-	);
-	expect(store.getRound(ref.roundId)?.status).toBe("held");
+	expect(() =>
+		store.recordResolution(
+			ref.roundId,
+			{ ...record, status: "held", holdReason: "no policy declaration" },
+			null,
+		),
+	).toThrow("policy snapshot mismatch");
+	expect(store.getRound(ref.roundId)?.status).toBe("open");
+	expect(store.getResolution(ref.roundId)).toBeNull();
 });
 
 test("missing parent is private; directory and database symlinks are rejected", () => {
@@ -1323,6 +1444,7 @@ test("ledger audit rejects a resolved round whose selection was deleted", () => 
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	for (const module of MODULE_KINDS)
 		store.putAssessment(assessment(ref, module));
 	store.recordResolution(ref.roundId, resolution(ref), spec(ref));
@@ -1336,6 +1458,7 @@ test("ledger audit rejects orphaned assessments before unrelated reads", () => {
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	store.putAssessment(assessment(ref, "clotho"));
 	const db = database();
 	db.exec("PRAGMA foreign_keys = OFF; DELETE FROM rounds");
@@ -1353,6 +1476,7 @@ for (const change of [
 		const store = open();
 		const ref = snapshot(store);
 		store.openRound(ref);
+		closeCandidates(store, ref);
 		store.recordResolution(ref.roundId, resolution(ref, "held"), null);
 		const changed = { ...resolution(ref, "held"), ...change };
 		database()
@@ -1368,6 +1492,7 @@ test("ledger audit retains the historical objective referenced by a round", () =
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	const next = store.putObjectiveProfile(profile("clotho", 2));
 	store.activateObjectiveProfile(ref.agentId, ref.scopeId, next);
 	database().exec(
@@ -1382,6 +1507,7 @@ test("ledger audit binds rehashed assessment evidence to its frozen snapshot", (
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	store.putAssessment(assessment(ref, "clotho"));
 	const changed = assessment(ref, "clotho", "b".repeat(64));
 	database()
@@ -1403,6 +1529,7 @@ test("ledger audit binds rehashed assessment objectives to the frozen module", (
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
+	closeCandidates(store, ref);
 	store.putAssessment(assessment(ref, "clotho"));
 	const changed = {
 		...assessment(ref, "clotho"),

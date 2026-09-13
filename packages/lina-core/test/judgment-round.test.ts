@@ -5,9 +5,11 @@ import { join } from "node:path";
 import {
 	type Assessment,
 	assessmentInputDigest,
+	buildCandidateSet,
 	buildCanonicalOption,
 	type CanonicalOption,
 	type IntentionRecord,
+	intentionDigest,
 	type JudgmentSnapshotRef,
 	JudgmentStore,
 	judgmentDigest,
@@ -150,7 +152,7 @@ function canonicalOptions() {
 			kind: "task.start",
 			authorityRef: "authority-1",
 			taskText: "Start fixture task",
-			intentionId: "intention-1",
+			intentionId: "intention-start",
 		},
 	});
 	const inquire = buildCanonicalOption({
@@ -328,16 +330,45 @@ function playRound(store: JudgmentStore, situation: Situation) {
 	);
 	for (const assessment of assessments) store.putAssessment(assessment);
 	const set = store.assessmentSet(snapshot.roundId);
-	const resolved = resolvePersonalRound({
-		policy: PERSONAL_POLICY_V1,
-		snapshot,
+	store.putIntention({
+		...proposedIntention(),
+		intentionId: "intention-start",
+	});
+	const startIntention = store.transitionIntention(
+		"intention-start",
+		{
+			to: "adopted",
+			reason: "existing task intention",
+			evidenceRef: "source-1",
+			at: PROJECTED_AT,
+		},
+		0,
+	);
+	const closed = buildCandidateSet({
+		roundId: snapshot.roundId,
+		snapshotDigest: snapshotDigest(snapshot),
 		options: candidates,
-		set,
 		eligibility: candidates.map((option) => ({
 			optionKey: option.optionKey,
 			eligible: true,
 			reason: null,
 		})),
+		intentionRefs: [
+			{
+				intentionId: startIntention.intentionId,
+				revision: startIntention.revision,
+				status: startIntention.status,
+				digest: intentionDigest(startIntention),
+			},
+		],
+	});
+	store.closeCandidateSet(closed);
+	const resolved = resolvePersonalRound({
+		policy: PERSONAL_POLICY_V1,
+		snapshot,
+		options: candidates,
+		set,
+		eligibility: closed.eligibility,
 		bias: {},
 	});
 	store.recordResolution(snapshot.roundId, resolved.resolution, resolved.spec);
