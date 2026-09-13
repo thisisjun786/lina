@@ -221,6 +221,22 @@ export class JudgmentStore {
 				activeRevision === parsed.revision
 			)
 				return { activationRevision: Number(previous) };
+			const nextRefs = body({
+				...this.activeObjectiveProfiles(agent, scope),
+				[profile.moduleKind]: parsed,
+			});
+			// An open snapshot may become stale, but activation must not revive it.
+			for (const row of this.db
+				.prepare(
+					"SELECT snapshot FROM rounds WHERE agent_id = ? AND scope_id = ? AND status = 'open'",
+				)
+				.all(agent, scope)) {
+				const snapshot = parseJudgmentSnapshotRef(
+					JSON.parse(String(row["snapshot"])),
+				);
+				if (body(snapshot.objectiveProfileRefs) === nextRefs)
+					throw Error("objective reactivation would revive stale round");
+			}
 			const activationRevision = revision(Number(previous ?? 0) + 1, 1);
 			this.db
 				.prepare(`INSERT INTO objective_profile_active(agent_id, scope_id, module_kind, objective_id, revision, activation_revision, updated_at)
