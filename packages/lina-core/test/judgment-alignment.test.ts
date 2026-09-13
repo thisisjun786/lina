@@ -150,8 +150,18 @@ test("a readout with no readable text is reported, never stored", () => {
 	if (!source) throw Error("missing fixture assessment");
 	const { inputDigest: _digest, ...raw } = source;
 	// Zero-width and other format characters render as nothing, like whitespace.
-	// Standalone combining marks render as nothing without a base character.
-	for (const blank of [" ", "\n", "\u200b", "\ufeff", "\ufe0f", "\u034f"]) {
+	// So do standalone combining marks and default-ignorable letters such as the
+	// Hangul fillers.
+	for (const blank of [
+		" ",
+		"\n",
+		"\u200b",
+		"\ufeff",
+		"\ufe0f",
+		"\u034f",
+		"\u3164",
+		"\u115f",
+	]) {
 		// Long prose whose first 4,000 units carry no readable text.
 		expect(() =>
 			api.buildAssessment({

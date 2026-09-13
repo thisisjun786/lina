@@ -217,10 +217,11 @@ function mechanismRevision(value: unknown): MechanismRevision {
 	return revision(value, "mechanism revision");
 }
 
-/** Whitespace, control and format characters render as nothing, and a combining
- * mark needs a base character, so a readout made only of them carries no content
- * even though it has length. */
-const READOUT_CONTENT = /[^\s\p{Cc}\p{Cf}\p{Mn}\p{Me}]/u;
+/** Whitespace, control and default-ignorable characters render as nothing, and a
+ * combining mark needs a base character, so a readout made only of them carries
+ * no content even though it has length. */
+const READOUT_CONTENT =
+	/[^\s\p{Cc}\p{Cf}\p{Mn}\p{Me}\p{Default_Ignorable_Code_Point}]/u;
 
 /** Only fresh output preparation clips text; persisted record parsers never do. */
 export function prepareReadout(
