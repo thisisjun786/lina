@@ -1,6 +1,6 @@
 import type { OptionKey } from "./judgment.ts";
 import { judgmentDigest } from "./judgment-validation.ts";
-import { boundedId, boundedText } from "./validation.ts";
+import { boundedId, boundedText, MAX_TEXT } from "./validation.ts";
 
 export const PERSONAL_CATALOG_ID = "personal.v1" as const;
 export const PERSONAL_OPTION_KINDS = [
@@ -134,7 +134,8 @@ export function normalizeOptionArgs(
 			.flatMap((key) => {
 				boundedId(key, "option argument key");
 				const value = row[key];
-				if (typeof value !== "string") throw Error("invalid option argument");
+				if (typeof value !== "string" || value.length > MAX_TEXT)
+					throw Error("invalid option argument");
 				const normalized = value.normalize("NFC").trim().replace(/\s+/g, " ");
 				if (normalized === "") return [];
 				boundedText(value, "option argument");

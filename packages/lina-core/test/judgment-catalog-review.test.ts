@@ -3,6 +3,7 @@ import {
 	buildCanonicalOption,
 	type CanonicalOption,
 	canonicalOptionKey,
+	normalizeOptionArgs,
 	PERSONAL_OPTION_KINDS,
 	type PersonalOptionKind,
 	type PersonalPrecondition,
@@ -63,6 +64,35 @@ function option(precondition: PersonalPrecondition): CanonicalOption {
 		preconditions: precondition,
 	});
 }
+
+for (const [label, value] of [
+	["spaces", " ".repeat(1001)],
+	["tabs", "\t".repeat(1001)],
+] as const) {
+	const original = option({ kind: "noop", reason: "nothing needed" });
+	const changed = { ...original, args: { empty: value } };
+	const operations = {
+		normalize: () => normalizeOptionArgs(changed.args),
+		key: () => canonicalOptionKey(changed),
+		build: () => buildCanonicalOption(changed),
+		parse: () => parseCanonicalOption(changed),
+	};
+	for (const [operation, run] of Object.entries(operations))
+		test(`3999091818 ${operation} rejects oversized ${label} before omission`, () => {
+			expect(run).toThrow("invalid option argument");
+		});
+}
+
+test("3999091818 bounded empty arguments are omitted while the full text ceiling survives", () => {
+	expect(
+		normalizeOptionArgs({
+			empty: "",
+			spaces: " ".repeat(1000),
+			tabs: "\t".repeat(1000),
+			text: "x".repeat(1000),
+		}),
+	).toEqual({ text: "x".repeat(1000) });
+});
 
 test("identity fixtures cover every personal option kind", () => {
 	expect(preconditions.map((p) => p.kind)).toEqual([...PERSONAL_OPTION_KINDS]);

@@ -752,6 +752,64 @@ function activate(): IntentionRecord {
 	});
 }
 
+const laterAdoption = transitionIntention(intention, {
+	to: "adopted",
+	reason: "accepted",
+	evidenceRef: null,
+	at: "2026-09-12T00:00:00.000Z",
+});
+for (const { label, source, change } of [
+	{
+		label: "before acceptance",
+		source: intention,
+		change: {
+			to: "adopted" as const,
+			reason: "accepted",
+			evidenceRef: null,
+			at: "2026-09-10T00:00:00.000Z",
+		},
+	},
+	{
+		label: "before previous transition",
+		source: laterAdoption,
+		change: {
+			to: "active" as const,
+			reason: "started",
+			evidenceRef: null,
+			at: "2026-09-11T12:00:00.000Z",
+		},
+	},
+]) {
+	test(`3999091815 restored history rejects ${label}`, () => {
+		expect(() =>
+			parseIntentionRecord({
+				...source,
+				revision: source.revision + 1,
+				status: change.to,
+				history: [...source.history, { ...change, from: source.status }],
+			}),
+		).toThrow("nonchronological intention history");
+	});
+	test(`3999091815 pure transition rejects ${label}`, () => {
+		expect(() => transitionIntention(source, change)).toThrow(
+			"nonchronological intention history",
+		);
+	});
+}
+test.each(["2026-09-12T00:00:00.000Z", "2026-09-12T01:00:00.000Z"])(
+	"3999091815 equal or increasing transition time remains valid: %s",
+	(at) => {
+		const result = transitionIntention(laterAdoption, {
+			to: "active",
+			reason: "started",
+			evidenceRef: null,
+			at,
+		});
+		expect(parseIntentionRecord(result)).toEqual(result);
+		expect(result.history.at(-1)?.at).toBe(at);
+	},
+);
+
 test("intention transitions complete the legal lifecycle without mutating input", () => {
 	let record = intention;
 	for (const to of [

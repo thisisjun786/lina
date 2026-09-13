@@ -864,6 +864,7 @@ export function parseIntentionRecord(value: unknown): IntentionRecord {
 	if (kind === "user_commitment" && acceptedBy !== "user")
 		throw Error("user commitment requires user acceptance");
 	const sourceRef = boundedId(acceptance["sourceRef"], "acceptance source ref");
+	const acceptedAt = timestamp(acceptance["acceptedAt"], "accepted at");
 	const history = list(
 		row["history"],
 		parseIntentionTransition,
@@ -878,11 +879,15 @@ export function parseIntentionRecord(value: unknown): IntentionRecord {
 	if (history.length !== recordRevision)
 		throw Error("intention history revision mismatch");
 	let previous: IntentionStatus = "proposed";
+	let previousTime = Date.parse(acceptedAt);
 	for (const transition of history) {
 		if (transition.from !== previous)
 			throw Error("noncontiguous intention history");
+		const time = Date.parse(transition.at);
+		if (time < previousTime) throw Error("nonchronological intention history");
 		validateTransition(transition, sourceRef);
 		previous = transition.to;
+		previousTime = time;
 	}
 	if (previous !== status) throw Error("intention history status mismatch");
 	return {
@@ -901,7 +906,7 @@ export function parseIntentionRecord(value: unknown): IntentionRecord {
 				acceptance["policyRevision"],
 				"acceptance policy revision",
 			),
-			acceptedAt: timestamp(acceptance["acceptedAt"], "accepted at"),
+			acceptedAt,
 		},
 		priority: revision(row["priority"], "intention priority"),
 		deadline:
@@ -969,6 +974,10 @@ export function transitionIntention(
 		evidenceRef: transition.evidenceRef,
 		at: transition.at,
 	});
+	const previousTime =
+		source.history.at(-1)?.at ?? source.acceptance.acceptedAt;
+	if (Date.parse(entry.at) < Date.parse(previousTime))
+		throw Error("nonchronological intention history");
 	validateTransition(entry, source.acceptance.sourceRef);
 	if (source.history.length >= MAX_LIST)
 		throw Error("invalid intention history");
