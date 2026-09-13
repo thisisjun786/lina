@@ -51,6 +51,23 @@ export const PERSONAL_POLICY_V1: ArbitrationPolicy = Object.freeze({
 	stanceOrder: Object.freeze(["prefer", "accept", "oppose"] as const),
 	unavailableReasons: Object.freeze([...ASSESSMENT_UNAVAILABLE_REASONS]),
 });
+/** Revision one remains immutable for historical replay. */
+export const PERSONAL_POLICY_V2: ArbitrationPolicy = Object.freeze({
+	...PERSONAL_POLICY_V1,
+	revision: 2,
+});
+export const PERSONAL_POLICY_CURRENT = PERSONAL_POLICY_V2;
+
+export function personalPolicyFor(
+	policyId: string,
+	revision: number,
+): ArbitrationPolicy {
+	const policy = [PERSONAL_POLICY_V1, PERSONAL_POLICY_V2].find(
+		(p) => p.policyId === policyId && p.revision === revision,
+	);
+	if (!policy) throw Error("unsupported personal policy declaration");
+	return policy;
+}
 export type HostEligibility = Array<{
 	optionKey: OptionKey;
 	eligible: boolean;
@@ -127,7 +144,12 @@ export function resolvePersonalRound(input: {
 		policy.revision !== snapshot.policyRevision
 	)
 		throw Error("policy snapshot mismatch");
-	if (!isDeepStrictEqual(policy, PERSONAL_POLICY_V1))
+	if (
+		!isDeepStrictEqual(
+			policy,
+			personalPolicyFor(policy.policyId, policy.revision),
+		)
+	)
 		throw Error("unsupported personal policy declaration");
 	for (const assessment of set.assessments) {
 		const objective = snapshot.objectiveProfileRefs[assessment.moduleKind];
@@ -273,8 +295,20 @@ export function resolvePersonalRound(input: {
 	// 9: No candidate means deferred, not an empty ordering or uniform fallback.
 	if (remaining.length === 0)
 		return finishWithoutSpec("deferred", "no eligible candidate");
+	if (policy.revision >= 2) {
+		for (const candidate of remaining) {
+			const module = order.find(
+				(m) => candidate.opinions[m].stance === "unavailable",
+			);
+			if (module)
+				return finishWithoutSpec(
+					"held",
+					`unavailable opinion ${module} for ${candidate.option.optionKey}`,
+				);
+		}
+	}
 
-	// 5: Drop an unavailable module for the ENTIRE round, never per comparison.
+	// Legacy v1 drops unavailable modules. V2 reaches here only with full coverage.
 	const orderingModules = order.filter((m) =>
 		remaining.every((c) => c.opinions[m].stance !== "unavailable"),
 	);

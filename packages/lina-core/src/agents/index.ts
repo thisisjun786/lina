@@ -97,3 +97,4 @@ export { behaviorFingerprint } from "./behavior-validation.ts";
 
 export * from "./judgment-candidates.ts";
 export * from "./judgment-dialogue.ts";
+export { buildAssessment } from "./judgment-output.ts";

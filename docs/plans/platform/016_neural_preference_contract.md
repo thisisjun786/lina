@@ -1,19 +1,19 @@
 # 모이라이 코어의 판단·선택·학습·실행 계약
 
-상태: 2026-09-12 확정 계약. 정본 [MOIRAI_ENGINE](../../MOIRAI_ENGINE.md)의 세 판단 모듈·조정 정책·행동 catalog·의도 schema·회로 프로필을 입력·계산·결과·학습·저장·복구 계약으로 구체화한다. 타입·포트는 F1–F2가 구현할 계약이며 현재 코드나 Senpi QA가 이 구조를 구현했다는 뜻이 아니다. [015](015_neural_preference_engine_research.md)는 근거와 출처를, [017](017_moirai_module_composition.md)은 소스 재료·F1–F4 로드맵·검증 가설을 소유한다.
+상태: 2026-09-13 확정 계약(D22·D23 반영). 정본 [MOIRAI_ENGINE](../../MOIRAI_ENGINE.md)의 세 판단 모듈·조정 정책·행동 catalog·의도 schema·회로 프로필을 입력·계산·결과·학습·저장·복구 계약으로 구체화한다. F1 공통 레코드·파서·정책·저장소는 구현됐고 F2 포트·메커니즘·제품 연결은 남아 있다. Senpi QA는 제품 통합 증거가 아니다. [015](015_neural_preference_engine_research.md)는 근거와 출처를, [017](017_moirai_module_composition.md)은 소스 재료·F1–F4 로드맵·검증 가설을 소유한다.
 
 모이라이는 한 개인 안에서 서로 다른 목표를 추구하는 세 판단을 종합한다. 클로토는 미래 성과·성장 가능성, 라케시스는 자신의 욕구·선호 충족, 아트로포스는 채택한 목표·약속·정체성의 연속성을 우선한다. 라케시스의 학습된 선호는 Google Research가 소개한 **MaleCNS v1.0** 부분회로로 구현한다. 개인 대화·학습·LIFE 선택·재시작·8명 운영을 연결하며 비교 실험은 구현을 선택하는 증거로 사용한다.
 
 ## 결정과 현재 연결 지점
 
-기존 코드 연결 지점은 `522101ff99e356b0ea6d27b4ea03ec7e599ee4b3`, 인지 확장 기준은 PR #10의 `5b22aee53f9f7c01cc508289099f662aed613140`이다. **이 설계의 선택된 대화·인지 백엔드는 새 Senpi SDK**다. PR #10에는 Senpi SDK 생성·대화·도구·취소·재개 검증과 영어 인지 프롬프트가 들어 있다. 일반 SDK 시험과 도구 없는 Moirai 3+1 시험은 별도 시나리오다. 같은 PR에 남은 ‘실행 엔진 재검토’ 문구보다 이번 Senpi 선택을 설계 기준으로 우선한다. 기존 dev의 Codex 코드와 정책은 전환 전 연결 지점을 찾는 근거이며, 이 문서가 Senpi 제품 통합 완료를 증명하지는 않는다.
+현재 F1 계약 기준은 PR #14의 `13ff9b2f0b243d1b7adaa6eabd59d4ad66272da8`이다. **대화·인지·개발 작업 백엔드는 Codex, 프로바이더 관리는 OpenCodex**로 유지한다(D22). PR #10의 Senpi QA는 비교 자료로 보존하며 제품 어댑터의 출발점이나 통합 완료 증거로 취급하지 않는다. F2는 기존 Codex RPC·SessionPort·TaskManager 경계에 typed 판단을 연결한다.
 
 | 현재 소유자 | 확인한 책임 | 제안하는 변경 |
 | --- | --- | --- |
 | [개인 성장 생성](../../../packages/lina-runtime/src/persona/native-growth.ts#L161) → AgentStore | 허용된 경험의 모델 해석을 성향 값으로 저장 | 지정 dimension의 생성자를 기존 해석 또는 신경 투영 중 하나로 선택 |
 | [성향 합성](../../../packages/lina-core/src/agents/persona.ts#L53) → 대화·LIFE | 정체성·lock을 지키며 허용된 현재 성향 제공 | 새 신경 출처의 유효성·revision을 확인한 투영만 소비 |
 | [Moirai 입력 조립](https://github.com/thisisjun786/lina/blob/5b22aee53f9f7c01cc508289099f662aed613140/scripts/qa/senpi-sdk/moirai-runner.ts#L145) | 원래 대화와 완결된 익명 조언 원문 | 원문을 보존하는 typed assessment, 공통 후보 평가, 행동 prepare/finalize 모드 |
-| [제품 세션 조립](../../../packages/lina-runtime/src/session-app.ts#L500)·[SessionPort](../../../packages/lina-runtime/src/sdk-port.ts#L27) | 기존 실행 세션을 DurableRuntime에 연결 | Senpi 어댑터와 제품 회차 조정기가 내부 조언·종합을 수행하고 하나의 논리 대화 포트만 외부에 노출 |
+| [제품 세션 조립](../../../packages/lina-runtime/src/session-app.ts#L500)·[SessionPort](../../../packages/lina-runtime/src/sdk-port.ts#L27) | 기존 실행 세션을 DurableRuntime에 연결 | Codex 어댑터와 제품 회차 조정기가 내부 조언·종합을 수행하고 하나의 논리 대화 포트만 외부에 노출 |
 | [대화 기록·정착](../../../packages/lina-runtime/src/runtime.ts#L182)·[출처 결합 저장](../../../packages/lina-core/src/store.ts#L300) | 응답 entry와 request의 출처 연결·settlement | 수락한 최종 응답·DialogueJudgmentRef·학습 TraceRef 결합을 대화 owner가 원자적으로 기록 |
 | [LIFE director](../../../packages/lina-runtime/src/life/director.ts#L82)·[영속화](../../../packages/lina-core/src/world/autonomy-persistence.ts#L513) | actor·target·reflection, prepare/reconcile | 확정 결정 참조와 실행 가능 상태를 소비; 순수 재계산에서 신경 상태를 진행하지 않음 |
 
@@ -21,13 +21,13 @@
 
 아래 명세는 기존 공개 API를 즉시 바꾸지 않는다. 후속 구현은 타입 버전, source proof, 저장 복구와 각 소비자를 같은 단위에서 변경한다.
 
-Senpi 연결은 PR #10의 [세션 생성](https://github.com/thisisjun786/lina/blob/5b22aee53f9f7c01cc508289099f662aed613140/scripts/qa/senpi-sdk/live-session.ts#L72)과 [잠근 의존성](https://github.com/thisisjun786/lina/blob/5b22aee53f9f7c01cc508289099f662aed613140/scripts/qa/senpi-sdk/package.json#L13)을 출발점으로 한다. 확인한 버전은 `@code-yeongyu/senpi@2026.9.10-2`이며 `createAgentSession`, `ModelRuntime`, `SessionManager`를 제품 어댑터 안에서 사용한다. QA의 capture provider·임시 경로·고정 모델·도구 권한을 제품에 복사하지 않는다. Senpi 세션의 수명·응답·usage를 Host 포트에 대응시키고 원래 request·source 연결은 Host가 소유한다. 신경 계산기는 SDK와 독립된 포트 뒤에 둔다.
+Codex 연결은 기존 `lina-codex/src/session.ts`, `rpc.ts`, `tasks.ts`와 제품 `SessionPort`를 재사용한다. R0의 `moirai-probe*`는 역할 thread·재개·출처 검사의 참고 자료다. QA capture provider·임시 경로·고정 모델·도구 권한을 제품에 복사하지 않는다. Codex thread/turn 수명·응답·usage를 Host 포트에 대응시키고 원래 request·source 연결은 Host가 소유한다. 신경 계산기는 실행 SDK와 독립된 포트 뒤에 둔다.
 
 ## 세 판단 모듈의 계약
 
 분리 기준은 각 모듈의 고유 목표와 답을 비교하는 기준이다. 목표 정의는 [정본의 세 판단 모듈](../../MOIRAI_ENGINE.md#세-판단-모듈)을 따른다. 상태·계산·결과 확인 방법은 그 목표를 판단하는 수단이다. 세 모듈에 같은 목표를 주고 근거만 달리 읽히는 구조나 계획/점수/승인 기능만 분업하는 구조로 축소하지 않는다. 기억·정정·권한 원본은 공유한다.
 
-의존 방향은 `Host → 판단 포트 → 허용된 기억/목표/계산 포트`다. Senpi는 LLM 호출 어댑터, Python은 라케시스의 수치 계산 어댑터다. 모듈은 서로의 내부 상태를 수정하지 않는다. 기존 QA의 `proposals: string[]`에서 아래 버전 있는 판단 계약으로 옮기는 변경은 제품 Senpi 연결과 소비자 검증을 함께 요구한다.
+의존 방향은 `Host → 판단 포트 → 허용된 기억/목표/계산 포트`다. Codex는 LLM 호출 어댑터, Python은 라케시스의 수치 계산 어댑터다. 모듈은 서로의 내부 상태를 수정하지 않는다. 기존 QA의 `proposals: string[]`에서 아래 버전 있는 판단 계약으로 옮기는 변경은 제품 Codex 연결과 소비자 검증을 함께 요구한다.
 
 ```text
 PromptAsset = { promptId, revision, role, layerHashes: { common, role, model },
@@ -39,7 +39,7 @@ PromptRun = { runId, attemptId, configuration: baseline | candidate, caseId, rep
   wireCaptureRef, outcomeRefs, judgeScore | unscorable, usage, elapsed, terminationReason }
 ```
 
-`mechanismRevision`은 프롬프트 자산 revision, encoder/readout 버전, 정책 코드 버전을 포함하는 digest다. 역할 자산의 역할 계약 층은 `ObjectiveProfile`에서 생성하므로 프로필 revision 변경은 자산 revision 변경이다. 자산 변경은 새 revision과 새 binding generation으로만 적용하고 진행 회차의 프롬프트를 바꾸지 않는다. 실험은 완전한 쌍만 품질 비교에 넣고 누락·중복·장애·`unscorable`을 별도 분모로 보고하며, `split: holdout` 사례는 결과를 보고 수정한 순간 `dev`로 이동한다. 절차·층 구조·독립성 조건은 [정본 D20](../../MOIRAI_ENGINE.md#역할-프롬프트와-개선-루프)이 소유한다.
+새 `mechanismRevision`은 프롬프트 자산 revision·encoder/readout 버전·정책 코드 버전을 canonical JSON으로 묶어 만든 `sha256:<64자리 소문자 hex>`다. F2 메커니즘 owner가 내용을 구성한다. F1 파서는 형식과 입력 해시 결합을 확인하며, 기존 숫자 revision은 과거 기록의 원래 바이트·해시로 읽는다. 숫자 문자열이나 태그 없는 해시는 허용하지 않는다. 역할 자산의 역할 계약 층은 `ObjectiveProfile`에서 생성하므로 프로필 revision 변경은 자산 revision 변경이다. 자산 변경은 새 revision과 새 binding generation으로만 적용하고 진행 회차의 프롬프트를 바꾸지 않는다. 실험은 완전한 쌍만 품질 비교에 넣고 누락·중복·장애·`unscorable`을 별도 분모로 보고하며, `split: holdout` 사례는 결과를 보고 수정한 순간 `dev`로 이동한다. 절차·층 구조·독립성 조건은 [정본 D20](../../MOIRAI_ENGINE.md#역할-프롬프트와-개선-루프)이 소유한다.
 
 | 판단 모듈·고유 목표 | 입력과 계산 | 출력과 결과 확인 |
 | --- | --- | --- |
@@ -70,7 +70,7 @@ Assessment = { schemaVersion, moduleKind, snapshotId, inputDigest,
 
 `workingRevision`은 현재 문맥의 revision이고 `instructionRevision`은 원본 request·현재 지시의 revision이다. 서로 대신하지 않는다. 도메인별 공개된 읽기 결과와 원본 참조를 조립하고 읽기 전후 버전·확정 직전 현재성을 확인한다. 여러 DB를 원자적으로 읽는다고 가정하지 않는다.
 
-위 표기는 필수 영역을 나타내며 `forecasts | values | continuity`는 moduleKind에 따른 구분 타입이다. `completeText`는 잘리지 않은 모듈 의견이다. 구조화된 결과를 만들 수 없으면 텍스트만으로 정상 판단을 대신하지 않는다. 모델이 주장한 계산 결과·참조는 Host가 실제 도구/계산 receipt와 대조한다. 모델·세션 ID는 진단 자료이며 판단의 권위나 별도 인격이 아니다.
+위 표기는 필수 영역을 나타내며 `forecasts | values | continuity`는 moduleKind에 따른 구분 타입이다. `completeText`는 생성된 모듈 의견의 제한된 읽기 결과다(D23). 새 `buildAssessment`는 설명문이 4,000 UTF-16 code unit을 넘으면 surrogate pair를 보존하며 자르고 `diagnostics.readoutTruncation`에 원래 길이·상한·원문 SHA-256을 남긴다. 이 상한은 토큰 수가 아니다. 저장된 레코드의 파서는 절대로 자르거나 해시를 다시 쓰지 않는다. 구조화된 결과를 만들 수 없으면 텍스트만으로 정상 판단을 대신하지 않는다. 모델이 주장한 계산 결과·참조는 Host가 실제 도구/계산 receipt와 대조한다. 모델·세션 ID는 진단 자료이며 판단의 권위나 별도 인격이 아니다.
 
 클로토의 `projectConsequences`는 해당 개인에게 공개된 도메인 상태와 선언된 규칙만 사용하는 제안 조회 포트다. 실제 World 진행이나 비공개 상태의 정답 복사를 예측으로 사용하지 않는다. `forecastId`, `optionKey`, 관측 항목·시점과 `predictionMethodRevision`을 실제 결과에 연결한다.
 
@@ -82,11 +82,11 @@ Forecast의 결과·비용·기한은 각각 `Claim { claimId, kind: observed | 
 
 `moirai_prepare`는 세 의견과 근거에서 공통 `CanonicalOption` 집합을 제안한다. Host가 정규화한 뒤 각 모듈의 `evaluateOptions(snapshot, candidates)`를 호출한다. 각자는 자기 목표에 따른 후보별 추천과 이유를 채우고 클로토의 예측, 라케시스의 경험·단서 반응, 아트로포스의 의도·약속 충돌을 근거로 붙인다. 후보 key·snapshot·objectiveRef·mechanism revision이 같은 기존 결과는 재사용한다.
 
-이미 계산 가능한 후보는 코드와 신경 조회로 평가한다. 새 후보의 예측·의미 해석이 부족하면 해당 모듈의 추가 LLM 호출과 비용을 기록한다. 최초 의견의 독립성과 이 후속 평가는 구분한다. 후속 평가에서도 다른 모듈의 결론은 입력하지 않는다. 각 `optionKey × moduleKind`에 유효 평가 또는 정책이 허용한 명시적 `unavailable` 사유가 있어야 한다. 비교할 수 없는 후보를 조용히 탈락시키거나 0점으로 취급하지 않는다. 필요한 평가가 없으면 회차를 보류한다.
+이미 계산 가능한 후보는 코드와 신경 조회로 평가한다. 새 후보의 예측·의미 해석이 부족하면 해당 모듈의 추가 LLM 호출과 비용을 기록한다. 최초 의견의 독립성과 이 후속 평가는 구분한다. 후속 평가에서도 다른 모듈의 결론은 입력하지 않는다. 각 `optionKey × moduleKind`에 유효 평가 또는 정책이 허용한 명시적 `unavailable` 사유가 있어야 한다. 비교할 수 없는 후보를 조용히 탈락시키거나 0점으로 취급하지 않는다. 필요한 평가가 없거나 남은 후보의 평가가 `unavailable`이면 policy revision 2는 순위를 만들지 않고 보류한다. Host는 같은 요청의 예산 안에서 보완하며 저장된 Assessment를 덮어쓰지 않는다. 이미 기록한 회차를 재개하지 않고 필요하면 새 회차를 만든다. revision 1의 모듈 전체 제외 방식은 과거 재생에만 남긴다.
 
 새 근거가 공통 세계 사실을 바꾸면 snapshot을 무효화하고 새 회차에서 셋 모두에게 공급한다. 새 후보·효과 범위가 추가되면 candidate revision을 올려 해당 평가를 완료한 뒤 선택한다. 평가 횟수·시간·모델·수치 계산 예산과 실패를 기록하며 예산 부족을 가짜 완전성으로 숨기지 않는다.
 
-Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회차 deadline을 먼저 고정한다. 이 예산은 후보 revision이나 무효화 후 후속 회차에서도 같은 원래 요청/자율 활동 슬롯에 누적한다. `closeCandidateSet`이 후보 hash와 coverage를 확정한 뒤에는 새 후보를 같은 선택에 끼워 넣지 못한다. 확정 뒤 제안은 후속 회차에 남기고 실제 전제를 바꾸는 근거만 현재 회차를 무효화한다. 예산 소진 시 `deferred`로 끝내며 선택 RNG·outbox는 진행하지 않는다. 이미 선택한 뒤의 실패라면 기존 `held` 결정을 유지하거나 취소한다.
+Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회차 deadline을 먼저 고정한다. 이 예산은 후보 revision이나 무효화 후 후속 회차에서도 같은 원래 요청/자율 활동 슬롯에 누적한다. `closeCandidateSet`이 후보 hash와 coverage를 확정한 뒤에는 새 후보를 같은 선택에 끼워 넣지 못한다. 확정 뒤 제안은 후속 회차에 남기고 실제 전제를 바꾸는 근거만 현재 회차를 무효화한다. 예산 소진 시 `deferred`로 끝내며 선택 RNG·outbox는 진행하지 않는다. 후보 또는 평가가 불완전한 행동 회차도 비실행 종료 기록을 저장할 수 있다. 이때 `SelectionSpec`·순위·양보·충돌 판정은 없고, `holdReason`에 종료 원인을 남긴다. 제공된 후보 근거와 현재성 검사는 그대로 수행한다. 이미 선택한 뒤의 실패라면 기존 `held` 결정을 유지하거나 취소한다.
 
 `AssessmentSet`은 snapshotId·candidateSetHash·objectiveProfileRefs·모듈별 평가 해시·누락 사유를 묶는다. Host는 현재성·필수 조건으로 적격 후보를 확인한다. 모이라이의 종합 기능은 LLM 해석과 `ArbitrationPolicy`를 포함하며, 각자의 추천을 유지한 채 목표 충돌을 조정한다. 종합 LLM이나 Host가 선언된 정책 밖의 임의 우선순위를 적용하지 않는다.
 
@@ -185,7 +185,7 @@ b_a = boundedReadout(q_a)                         # [-1, 1]
 
 일반 대화는 원래 대화·완결된 내부 의견 원문·구조화된 평가·상태 참조를 Moirai에 전달한다. 기본 LLM 수명은 3판단+1종합이며 모듈 계산과 추가 조회 비용을 별도 기록한다. PR #10의 익명 영어 텍스트 비교는 QA 대조군으로 보존하되 제품 계약은 mechanism별 typed assessment로 전환한다. 상태 수치가 진실·지시·권한이 되지 않으며 특정 자연어 답변 확률도 보장하지 않는다. 실행 효과를 만드는 제안은 아래 행동 확정을 거친다.
 
-명시적 행동은 `3판단 → moirai_prepare → 공통 후보 평가 → 모이라이 조정·선택 정책 → Host 선택 기록 → moirai_finalize` 순서다. 3+2는 최초 LLM 호출의 기본 골격이며 추가 평가까지 다섯 번에 끝난다고 보장하지 않는다. finalize는 prepare의 동일 원문·완결된 의견과 확정된 AssessmentSet·선택 receipt를 받는다. 추가 평가와 재시도·조회·취소·usage를 합산한다. PR #10 capture의 6회 차단선과 예전 QA 출력 제한은 제품 예산으로 복사하지 않는다. 제품 출력 원문을 자르거나 임의 출력 토큰 상한을 추가하지 않는다.
+명시적 행동은 `3판단 → moirai_prepare → 공통 후보 평가 → 모이라이 조정·선택 정책 → Host 선택 기록 → moirai_finalize` 순서다. 3+2는 최초 LLM 호출의 기본 골격이며 추가 평가까지 다섯 번에 끝난다고 보장하지 않는다. finalize는 prepare의 동일 원문·완결된 의견과 확정된 AssessmentSet·선택 receipt를 받는다. 추가 평가와 재시도·조회·취소·usage를 합산한다. PR #10 capture의 6회 차단선과 예전 QA 출력 제한은 제품 예산으로 복사하지 않는다. D23에 따라 제품 프리셋에 역할별 생성 토큰 예산을 선언하고 실제 Codex/OpenCodex 전송에서 적용 여부를 검증한다. 생성 완료 뒤 자르기는 생성 시간·비용 제한을 대신하지 않는다. `buildDialogueResolution`은 새 종합문을 4,000, 이유문을 1,000 UTF-16 code unit으로 제한하고 선택적 `readoutTruncations`에 원래 길이·상한·원문 해시를 남긴다. 기존 필드가 없는 기록에는 이 필드를 추가하지 않는다. 사용자 원문·정정·권한과 구조화된 행동·근거는 이 문장 자르기 대상이 아니다. 생성 한도로 필수 구조가 불완전하면 보완하거나 보류하며 정상 판단으로 표시하지 않는다.
 
 ### 후보의 의미와 효과 범위
 
@@ -197,7 +197,7 @@ LIFE의 기회 제시·개인 선택과 `legacy | moirai` 전환은 [017 D09](01
 
 Host는 AssessmentSet의 현재성·평가 완전성·전제조건을 검사한다. 권한·명시적 금지·강제 실행 조건은 후보의 적격성을 결정하고 약속의 우선순위 충돌은 근거를 가진 재계획 대상으로 처리한다. hard/soft 구분은 정책과 원래 지시가 정하며 LLM이 유리한 쪽으로 재분류하지 않는다.
 
-`p0`의 단일 생성자는 모이라이 `ArbitrationPolicy` 안의 `BaselinePolicy`다. 클로토의 미래 성과, 라케시스의 비신경 욕구·명시적 선호, 아트로포스의 연속성 평가를 구분해 읽고, catalog별 조정 규칙으로 기준 분포를 만든다. 신경 편향은 아래 `b`에서만 정량 반영하며 라케시스의 나머지 평가를 누락하지 않는다. 입력 필드·출처·비교 단위·우선 조건·양보·동률·미확인 처리를 policy revision에 고정한다. 구체적인 가중치나 조정 방식은 후속 설계 사항이며 선언한 정책이 없는 catalog는 실행하지 않는다.
+`p0`의 단일 생성자는 모이라이 `ArbitrationPolicy` 안의 `BaselinePolicy`다. 클로토의 미래 성과, 라케시스의 비신경 욕구·명시적 선호, 아트로포스의 연속성 평가를 구분해 읽고, catalog별 조정 규칙으로 기준 분포를 만든다. 신경 편향은 아래 `b`에서만 정량 반영하며 라케시스의 나머지 평가를 누락하지 않는다. 입력 필드·출처·비교 단위·우선 조건·양보·동률·미확인 처리를 policy revision에 고정한다. 개인 catalog의 구체적인 순서·ratio·λ·판단 불가 처리는 정본 D17·D23과 policy revision 2가 소유한다. 선언한 정책이 없는 catalog는 실행하지 않는다.
 
 선택 전 `SelectionSpec`에 snapshot·AssessmentSet·objectiveProfileRefs·ResolutionRecord·policy revision·적격 후보 hash·`p0`·`b`·`λ`를 고정한다. 조정의 논리적 소유권은 모이라이에 있고, Host는 같은 입력과 정책에서 재현되는지 검증하고 정책의 선택 함수를 실행한다. 임의 LLM 확률이나 Host의 별도 가치 기준으로 대체하지 않는다. 선택 전 근거를 보존하고 사후 설명으로 덮지 않는다.
 
@@ -323,13 +323,13 @@ checkpoint는 기존 설치/checkpoint owner가 조정한다. 대상 scope의 �
 
 ## 구현 단위와 완료 증거
 
-후속 변경 순서·파일 후보·의존 관계는 [017의 F1–F4 지도](017_moirai_module_composition.md#후속-설계와-구현의-의존-순서) 하나로 관리한다. F1에서 원본 참조·채택·판단의 계약을 정하고, F2에서 World 없는 한 개인의 세 메커니즘·Senpi 대화·학습·결과·복구를 연결한다. F2는 대화 중 채택·약속 변경에 필요한 공통 후보·선택·finalize도 포함한다. F3는 이를 LIFE 행동 catalog로 확장하고 기회/행동을 분리하며, F4는 성장 투영·공개 범위·운영 전환이다. 개인정보·정정·중복 반영 방지는 F1/F2부터 적용한다.
+후속 변경 순서·파일 후보·의존 관계는 [017의 F1–F4 지도](017_moirai_module_composition.md#후속-설계와-구현의-의존-순서) 하나로 관리한다. F1에서 원본 참조·채택·판단의 계약을 정하고, F2에서 World 없는 한 개인의 세 메커니즘·Codex 대화·학습·결과·복구를 연결한다. F2는 대화 중 채택·약속 변경에 필요한 공통 후보·선택·finalize도 포함한다. F3는 이를 LIFE 행동 catalog로 확장하고 기회/행동을 분리하며, F4는 성장 투영·공개 범위·운영 전환이다. 개인정보·정정·중복 반영 방지는 F1/F2부터 적용한다.
 
-대조한 dev에는 PR #10의 Senpi 3+1 회차가 제품 통합돼 있지 않다. `session-app.ts`와 제안 `cognition/install.ts`가 Host 조정기·Senpi 역할 세션을 조립하고 `cognition/conversation.ts`는 `SessionPort`에 하나의 논리 대화 수명을 제공한다. 회차 ledger·채택·실행 권한은 SDK 어댑터 내부로 숨기지 않는다. 기존 [SessionEngine.kind](../../../packages/lina-runtime/src/session-engine.ts#L6)의 Codex 고정 타입·생성 소비자·잠근 의존성과 엔진 정책도 후속 전환 단위에서 갱신한다. 개발 작업 실행은 [정본 D21](../../MOIRAI_ENGINE.md#확정된-결정-목록)에 따라 `TaskManager`의 RPC 백엔드를 `omo app-server`로 교체하며, 프로바이더 계정·모델 목록·사용량은 같은 app-server의 `account/*`·`model/list`를 읽는다. Lina의 작업 ID·request digest·receipt·권한 정책은 백엔드 교체와 무관하게 유지하고, app-server의 thread/turn 식별자를 Lina 작업 ID로 대체하지 않는다.
+F1의 공통 계약은 제품 회차 조정기에 아직 연결되지 않았다. `session-app.ts`와 제안 `cognition/install.ts`가 Host 조정기·Codex 역할 thread를 조립하고 `cognition/conversation.ts`가 `SessionPort`에 하나의 논리 대화 수명을 제공한다. 회차 ledger·채택·실행 권한은 어댑터 내부로 숨기지 않는다. `SessionEngine.kind`의 Codex 선택, TaskManager RPC와 OpenCodex 프로바이더 owner는 D22에 따라 유지한다. F2에서 역할 격리·도구 권한·출력 예산의 실제 전송과 재개를 검증한다.
 
 ObjectiveProfile·ResolutionRecord·SelectionSpec·DialogueJudgmentRef는 F1에서 의미·생성/직렬화/복원 계약을 정하고 F2의 판단 입력·후보 평가·종합·캐시·선택 기록·결과 소비자에 연결한다. 실제 도입 때 이전 schema와의 변환·누락 처리도 함께 검증한다.
 
-내부 조언은 사용자 발송·직접 효과 실행 권한을 갖지 않고, 최종 응답만 DurableRuntime의 출처 확인·entry 저장·settlement 경계로 보낸다. 필요한 근거 조회는 Host의 허용된 조회 계약으로 수행한다. 원문·완결된 내부 의견·구조화된 평가·출력 보존을 실제 Senpi 제품 전송에서 검증한다. PR #10의 익명 문자열 schema를 변경하는 마이그레이션이며 예전 QA를 제품 적합성 증거로 대신하지 않는다. Senpi에서 관찰 가능한 session/run 식별자와 Host의 회차·source 증거를 대응시키며, Codex 전용 `nativeEpoch` 의미를 이름만 바꿔 재사용하지 않는다. 다른 Senpi/Moirai 통합이 먼저 병합되면 그 소유자를 확장하며 두 어댑터·회차 조정기를 만들지 않는다. QA runner에서만 성공한 결과는 F2 완료가 아니다.
+내부 조언은 사용자 발송·직접 효과 실행 권한을 갖지 않고, 최종 응답만 DurableRuntime의 출처 확인·entry 저장·settlement 경계로 보낸다. 필요한 근거 조회는 Host의 허용된 조회 계약으로 수행한다. 필수 원문·정정·권한과 구조화된 판단이 실제 Codex 전송에 남는지 검사한다. 설명문의 출력 예산·잘림 표시도 전송과 저장에서 각각 확인한다. Codex thread/turn·nativeEpoch와 Lina round/request 식별자를 구분하고, 실제 재개·취소·늦은 응답 분리를 검증한다.
 
 검증은 개발자가 선언한 정답 감정을 맞히는 시험으로 끝내지 않는다.
 

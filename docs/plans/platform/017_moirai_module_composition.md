@@ -1,6 +1,6 @@
 # 모이라이 엔진 구현 로드맵과 소스 재료
 
-상태: 2026-09-12. 정본 [MOIRAI_ENGINE](../../MOIRAI_ENGINE.md)의 결정을 현재 소스에 연결한다. 이 문서는 소스 재료 표, LIFE 전환, F1–F4 의존 순서, 확정된 결정의 남은 산출물, 검증 가설을 소유한다. 모듈 정의·조정 정책·행동 catalog·의도 schema·회로 프로필은 정본이, 타입·포트·저장·복구는 [016 계약](016_neural_preference_contract.md)이, 근거는 [015](015_neural_preference_engine_research.md)가, 채널·모델 운영은 [030](../context-engines/030_moirai_refactor_plan.md)이 소유한다. 아래 경로와 타입은 구현 후보이며 구현 완료나 통과한 테스트를 뜻하지 않는다.
+상태: 2026-09-13. 정본 [MOIRAI_ENGINE](../../MOIRAI_ENGINE.md)의 결정을 현재 소스에 연결한다. 이 문서는 소스 재료 표, LIFE 전환, F1–F4 의존 순서, 확정된 결정의 남은 산출물, 검증 가설을 소유한다. 모듈 정의·조정 정책·행동 catalog·의도 schema·회로 프로필은 정본이, 타입·포트·저장·복구는 [016 계약](016_neural_preference_contract.md)이, 근거는 [015](015_neural_preference_engine_research.md)가, 채널·모델 운영은 [030](../context-engines/030_moirai_refactor_plan.md)이 소유한다. 아래 경로와 타입은 구현 후보이며 구현 완료나 통과한 테스트를 뜻하지 않는다.
 
 ## 현재 구현에서 확인한 재료
 
@@ -16,12 +16,12 @@
 | [LIFE 욕구·목표](../../../packages/lina-core/src/world/autonomy-types.ts#L16), [사건 선택](../../../packages/lina-core/src/world/events.ts#L25) | 욕구 drift, 목표 우선순위·진행률, 성향·습관·반복 패널티를 반영한 사건/참여자 선택 | 욕구·목표 원본은 재사용. 기존 개인 선택 부분은 아래 LIFE 전환 계약으로 분리 |
 | [Ensemble 어댑터](../../../packages/lina-runtime/src/life/social/execution.ts#L104) | 규칙 기반 사회적 의향, 작성된 행동 그래프 탐색, 상대 반응·효과 계산 | 공통 사회 도메인 서비스. 라케시스는 의향 근거, 클로토는 허용된 결과 가정에 활용 |
 | [NativePersonaGrowth](../../../packages/lina-runtime/src/persona/native-growth.ts#L25), [BehaviorStore](../../../packages/lina-core/src/agents/behavior-store.ts#L75) | 유효한 기억을 성향·습관으로 해석하고 대화·LIFE에 투영 | 공통 성향 소유자. reflection/neural 생성자를 dimension별로 지정 |
-| [TaskManager](../../../packages/lina-codex/src/tasks.ts#L139), [작업 도구](../../../packages/lina-runtime/src/tools/codex-tasks.ts#L25) | 지속되는 개발 작업, 지시·중단·인계·결과 통지 | 실행 소유자. catalog v1의 `task.*` effect owner. D21에 따라 RPC 백엔드를 Codex CLI에서 `omo app-server`로 교체하되 작업 ID·receipt·권한 계약은 유지. 프로세스 종료를 목표 달성으로 간주하지 않음 |
+| [TaskManager](../../../packages/lina-codex/src/tasks.ts#L139), [작업 도구](../../../packages/lina-runtime/src/tools/codex-tasks.ts#L25) | 지속되는 개발 작업, 지시·중단·인계·결과 통지 | 실행 소유자. catalog v1의 `task.*` effect owner. D22에 따라 Codex app-server RPC를 유지하고 작업 ID·receipt·권한 계약은 유지. 프로세스 종료를 목표 달성으로 간주하지 않음 |
 | [이미지 작업](../../../packages/lina-runtime/src/images/jobs.ts#L39), [LIFE 게시](../../../packages/lina-runtime/src/life/publication.ts#L302) | 생성·편집·취소·복구, 게시·답글·아바타 연결 | 표현·실행 소유자. 무엇을 표현할지의 개인 판단은 모이라이에 요청 |
-| [AgentFleet](../../../packages/lina-runtime/src/fleet/manager.ts#L39), [세션 조립](../../../packages/lina-runtime/src/session-app.ts#L173) | 개인별 세션·저장소, 문맥·기억·성장·도구 연결 | 공통 구성점. 모이라이 회차 조정기와 Senpi 역할 세션을 설치 |
+| [AgentFleet](../../../packages/lina-runtime/src/fleet/manager.ts#L39), [세션 조립](../../../packages/lina-runtime/src/session-app.ts#L173) | 개인별 세션·저장소, 문맥·기억·성장·도구 연결 | 공통 구성점. 모이라이 회차 조정기와 Codex 역할 thread을 설치 |
 | [실행 통제](../../../packages/lina-runtime/src/execution.ts#L50), [DurableRuntime](../../../packages/lina-runtime/src/runtime.ts#L20) | 요청·응답 기록, 실행 권한·취소·복구 | 확정된 판단을 실제 효과로 넘기는 Host. 판단 저장과 효과 저장 책임 구분 |
 | [웹](../../../packages/lina-web/src/server.ts#L53), [Discord](../../../packages/lina-channels/src/discord-bridge.ts#L24) | 외부 입력·최종 응답 전달 | 채널. 내부 세 의견을 세 사용자 메시지로 전송하지 않음. Telegram은 현재 stub |
-| [모델 서비스](../../../packages/lina-opencodex/src/services.ts#L323), [체크포인트](../../../packages/lina-runtime/src/checkpoint-cli.ts#L18) | 모델 라우팅과 전문 호출, 오프라인 상태 캡처·새 경로 복원 | 공통 인프라. D21에 따라 OpenCodex Hub의 카탈로그·역할 모델 선택은 Senpi native(`account/providerAccounts/*`, `model/list`)와 검증된 프리셋으로 대체하고 `lina-opencodex`는 폐기 대상. checkpoint는 엔진 저장소를 기존 설치/복구 책임 아래 편입 |
+| [모델 서비스](../../../packages/lina-opencodex/src/services.ts#L323), [체크포인트](../../../packages/lina-runtime/src/checkpoint-cli.ts#L18) | 모델 라우팅과 전문 호출, 오프라인 상태 캡처·새 경로 복원 | 공통 인프라. D22에 따라 OpenCodex Hub의 카탈로그·계정 소유권과 `lina-opencodex` 어댑터를 유지하고 검증된 프리셋을 적용. checkpoint는 엔진 저장소를 기존 설치/복구 책임 아래 편입 |
 
 현재 대화의 기본 경로는 `입력 → 개인 세션 → 문맥·페르소나·기억 조회 → LLM/도구 → 응답 정착 → 기억·성향 후처리`다. LIFE는 `사건/참여자 선택 → director → actor → 필요 시 target → Ensemble → reflection → 상태 확정`이다. 두 경로 모두 근거와 상태를 보존하지만, 세 관점이 공통 후보를 판단하는 제품 회차는 아직 없다.
 
@@ -29,10 +29,10 @@
 
 | 코드 기준 | 상태와 재사용 범위 |
 | --- | --- |
-| [현재 MoiraiProbe](../../../packages/lina-codex/src/moirai-probe.ts#L67) | Codex QA 전용 3판단+종합·이력 대조. 제품 채널·도메인 포트는 연결되지 않음. 새 Senpi 조정기로 복제하지 않음 |
-| [PR #10 Senpi](https://github.com/thisisjun786/lina/blob/5b22aee53f9f7c01cc508289099f662aed613140/scripts/qa/senpi-sdk/README.md) | 다른 브랜치의 SDK QA. `createAgentSession`·`ModelRuntime`·`SessionManager` 사용 예와 세션·취소·재개 검증. 역할 프롬프트는 이전 렌즈(라케시스=근거, 아트로포스=상황 선택)이므로 F2에서 정본의 목표로 재작성(D13) |
+| [현재 MoiraiProbe](../../../packages/lina-codex/src/moirai-probe.ts#L67) | Codex QA 전용 3판단+종합·이력 대조. 제품 채널·도메인 포트는 연결되지 않음. QA 코드를 제품 조정기로 복제하지 않음 |
+| [PR #10 Senpi](https://github.com/thisisjun786/lina/blob/5b22aee53f9f7c01cc508289099f662aed613140/scripts/qa/senpi-sdk/README.md) | 병합된 비교용 SDK QA. `createAgentSession`·`ModelRuntime`·`SessionManager` 사용 예와 세션·취소·재개 검증. 역할 프롬프트는 이전 렌즈(라케시스=근거, 아트로포스=상황 선택)이므로 F2에서 정본의 목표로 재작성(D13) |
 | [PR #8 채택 커널](https://github.com/thisisjun786/lina/blob/ab9f1f073eca80ecef8dda0b0f7d338f4d6cb35c/scripts/qa/adoption-kernel/types.ts#L24) | PR은 미병합 종료. `Purpose`·`Adoption(understanding \| plan \| intention)`·`Judgment(method, expectation)`·`ToolReceipt`·`ProposalAction(answer \| adopt \| tool \| defer \| noop)`의 의미를 정본의 `IntentionRecord`와 catalog v1로 이전. Frame·DB·독립 평가 통과는 전제하지 않음 |
-| [PR #11 프롬프트 방법론](https://github.com/thisisjun786/lina/blob/25346f15287a96d7e95e8c3e07c51fff1899f66f/docs/plans/platform/014_model_tuning_methodology_research.md) | 미병합 문서. 작성 순서·A/B/C 진단·비교 자동화·누출 점검을 정본 D20이 채택. 그 문서의 역할 표(라케시스=분석가, 아트로포스=결정자)와 "실행 엔진은 Codex" 문장, 030의 옛 anchor 링크는 병합 시 정본에 맞춰 갱신 필요 |
+| [PR #11 프롬프트 방법론](https://github.com/thisisjun786/lina/blob/25346f15287a96d7e95e8c3e07c51fff1899f66f/docs/plans/platform/014_model_tuning_methodology_research.md) | 병합된 방법론. 작성 순서·A/B/C 진단·비교 자동화·누출 점검을 정본 D20이 채택. 그 문서의 역할 표(라케시스=분석가, 아트로포스=결정자)와 "실행 엔진은 Codex" 문장, 030의 옛 anchor 링크는 병합 시 정본에 맞춰 갱신 필요 |
 | PR #8 이후 로컬 검증 후보 `0cdfd43` | 프로세스 복구·실패 결과 검증을 추가한 별도 후보. 제품 의존성으로 채택하지 않고 후속 설계 때 공개 가능한 리비전과 결과를 다시 확인 |
 | [PR #5 UI](https://github.com/thisisjun786/lina/pull/5) | 별도 UI·공통 client·Electron 구현. 인지 원본을 UI 패키지로 옮기지 않음. 엔진 완성 뒤 고도화 |
 
@@ -62,14 +62,16 @@ Ensemble의 행동 그래프가 개인이 통제하는 서로 다른 행동을 �
 
 | 단계 | 변경 후보와 전후 차이 | 해당 단계에서 확인할 결과 |
 | --- | --- | --- |
-| F1 공통 계약·소유권 | NEW core `agents/judgment.ts`(ObjectiveProfile·Assessment·ResolutionRecord·SelectionSpec·IntentionRecord), `judgment-store.ts`; MODIFY core `context/types.ts`의 읽기 투영 계약·`agents/behavior-types.ts`·`PersonaSchema`; catalog `personal.v1` schema와 `ArbitrationPolicy` revision 1 정의 | 원문·이해·목적·계획·의도와 모듈별 ObjectiveProfile을 구분하고 세 판단에 같은 필수 입력 전달. 지시 revision과 WorkingState revision을 혼동하지 않음. 정책·catalog·schema의 직렬화/복원과 이전 값 처리 |
-| F2 세 메커니즘·Senpi·회로 | NEW runtime `cognition/install.ts`, `conversation.ts`, `prospect.ts`, `value.ts`, `continuity.ts`, `option-assessments.ts`, `arbitration-policy.ts`, `senpi/session.ts`, `neural-preference/{port,client,store}.ts`, `prompts/{common,clotho,lachesis,atropos,moirai}.ts`를 `PromptAsset` 층 구조로 작성하고 구조·전송 검사; NEW `lina-codex`의 app-server 클라이언트에 `omo app-server` 전송(unix/ws)·`dynamicTools`·approval 실전송 검사(D21); MODIFY `session-app.ts`, `session-engine.ts`, `sdk-port.ts`, `runtime.ts`, core `store.ts`; 별도 Python 계산 artifact와 회로 프로필 v1 추출 | World 없는 한 개인에서 세 판단+종합, catalog v1 행동 확정, MaleCNS 관측·조회·학습, 의도 유지, 실제 결과 환류, 재시작 연결. 회로 프로필 v1의 `qualified` 검사 통과. QA runner만 성공한 상태로 완료 처리하지 않음 |
+| F1 공통 계약·소유권 | core `agents/judgment*.ts`, `context/read-projection.ts`, `agents/behavior-types.ts`·`PersonaSchema`; catalog `personal.v1`과 policy revision 2. PR #14의 계약에 D23 보완 | 원본·지시·WorkingState revision 분리, 목표 참조·정책·대화/행동 기록의 복원, 출력 잘림 표시, 비실행 deferred, 과거 policy revision 1 재생. 공통 계약 구현은 제품 연결 완료를 뜻하지 않음 |
+| F2 세 메커니즘·Codex·회로 | NEW runtime `cognition/install.ts`, `conversation.ts`, `prospect.ts`, `value.ts`, `continuity.ts`, `option-assessments.ts`, `arbitration-policy.ts`, `codex/session.ts`, `neural-preference/{port,client,store}.ts`, `prompts/{common,clotho,lachesis,atropos,moirai}.ts`; MODIFY 기존 `lina-codex` RPC·SessionPort 연결과 `session-app.ts`, `runtime.ts`, core `store.ts`; Python 계산 artifact와 회로 프로필 v1 | World 없는 한 개인의 세 판단+종합, catalog 행동 확정, MaleCNS 관측·조회·학습, 의도 유지·결과 환류·재시작. Codex 역할 격리·dynamicTools·approval·생성 토큰 예산·잘림·부분 평가 보완의 실제 제품 검사와 회로 qualified 검사 |
 | F3 World/LIFE 행동 확장 | NEW 도메인 투영 포트(`projectConsequences`); EXTEND F2의 공통 후보·선택 정책을 LIFE catalog에 적용; MODIFY core `world/events.ts`, pack/step types·codecs·`autonomy-persistence.ts`, runtime `life/director.ts`, 사회 계산/실행 포트·게시/이미지 연결 | 사건 기회와 개인 선택 분리, legacy 재현, LIFE catalog의 선언된 조정 정책, 세 후보 평가·단일 선택·상대의 독립 결정·실제 owner 효과의 일치 |
-| F4 성장·공개 범위·운영 | MODIFY 기존 BehaviorStore/Persona 투영, Fleet·후처리·모델 프리셋·scheduler·설치/checkpoint 소비자, AGENTS/README의 엔진 계약; NEW `scripts/qa/moirai-evals/` 프롬프트 비교 harness(Senpi evals 패턴 재사용)와 고정 검증군; MODIFY `lina-opencodex` 소비자(`models/*`, 설정 HTTP/UI)를 Senpi native 프로바이더 계정·프리셋으로 전환하고 Codex CLI·OpenCodex 의존성 제거, 기존 세션 binding·`models.sqlite`·작업 이력의 보존·전환 필요 표시(D21) | 성향 중복 가산과 비밀 scope 유출 없음, 8명 비동기·실제 RAM/VRAM/지연·다중 저장소 복원·Python·app-server 프로세스 장애 시험, 첫 프롬프트 개선 루프를 D20 절차로 완주한 기록, Codex/OpenCodex 없는 설치본에서 대화·작업·프로바이더 확인이 동작 |
+| F4 성장·공개 범위·운영 | MODIFY BehaviorStore/Persona 투영, Fleet·후처리·모델 프리셋·scheduler·설치/checkpoint 소비자, AGENTS/README; NEW `scripts/qa/moirai-evals/` Codex 비교 harness와 고정 검증군; 기존 OpenCodex 모델 소비자에 검증 프리셋 경계 적용 | 성향 중복 가산·비밀 scope 유출 없음, 8명 비동기·RAM/VRAM/지연·다중 저장소 복원·Python/Codex 프로세스 장애 검사, D20 첫 개선 루프 완주. Codex/OpenCodex를 유지한 설치본에서 대화·작업·프로바이더 연결 검증 |
 
-F1에서 의미·정체성·공개 범위와 중복 반영 방지를 먼저 정한다. F2에서 별도 `agentState`로 신경 반응을 제공하더라도 기존 성향과 겹치는 dimension은 제외하거나 생성자 전환을 함께 수행한다. F4까지 근거·격리 검사를 미루지 않는다. 프리셋의 역할·티어·입력/출력 계약도 F2의 실제 Senpi 전송에 적용하고 F4에서 운영 전환을 검증한다. 030의 이전 R 번호는 이 지도에 대응시키며 별도 개발 루프로 실행하지 않는다.
+F1에서 의미·정체성·공개 범위와 중복 반영 방지를 먼저 정한다. F2에서 별도 `agentState`로 신경 반응을 제공하더라도 기존 성향과 겹치는 dimension은 제외하거나 생성자 전환을 함께 수행한다. F4까지 근거·격리 검사를 미루지 않는다. 프리셋의 역할·티어·입력/출력 계약도 F2의 실제 Codex 전송에 적용하고 F4에서 운영 전환을 검증한다. 030의 이전 R 번호는 이 지도에 대응시키며 별도 개발 루프로 실행하지 않는다.
 
-새 필드의 후속 구현은 생성 → 직렬화 → 역직렬화/이전 값 → 모든 소비자를 함께 명시한다. `ObjectiveProfile`·`ResolutionRecord`·`SelectionSpec`·`DialogueJudgmentRef`·`IntentionRecord`는 생성·판단 입력·캐시 key·ledger·복원·종합 소비자를 함께 연결한다. `decisionMode`는 pack/설정 입력·builder, 저장 schema/step digest, codec·legacy decoder, 사건 선택·director·재생·UI 상태 소비자까지 포함한다. `NeuralProjectionRef`는 생성·DB/manifest·복원·Persona/LIFE 소비자 전부를, Senpi 식별자는 생성·binding 저장·재개·취소·usage 소비자를 대조해야 한다.
+새 필드의 후속 구현은 생성 → 직렬화 → 역직렬화/이전 값 → 모든 소비자를 함께 명시한다. `ObjectiveProfile`·`ResolutionRecord`·`SelectionSpec`·`DialogueJudgmentRef`·`IntentionRecord`는 생성·판단 입력·캐시 key·ledger·복원·종합 소비자를 함께 연결한다. `decisionMode`는 pack/설정 입력·builder, 저장 schema/step digest, codec·legacy decoder, 사건 선택·director·재생·UI 상태 소비자까지 포함한다. `NeuralProjectionRef`는 생성·DB/manifest·복원·Persona/LIFE 소비자 전부를, Codex thread/turn 식별자는 생성·binding 저장·재개·취소·usage 소비자를 대조해야 한다.
+
+F1의 `Purpose`·`Understanding`·`Plan` 의미와 typed Forecast/Claim, `NeuralProjectionRef`의 회로 상태·학습 revision 결합은 아직 부분 계약이다. 원래 기능을 삭제하지 않으며 F2 메커니즘을 연결하기 전에 생성·저장·복원·소비자를 완성한다. AgentStore의 PersonaSchema 권위와 기존 데이터 이전은 아래 F4 범위를 따른다.
 
 ## 확정된 결정과 남은 산출물
 
@@ -82,12 +84,12 @@ F1에서 의미·정체성·공개 범위와 중복 반영 방지를 먼저 정�
 | 의도의 최소 schema | D16 `IntentionRecord` v1 | F1: 직렬화·전이 검증. F2: 약속·자율 목표의 충돌·완료·철회 시나리오 |
 | 성향 축의 소유권 | D18 AgentStore `PersonaSchema` | F1: schema 정의. F4: 기존 Behavior receipt·projection의 데이터 이전 |
 | 회로/의미 인터페이스 | D14 회로 프로필 v1 | F2: body 목록·부호·상수·해시 추출, encoder/readout 구현, `qualified` 검사 |
-| 목표별 판단·종합 정책 | D17 `personal.v1` 조정 정책 | F1: policy revision 1 코드화. F2: ResolutionRecord/SelectionSpec 재현 검증. 효용 비교는 아래 가설 |
+| 목표별 판단·종합 정책 | D17 `personal.v1` 조정 정책 | F1: policy revision 2와 revision 1 과거 재생. F2: ResolutionRecord/SelectionSpec 재현 검증. 효용 비교는 아래 가설 |
 | 제품 세션·저장 경계 | D19 저장소 셋과 Python 계산기 하나 | F2: JudgmentStore·NeuralPreferenceStore·outbox/inbox·checkpoint manifest 편입 |
 | 프롬프트 작성·개선 | D20 프롬프트 자산·다섯 층·8단계 루프 | F2: 자산 revision·층 해시·wire 검사. F4: 비교 harness·독립 judge·고정 검증군·첫 루프 완주 |
-| 개발 작업 실행 엔진·프로바이더 관리 | D21 OMO native app-server + Senpi native 계정·모델 | F2: `lina-codex` 클라이언트의 `omo app-server` 전송·`dynamicTools`·approval 실검사. F4: `lina-opencodex` 소비자 전환, Codex CLI·OpenCodex 제거, 기존 데이터 보존·전환 표시, 폐기 |
+| 개발 작업 실행 엔진·프로바이더 관리 | D22 Codex app-server + OpenCodex | F2: 기존 어댑터의 역할·도구·승인·예산·재개 실검사. F4: 기존 데이터 보존과 검증 프리셋·새 엔진 저장소의 설치/복구 검사 |
 
-다음 작업은 정본 → 016 → 이 문서 → 030 순서로 읽고, 소스/PR 리비전을 갱신한 뒤 F1부터 시작한다. 판단을 바꿀 때는 D 번호와 이유를 남기고 연관 계약도 함께 갱신한다. 실제 구현 착수는 별도 요청에서 결정한다.
+다음 작업은 정본 → 016 → 이 문서 → 030 순서로 읽고, PR #14와 D22·D23의 F1 보완을 확인한 뒤 F2 계약과 연결을 구현한다. 판단을 바꿀 때는 D 번호와 이유를 남기고 연관 계약도 함께 갱신한다. F2 제품 구현·실모델 검증은 해당 작업의 범위에서 수행한다.
 
 ## 검증할 가설과 반례
 

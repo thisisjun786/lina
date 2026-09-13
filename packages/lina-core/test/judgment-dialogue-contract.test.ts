@@ -130,6 +130,49 @@ function db() {
 	return fixture.keep(new DatabaseSync(path));
 }
 
+test("fresh dialogue bounds readouts before hashing and retains clipping provenance on reopen", () => {
+	seed();
+	const original = record();
+	const long = {
+		...original,
+		synthesis: "s".repeat(5000),
+		rationale: "r".repeat(1400),
+	};
+	expect(() => api.parseDialogueResolutionRecord(long)).toThrow();
+	const prepared = api.buildDialogueResolution({
+		...long,
+		snapshot,
+		assessments,
+	});
+	expect(prepared.synthesis).toBe("s".repeat(4000));
+	expect(prepared.rationale).toBe("r".repeat(1000));
+	expect(prepared.readoutTruncations).toMatchObject({
+		synthesis: { originalLength: 5000, limit: 4000 },
+		rationale: { originalLength: 1400, limit: 1000 },
+	});
+	expect(prepared.assessmentDigests).toEqual(original.assessmentDigests);
+	store.recordResolution(snapshot.roundId, prepared, null);
+	const before = store.dialogueJudgmentRef(snapshot.roundId);
+	reopen();
+	expect(store.getResolution(snapshot.roundId)).toEqual(prepared);
+	expect(store.dialogueJudgmentRef(snapshot.roundId)).toEqual(before);
+	expect(
+		api.buildDialogueResolution({ ...original, snapshot, assessments }),
+	).toEqual(original);
+	expect(() =>
+		api.parseDialogueResolutionRecord({
+			...prepared,
+			readoutTruncations: {
+				synthesis: {
+					originalLength: 1,
+					limit: 4000,
+					sourceDigest: "a".repeat(64),
+				},
+			},
+		}),
+	).toThrow();
+});
+
 for (const [field, value] of [
 	["requestDigest", "0".repeat(64)],
 	["sourceDigest", "1".repeat(64)],

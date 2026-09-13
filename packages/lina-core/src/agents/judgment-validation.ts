@@ -16,11 +16,14 @@ import {
 	type JsonObject,
 	type JsonValue,
 	type JudgmentSnapshotRef,
+	MAX_READOUT_TEXT,
+	type MechanismRevision,
 	MODULE_KINDS,
 	type ModuleKind,
 	type ObjectiveProfile,
 	type ObjectiveProfileRef,
 	type OptionAssessment,
+	type ReadoutTruncation,
 	type ResolutionRecord,
 	SEVERITIES,
 	type SelectionSpec,
@@ -196,13 +199,73 @@ export function judgmentDigest(value: unknown): string {
 export function assessmentInputDigest(input: {
 	snapshotDigest: string;
 	objectiveRef: ObjectiveProfileRef;
-	mechanismRevision: number;
+	mechanismRevision: MechanismRevision;
 }): string {
 	return judgmentDigest({
 		snapshotDigest: input.snapshotDigest,
 		objectiveRef: input.objectiveRef,
 		mechanismRevision: input.mechanismRevision,
 	});
+}
+
+function mechanismRevision(value: unknown): MechanismRevision {
+	if (typeof value === "string") {
+		if (!/^sha256:[0-9a-f]{64}$/.test(value))
+			throw Error("invalid mechanism revision");
+		return value as `sha256:${string}`;
+	}
+	return revision(value, "mechanism revision");
+}
+
+/** Only fresh output preparation clips text; persisted record parsers never do. */
+export function prepareReadout(
+	value: string,
+	label: string,
+	limit = MAX_READOUT_TEXT,
+): { text: string; truncation: ReadoutTruncation | null } {
+	boundedText(value, label, Number.MAX_SAFE_INTEGER);
+	if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_READOUT_TEXT)
+		throw Error("invalid readout limit");
+	if (value.length <= limit) return { text: value, truncation: null };
+	let end = limit;
+	const last = value.charCodeAt(end - 1),
+		next = value.charCodeAt(end);
+	if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff)
+		end--;
+	return {
+		text: boundedText(value.slice(0, end), label, limit),
+		truncation: {
+			originalLength: value.length,
+			limit,
+			sourceDigest: createHash("sha256").update(value).digest("hex"),
+		},
+	};
+}
+
+export function parseReadoutTruncation(
+	value: unknown,
+	text: string,
+	limit: number,
+): ReadoutTruncation {
+	const row = fields(
+		value,
+		["originalLength", "limit", "sourceDigest"],
+		"readout truncation",
+	);
+	const originalLength = revision(
+		row["originalLength"],
+		"original readout length",
+	);
+	const sourceDigest = boundedId(row["sourceDigest"], "readout source digest");
+	if (
+		row["limit"] !== limit ||
+		originalLength <= limit ||
+		text.length < limit - 1 ||
+		text.length > limit ||
+		!/^[a-f0-9]{64}$/.test(sourceDigest)
+	)
+		throw Error("invalid readout truncation");
+	return { originalLength, limit, sourceDigest };
 }
 export function snapshotDigest(ref: JudgmentSnapshotRef): string {
 	return judgmentDigest(ref);
@@ -515,8 +578,12 @@ export function parseAssessment(value: unknown): Assessment {
 		snapshotDigest: boundedId(row["snapshotDigest"], "snapshot digest"),
 		inputDigest: boundedId(row["inputDigest"], "input digest"),
 		objectiveRef: objectiveProfileRef(row["objectiveRef"]),
-		mechanismRevision: revision(row["mechanismRevision"], "mechanism revision"),
-		completeText: boundedText(row["completeText"], "complete text"),
+		mechanismRevision: mechanismRevision(row["mechanismRevision"]),
+		completeText: boundedText(
+			row["completeText"],
+			"complete text",
+			MAX_READOUT_TEXT,
+		),
 		evidenceRefs: strings(row["evidenceRefs"], "evidence refs"),
 		proposedOptionKeys: strings(
 			row["proposedOptionKeys"],
