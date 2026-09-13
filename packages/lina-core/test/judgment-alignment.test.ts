@@ -150,7 +150,8 @@ test("a readout with no readable text is reported, never stored", () => {
 	if (!source) throw Error("missing fixture assessment");
 	const { inputDigest: _digest, ...raw } = source;
 	// Zero-width and other format characters render as nothing, like whitespace.
-	for (const blank of [" ", "\n", "\u200b", "\ufeff"]) {
+	// Standalone combining marks render as nothing without a base character.
+	for (const blank of [" ", "\n", "\u200b", "\ufeff", "\ufe0f", "\u034f"]) {
 		// Long prose whose first 4,000 units carry no readable text.
 		expect(() =>
 			api.buildAssessment({
@@ -173,4 +174,8 @@ test("a readout with no readable text is reported, never stored", () => {
 		originalLength: 4102,
 		limit: 4000,
 	});
+	// A mark on a base character is content, so composed text stays valid.
+	expect(
+		api.buildAssessment({ ...raw, completeText: "e\u0301" }).completeText,
+	).toBe("e\u0301");
 });

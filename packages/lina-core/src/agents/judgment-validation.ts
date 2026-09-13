@@ -217,9 +217,10 @@ function mechanismRevision(value: unknown): MechanismRevision {
 	return revision(value, "mechanism revision");
 }
 
-/** Whitespace, control and format characters render as nothing, so a readout
- * made only of them carries no content even though it has length. */
-const READOUT_CONTENT = /[^\s\p{Cc}\p{Cf}]/u;
+/** Whitespace, control and format characters render as nothing, and a combining
+ * mark needs a base character, so a readout made only of them carries no content
+ * even though it has length. */
+const READOUT_CONTENT = /[^\s\p{Cc}\p{Cf}\p{Mn}\p{Me}]/u;
 
 /** Only fresh output preparation clips text; persisted record parsers never do. */
 export function prepareReadout(

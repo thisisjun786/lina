@@ -58,13 +58,22 @@ export const PERSONAL_POLICY_V2: ArbitrationPolicy = Object.freeze({
 });
 export const PERSONAL_POLICY_CURRENT = PERSONAL_POLICY_V2;
 
+/** A later build may declare revisions this one cannot replay. */
+export function personalPolicyIfDeclared(
+	policyId: string,
+	revision: number,
+): ArbitrationPolicy | null {
+	return (
+		[PERSONAL_POLICY_V1, PERSONAL_POLICY_V2].find(
+			(p) => p.policyId === policyId && p.revision === revision,
+		) ?? null
+	);
+}
 export function personalPolicyFor(
 	policyId: string,
 	revision: number,
 ): ArbitrationPolicy {
-	const policy = [PERSONAL_POLICY_V1, PERSONAL_POLICY_V2].find(
-		(p) => p.policyId === policyId && p.revision === revision,
-	);
+	const policy = personalPolicyIfDeclared(policyId, revision);
 	if (!policy) throw Error("unsupported personal policy declaration");
 	return policy;
 }

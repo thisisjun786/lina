@@ -27,7 +27,11 @@ import {
 	validateDialogueResolution,
 } from "./judgment-dialogue.ts";
 import { validateCandidateEvidence } from "./judgment-evidence.ts";
-import { personalPolicyFor, resolvePersonalRound } from "./judgment-policy.ts";
+import {
+	personalPolicyFor,
+	personalPolicyIfDeclared,
+	resolvePersonalRound,
+} from "./judgment-policy.ts";
 import { initializeJudgmentSchema } from "./judgment-schema.ts";
 import {
 	canonicalJson,
@@ -67,6 +71,7 @@ function validateResolutionBinding(
 	candidates: CandidateSet | null,
 	lookupIntention: (id: string) => IntentionRecord | null,
 	assessments: Assessment[],
+	stored: boolean,
 ): void {
 	if (resolution.schemaVersion === 2) {
 		if (selection !== null || candidates !== null)
@@ -87,10 +92,16 @@ function validateResolutionBinding(
 		if (resolution.status === "held") return;
 		// Revision 2 owns the terminal receipt and only an exhausted budget earns
 		// it, so a round with remaining budget stays open for its missing work.
-		const declared = personalPolicyFor(
+		const declared = personalPolicyIfDeclared(
 			snapshot.policyId,
 			snapshot.policyRevision,
 		);
+		// A later build may have written this receipt. Auditing persisted bytes
+		// preserves it as history; a fresh write still needs a policy to check.
+		if (!declared) {
+			if (stored) return;
+			throw Error("unsupported personal policy declaration");
+		}
 		if (declared.revision < 2)
 			throw Error("incomplete deferred requires policy revision 2");
 		if (resolution.holdReason !== EVALUATION_BUDGET_EXHAUSTED)
@@ -610,6 +621,7 @@ export class JudgmentStore {
 				candidates,
 				(id) => this.getIntention(id),
 				assessments,
+				false,
 			);
 			const now = this.now();
 			this.db
@@ -1142,6 +1154,7 @@ export class JudgmentStore {
 				candidatesByRound.get(record.roundId) ?? null,
 				(id) => intentionsById.get(id) ?? null,
 				assessments,
+				true,
 			);
 		}
 		if (this.db.prepare("PRAGMA foreign_key_check").all().length > 0)

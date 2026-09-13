@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { DatabaseSync } from "node:sqlite";
 import type { ResolutionRecord } from "../src/agents/judgment.ts";
 import { buildCandidateSet } from "../src/agents/judgment-candidates.ts";
 import {
@@ -11,6 +12,7 @@ import {
 } from "../src/agents/judgment-store.ts";
 import {
 	assessmentInputDigest,
+	judgmentDigest,
 	parseAssessment,
 	parseAssessmentSet,
 	parseJudgmentSnapshotRef,
@@ -220,6 +222,38 @@ test("a legacy incomplete hold under an undeclared policy stays readable", () =>
 	const reopened = fixture.keep(new JudgmentStore(path));
 	expect(reopened.getResolution(round.snapshot.roundId)).toEqual(held);
 	// One unsupported historical row must not fail unrelated ledger reads.
+	expect(reopened.getIntention("promise")).not.toBeNull();
+	expect(reopened.getRound(input.snapshot.roundId)?.status).toBe("open");
+});
+
+test("a stored deferred receipt from a newer policy stays readable", () => {
+	const context = policyEvidenceFixture();
+	fixtures.push(context);
+	const { store, path, fixture, input } = context;
+	const round = v2Round(context);
+	const record = deferredRecord(round.input);
+	store.recordResolution(round.snapshot.roundId, record, null);
+	// Simulate the same round written by a build that declares revision 3.
+	const future = parseJudgmentSnapshotRef({
+		...round.snapshot,
+		policyRevision: 3,
+	});
+	const futureRecord = parseResolutionRecord({ ...record, policyRevision: 3 });
+	const db = fixture.keep(new DatabaseSync(path));
+	db.prepare(
+		"UPDATE rounds SET snapshot = ?, snapshot_digest = ? WHERE round_id = ?",
+	).run(JSON.stringify(future), snapshotDigest(future), round.snapshot.roundId);
+	db.prepare(
+		"UPDATE resolution_records SET body = ?, digest = ? WHERE round_id = ?",
+	).run(
+		JSON.stringify(futureRecord),
+		judgmentDigest(futureRecord),
+		round.snapshot.roundId,
+	);
+
+	const reopened = fixture.keep(new JudgmentStore(path));
+	expect(reopened.getResolution(round.snapshot.roundId)).toEqual(futureRecord);
+	// One row this binary cannot replay must not fail unrelated ledger reads.
 	expect(reopened.getIntention("promise")).not.toBeNull();
 	expect(reopened.getRound(input.snapshot.roundId)?.status).toBe("open");
 });
