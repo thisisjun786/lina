@@ -6,6 +6,7 @@ import {
 	MODULE_KINDS,
 	PERSONAL_POLICY_V1,
 	parseAssessmentSet,
+	parseJudgmentSnapshotRef,
 	rankMass,
 	resolvePersonalRound,
 	sampleSelection,
@@ -113,6 +114,83 @@ function fixture(): Parameters<typeof resolvePersonalRound>[0] {
 		bias: {},
 	};
 }
+
+function commitmentChange(breachedIntentionIds?: string[]) {
+	const input = fixture();
+	const actor = {
+		agentId: input.snapshot.agentId,
+		scopeId: input.snapshot.scopeId,
+	};
+	const change = buildCanonicalOption({
+		kind: "intention.cancel",
+		actor,
+		targetId: "changed-intention",
+		args: {},
+		preconditions: {
+			kind: "intention.cancel",
+			intentionId: "changed-intention",
+			acceptanceSourceRef: "accepted-request",
+			authorityRef: "host-authority",
+			userConfirmationRef: null,
+		},
+	});
+	input.options = [change];
+	input.eligibility = [
+		{ optionKey: change.optionKey, eligible: true, reason: null },
+	];
+	input.set = parseAssessmentSet({
+		...input.set,
+		assessments: input.set.assessments.map((assessment) => ({
+			...assessment,
+			proposedOptionKeys: [],
+			recommendedOptionKeys: [],
+			objectiveAssessments: [
+				{
+					optionKey: change.optionKey,
+					stance: assessment.moduleKind === "atropos" ? "oppose" : "prefer",
+					severity:
+						assessment.moduleKind === "atropos" ? "commitment_breach" : null,
+					unavailableReason: null,
+					gain: "gain",
+					loss: "loss",
+					uncertainty: "unknown",
+					evidenceRefs: [],
+					...(assessment.moduleKind === "atropos" &&
+					breachedIntentionIds !== undefined
+						? { breachedIntentionIds }
+						: {}),
+				},
+			],
+		})),
+	});
+	return input;
+}
+
+test("an unattributed breach cannot waive protection for an intention change", () => {
+	const result = resolvePersonalRound(commitmentChange());
+	expect(result.resolution.status).toBe("deferred");
+	expect(result.spec).toBeNull();
+	expect(result.resolution.excluded[0]?.stage).toBe("commitment_protection");
+});
+
+for (const ids of [
+	[],
+	["different-promise"],
+	["changed-intention", "different-promise"],
+]) {
+	test(`an intention change cannot waive protected promises ${JSON.stringify(ids)}`, () => {
+		const result = resolvePersonalRound(commitmentChange(ids));
+		expect(result.resolution.status).toBe("deferred");
+		expect(result.spec).toBeNull();
+	});
+}
+
+test("an attributed change of the same accepted intention retains its exemption", () => {
+	const result = resolvePersonalRound(commitmentChange(["changed-intention"]));
+	expect(result.resolution.status).toBe("resolved");
+	expect(result.resolution.excluded).toEqual([]);
+	expect(result.spec?.candidates[0]?.p0).toBe(1);
+});
 
 for (const field of ["agentId", "scopeId"] as const) {
 	test(`rejects candidate ${field} outside its frozen round`, () => {
@@ -271,6 +349,102 @@ test("a module omitted from round ordering makes no concession", () => {
 	expect(result.resolution.conceded).toEqual([]);
 });
 
+for (const [moduleKind, severity, stage] of [
+	["atropos", "commitment_breach", "commitment_protection"],
+	["clotho", "infeasible", "infeasible"],
+] as const) {
+	test(`${moduleKind} unavailable cannot gain a ${severity} veto`, () => {
+		const input = fixture();
+		const assessment = input.set.assessments.find(
+			(a) => a.moduleKind === moduleKind,
+		);
+		const opinion = assessment?.objectiveAssessments[0];
+		if (!opinion) throw Error("missing opinion");
+		opinion.stance = "unavailable";
+		opinion.unavailableReason = "missing evidence";
+		const available = resolvePersonalRound(input);
+		expect(available.resolution.status).toBe("resolved");
+		expect(available.resolution.excluded).toEqual([]);
+		expect(available.spec?.candidates).toEqual([
+			{ optionKey: opinion.optionKey, p0: 1, b: null },
+		]);
+
+		opinion.severity = severity;
+		expect(() => resolvePersonalRound(input)).toThrow(
+			"severity requires oppose stance",
+		);
+
+		opinion.stance = "oppose";
+		opinion.unavailableReason = null;
+		const opposed = resolvePersonalRound(input);
+		expect(opposed.resolution.status).toBe("deferred");
+		expect(opposed.resolution.excluded).toEqual([
+			{
+				optionKey: opinion.optionKey,
+				stage,
+				byModule: moduleKind,
+				reason: expect.any(String),
+			},
+		]);
+		expect(opposed.spec).toBeNull();
+	});
+}
+
+for (const stances of [
+	["unavailable", "prefer", "prefer"],
+	["unavailable", "unavailable", "prefer"],
+	["unavailable", "unavailable", "unavailable"],
+	["unavailable", "prefer", "accept"],
+	["unavailable", "prefer", "oppose"],
+	["prefer", "prefer", "accept"],
+	["prefer", "prefer", "oppose"],
+] as const) {
+	test(`${stances.join("/")} records only differing available stances as conflict`, () => {
+		const input = fixture();
+		const option = input.options[0];
+		if (!option) throw Error("missing candidate");
+		for (const [index, assessment] of input.set.assessments.entries()) {
+			const opinion = assessment.objectiveAssessments[0];
+			const stance = stances[index];
+			if (!opinion || !stance) throw Error("missing opinion or stance");
+			opinion.stance = stance;
+			opinion.severity = stance === "oppose" ? "preference" : null;
+			opinion.unavailableReason =
+				stance === "unavailable" ? "missing evidence" : null;
+		}
+		expect(parseAssessmentSet(input.set)).toEqual(input.set);
+		const { resolution } = resolvePersonalRound(input);
+		expect(resolution.abstentions).toHaveLength(
+			stances.filter((stance) => stance === "unavailable").length,
+		);
+		for (const assessment of input.set.assessments) {
+			for (const opinion of assessment.objectiveAssessments) {
+				if (opinion.unavailableReason !== null)
+					expect(resolution.abstentions).toContainEqual({
+						optionKey: opinion.optionKey,
+						moduleKind: assessment.moduleKind,
+						reason: opinion.unavailableReason,
+					});
+			}
+		}
+		const conflict = stances[2] === "accept" || stances[2] === "oppose";
+		expect(resolution.conflicts).toEqual(
+			conflict
+				? [
+						{
+							optionKey: option.optionKey,
+							stances: {
+								clotho: stances[0],
+								lachesis: stances[1],
+								atropos: stances[2],
+							},
+						},
+					]
+				: [],
+		);
+	});
+}
+
 test("partial neural lookup failure keeps the entire decision at its baseline distribution", () => {
 	const input = fixture();
 	const original = input.options[0];
@@ -356,6 +530,27 @@ for (const outcome of ["resolved", "held", "deferred"] as const) {
 			);
 		} else expect(result.spec).toBeNull();
 	});
+
+	for (const [change, error] of [
+		[{ schemaVersion: 2 }, "Unsupported judgment snapshot ref schema version"],
+		[{ workingRevision: -1 }, "invalid working revision"],
+		[{ clockId: "" }, "invalid clock id"],
+		[{ extra: true }, "unknown judgment snapshot ref field extra"],
+	] as const) {
+		test(`rejects bound malformed snapshot ${Object.keys(change)[0]} before ${outcome}`, () => {
+			const input = round();
+			Object.assign(input.snapshot, change);
+			const digest = snapshotDigest(input.snapshot);
+			input.set.snapshotDigest = digest;
+			for (const assessment of input.set.assessments) {
+				assessment.snapshotDigest = digest;
+				assessment.inputDigest = assessmentInputDigest(assessment);
+			}
+			expect(parseAssessmentSet(input.set)).toEqual(input.set);
+			expect(() => parseJudgmentSnapshotRef(input.snapshot)).toThrow(error);
+			expect(() => resolvePersonalRound(input)).toThrow(error);
+		});
+	}
 
 	for (const change of [{ policyId: "foreign-policy" }, { revision: 2 }]) {
 		test(`rejects mismatched policy ${Object.keys(change)[0]} before ${outcome}`, () => {

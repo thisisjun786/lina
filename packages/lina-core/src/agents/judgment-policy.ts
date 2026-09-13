@@ -18,6 +18,7 @@ import {
 import {
 	judgmentDigest,
 	parseAssessmentSet,
+	parseJudgmentSnapshotRef,
 	parseResolutionRecord,
 	parseSelectionSpec,
 	snapshotDigest,
@@ -82,7 +83,8 @@ export function resolvePersonalRound(input: {
 	eligibility: HostEligibility;
 	bias: Record<OptionKey, number | null>;
 }): { resolution: ResolutionRecord; spec: SelectionSpec | null } {
-	const { policy, snapshot } = input;
+	const { policy } = input;
+	const snapshot = parseJudgmentSnapshotRef(input.snapshot);
 	const options = input.options
 		.map(parseCanonicalOption)
 		.sort((a, b) =>
@@ -194,7 +196,10 @@ export function resolvePersonalRound(input: {
 		const { clotho, lachesis, atropos } = opinions;
 		if (clotho && lachesis && atropos) {
 			const complete = { clotho, lachesis, atropos };
-			if (new Set(MODULE_KINDS.map((m) => complete[m].stance)).size > 1)
+			const availableStances = MODULE_KINDS.map(
+				(m) => complete[m].stance,
+			).filter((stance) => stance !== "unavailable");
+			if (new Set(availableStances).size > 1)
 				record.conflicts.push({
 					optionKey: option.optionKey,
 					stances: {
@@ -211,10 +216,13 @@ export function resolvePersonalRound(input: {
 	// 3-4: Only the named module/severity can exclude at each stage.
 	const remaining = eligible.filter(({ option, opinions }) => {
 		const precondition = option.preconditions;
+		const breached = opinions.atropos.breachedIntentionIds;
 		const changesAcceptance =
 			(precondition.kind === "intention.suspend" ||
 				precondition.kind === "intention.cancel") &&
-			precondition.acceptanceSourceRef.trim() !== "";
+			precondition.acceptanceSourceRef.trim() !== "" &&
+			breached?.length === 1 &&
+			breached[0] === precondition.intentionId;
 		if (
 			opinions.atropos.stance === "oppose" &&
 			opinions.atropos.severity === "commitment_breach" &&

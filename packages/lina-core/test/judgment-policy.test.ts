@@ -485,11 +485,14 @@ test("(5) only original-acceptance suspend/cancel escape commitment protection",
 		"intention.resume",
 	].map((kind) => option(kind, kind as PersonalOptionKind));
 	const result = resolve(
-		fixture("user_request", options, (m) =>
-			m === "atropos"
-				? opinion("oppose", "commitment_breach")
-				: opinion("accept"),
-		),
+		fixture("user_request", options, (m) => {
+			if (m === "atropos")
+				return {
+					...opinion("oppose", "commitment_breach"),
+					breachedIntentionIds: ["intention"],
+				};
+			return opinion("accept");
+		}),
 	);
 	for (const o of options) {
 		const exempt =
