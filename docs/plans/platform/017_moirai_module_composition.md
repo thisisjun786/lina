@@ -82,7 +82,7 @@ F1의 `Purpose`·`Understanding`·`Plan` 의미와 typed Forecast/Claim, `Neural
 | 개인의 첫 행동 catalog | D15 `personal.v1` | F1: schema·정규화 규칙·전제/효과 필드의 코드 정의. F2: TaskManager·JudgmentStore effect 연결 |
 | 기회/행동 분류 | D09 원칙, LIFE catalog는 F3 선언 | F3: 기존 LIFE pack 전체의 family·actor·terminal 분류와 분포 변화 기록 |
 | 의도의 최소 schema | D16 `IntentionRecord` v1 | F1: 직렬화·전이 검증. F2: 약속·자율 목표의 충돌·완료·철회 시나리오 |
-| 성향 축의 소유권 | D18 AgentStore `PersonaSchema` | F1: schema 정의. F4: 기존 Behavior receipt·projection의 데이터 이전 |
+| 성향 축의 소유권 | D18 AgentStore `PersonaSchema`, 작성 계약은 [018](018_persona_authoring_contract.md) | F1: schema 정의와 작성 계약. 개인별 잠금 저장·정체성 자료 생성기·NativePersonaGrowth 전환은 F4의 데이터 이전과 함께 수행 |
 | 회로/의미 인터페이스 | D14 회로 프로필 v1 | F2: body 목록·부호·상수·해시 추출, encoder/readout 구현, `qualified` 검사 |
 | 목표별 판단·종합 정책 | D17 `personal.v1` 조정 정책 | F1: policy revision 2와 revision 1 과거 재생. F2: ResolutionRecord/SelectionSpec 재현 검증. 효용 비교는 아래 가설 |
 | 제품 세션·저장 경계 | D19 저장소 셋과 Python 계산기 하나 | F2: JudgmentStore·NeuralPreferenceStore·outbox/inbox·checkpoint manifest 편입 |

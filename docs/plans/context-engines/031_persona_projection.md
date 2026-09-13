@@ -8,7 +8,7 @@
 
 개인 대화용 현재 성향은 적격 self/relationship 기록을 검증해 읽는다. subject=user는 persona authority가 아니다. provisional 기록은 잠정 배경으로 표시하며 안정된 행동으로 승격하지 않는다. manual evolution에서는 동적 성향을 적용하지 않는다. world가 없는 대화에서도 이 개인 투영은 유효하다. 관계의 자유문장을 특정 agent id로 추측하지 않는다.
 
-공유용 개인 성향은 별도의 제한된 해석 결과다. 모델은 등록된 LifeDefinition의 공유 허용 dimension만 선택할 수 있다. 출력은 trait(axisId, value), habit(habitId, value), attitude(axisId, toAgentId, value), 그리고 근거 record id 목록이다. 임의 label/text/quote/비밀/권한은 출력 필드가 아니다. label은 host가 당시 정의에서 가져오고 숫자 범위·boolean·참여자 id·방향을 검증한다. authored identity 또는 manual/explicit lock 변경 권한은 없다. 원본 self/relationship의 지원된 현재 기록만 근거로 쓴다. 일반 사용자 사실과 LIFE-derived 대화는 입력에서 제외한다.
+공유용 개인 성향은 별도의 제한된 해석 결과다. 모델은 등록된 LifeDefinition의 공유 허용 dimension만 선택할 수 있다. 출력은 trait(axisId, value), habit(habitId, value), attitude(axisId, toAgentId, value), 그리고 근거 record id 목록이다. 임의 label/text/quote/비밀/권한은 출력 필드가 아니다. label은 host가 당시 정의에서 가져오고 숫자 범위·boolean·참여자 id·방향을 검증한다. authored identity 또는 manual/explicit lock 변경 권한은 없다. 여기서 지키는 작성 잠금이 어떤 형식으로 선언되고 누가 소유하는지는 [018 작성 계약](../platform/018_persona_authoring_contract.md)이 기록한다. 원본 self/relationship의 지원된 현재 기록만 근거로 쓴다. 일반 사용자 사실과 LIFE-derived 대화는 입력에서 제외한다.
 
 AgentStore v3에 agent_behavior_jobs와 agent_behavior_receipts를 추가한다. job은 agent/world/profile revision, definition/projection digest, memory record의 id/revision/contentHash와 적격 source proof digest, 정책·모델 revision, 요청 fingerprint, 상태·attempt를 고정한다. receipt는 정확한 typed output과 고정 입력을 묶는다. 같은 source content로 request id만 바꿔도 새 성장 근거가 되지 않는다. receipt의 원본 참조는 새 읽기마다 runtime의 현재 EngineStore로 검사한다. 취소·철회·만료로 부적격해지면 과거 receipt를 지우지 않고 현재 projection에서 제외한다.
 

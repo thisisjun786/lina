@@ -313,6 +313,7 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | D21 | 이전 결정: OMO native 작업 실행·Senpi native 프로바이더 관리로 옮기고 Codex/OpenCodex 폐기. 2026-09-13 D22로 철회. 과거 QA와 자료는 근거 이력으로 보존 |
 | D22 | 2026-09-13 소유자 결정: 인지·대화·개발 작업은 Codex, 프로바이더 관리는 OpenCodex로 유지한다. D13·D21의 Senpi/OMO 전환을 철회한다. 세 목표·MaleCNS·Host 소유권은 유지하며 기존 실행 경로에 연결한다 |
 | D23 | 출력은 생성 토큰 예산과 저장용 문장 길이를 분리한다. 새 설명문은 길이 때문에 판단 전체를 실패시키지 않고 자른 표시·원래 길이·해시를 남긴다. 구조화된 필수 판단은 자르지 않는다. policy revision 2는 필수 평가 불가 시 보완 후 보류, 예산 소진 시 deferred를 사용하고 revision 1은 과거 재생으로 보존 |
+| D24 | 2026-09-14 페르소나 작성 계약. 잠금·권한이 작성 정체성보다 앞서고, 검증된 성장은 자기 축에서만 초기 기질을 대체한다. 명시적 대화 선호는 말 거는 방식에만 적용되며 정체성·권한·잠긴 축을 바꾸지 않는다. 고정과 성장은 `evolution`과 축별 잠금 목록으로 선언하며 산문에는 강제력이 없다. 제공된 정체성 자료에 대상 개인이 없으면 정책 부재로 접지 않고 거부한다. 세부는 [018 작성 계약](plans/platform/018_persona_authoring_contract.md) |
 
 ## 이 문서가 확정하지 않는 것
 
@@ -335,6 +336,7 @@ QA 채택 커널의 `Purpose`·`Adoption(understanding | plan | intention)`·`Ju
 | --- | --- |
 | [016 계약](plans/platform/016_neural_preference_contract.md) | 타입·포트·저장·복구·실패 처리 |
 | [017 로드맵](plans/platform/017_moirai_module_composition.md) | 소스 재료 표, F1–F4 의존 순서, 검증 가설 |
+| [018 작성 계약](plans/platform/018_persona_authoring_contract.md) | 페르소나 층 우선순위, 고정·성장 선언, 필드 소유권, 불완전 입력 처리 |
 | [015 근거](plans/platform/015_neural_preference_engine_research.md) | MaleCNS 선택 이유, 데이터 출처, 학습·계획·BDI 문헌 |
 | [030 운영](plans/context-engines/030_moirai_refactor_plan.md) | 사용자 경험 경계, 채널·세션 계약, 모델 프리셋, 검증 게이트 |
 | [ARCHITECTURE](ARCHITECTURE.md) | 패키지 owner와 신뢰 경계 |

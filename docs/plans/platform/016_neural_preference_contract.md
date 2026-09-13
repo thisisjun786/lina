@@ -142,7 +142,7 @@ Host는 `candidateLimit`, `maxEvaluationGenerations`, `maxAdditionalCalls`, 회�
 | `h`, 느린 `m`, 개인 `ΔW`, 학습 흔적·예측기 | Host의 제안 `NeuralPreferenceStore` | Python은 계산 결과를 제안하며 직접 저장하지 않음 |
 | 대화·LIFE가 읽는 성향 | 기존 성향 합성 owner | `dimensionSource`로 reflection/neural 중 하나 선택; 같은 dimension의 두 생성 결과를 합산하지 않음 |
 
-`dimensionSource`는 새 버전의 owner 설정이다. 기존 LIFE origin 합성 규칙을 몰래 대체하지 않는다. 신경 origin을 선택한 dimension은 그 origin의 기존 모델 해석을 중지하고, 동일 경험이 reflection·neural·승격 stream에서 중복 가산되지 않도록 원본 사건 ID를 보존한다. 명시적 선호를 `p0`에 적용했다면 신경 편향에 같은 항목을 다시 더하지 않도록 경로를 선언한다.
+`dimensionSource`는 새 버전의 owner 설정이다. 기존 LIFE origin 합성 규칙을 몰래 대체하지 않는다. 신경 origin을 선택한 dimension은 그 origin의 기존 모델 해석을 중지하고, 동일 경험이 reflection·neural·승격 stream에서 중복 가산되지 않도록 원본 사건 ID를 보존한다. 명시적 선호를 `p0`에 적용했다면 신경 편향에 같은 항목을 다시 더하지 않도록 경로를 선언한다. 현재 파생은 `reflection`을 고정으로 넣으며 이 설정의 작성 표면은 아직 없다. 소유자와 남은 범위는 [018 작성 계약](018_persona_authoring_contract.md)이 기록한다.
 
 기존 behavior receipt가 신경 출처를 이미 지원한다고 가정하지 않는다. 후속 source 계약에 `NeuralProjectionRef`를 추가해 profile·state/learning revision·허용 dimension·값·원본 경험과 source proof의 digest를 묶는다. Host가 현재성을 확인하고 기존 합성 owner가 값만 투영한다. 원시 신경 데이터와 비밀 원문은 모델 입력에 전달하지 않는다.
 
