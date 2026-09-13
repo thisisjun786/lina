@@ -89,7 +89,9 @@ function nullableText(value: unknown, label: string): string | null {
 
 function timestamp(value: unknown, label: string): string {
 	const text = boundedText(value, label);
-	if (!Number.isFinite(Date.parse(text))) throw Error(`invalid ${label}`);
+	const time = Date.parse(text);
+	if (!Number.isFinite(time) || new Date(time).toISOString() !== text)
+		throw Error(`invalid ${label}`);
 	return text;
 }
 

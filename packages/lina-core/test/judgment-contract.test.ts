@@ -926,6 +926,42 @@ test("intention transitions require outcome, original acceptance and nonempty re
 		).toThrow();
 });
 
+for (const value of [
+	"September 10, 2026",
+	"2026-09-10T00:00:00",
+	"2026-02-30T00:00:00.000Z",
+	"2026-09-10T01:00:00.000+01:00",
+	"2026-09-10T00:00:00Z",
+	" 2026-09-10T00:00:00.000Z ",
+]) {
+	test(`3995355457 canonical intention timestamps reject ${value}`, () => {
+		expect(() =>
+			parseIntentionRecord({
+				...intention,
+				acceptance: { ...intention.acceptance, acceptedAt: value },
+			}),
+		).toThrow();
+		expect(() =>
+			parseIntentionRecord({ ...intention, deadline: value }),
+		).toThrow();
+		expect(() =>
+			parseIntentionTransition({ ...transition, at: value }),
+		).toThrow();
+	});
+}
+test("3995355457 canonical UTC leap day is retained exactly", () => {
+	const value = "2024-02-29T00:00:00.000Z";
+	expect(parseIntentionRecord({ ...intention, deadline: value }).deadline).toBe(
+		value,
+	);
+	expect(
+		parseIntentionRecord({
+			...intention,
+			acceptance: { ...intention.acceptance, acceptedAt: value },
+		}).acceptance.acceptedAt,
+	).toBe(value);
+	expect(parseIntentionTransition({ ...transition, at: value }).at).toBe(value);
+});
 test("intention history revision, continuity, edges, final status and timestamps are validated", () => {
 	const active = activate();
 	for (const change of [
