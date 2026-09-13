@@ -256,27 +256,61 @@ test("derivation digest is idempotent and ignores v2-only identity fields", () =
 	const fromV2 = derive(identityV2);
 	expect(fromV1.digest).toBe(fromV2.digest);
 	expect(fromV1.digest).toBe(first.digest);
+});
 
-	const missing = personaSchemaFromLifeDefinition({
-		agentId: "lina",
-		revision: 1,
-		definition,
-		identity: {
-			version: 2 as const,
-			profiles: [
-				{
-					...lockProfile,
-					agentId: "mira",
-					evolution: "manual",
-					personalBehavior: null,
-					sourceStamp: null,
-				},
-			],
-		},
+test("supplied identity without the target agent is rejected", () => {
+	const before = derive();
+	const otherAgent = {
+		...lockProfile,
+		agentId: "mira",
+		evolution: "manual" as const,
+		personalBehavior: null,
+		sourceStamp: null,
+	};
+	for (const profiles of [[], [otherAgent]]) {
+		expect(() =>
+			personaSchemaFromLifeDefinition({
+				agentId: "lina",
+				revision: 1,
+				definition,
+				identity: { version: 2 as const, profiles },
+			}),
+		).toThrow("Missing persona identity policy");
+	}
+	expect(derive()).toEqual(before);
+});
+
+test("absent policy, manual lock and selective lock stay separate cases", () => {
+	const absent = derive(null);
+	expect(absent.sourceIdentity).toBeNull();
+	expect(absent.dimensions.every((row) => row.locked === false)).toBe(true);
+
+	const selective = derive();
+	expect(selective.sourceIdentity).toEqual({ profileRevision: 4 });
+	expect(selective.dimensions.map((row) => [row.id, row.locked])).toEqual([
+		["curiosity", false],
+		["warmth", true],
+		["tea", false],
+		["trust", false],
+	]);
+	expect(selective.digest).not.toBe(absent.digest);
+
+	const manual = derive({
+		version: 2 as const,
+		profiles: [
+			{
+				...lockProfile,
+				evolution: "manual" as const,
+				lockedTraitIds: [],
+				personalBehavior: null,
+				sourceStamp: null,
+			},
+		],
 	});
-	expect(missing.sourceIdentity).toBeNull();
-	expect(missing.dimensions.every((row) => row.locked === false)).toBe(true);
-	expect(missing.digest).toBe(unlocked.digest);
+	expect(manual.dimensions.every((row) => row.locked === true)).toBe(true);
+	expect(new Set([absent.digest, selective.digest, manual.digest]).size).toBe(
+		3,
+	);
 });
 
 test.each([identityV1, identityV2])(
