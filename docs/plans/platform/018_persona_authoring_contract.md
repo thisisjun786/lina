@@ -16,7 +16,7 @@ F1에서 확정하지 않는 것은 배선이다. 개인별 잠금 목록을 담
 
 | 층 | 내용 | 현재 소유 타입 | 근거 |
 | --- | --- | --- | --- |
-| 잠금과 권한 | `evolution`, 축별 잠금, 공개 허용 목록 | [`IdentityProfilePolicy`](../../../packages/lina-core/src/world/life-types.ts#L121), [`ProjectionPolicy`](../../../packages/lina-core/src/world/life-types.ts#L38) | [manual 단락](../../../packages/lina-core/src/agents/persona.ts#L96), [성장 차단](../../../packages/lina-core/src/world/growth.ts#L40), [사회 효과 차단](../../../packages/lina-core/src/world/social-effect-state.ts#L127) |
+| 잠금과 권한 | `evolution`과 축별 잠금이 성장을 막고, 공개 허용 목록은 공유·투영 범위를 정한다. 역할이 다르다 | [`IdentityProfilePolicy`](../../../packages/lina-core/src/world/life-types.ts#L121), [`ProjectionPolicy`](../../../packages/lina-core/src/world/life-types.ts#L38) | [manual 단락](../../../packages/lina-core/src/agents/persona.ts#L96), [성장 차단](../../../packages/lina-core/src/world/growth.ts#L40), [사회 효과 차단](../../../packages/lina-core/src/world/social-effect-state.ts#L127) |
 | 작성 정체성 | 이름·역할·성격·말투·전기·외형·관심사 | [`AgentProfile`](../../../packages/lina-core/src/agents/types.ts#L3) | [핵심 권위 문구](../../../packages/lina-core/src/agents/persona.ts#L38) |
 | 검증된 성장 | 근거가 확인된 현재 성향 값 | [`SharedPersonaView`](../../../packages/lina-core/src/world/views.ts#L253), 개인 투영 | [공유 성향 권위 문구](../../../packages/lina-core/src/agents/persona.ts#L53) |
 | 초기 기질 | 축별 시작값 | [`PersonaDimension.initial`](../../../packages/lina-core/src/agents/persona-schema.ts#L43) | 같은 문구가 초기 기질을 "출발점"으로 규정 |
@@ -36,7 +36,7 @@ F1에서 확정하지 않는 것은 배선이다. 개인별 잠금 목록을 담
 
 "고정"과 "성장"은 새 개념이 아니라 기존 두 가지의 조합이다.
 
-`evolution`이 `manual`이면 공유 대상 축 전체가 잠긴다. `adaptive`이면 축별 잠금 목록에 적힌 축만 잠기고 나머지는 근거가 쌓이면 변한다. 판정 순서는 manual이 먼저다([`lockedFor`](../../../packages/lina-core/src/agents/persona-schema.ts#L289)).
+`evolution`이 `manual`이면 그 개인의 성장이 전부 막힌다. 공유 축만이 아니라 비공개 축의 LIFE 성장도 거부된다([성장 정책](../../../packages/lina-core/src/world/life-transition.ts#L294)). `adaptive`이면 축별 잠금 목록에 적힌 축만 잠긴다. 나머지 축은 변할 자격이 생길 뿐이고 실제로 변한다는 보장은 아니다. 각 경로가 근거·범위·현재성 검사를 따로 건다. 판정 순서는 manual이 먼저다([`lockedFor`](../../../packages/lina-core/src/agents/persona-schema.ts#L289)).
 
 프롬프트 산문은 강제력이 없다. 성격 문장에 "쉽게 변하지 않는다"라고 적어도 잠기지 않고, "경험에 따라 달라진다"라고 적어도 잠긴 축이 열리지 않는다. 강제는 위 표의 잠금과 권한 층이 한다.
 
@@ -52,9 +52,15 @@ F1에서 확정하지 않는 것은 배선이다. 개인별 잠금 목록을 담
 
 ## 작성 입력과 검증
 
-작성자가 개인별로 정하는 값은 `evolution`과 축별 잠금 목록 세 개다. 잠금 목록에 적는 id는 대상 세계 정의에 실재하는 축이어야 하고, 없는 id는 거부한다. 참여자 확인은 이미 같은 방식으로 거부한다([참여자 검사](../../../packages/lina-core/src/agents/persona-schema.ts#L310)).
+작성자가 개인별로 정하는 값은 `evolution`과 축별 잠금 목록 세 개다.
 
-잠금 목록을 적지 않으면 빈 목록으로 읽는다. 빈 목록은 "아직 안 정함"이 아니라 "이 개인의 공유 축은 모두 성장 가능"이라는 뜻이다. 축 자체를 성장 대상에서 빼려면 잠그는 것이 아니라 공개 허용 목록에서 제외한다. 두 장치의 의미가 다르다.
+잠금 id는 어느 세계 정의의 축인지와 함께 읽어야 한다. 축 id는 세계마다 정의되고 전역 이름공간이 없어서([축 정의](../../../packages/lina-core/src/world/life-types.ts#L26)), 한 세계에서 유효한 잠금이 다른 세계에서는 이름만 같은 다른 축을 잠글 수 있다. 그래서 검사는 세계 단위로 한다. 표현 방식은 아래 미해결 항목이고, 그전까지 작성자는 선택 잠금 초안에 어느 세계·정의의 축인지 함께 적고 다른 세계로 옮겨 쓰는 이식 가능한 개인 정책으로 취급하지 않는다. 소유권은 AgentStore에 둔다.
+
+아래 두 가지는 **작성 경계에 요구하는 규칙이며 현재 구현된 동작이 아니다.** 없는 잠금 id는 거부해야 하지만 지금 파서는 정의를 인자로 받지 않고 그대로 통과시킨다([현재 파서](../../../packages/lina-core/src/world/identity-policy.ts#L67)). 잠금 목록을 생략하면 빈 목록으로 읽어야 하지만 지금은 파싱이 실패한다([목록 파서](../../../packages/lina-core/src/world/life-json.ts#L31)). 참여자 확인은 이미 거부한다([참여자 검사](../../../packages/lina-core/src/agents/persona-schema.ts#L310)).
+
+빈 잠금 목록은 "아직 안 정함"이 아니라 "추가로 잠근 축이 없다"는 뜻이다.
+
+**공개 허용 목록으로 성장을 막지 않는다.** 두 장치는 보는 곳이 다르다. 네이티브 개인 성향 해석은 허용 목록으로 대상 축을 고르고 목록 밖 축의 출력을 거부하지만 축별 잠금은 읽지 않는다([selector 구성](../../../packages/lina-runtime/src/persona/native-growth.ts#L51), [출력 검사](../../../packages/lina-core/src/agents/behavior-validation.ts#L275)). 반면 LIFE의 성장 검증·적용과 사회 효과는 `evolution`과 잠금만 보고 허용 목록을 보지 않는다([성장 검증](../../../packages/lina-core/src/world/growth.ts#L40), [전이 적용](../../../packages/lina-core/src/world/life-transition.ts#L294), [사회 효과](../../../packages/lina-core/src/world/social-effect-state.ts#L127)). LIFE 회고에 넘기는 자기 성향에도 허용 목록 필터가 없다([회고 입력](../../../packages/lina-core/src/world/autonomy-views.ts#L221)). 그래서 허용 목록에서 뺀 축도 LIFE 경로로는 계속 변할 수 있다. 비공개이면서 성장하는 축은 정상 조합이다.
 
 `source`는 AgentStore의 owner 설정이며 현재는 `reflection` 하나만 쓴다. [`DIMENSION_SOURCES`](../../../packages/lina-core/src/agents/behavior-types.ts#L176)에 `neural`이 선언돼 있지만 [형태만 선언된 후속 대상](../../../packages/lina-core/src/agents/behavior-types.ts#L183)이다. 작성 표면은 [016의 상태 소유권 절](016_neural_preference_contract.md#상태-소유권과-공개-범위)과 함께 F2에서 정한다.
 
@@ -64,7 +70,7 @@ F1에서 확정하지 않는 것은 배선이다. 개인별 잠금 목록을 담
 
 근거는 작성하는 항목이 아니다. 성향이 왜 그 값인지는 해석 receipt와 사건 id가 만든다([성장 근거 검사](../../../packages/lina-core/src/world/growth.ts#L44)). 작성자가 항목마다 근거 문장을 적지 않는다.
 
-공개 범위도 항목별로 적지 않는다. 어떤 축을 공유하는지는 `projection`의 허용 목록이, 무엇을 드러낼지는 그 정책의 공개 항목이 소유한다. 파생은 허용 목록에 있는 축만 schema에 넣는다([필터 지점](../../../packages/lina-core/src/agents/persona-schema.ts#L321)).
+공개 범위도 항목별로 적지 않는다. 어떤 축을 공유하는지는 `projection`의 허용 목록이, 무엇을 드러낼지는 그 정책의 공개 항목이 소유한다. 파생은 허용 목록에 있는 축만 schema에 넣는다([필터 지점](../../../packages/lina-core/src/agents/persona-schema.ts#L321)). 허용 목록은 공유·투영 범위와 네이티브 해석의 대상을 정할 뿐 LIFE 전체의 성장 금지 정책을 대신하지 않는다.
 
 ## 불완전 입력의 의미
 
@@ -74,7 +80,7 @@ F1에서 확정하지 않는 것은 배선이다. 개인별 잠금 목록을 담
 | --- | --- | --- |
 | 자료를 아예 주지 않음 | 허용. 참조한 프로필이 없다고 기록하고 전 축을 잠그지 않음 | "정책을 조회하지 않았다". 이 결과는 성장·사회 입력으로 쓰지 않는다 |
 | 자료는 줬는데 대상 개인이 없음 | **거부** | 자료 오류다. 정책 부재로 접지 않는다 |
-| `adaptive`, 잠금 목록 비어 있음 | 허용. 공유 축 전부 성장 가능 | "허용 목록 안에서 전부 성장" |
+| `adaptive`, 잠금 목록 비어 있음 | 허용. 추가로 잠근 축이 없음 | "이 개인에게 더 잠글 축은 없다". 변화의 발생을 보장하지는 않는다 |
 | `manual` | 허용. 잠금 목록과 무관하게 전 축 잠금 | "고정" |
 | 프로필 revision이 성장 기록 이후 바뀜 | 아래 참조 | 관찰되는 것만 기록한다 |
 
@@ -101,11 +107,11 @@ revision이 바뀐 경우는 현재 관찰되는 것만 적는다. 파생은 호
 
 고정으로 쓴 개인은 `evolution`이 `manual`이다. 네 축이 모두 잠기고 학습이 값을 바꾸지 못한다.
 
-선택 잠금으로 쓴 개인은 `evolution`이 `adaptive`이고 `lockedTraitIds`가 `["warmth"]`다. `warmth`만 잠기고 `curiosity`·`tea`·`trust`는 근거가 쌓이면 변한다.
+선택 잠금으로 쓴 개인은 `evolution`이 `adaptive`이고 `lockedTraitIds`가 `["warmth"]`다. `warmth`만 잠기고 `curiosity`·`tea`·`trust`는 변할 자격이 있다. 실제 변화는 각 경로의 근거·범위·현재성 검사를 통과해야 일어난다.
 
 자료를 주지 않으면 네 축 모두 잠기지 않고 참조한 프로필이 없다고 기록된다. 세 결과는 digest가 서로 다르다. 이 픽스처에서 각각 `b7ade1a1`, `87fb41e7`, `aa57cfc0`로 시작한다. 64자 digest의 앞 8자이고 축의 label 하나만 바꿔도 달라지므로 다른 예시의 기대값으로 쓰지 않는다.
 
-대상 개인이 없는 자료를 주면 셋 중 어느 결과도 나오지 않고 파생이 실패한다. 참여자가 아닌 개인을 요청했을 때의 실패와는 메시지가 다르다.
+대상 개인이 없는 자료를 주면 파생이 실패한다. 참여자가 아닌 개인을 요청했을 때의 실패와는 메시지가 다르다. 이것은 이 문서가 채택한 규칙이며 별도 PR에서 적용된다. 이 문서가 기준으로 삼은 소스에서는 아직 거부하지 않고, 참조한 프로필이 없다고 기록된 잠금 해제 schema가 나온다.
 
 ## 프롬프트 작성 규칙과 착수 판정
 
@@ -115,13 +121,13 @@ revision이 바뀐 경우는 현재 관찰되는 것만 적는다. 파생은 호
 
 상대별 태도는 축 단위로만 잠근다. 특정 상대에 대해서만 잠그는 표현은 현재 없다.
 
-이 계약으로 **개별 페르소나 프롬프트 작성을 시작할 수 있다.** 작성자는 성격·말투·전기를 산문으로 쓰고, 각 공유 축을 고정으로 둘지 성장으로 둘지 정하고, 성장으로 둔 축의 시작값과 범위를 세계 정의에서 확인하면 된다.
+이 계약으로 **개별 페르소나 프롬프트 작성을 시작할 수 있다.** 작성자는 성격·말투·전기를 산문으로 쓰고, 공유 축과 비공개 축을 가리지 않고 각 축을 고정으로 둘지 성장으로 둘지 정하고, 성장으로 둔 축의 시작값과 범위를 세계 정의에서 확인하면 된다.
 
 전제는 남는다. 개인별 선택 잠금을 제품에 저장할 방법이 아직 없으므로, 지금 작성한 선택 잠금은 문서상의 의도로 남고 배선이 끝나야 실제로 적용된다. 그 전까지 제품에서 실효가 있는 선택은 `manual`과 `adaptive` 둘뿐이다.
 
 ## 기각한 대안
 
-개인별 잠금을 `LifeDefinition`에 참여자별로 넣는 안은 기각한다. 페르소나 정책을 World로 옮겨 D18과 어긋나고, 정의가 세계마다 있으므로 한 개인이 두 세계에서 서로 다른 잠금을 갖게 된다.
+개인별 잠금을 `LifeDefinition`에 참여자별로 넣는 안은 기각한다. 페르소나 정책의 소유권을 World로 옮겨 D18과 어긋나기 때문이다. 기각한 것은 소유권이지 범위가 아니다. AgentStore가 소유하면서 세계 범위를 갖는 정책은 아래 미해결 항목의 후보로 남아 있다.
 
 `PersonaSchema`를 직접 작성하는 안은 기각한다. schema는 파생물이고 digest로 묶여 있어서, 직접 쓰면 label과 범위가 세계 축과 갈라진다.
 
@@ -137,6 +143,7 @@ revision이 바뀐 경우는 현재 관찰되는 것만 적는다. 파생은 호
 | 상대별 태도 잠금 | 축 단위만 수용. 상대별 잠금은 표현 불가 |
 | `manual`에 잠금 목록이 함께 있을 때 | 잉여로 허용. 모순으로 거부할지는 미정 |
 | revision이 바뀐 schema의 처리 | 미정. 자동 파생 여부와 현재·재생 적격성 판정이 모두 코드에 없다 |
+| 잠금 id의 범위 | 미정. 안정적인 페르소나 dimension id와 세계별 대응을 둘지, 잠금을 세계 범위로 선언할지. 그전까지는 위의 잠정 규칙을 따른다 |
 
 이 항목들의 결정과 구현은 후속 작업에서 다룬다.
 
