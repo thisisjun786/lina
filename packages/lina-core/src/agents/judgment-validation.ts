@@ -232,8 +232,13 @@ export function prepareReadout(
 		next = value.charCodeAt(end);
 	if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff)
 		end--;
+	const text = value.slice(0, end);
+	// A stored readout must say something, so a bound holding only whitespace is
+	// reported for repair instead of becoming an unreadable record.
+	if (text.trim().length === 0)
+		throw Error(`${label} is empty within its bound`);
 	return {
-		text: boundedText(value.slice(0, end), label, limit),
+		text: boundedText(text, label, limit),
 		truncation: {
 			originalLength: value.length,
 			limit,
