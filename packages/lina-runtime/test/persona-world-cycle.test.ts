@@ -1,5 +1,13 @@
-import { expect, test } from "bun:test";
-import { renameSync } from "node:fs";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import {
+	copyFileSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	renameSync,
+	rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captureSourceProofs } from "../../lina-core/src/source-policy.ts";
 import { WorldStore } from "../../lina-core/src/world/store.ts";
@@ -11,10 +19,26 @@ import { testSessionEngine } from "./fake-session-engine.ts";
 import { nativeEpisode } from "./helpers/native-memory-source.ts";
 import { fleetLifeFixture } from "./life-runtime-fleet-fixture.ts";
 
+let resourceRoot: string;
+beforeEach(() => {
+	resourceRoot = mkdtempSync(join(tmpdir(), "lina-persona-resources-"));
+	mkdirSync(join(resourceRoot, "data", "personas"), { recursive: true });
+	// Preserve the real prompt/profiles, not unrelated multi-megabyte avatar assets.
+	for (const file of ["app-system-prompt.md", "personas/presets.json"])
+		copyFileSync(
+			join(process.cwd(), "data", file),
+			join(resourceRoot, "data", file),
+		);
+});
+afterEach(() => {
+	if (resourceRoot) rmSync(resourceRoot, { recursive: true, force: true });
+});
+
 test("Fleet uses persisted personal growth after restart without opening ordinary conversation", async () => {
 	let enabled = true;
 	let miraSource: Parameters<typeof startPersistentApp>[0]["world"];
 	const f = await fleetLifeFixture({
+		resourceRoot,
 		enginePolicy: () => ({
 			...defaultEnginePolicy(),
 			memory: { ...defaultEnginePolicy().memory, enabled },
@@ -29,6 +53,7 @@ test("Fleet uses persisted personal growth after restart without opening ordinar
 		},
 	});
 	try {
+		expect(readdirSync(join(f.root, "state", "avatars"))).toEqual([]);
 		f.setup(false);
 		const app = await f.app.fleet.app("lina");
 		if (!(app.memory instanceof CompanionMemory))
@@ -142,6 +167,9 @@ test("Fleet uses persisted personal growth after restart without opening ordinar
 				new AbortController().signal,
 			),
 		).rejects.toThrow();
+		expect(f.app.fleet.opened("lina")).toBeUndefined();
+		expect(f.providerCalls).toBe(0);
+		expect(readdirSync(join(f.root, "state", "avatars"))).toEqual([]);
 	} finally {
 		await f.close();
 	}

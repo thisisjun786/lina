@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import { WorldStore } from "../../lina-core/src/world/store.ts";
 import { activateSocialPack } from "../../lina-core/test/life-social-store-fixture.ts";
 import { authorPack } from "./life-authoring-fixture.ts";
 import {
@@ -24,7 +25,24 @@ test("protected binding HTTP persists explicit V2, checks CAS and reopens withou
 			(await putBinding(f.url, { expectedRevision: 0, selection })).status,
 		).toBe(409);
 		await f.reopen();
-		expect(await (await fetch(f.url)).json()).toEqual(expected);
+		// Collect at the private-copy audit boundary, not at a lucky heap threshold.
+		const close = WorldStore.prototype.close;
+		const collect = spyOn(WorldStore.prototype, "close").mockImplementation(
+			function (this: WorldStore) {
+				close.call(this);
+				Bun.gc(true);
+			},
+		);
+		try {
+			const response = await fetch(f.url);
+			expect({ status: response.status, body: await response.json() }).toEqual({
+				status: 200,
+				body: expected,
+			});
+			expect(collect).toHaveBeenCalled();
+		} finally {
+			collect.mockRestore();
+		}
 		const growthOnly = { ...selection, conversationRecipientId: null };
 		expect(
 			await (

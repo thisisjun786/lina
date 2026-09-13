@@ -2,6 +2,18 @@ export { archiveText } from "./archive.ts";
 export type { SummaryGeneration } from "./generation.ts";
 export { CONTEXT_SCHEMA_VERSION } from "./schema.ts";
 export { ContextStore } from "./store.ts";
+
+// Context read projection (F1-E1).
+
+export type {
+	ContextReadProjection,
+	InstructionRef,
+} from "./read-projection.ts";
+export {
+	buildContextReadProjection,
+	parseContextReadProjection,
+} from "./read-projection.ts";
+
 export type {
 	ActivateInput,
 	ActiveSummary,

@@ -30,6 +30,7 @@ export async function fleetLifeFixture(
 		| "createApp"
 		| "createImageClient"
 		| "enginePolicy"
+		| "resourceRoot"
 	> = {},
 	respond?: (request: Request) => Response | Promise<Response>,
 ) {

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import {
 	existsSync,
 	mkdirSync,
@@ -17,6 +17,7 @@ import {
 	acquireTranscriptLease,
 } from "../../lina-core/src/index.ts";
 import type { WorldAuthorGrant } from "../../lina-core/src/world/authoring-types.ts";
+import { WorldStore } from "../../lina-core/src/world/store.ts";
 import type { ContextServices } from "../src/context/port.ts";
 import { AgentFleet } from "../src/fleet/manager.ts";
 import { startFleetServer } from "../src/fleet/server.ts";
@@ -188,6 +189,9 @@ async function fixture() {
 		forbiddenCalls: () => forbiddenCalls,
 		async reopen() {
 			await server.stop();
+			// Emulate process exit: finalize closed SQLite statements before the
+			// new fleet stamps/copies LIFE storage, not during its validation.
+			Bun.gc(true);
 			fleet = open();
 			server = await startFleetServer(fleet, 0, process.cwd(), "lina", {
 				lazy: true,
@@ -279,9 +283,32 @@ test("dedicated HTTP grant/input/read/approval uses real runtime and isolated au
 	);
 	const sessionId = author.binding.sessionId;
 	await f.reopen();
-	expect(
-		(await f.send(`/author-sessions/${grant.id}/open`, "POST", {})).status,
-	).toBe(200);
+	// Force the CI collection point instead of relying on heap pressure.
+	// The real private-copy audit and close still run before collection.
+	const close = WorldStore.prototype.close;
+	const collect = spyOn(WorldStore.prototype, "close").mockImplementation(
+		function (this: WorldStore) {
+			close.call(this);
+			Bun.gc(true);
+		},
+	);
+	try {
+		const response = await f.send(
+			`/author-sessions/${grant.id}/open`,
+			"POST",
+			{},
+		);
+		expect({
+			status: response.status,
+			body: await response.json(),
+		}).toMatchObject({
+			status: 200,
+			body: { grant },
+		});
+		expect(collect).toHaveBeenCalledTimes(1);
+	} finally {
+		collect.mockRestore();
+	}
 	const reopened = await f.fleet().openWorldAuthor(grant.id);
 	expect(reopened.binding.sessionId).toBe(sessionId);
 	expect(

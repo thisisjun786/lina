@@ -57,6 +57,8 @@ export async function bindingFixture() {
 		},
 		async reopen() {
 			await server.stop();
+			// Model process-exit finalization before the replacement's file audit.
+			Bun.gc(true);
 			fleet = open();
 			server = await startFleetServer(fleet, 0, process.cwd(), "lina", {
 				lazy: true,
@@ -64,6 +66,7 @@ export async function bindingFixture() {
 		},
 		async close() {
 			await server.stop();
+			Bun.gc(true);
 			rmSync(root, { recursive: true, force: true });
 		},
 	};

@@ -172,3 +172,20 @@ export interface BehaviorPersistence {
 	): CurrentBehaviorProjection;
 	status(agentId: string): BehaviorJob[];
 }
+
+export const DIMENSION_SOURCES = ["reflection", "neural"] as const;
+export type DimensionSource = (typeof DIMENSION_SOURCES)[number];
+export type PersonaDimensionRef = {
+	schemaRevision: number;
+	dimensionId: string;
+	source: DimensionSource;
+};
+/** F2 fills this; F1 declares the shape only. */
+export type NeuralProjectionRef = {
+	schemaVersion: 1;
+	agentId: string;
+	scopeId: string;
+	schemaRevision: number;
+	observationRef: string;
+	projectionDigest: string;
+};
