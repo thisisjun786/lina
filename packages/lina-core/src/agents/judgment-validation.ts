@@ -989,6 +989,13 @@ export function transitionIntention(
 	if (Date.parse(entry.at) < Date.parse(previousTime))
 		throw Error("nonchronological intention history");
 	validateTransition(entry, source.acceptance.sourceRef);
+	// F1 restores history, but has no owner-verified user cancellation receipt.
+	if (
+		source.kind === "user_commitment" &&
+		source.status !== "proposed" &&
+		entry.to === "cancelled"
+	)
+		throw Error("user commitment cancellation authority is unavailable");
 	if (source.history.length >= MAX_LIST)
 		throw Error("invalid intention history");
 	return {

@@ -996,11 +996,27 @@ test("intention table and all prohibited edges are explicit", () => {
 					to === "completed" ? "outcome-1" : intention.acceptance.sourceRef,
 				at: transition.at,
 			};
-			if (INTENTION_TRANSITIONS[record.status].includes(to))
+			if (INTENTION_TRANSITIONS[record.status].includes(to)) {
 				expect(
-					parseIntentionRecord(transitionIntention(record, change)).status,
+					parseIntentionRecord({
+						...record,
+						status: to,
+						revision: record.revision + 1,
+						history: [...record.history, { ...change, from: record.status }],
+					}).status,
 				).toBe(to);
-			else
+				if (
+					to === "cancelled" &&
+					["adopted", "active", "suspended"].includes(record.status)
+				)
+					expect(() => transitionIntention(record, change)).toThrow(
+						"user commitment cancellation authority is unavailable",
+					);
+				else
+					expect(
+						parseIntentionRecord(transitionIntention(record, change)).status,
+					).toBe(to);
+			} else
 				expect(() => transitionIntention(record, change)).toThrow(
 					`invalid intention transition: ${record.status} -> ${to}`,
 				);
