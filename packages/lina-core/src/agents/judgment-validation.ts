@@ -230,17 +230,18 @@ export function prepareReadout(
 	boundedText(value, label, Number.MAX_SAFE_INTEGER);
 	if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_READOUT_TEXT)
 		throw Error("invalid readout limit");
-	if (value.length <= limit) return { text: value, truncation: null };
 	let end = limit;
-	const last = value.charCodeAt(end - 1),
-		next = value.charCodeAt(end);
-	if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff)
-		end--;
-	const text = value.slice(0, end);
-	// A stored readout must say something, so a bound holding nothing readable is
-	// reported for repair instead of becoming an empty-looking record.
-	if (!READOUT_CONTENT.test(text))
-		throw Error(`${label} is empty within its bound`);
+	if (value.length > limit) {
+		const last = value.charCodeAt(end - 1),
+			next = value.charCodeAt(end);
+		if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff)
+			end--;
+	}
+	const text = value.length <= limit ? value : value.slice(0, end);
+	// A stored readout must say something, so prose that renders empty within its
+	// bound is reported for repair instead of becoming an empty-looking record.
+	if (!READOUT_CONTENT.test(text)) throw Error(`${label} has no readable text`);
+	if (value.length <= limit) return { text, truncation: null };
 	return {
 		text: boundedText(text, label, limit),
 		truncation: {

@@ -133,6 +133,17 @@ function db() {
 test("fresh dialogue bounds readouts before hashing and retains clipping provenance on reopen", () => {
 	seed();
 	const original = record();
+	// A readout that renders empty is reported whether or not it reaches the bound.
+	for (const field of ["synthesis", "rationale"] as const)
+		for (const text of ["\u200b", "\u200b".repeat(4100)])
+			expect(() =>
+				api.buildDialogueResolution({
+					...original,
+					[field]: text,
+					snapshot,
+					assessments,
+				}),
+			).toThrow("no readable text");
 	const long = {
 		...original,
 		synthesis: "s".repeat(5000),

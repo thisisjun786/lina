@@ -144,20 +144,25 @@ test("fresh assessments reject supplied truncation provenance while legacy parse
 		);
 });
 
-test("a readout whose bound holds only whitespace is reported, never stored", () => {
+test("a readout with no readable text is reported, never stored", () => {
 	const { input } = setup();
 	const source = input.set.assessments[0];
 	if (!source) throw Error("missing fixture assessment");
 	const { inputDigest: _digest, ...raw } = source;
-	// The whole prose is valid, but its first 4,000 units carry no readable text.
 	// Zero-width and other format characters render as nothing, like whitespace.
-	for (const blank of [" ", "\n", "\u200b", "\ufeff"])
+	for (const blank of [" ", "\n", "\u200b", "\ufeff"]) {
+		// Long prose whose first 4,000 units carry no readable text.
 		expect(() =>
 			api.buildAssessment({
 				...raw,
 				completeText: `${blank.repeat(4000)}answer`,
 			}),
-		).toThrow("complete text is empty within its bound");
+		).toThrow("complete text has no readable text");
+		// A short readout is bounded by the same rule.
+		expect(() =>
+			api.buildAssessment({ ...raw, completeText: blank.repeat(3) }),
+		).toThrow();
+	}
 	// Leading whitespace with text inside the bound still clips with provenance.
 	const prepared = api.buildAssessment({
 		...raw,
