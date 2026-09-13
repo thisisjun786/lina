@@ -44,6 +44,7 @@ export type RoundStatus = (typeof ROUND_STATUSES)[number];
 export const EXCLUSION_STAGES = [
 	"host_eligibility",
 	"commitment_protection",
+	// Legacy receipt stage; current personal.v1 prerequisites use Host eligibility.
 	"infeasible",
 ] as const;
 export type ExclusionStage = (typeof EXCLUSION_STAGES)[number];

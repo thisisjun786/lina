@@ -681,10 +681,14 @@ test("intention acceptance requires user authority only for user commitments", (
 				acceptance: { ...intention.acceptance, acceptedBy },
 			};
 			if (kind === "user_commitment" && acceptedBy === "host_autonomy") {
-				for (const candidate of [record, adopt(record)])
+				const adopted = { ...adopt(), kind, acceptance: record.acceptance };
+				for (const candidate of [record, adopted])
 					expect(() => parseIntentionRecord(candidate)).toThrow(
 						"user commitment requires user acceptance",
 					);
+				expect(() => adopt(record)).toThrow(
+					"user commitment requires user acceptance",
+				);
 			} else {
 				expect(parseIntentionRecord(record)).toEqual(record);
 				expect(parseIntentionRecord(adopt(record))).toEqual(adopt(record));
@@ -773,6 +777,36 @@ test("intention transitions complete the legal lifecycle without mutating input"
 			}),
 		).toThrow(`invalid intention transition: completed -> ${to}`);
 });
+
+const malformedTransitionSources: IntentionRecord[] = [
+	{ ...intention, revision: -1 },
+	{ ...intention, revision: 1 },
+	{
+		...intention,
+		acceptance: { ...intention.acceptance, acceptedBy: "host_autonomy" },
+	},
+	{
+		...intention,
+		relatedIntentions: [
+			{ intentionId: intention.intentionId, relation: "depends" as const },
+		],
+	},
+];
+test.each(malformedTransitionSources)(
+	"3998986145 transitions reject malformed source records: %j",
+	(record) => {
+		const before = structuredClone(record);
+		expect(() =>
+			transitionIntention(record, {
+				to: "adopted",
+				reason: "accepted",
+				evidenceRef: null,
+				at: transition.at,
+			}),
+		).toThrow();
+		expect(record).toEqual(before);
+	},
+);
 
 test("caller-supplied from cannot skip intention states", () => {
 	const forged = {

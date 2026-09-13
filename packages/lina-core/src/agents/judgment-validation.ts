@@ -955,6 +955,7 @@ export function transitionIntention(
 	record: IntentionRecord,
 	transition: Omit<IntentionTransition, "from">,
 ): IntentionRecord {
+	const source = parseIntentionRecord(record);
 	for (const key of Reflect.ownKeys(transition))
 		if (
 			typeof key !== "string" ||
@@ -962,19 +963,19 @@ export function transitionIntention(
 		)
 			throw Error("invalid intention transition");
 	const entry = parseIntentionTransition({
-		from: record.status,
+		from: source.status,
 		to: transition.to,
 		reason: transition.reason,
 		evidenceRef: transition.evidenceRef,
 		at: transition.at,
 	});
-	validateTransition(entry, record.acceptance.sourceRef);
-	if (record.history.length >= MAX_LIST)
+	validateTransition(entry, source.acceptance.sourceRef);
+	if (source.history.length >= MAX_LIST)
 		throw Error("invalid intention history");
 	return {
-		...record,
-		revision: record.revision + 1,
+		...source,
+		revision: source.revision + 1,
 		status: entry.to,
-		history: [...record.history, entry],
+		history: [...source.history, entry],
 	};
 }
