@@ -76,16 +76,15 @@ function validateResolutionBinding(
 	}
 	const policy = personalPolicyFor(snapshot.policyId, snapshot.policyRevision);
 	// Without complete evidence only a non-executable failure receipt is trusted.
-	// It cannot be policy-replayed, so the terminal deferred receipt introduced
-	// here may restate only the declared order and what its stored assessments
-	// prove. Held rows keep their original latitude so legacy bytes stay readable.
+	// Revision 2 owns the terminal receipt, and it cannot be policy-replayed, so
+	// it may restate only the declared order and what its stored assessments
+	// prove. Held rows stay retryable for every revision and keep their original
+	// latitude so historical bytes remain readable.
 	if (!candidates || !set) {
-		if (
-			(resolution.status !== "held" && resolution.status !== "deferred") ||
-			selection !== null
-		)
+		const terminal = policy.revision >= 2 && resolution.status === "deferred";
+		if ((resolution.status !== "held" && !terminal) || selection !== null)
 			throw Error(!set ? "incomplete assessment set" : "missing candidate set");
-		if (resolution.status === "deferred") {
+		if (terminal) {
 			const recommendations: Record<ModuleKind, string[]> = {
 				clotho: [],
 				lachesis: [],

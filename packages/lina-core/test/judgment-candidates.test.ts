@@ -359,22 +359,29 @@ test("closure requires an open matching frozen round and is immutable and detach
 	expect(store.candidateSet(snapshot.roundId)).toEqual(candidate());
 });
 
+// This round declares policy revision 1, which owns no terminal receipt.
 for (const complete of [false, true])
-	for (const status of ["held", "deferred"] as const)
-		test(`${status}/no-spec can record missing candidate evidence (assessments complete=${complete})`, () => {
-			if (complete) assess();
-			const record = { ...held(), status };
-			expect(() =>
-				parseResolutionRecord({ ...held(), status: "invalidated" }),
-			).toThrow();
-			store.recordResolution(snapshot.roundId, record, null);
-			expect(() =>
-				store.recordResolution(snapshot.roundId, record, null),
-			).toThrow("judgment round is not open");
-			reopen();
-			expect(store.getResolution(snapshot.roundId)).toEqual(record);
-			expect(store.getSelectionSpec(snapshot.roundId)).toBeNull();
-		});
+	test(`only held/no-spec can record missing candidate evidence (assessments complete=${complete})`, () => {
+		if (complete) assess();
+		expect(() =>
+			parseResolutionRecord({ ...held(), status: "invalidated" }),
+		).toThrow();
+		expect(() =>
+			store.recordResolution(
+				snapshot.roundId,
+				{ ...held(), status: "deferred" },
+				null,
+			),
+		).toThrow(complete ? "missing candidate set" : "incomplete assessment set");
+		const record = held();
+		store.recordResolution(snapshot.roundId, record, null);
+		expect(() =>
+			store.recordResolution(snapshot.roundId, record, null),
+		).toThrow("judgment round is not open");
+		reopen();
+		expect(store.getResolution(snapshot.roundId)).toEqual(record);
+		expect(store.getSelectionSpec(snapshot.roundId)).toBeNull();
+	});
 
 test("complete inputs replay held and deferred, rejecting descriptive mutations atomically", () => {
 	const set = candidate();

@@ -101,53 +101,78 @@ function v2Round(context: ReturnType<typeof policyEvidenceFixture>) {
 test("deferred resolution with a partial assessment set records and reopens without a spec", () => {
 	const context = policyEvidenceFixture();
 	fixtures.push(context);
-	const { store, path, fixture, input } = context;
+	const { store, path, fixture } = context;
 	// Only two of three module assessments are stored; no candidate set exists.
-	for (const assessment of input.set.assessments.slice(0, 2))
+	const round = v2Round(context);
+	for (const assessment of round.set.assessments.slice(0, 2))
 		store.putAssessment(assessment);
-	const record = deferredRecord(input);
+	const record = deferredRecord(round.input);
 
-	store.recordResolution(input.snapshot.roundId, record, null);
-	expect(store.getRound(input.snapshot.roundId)?.status).toBe("deferred");
+	store.recordResolution(round.snapshot.roundId, record, null);
+	expect(store.getRound(round.snapshot.roundId)?.status).toBe("deferred");
 
 	const reopened = fixture.keep(new JudgmentStore(path));
-	expect(reopened.getResolution(input.snapshot.roundId)).toEqual(record);
-	expect(reopened.getResolution(input.snapshot.roundId, "action")).toEqual(
+	expect(reopened.getResolution(round.snapshot.roundId)).toEqual(record);
+	expect(reopened.getResolution(round.snapshot.roundId, "action")).toEqual(
 		record,
 	);
-	expect(reopened.getSelectionSpec(input.snapshot.roundId)).toBeNull();
+	expect(reopened.getSelectionSpec(round.snapshot.roundId)).toBeNull();
 });
 
 test("deferred resolution with a closed candidate set but partial assessments records", () => {
 	const context = policyEvidenceFixture();
 	fixtures.push(context);
-	const { store, path, fixture, input } = context;
-	store.closeCandidateSet(input.evidence.candidates);
-	for (const assessment of input.set.assessments.slice(0, 1))
+	const { store, path, fixture } = context;
+	const round = v2Round(context);
+	store.closeCandidateSet(round.candidates);
+	for (const assessment of round.set.assessments.slice(0, 1))
 		store.putAssessment(assessment);
-	const record = deferredRecord(input, {
+	const record = deferredRecord(round.input, {
 		holdReason: "module assessments incomplete",
 	});
 
-	store.recordResolution(input.snapshot.roundId, record, null);
+	store.recordResolution(round.snapshot.roundId, record, null);
 
 	const reopened = fixture.keep(new JudgmentStore(path));
-	expect(reopened.getRound(input.snapshot.roundId)?.status).toBe("deferred");
-	expect(reopened.getResolution(input.snapshot.roundId)).toEqual(record);
-	expect(reopened.getSelectionSpec(input.snapshot.roundId)).toBeNull();
+	expect(reopened.getRound(round.snapshot.roundId)?.status).toBe("deferred");
+	expect(reopened.getResolution(round.snapshot.roundId)).toEqual(record);
+	expect(reopened.getSelectionSpec(round.snapshot.roundId)).toBeNull();
 });
 
 test("deferred resolution with no candidates and no assessments records", () => {
 	const context = policyEvidenceFixture();
 	fixtures.push(context);
-	const { store, input } = context;
-	const record = deferredRecord(input, {
+	const { store } = context;
+	const round = v2Round(context);
+	const record = deferredRecord(round.input, {
 		holdReason: "no candidate evidence",
 	});
 
-	store.recordResolution(input.snapshot.roundId, record, null);
-	expect(store.getRound(input.snapshot.roundId)?.status).toBe("deferred");
-	expect(store.getResolution(input.snapshot.roundId)).toEqual(record);
+	store.recordResolution(round.snapshot.roundId, record, null);
+	expect(store.getRound(round.snapshot.roundId)?.status).toBe("deferred");
+	expect(store.getResolution(round.snapshot.roundId)).toEqual(record);
+});
+
+test("a revision-1 incomplete round ends held and never deferred", () => {
+	const context = policyEvidenceFixture();
+	fixtures.push(context);
+	const { store, input } = context;
+	expect(input.snapshot.policyRevision).toBe(1);
+	for (const assessment of input.set.assessments.slice(0, 2))
+		store.putAssessment(assessment);
+	// Revision 1 declares no terminal receipt, so its rounds stay retryable.
+	expect(() =>
+		store.recordResolution(input.snapshot.roundId, deferredRecord(input), null),
+	).toThrow("incomplete assessment set");
+	expect(store.getRound(input.snapshot.roundId)?.status).toBe("open");
+
+	const held = deferredRecord(input, {
+		status: "held",
+		holdReason: "awaiting remaining module",
+	});
+	store.recordResolution(input.snapshot.roundId, held, null);
+	expect(store.getRound(input.snapshot.roundId)?.status).toBe("held");
+	expect(store.getResolution(input.snapshot.roundId)).toEqual(held);
 });
 
 test("held resolution with a partial assessment set still records", () => {
@@ -212,7 +237,8 @@ for (const field of ["ranking", "conceded", "conflicts"] as const) {
 		const context = policyEvidenceFixture();
 		fixtures.push(context);
 		const { store, input } = context;
-		for (const assessment of input.set.assessments.slice(0, 2))
+		const round = v2Round(context);
+		for (const assessment of round.set.assessments.slice(0, 2))
 			store.putAssessment(assessment);
 		const optionKey =
 			input.evidence.candidates.options[0]?.optionKey ?? "unknown";
@@ -233,13 +259,13 @@ for (const field of ["ranking", "conceded", "conflicts"] as const) {
 								},
 							],
 						};
-		const record = deferredRecord(input, patch);
+		const record = deferredRecord(round.input, patch);
 
 		expect(() =>
-			store.recordResolution(input.snapshot.roundId, record, null),
+			store.recordResolution(round.snapshot.roundId, record, null),
 		).toThrow();
-		expect(store.getRound(input.snapshot.roundId)?.status).toBe("open");
-		expect(store.getResolution(input.snapshot.roundId)).toBeNull();
+		expect(store.getRound(round.snapshot.roundId)?.status).toBe("open");
+		expect(store.getResolution(round.snapshot.roundId)).toBeNull();
 	});
 }
 
@@ -454,8 +480,9 @@ test("an incomplete deferred receipt rejects unsupported arbitration fields", ()
 	const context = policyEvidenceFixture();
 	fixtures.push(context);
 	const { store, input, option } = context;
+	const round = v2Round(context);
 	// Only clotho and lachesis are stored, and no candidate set exists.
-	for (const assessment of input.set.assessments.slice(0, 2))
+	for (const assessment of round.set.assessments.slice(0, 2))
 		store.putAssessment(assessment);
 	const optionKey = option.optionKey;
 	for (const patch of [
@@ -479,20 +506,22 @@ test("an incomplete deferred receipt rejects unsupported arbitration fields", ()
 		// The declared order for this round's situation is not the transition one.
 		{ order: [...PERSONAL_POLICY_V2.orders.transition] },
 	]) {
-		const record = deferredRecord(input, patch);
+		const record = deferredRecord(round.input, patch);
 		expect(() =>
-			store.recordResolution(input.snapshot.roundId, record, null),
+			store.recordResolution(round.snapshot.roundId, record, null),
 		).toThrow("incomplete deferred asserts unsupported arbitration");
-		expect(store.getRound(input.snapshot.roundId)?.status).toBe("open");
-		expect(store.getResolution(input.snapshot.roundId)).toBeNull();
+		expect(store.getRound(round.snapshot.roundId)?.status).toBe("open");
+		expect(store.getResolution(round.snapshot.roundId)).toBeNull();
 	}
+	expect(input.snapshot.policyRevision).toBe(1);
 });
 
 test("an incomplete receipt keeps the recommendations its stored assessments prove", () => {
 	const context = policyEvidenceFixture();
 	fixtures.push(context);
-	const { store, path, fixture, input, option } = context;
-	const stored = input.set.assessments.slice(0, 2).map((assessment) =>
+	const { store, path, fixture, option } = context;
+	const round = v2Round(context);
+	const stored = round.set.assessments.slice(0, 2).map((assessment) =>
 		parseAssessment({
 			...assessment,
 			recommendedOptionKeys:
@@ -500,13 +529,13 @@ test("an incomplete receipt keeps the recommendations its stored assessments pro
 		}),
 	);
 	for (const assessment of stored) store.putAssessment(assessment);
-	const record = deferredRecord(input, {
+	const record = deferredRecord(round.input, {
 		recommendations: { clotho: [option.optionKey], lachesis: [], atropos: [] },
 	});
 
-	store.recordResolution(input.snapshot.roundId, record, null);
+	store.recordResolution(round.snapshot.roundId, record, null);
 
 	const reopened = fixture.keep(new JudgmentStore(path));
-	expect(reopened.getResolution(input.snapshot.roundId)).toEqual(record);
-	expect(reopened.getSelectionSpec(input.snapshot.roundId)).toBeNull();
+	expect(reopened.getResolution(round.snapshot.roundId)).toEqual(record);
+	expect(reopened.getSelectionSpec(round.snapshot.roundId)).toBeNull();
 });
