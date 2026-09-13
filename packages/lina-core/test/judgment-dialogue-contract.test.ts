@@ -33,6 +33,11 @@ beforeEach(() => {
 		agentId: "agent",
 		scopeId: "scope",
 		sourceRefs: [{ kind: "request", id: "request", revision: 0 }],
+		dialogueSource: {
+			requestId: "request",
+			requestDigest: api.judgmentDigest({ request: "original" }),
+			sourceDigest: api.judgmentDigest({ source: "original" }),
+		},
 		workingRevision: 0,
 		instructionRevision: 0,
 		policyId: "personal.v1",
@@ -125,12 +130,58 @@ function db() {
 	return fixture.keep(new DatabaseSync(path));
 }
 
+for (const [field, value] of [
+	["requestDigest", "0".repeat(64)],
+	["sourceDigest", "1".repeat(64)],
+] as const)
+	for (const boundary of ["reference", "store", "reopen"] as const)
+		test(`3999243465 ${boundary} rejects an invented ${field}`, () => {
+			seed();
+			const original = record();
+			const forged = { ...original, [field]: value };
+			switch (boundary) {
+				case "reference":
+					expect(() =>
+						api.buildDialogueJudgmentRef({
+							snapshot,
+							assessments,
+							resolution: forged,
+						}),
+					).toThrow("dialogue source digest mismatch");
+					break;
+				case "store":
+					expect(() =>
+						store.recordResolution(snapshot.roundId, forged, null),
+					).toThrow("dialogue source digest mismatch");
+					expect(store.getResolution(snapshot.roundId)).toBeNull();
+					break;
+				case "reopen":
+					store.recordResolution(snapshot.roundId, original, null);
+					db()
+						.prepare(
+							"UPDATE resolution_records SET body = ?, digest = ? WHERE round_id = ?",
+						)
+						.run(
+							JSON.stringify(forged),
+							api.judgmentDigest(forged),
+							snapshot.roundId,
+						);
+					reopen();
+					expect(() => store.dialogueJudgmentRef(snapshot.roundId)).toThrow(
+						"dialogue source digest mismatch",
+					);
+					break;
+			}
+		});
+
 test("3996179135 action v1 bytes and digest remain unchanged alongside dialogue v2", () => {
+	const { dialogueSource: _source, ...legacySnapshot } = snapshot;
 	const actionSnapshot = {
-		...snapshot,
+		...legacySnapshot,
 		roundId: "historic-action",
 		sequence: 0,
 	};
+	expect(api.parseJudgmentSnapshotRef(actionSnapshot)).toEqual(actionSnapshot);
 	const action = api.parseResolutionRecord({
 		schemaVersion: 1,
 		roundId: actionSnapshot.roundId,
@@ -173,6 +224,55 @@ test("3996179135 action v1 bytes and digest remain unchanged alongside dialogue 
 			.get(actionSnapshot.roundId),
 	).toEqual(original);
 	expect(original?.["digest"]).toBe(api.judgmentDigest(action));
+});
+
+for (const field of ["requestDigest", "sourceDigest"] as const)
+	for (const value of ["not-a-digest", "A".repeat(64), "0".repeat(63), null])
+		test(`3999243465 snapshot rejects malformed ${field}: ${String(value)}`, () => {
+			expect(() =>
+				api.parseJudgmentSnapshotRef({
+					...snapshot,
+					dialogueSource: { ...snapshot.dialogueSource, [field]: value },
+				}),
+			).toThrow();
+		});
+
+test("3999243465 frozen source metadata is bound to a request source and snapshot digest", () => {
+	const source = snapshot.dialogueSource;
+	if (!source) throw Error("missing frozen source");
+	expect(() =>
+		api.parseJudgmentSnapshotRef({
+			...snapshot,
+			dialogueSource: { ...source, requestId: "other-request" },
+		}),
+	).toThrow("dialogue request source mismatch");
+	const changed = api.parseJudgmentSnapshotRef({
+		...snapshot,
+		dialogueSource: { ...source, sourceDigest: "a".repeat(64) },
+	});
+	expect(api.snapshotDigest(changed)).not.toBe(api.snapshotDigest(snapshot));
+	expect(changed.dialogueSource?.sourceDigest).toBe("a".repeat(64));
+});
+
+test("3999243465 even held dialogue requires source digests frozen by the Host", () => {
+	const { dialogueSource: _source, ...legacySnapshot } = snapshot;
+	store.openRound(legacySnapshot);
+	expect(() =>
+		store.recordResolution(
+			snapshot.roundId,
+			{
+				...record(),
+				snapshotDigest: api.snapshotDigest(legacySnapshot),
+				assessmentDigests: { clotho: null, lachesis: null, atropos: null },
+				recommendations: { clotho: null, lachesis: null, atropos: null },
+				alignment: "incomplete",
+				status: "held",
+				holdReason: "missing input",
+			},
+			null,
+		),
+	).toThrow("dialogue source provenance missing");
+	expect(store.getResolution(snapshot.roundId)).toBeNull();
 });
 
 test("3996179135 dialogue v2 golden round-trip retains prose and immutable provenance", () => {

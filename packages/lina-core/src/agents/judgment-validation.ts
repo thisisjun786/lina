@@ -5,6 +5,7 @@ import {
 	ASSESSMENT_UNAVAILABLE_REASONS,
 	type Assessment,
 	type AssessmentSet,
+	type DialogueSourceRef,
 	EXCLUSION_STAGES,
 	INTENTION_KINDS,
 	INTENTION_RELATIONS,
@@ -280,6 +281,10 @@ export function parseObjectiveProfile(value: unknown): ObjectiveProfile {
 }
 
 export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
+	const hasDialogueSource =
+		typeof value === "object" &&
+		value !== null &&
+		Object.hasOwn(value, "dialogueSource");
 	const row = fields(
 		value,
 		[
@@ -302,6 +307,7 @@ export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
 			"clockId",
 			"sequence",
 			"bindingGeneration",
+			...(hasDialogueSource ? ["dialogueSource"] : []),
 		],
 		"judgment snapshot ref",
 		true,
@@ -329,12 +335,37 @@ export function parseJudgmentSnapshotRef(value: unknown): JudgmentSnapshotRef {
 		"source refs",
 	);
 	const domains = object(row["domainRevisions"], "domain revisions");
+	let dialogueSource: DialogueSourceRef | undefined;
+	if (hasDialogueSource) {
+		const source = fields(
+			row["dialogueSource"],
+			["requestId", "requestDigest", "sourceDigest"],
+			"dialogue source",
+		);
+		dialogueSource = {
+			requestId: validId(source["requestId"], "request id"),
+			requestDigest: boundedId(source["requestDigest"], "request digest"),
+			sourceDigest: boundedId(source["sourceDigest"], "source digest"),
+		};
+		if (
+			![dialogueSource.requestDigest, dialogueSource.sourceDigest].every(
+				(value) => /^[a-f0-9]{64}$/.test(value),
+			)
+		)
+			throw Error("invalid dialogue source digest");
+		const requestId = dialogueSource.requestId;
+		if (
+			!sourceRefs.some((ref) => ref.kind === "request" && ref.id === requestId)
+		)
+			throw Error("dialogue request source mismatch");
+	}
 	return {
 		schemaVersion: 1,
 		roundId: boundedId(row["roundId"], "round id"),
 		agentId: boundedId(row["agentId"], "agent id"),
 		scopeId: boundedId(row["scopeId"], "scope id"),
 		sourceRefs,
+		...(dialogueSource ? { dialogueSource } : {}),
 		workingRevision: revision(row["workingRevision"], "working revision"),
 		instructionRevision: revision(
 			row["instructionRevision"],

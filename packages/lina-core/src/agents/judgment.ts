@@ -64,12 +64,19 @@ export type ObjectiveProfileRef = {
 	digest: string;
 };
 export type SourceRef = { kind: string; id: string; revision: number };
+export type DialogueSourceRef = {
+	requestId: string;
+	requestDigest: string;
+	sourceDigest: string;
+};
 export type JudgmentSnapshotRef = {
 	schemaVersion: 1;
 	roundId: string;
 	agentId: string;
 	scopeId: string;
 	sourceRefs: SourceRef[];
+	/** Host source-owner digests frozen before judgment; required for dialogue. */
+	dialogueSource?: DialogueSourceRef;
 	workingRevision: number;
 	instructionRevision: number;
 	policyId: string;

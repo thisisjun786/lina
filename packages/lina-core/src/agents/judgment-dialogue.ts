@@ -1,6 +1,7 @@
 import { validId } from "../context/validation.ts";
 import {
 	type Assessment,
+	type DialogueSourceRef,
 	type JudgmentSnapshotRef,
 	MODULE_KINDS,
 	type ModuleKind,
@@ -21,16 +22,13 @@ import {
 } from "./judgment-validation.ts";
 import { boundedId, boundedText } from "./validation.ts";
 
-type DialogueProvenance = {
+type DialogueProvenance = DialogueSourceRef & {
 	roundId: string;
 	snapshotDigest: string;
 	objectiveProfileRefs: Record<ModuleKind, ObjectiveProfileRef>;
 	assessmentDigests: Record<ModuleKind, string | null>;
 	policyId: string;
 	policyRevision: number;
-	requestId: string;
-	requestDigest: string;
-	sourceDigest: string;
 };
 /** JSON capability v2, stored in the unchanged v1 ledger DDL. Old readers reject
  * this version; legacy action v1 bodies/digests are never rewritten or decorated.
@@ -264,6 +262,14 @@ export function validateDialogueResolution(
 		)
 	)
 		throw Error("dialogue request source mismatch");
+	const expected = snapshot.dialogueSource;
+	if (!expected) throw Error("dialogue source provenance missing");
+	if (
+		record.requestId !== expected.requestId ||
+		record.requestDigest !== expected.requestDigest ||
+		record.sourceDigest !== expected.sourceDigest
+	)
+		throw Error("dialogue source digest mismatch");
 	const seen = new Set<ModuleKind>();
 	for (const assessment of assessments) {
 		const m = assessment.moduleKind;
