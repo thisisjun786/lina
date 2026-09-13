@@ -248,7 +248,9 @@ export function prepareReadout(
 		truncation: {
 			originalLength: value.length,
 			limit,
-			sourceDigest: createHash("sha256").update(value).digest("hex"),
+			// UTF-16LE keeps the digest injective over code units, which UTF-8 is
+			// not: it folds every unpaired surrogate onto one replacement.
+			sourceDigest: createHash("sha256").update(value, "utf16le").digest("hex"),
 		},
 	};
 }

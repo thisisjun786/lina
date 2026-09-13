@@ -179,3 +179,20 @@ test("a readout with no readable text is reported, never stored", () => {
 		api.buildAssessment({ ...raw, completeText: "e\u0301" }).completeText,
 	).toBe("e\u0301");
 });
+
+test("readout provenance distinguishes originals with ill-formed UTF-16", () => {
+	const { input } = setup();
+	const source = input.set.assessments[0];
+	if (!source) throw Error("missing fixture assessment");
+	const { inputDigest: _digest, ...raw } = source;
+	// Unpaired surrogates are distinct code units, so their digests must differ.
+	const [first, second] = ["\ud800", "\ud801"].map((tail) => {
+		const prepared = api.buildAssessment({
+			...raw,
+			completeText: `${"a".repeat(4000)}${tail}`,
+		});
+		expect(prepared.completeText).toBe("a".repeat(4000));
+		return prepared.diagnostics["readoutTruncation"];
+	});
+	expect(first).not.toEqual(second);
+});
