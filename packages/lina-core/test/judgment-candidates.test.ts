@@ -39,10 +39,19 @@ function option(reason = "one"): CanonicalOption {
 		preconditions: { kind: "noop", reason },
 	});
 }
+function openFixtureRound(): void {
+	if (store.getRound(snapshot.roundId)) return;
+	snapshot = {
+		...snapshot,
+		intentionRevision: store.intentionRevision(actor.agentId, actor.scopeId),
+	};
+	store.openRound(snapshot);
+}
 function candidate(
 	options = [option()],
 	intentionRefs: CandidateSet["intentionRefs"] = [],
 ): CandidateSet {
+	openFixtureRound();
 	return buildCandidateSet({
 		roundId: snapshot.roundId,
 		snapshotDigest: snapshotDigest(snapshot),
@@ -101,6 +110,7 @@ function intentionRef(
 	};
 }
 function assess(options = [option()], breachIds?: string[]) {
+	openFixtureRound();
 	for (const moduleKind of MODULE_KINDS) {
 		const input = {
 			snapshotDigest: snapshotDigest(snapshot),
@@ -153,6 +163,10 @@ function resolve(set: CandidateSet) {
 		eligibility: set.eligibility,
 		set: store.assessmentSet(snapshot.roundId),
 		bias: {},
+		evidence: {
+			candidates: set,
+			lookupIntention: (id) => store.getIntention(id),
+		},
 	});
 }
 function reopen() {
@@ -169,6 +183,7 @@ function rehash(set: CandidateSet) {
 	});
 }
 function held() {
+	openFixtureRound();
 	return parseResolutionRecord({
 		schemaVersion: 1,
 		roundId: snapshot.roundId,
@@ -224,7 +239,6 @@ beforeEach(() => {
 		sequence: 1,
 		bindingGeneration: 0,
 	};
-	store.openRound(snapshot);
 });
 afterEach(() => {
 	store.close();

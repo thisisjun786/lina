@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { validId } from "../context/validation.ts";
 import {
 	ACCEPTED_BY,
+	ASSESSMENT_UNAVAILABLE_REASONS,
 	type Assessment,
 	type AssessmentSet,
 	EXCLUSION_STAGES,
@@ -372,10 +373,14 @@ export function parseOptionAssessment(value: unknown): OptionAssessment {
 		row["severity"] === null
 			? null
 			: enumeration(row["severity"], SEVERITIES, "severity");
-	const unavailableReason = nullableText(
-		row["unavailableReason"],
-		"unavailable reason",
-	);
+	const unavailableReason =
+		row["unavailableReason"] === null
+			? null
+			: enumeration(
+					row["unavailableReason"],
+					ASSESSMENT_UNAVAILABLE_REASONS,
+					"unavailable reason",
+				);
 	if ((stance === "oppose") !== (severity !== null))
 		throw Error("severity requires oppose stance");
 	if ((stance === "unavailable") !== (unavailableReason !== null))

@@ -85,7 +85,7 @@ function snapshot(
 		policyRevision: 1,
 		identityRevision: 1,
 		domainRevisions: { life: 0 },
-		intentionRevision: 0,
+		intentionRevision: store.intentionRevision("agent-1", "scope-1"),
 		objectiveProfileRefs: refs,
 		observationRef: null,
 		frozenNeuralRef: null,
@@ -241,12 +241,12 @@ function transition(
 }
 
 function seed() {
+	store.putIntention(intention());
 	const ref = snapshot(store);
 	store.openRound(ref);
 	closeCandidates(store, ref);
 	for (const module of MODULE_KINDS)
 		store.putAssessment(assessment(ref, module));
-	store.putIntention(intention());
 	return ref;
 }
 function replaceBody(table: string, value: unknown, where = "1 = 1"): void {
@@ -461,6 +461,39 @@ for (const tamper of [
 			).toEqual({ n: 0 });
 		});
 	}
+}
+
+for (const field of ["acceptedAt", "deadline", "at"] as const) {
+	test(`3995355457 persisted noncanonical ${field} rejects intact even with recomputed digests`, () => {
+		store.putIntention(intention());
+		const original =
+			field === "at"
+				? store.transitionIntention("intention-1", transition("adopted"), 0)
+				: intention();
+		const changed = structuredClone(original);
+		const noncanonical = "2026-02-30T00:00:00.000Z";
+		if (field === "deadline") changed.deadline = noncanonical;
+		else if (field === "acceptedAt")
+			changed.acceptance.acceptedAt = noncanonical;
+		else {
+			const first = changed.history[0];
+			if (!first) throw Error("missing transition");
+			first.at = noncanonical;
+			db.prepare("UPDATE intention_transitions SET at = ?").run(noncanonical);
+		}
+		const body = JSON.stringify(changed);
+		db.prepare("UPDATE intention_records SET body = ?, digest = ?").run(
+			body,
+			judgmentDigest(changed),
+		);
+		reopen();
+		expect(() => store.getIntention("intention-1")).toThrow(
+			/invalid (accepted at|intention deadline|transition at)/,
+		);
+		expect(db.prepare("SELECT body FROM intention_records").get()).toEqual({
+			body,
+		});
+	});
 }
 
 test("3995355426: parser-normalized digests and valid lifecycle survive reopen", () => {

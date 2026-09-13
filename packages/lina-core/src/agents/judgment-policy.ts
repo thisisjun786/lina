@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
 import {
+	ASSESSMENT_UNAVAILABLE_REASONS,
 	type AssessmentSet,
+	type AssessmentUnavailableReason,
+	type IntentionRecord,
 	type JudgmentSnapshotRef,
 	MODULE_KINDS,
 	type ModuleKind,
@@ -11,10 +14,12 @@ import {
 	type Situation,
 	type Stance,
 } from "./judgment.ts";
+import { type CandidateSet, parseCandidateSet } from "./judgment-candidates.ts";
 import {
 	type CanonicalOption,
 	parseCanonicalOption,
 } from "./judgment-catalog.ts";
+import { validateCandidateEvidence } from "./judgment-evidence.ts";
 import {
 	judgmentDigest,
 	parseAssessmentSet,
@@ -31,6 +36,7 @@ export type ArbitrationPolicy = Readonly<{
 	orders: Readonly<Record<Situation, readonly ModuleKind[]>>;
 	lambda: Readonly<Record<Situation, number>>;
 	stanceOrder: readonly Stance[];
+	unavailableReasons: readonly AssessmentUnavailableReason[];
 }>;
 export const PERSONAL_POLICY_V1: ArbitrationPolicy = Object.freeze({
 	policyId: "personal.v1",
@@ -43,6 +49,7 @@ export const PERSONAL_POLICY_V1: ArbitrationPolicy = Object.freeze({
 	}),
 	lambda: Object.freeze({ user_request: 0, autonomous: 1, transition: 1 }),
 	stanceOrder: Object.freeze(["prefer", "accept", "oppose"] as const),
+	unavailableReasons: Object.freeze([...ASSESSMENT_UNAVAILABLE_REASONS]),
 });
 export type HostEligibility = Array<{
 	optionKey: OptionKey;
@@ -82,6 +89,11 @@ export function resolvePersonalRound(input: {
 	set: AssessmentSet;
 	eligibility: HostEligibility;
 	bias: Record<OptionKey, number | null>;
+	/** Only Host code supplies the owner lookup; assessment IDs alone are claims. */
+	evidence?: {
+		candidates: CandidateSet;
+		lookupIntention: (id: string) => IntentionRecord | null;
+	};
 }): { resolution: ResolutionRecord; spec: SelectionSpec | null } {
 	const { policy } = input;
 	const snapshot = parseJudgmentSnapshotRef(input.snapshot);
@@ -132,6 +144,21 @@ export function resolvePersonalRound(input: {
 		)
 			throw Error("unknown assessment option key");
 	}
+	if (input.evidence) {
+		const candidates = parseCandidateSet(input.evidence.candidates);
+		if (
+			!isDeepStrictEqual(candidates.options, options) ||
+			!isDeepStrictEqual(candidates.eligibility, input.eligibility)
+		)
+			throw Error("candidate evidence input mismatch");
+		validateCandidateEvidence(
+			candidates,
+			snapshot,
+			input.evidence.lookupIntention,
+			set.assessments,
+			false,
+		);
+	}
 	const order = [...policy.orders[snapshot.situation]];
 	const record: ResolutionRecord = {
 		schemaVersion: 1,
@@ -172,7 +199,9 @@ export function resolvePersonalRound(input: {
 				optionKey: option.optionKey,
 				stage: "host_eligibility",
 				byModule: null,
-				reason: row?.reason ?? "missing host eligibility",
+				reason: row
+					? (row.reason ?? "host ineligible")
+					: "missing host eligibility",
 			});
 		const opinions: Partial<Record<ModuleKind, OptionAssessment>> = {};
 		for (const assessment of set.assessments) {
@@ -213,19 +242,22 @@ export function resolvePersonalRound(input: {
 	}
 	if (missing !== null) return finishWithoutSpec("held", missing);
 
-	// 3-4: Only the named module/severity can exclude at each stage.
+	// 3-4: Protected commitments need owner-verified attribution. Factual
+	// prerequisite failures are Host eligibility; Clotho's label alone is not proof.
 	const remaining = eligible.filter(({ option, opinions }) => {
 		const precondition = option.preconditions;
 		const breached = opinions.atropos.breachedIntentionIds;
 		const changesAcceptance =
 			(precondition.kind === "intention.suspend" ||
 				precondition.kind === "intention.cancel") &&
-			precondition.acceptanceSourceRef.trim() !== "" &&
 			breached?.length === 1 &&
 			breached[0] === precondition.intentionId;
 		if (
 			opinions.atropos.stance === "oppose" &&
 			opinions.atropos.severity === "commitment_breach" &&
+			input.evidence &&
+			breached !== undefined &&
+			breached.length > 0 &&
 			!changesAcceptance
 		) {
 			record.excluded.push({
@@ -233,18 +265,6 @@ export function resolvePersonalRound(input: {
 				stage: "commitment_protection",
 				byModule: "atropos",
 				reason: "accepted commitment breach",
-			});
-			return false;
-		}
-		if (
-			opinions.clotho.stance === "oppose" &&
-			opinions.clotho.severity === "infeasible"
-		) {
-			record.excluded.push({
-				optionKey: option.optionKey,
-				stage: "infeasible",
-				byModule: "clotho",
-				reason: "infeasible precondition",
 			});
 			return false;
 		}

@@ -238,6 +238,9 @@ function assessmentFor(
 			loss: "fixture loss",
 			uncertainty: "fixture uncertainty",
 			evidenceRefs: [],
+			...(moduleKind === "atropos" && option.kind === "noop"
+				? { breachedIntentionIds: ["protected-promise"] }
+				: {}),
 		};
 	});
 	return parseAssessment({
@@ -319,17 +322,6 @@ function playRound(store: JudgmentStore, situation: Situation) {
 		options.inquire,
 		options.noop,
 	];
-	const snapshot = snapshotRef(situation, profiles.refs, projection);
-	const opened = store.openRound(snapshot);
-	expect(opened).toEqual({
-		roundId: snapshot.roundId,
-		snapshotDigest: snapshotDigest(snapshot),
-	});
-	const assessments = (["clotho", "lachesis", "atropos"] as const).map(
-		(moduleKind) => assessmentFor(snapshot, moduleKind, candidates),
-	);
-	for (const assessment of assessments) store.putAssessment(assessment);
-	const set = store.assessmentSet(snapshot.roundId);
 	store.putIntention({
 		...proposedIntention(),
 		intentionId: "intention-start",
@@ -344,16 +336,53 @@ function playRound(store: JudgmentStore, situation: Situation) {
 		},
 		0,
 	);
+	const promise = proposedIntention();
+	store.putIntention({
+		...promise,
+		intentionId: "protected-promise",
+		kind: "user_commitment",
+		acceptance: { ...promise.acceptance, acceptedBy: "user" },
+	});
+	const protectedIntention = store.transitionIntention(
+		"protected-promise",
+		{
+			to: "adopted",
+			reason: "accepted user promise",
+			evidenceRef: "source-1",
+			at: PROJECTED_AT,
+		},
+		0,
+	);
+	const snapshot = {
+		...snapshotRef(situation, profiles.refs, projection),
+		intentionRevision: store.intentionRevision(AGENT, SCOPE),
+	};
+	const opened = store.openRound(snapshot);
+	expect(opened).toEqual({
+		roundId: snapshot.roundId,
+		snapshotDigest: snapshotDigest(snapshot),
+	});
+	const assessments = (["clotho", "lachesis", "atropos"] as const).map(
+		(moduleKind) => assessmentFor(snapshot, moduleKind, candidates),
+	);
+	for (const assessment of assessments) store.putAssessment(assessment);
+	const set = store.assessmentSet(snapshot.roundId);
 	const closed = buildCandidateSet({
 		roundId: snapshot.roundId,
 		snapshotDigest: snapshotDigest(snapshot),
 		options: candidates,
 		eligibility: candidates.map((option) => ({
 			optionKey: option.optionKey,
-			eligible: true,
-			reason: null,
+			eligible: option.kind !== "task.start",
+			reason: option.kind === "task.start" ? "infeasible precondition" : null,
 		})),
 		intentionRefs: [
+			{
+				intentionId: protectedIntention.intentionId,
+				revision: protectedIntention.revision,
+				status: protectedIntention.status,
+				digest: intentionDigest(protectedIntention),
+			},
 			{
 				intentionId: startIntention.intentionId,
 				revision: startIntention.revision,
@@ -370,6 +399,10 @@ function playRound(store: JudgmentStore, situation: Situation) {
 		set,
 		eligibility: closed.eligibility,
 		bias: {},
+		evidence: {
+			candidates: closed,
+			lookupIntention: (id) => store.getIntention(id),
+		},
 	});
 	store.recordResolution(snapshot.roundId, resolved.resolution, resolved.spec);
 	return {
@@ -384,7 +417,7 @@ function playRound(store: JudgmentStore, situation: Situation) {
 	};
 }
 
-test("autonomous personal.v1 round persists selection, sampling and adopted intention", () => {
+test("autonomous personal.v1 round persists SelectionSpec and adopted intention, with injected sampling in memory", () => {
 	const store = open();
 	const {
 		projection,
@@ -474,8 +507,8 @@ test("autonomous personal.v1 round persists selection, sampling and adopted inte
 	expect(resolution.order).toEqual([...AUTONOMOUS_ORDER]);
 	expect(resolution.excluded).toContainEqual({
 		optionKey: options.start.optionKey,
-		stage: "infeasible",
-		byModule: "clotho",
+		stage: "host_eligibility",
+		byModule: null,
 		reason: "infeasible precondition",
 	});
 	expect(resolution.excluded).toContainEqual({

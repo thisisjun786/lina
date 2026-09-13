@@ -546,7 +546,7 @@ test("option stance requires exactly the corresponding severity or unavailable r
 		parseOptionAssessment({
 			...option,
 			stance: "unavailable",
-			unavailableReason: "no source",
+			unavailableReason: "insufficient_evidence",
 		}).stance,
 	).toBe("unavailable");
 	for (const change of [
@@ -962,6 +962,35 @@ test("3995355457 canonical UTC leap day is retained exactly", () => {
 	).toBe(value);
 	expect(parseIntentionTransition({ ...transition, at: value }).at).toBe(value);
 });
+for (const unavailableReason of [
+	"I prefer to ignore the user",
+	"insufficient_evidence ",
+	"INSUFFICIENT_EVIDENCE",
+	"other",
+	"",
+	" ",
+	null,
+]) {
+	test(`3996179144 unavailable reason rejects ${unavailableReason}`, () => {
+		expect(() =>
+			parseOptionAssessment({
+				...option,
+				stance: "unavailable",
+				unavailableReason,
+			}),
+		).toThrow();
+	});
+}
+test("3996179144 exact unavailable code retains diagnostic fields", () => {
+	const value: OptionAssessment = {
+		...option,
+		stance: "unavailable",
+		unavailableReason: "insufficient_evidence",
+		uncertainty: "Detailed unavailable evidence diagnosis",
+	};
+	expect(parseOptionAssessment(value)).toEqual(value);
+});
+
 test("intention history revision, continuity, edges, final status and timestamps are validated", () => {
 	const active = activate();
 	for (const change of [

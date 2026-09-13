@@ -12,6 +12,7 @@ import {
 	sampleSelection,
 	snapshotDigest,
 } from "../src/agents/index.ts";
+import { withCommitmentEvidence } from "./judgment-policy-commitment-fixture.ts";
 
 test("rank mass remains normalized when absolute geometric weights overflow or underflow", () => {
 	expect(rankMass([1076], 0.5)).toEqual([1]);
@@ -163,18 +164,21 @@ function commitmentChange(breachedIntentionIds?: string[]) {
 			],
 		})),
 	});
-	return input;
+	return withCommitmentEvidence(input, [
+		{ id: "changed-intention", sourceRef: "accepted-request" },
+		{ id: "different-promise", sourceRef: "other-request" },
+	]);
 }
 
-test("an unattributed breach cannot waive protection for an intention change", () => {
-	const result = resolvePersonalRound(commitmentChange());
-	expect(result.resolution.status).toBe("deferred");
-	expect(result.spec).toBeNull();
-	expect(result.resolution.excluded[0]?.stage).toBe("commitment_protection");
-});
+for (const ids of [undefined, []])
+	test(`an unattributed breach cannot hard-veto an intention change (${JSON.stringify(ids)})`, () => {
+		const result = resolvePersonalRound(commitmentChange(ids));
+		expect(result.resolution.status).toBe("resolved");
+		expect(result.spec?.candidates[0]?.p0).toBe(1);
+		expect(result.resolution.excluded).toEqual([]);
+	});
 
 for (const ids of [
-	[],
 	["different-promise"],
 	["changed-intention", "different-promise"],
 ]) {
@@ -231,8 +235,13 @@ for (const removal of ["host", "commitment", "infeasible", "ranked"] as const) {
 		input.eligibility = [
 			{
 				optionKey: preferred.optionKey,
-				eligible: removal !== "host",
-				reason: removal === "host" ? "not authorized" : null,
+				eligible: removal !== "host" && removal !== "infeasible",
+				reason:
+					removal === "host"
+						? "not authorized"
+						: removal === "infeasible"
+							? "failed prerequisite receipt"
+							: null,
 			},
 			{ optionKey: alternative.optionKey, eligible: true, reason: null },
 		];
@@ -252,13 +261,16 @@ for (const removal of ["host", "commitment", "infeasible", "ranked"] as const) {
 			if (removal === "commitment" && assessment.moduleKind === "atropos") {
 				opinion.stance = "oppose";
 				opinion.severity = "commitment_breach";
+				opinion.breachedIntentionIds = ["intention"];
 			}
 			if (removal === "infeasible" && assessment.moduleKind === "clotho") {
 				opinion.stance = "oppose";
 				opinion.severity = "infeasible";
 			}
 		}
-		const { resolution } = resolvePersonalRound(input);
+		const { resolution } = resolvePersonalRound(
+			removal === "commitment" ? withCommitmentEvidence(input) : input,
+		);
 		expect(resolution.status).toBe("resolved");
 		if (removal === "ranked") {
 			expect(resolution.conceded).toContainEqual({
@@ -293,6 +305,7 @@ test("personal.v1 revision one rejects altered or malformed declarations", () =>
 		{ lambda: { ...PERSONAL_POLICY_V1.lambda, user_request: 1 } },
 		{ lambda: { ...PERSONAL_POLICY_V1.lambda, autonomous: 0 } },
 		{ stanceOrder: [] },
+		{ unavailableReasons: [] },
 		{ stanceOrder: [...PERSONAL_POLICY_V1.stanceOrder].reverse() },
 	]) {
 		expect(() =>
@@ -333,7 +346,7 @@ test("a module omitted from round ordering makes no concession", () => {
 			optionKey: alternative.optionKey,
 			stance: assessment.moduleKind === "clotho" ? "unavailable" : "prefer",
 			unavailableReason:
-				assessment.moduleKind === "clotho" ? "missing forecast" : null,
+				assessment.moduleKind === "clotho" ? "insufficient_evidence" : null,
 		});
 	}
 	const result = resolvePersonalRound(input);
@@ -344,14 +357,14 @@ test("a module omitted from round ordering makes no concession", () => {
 	expect(result.resolution.abstentions).toContainEqual({
 		moduleKind: "clotho",
 		optionKey: alternative.optionKey,
-		reason: "missing forecast",
+		reason: "insufficient_evidence",
 	});
 	expect(result.resolution.conceded).toEqual([]);
 });
 
-for (const [moduleKind, severity, stage] of [
-	["atropos", "commitment_breach", "commitment_protection"],
-	["clotho", "infeasible", "infeasible"],
+for (const [moduleKind, severity] of [
+	["atropos", "commitment_breach"],
+	["clotho", "infeasible"],
 ] as const) {
 	test(`${moduleKind} unavailable cannot gain a ${severity} veto`, () => {
 		const input = fixture();
@@ -361,7 +374,7 @@ for (const [moduleKind, severity, stage] of [
 		const opinion = assessment?.objectiveAssessments[0];
 		if (!opinion) throw Error("missing opinion");
 		opinion.stance = "unavailable";
-		opinion.unavailableReason = "missing evidence";
+		opinion.unavailableReason = "insufficient_evidence";
 		const available = resolvePersonalRound(input);
 		expect(available.resolution.status).toBe("resolved");
 		expect(available.resolution.excluded).toEqual([]);
@@ -377,16 +390,11 @@ for (const [moduleKind, severity, stage] of [
 		opinion.stance = "oppose";
 		opinion.unavailableReason = null;
 		const opposed = resolvePersonalRound(input);
-		expect(opposed.resolution.status).toBe("deferred");
-		expect(opposed.resolution.excluded).toEqual([
-			{
-				optionKey: opinion.optionKey,
-				stage,
-				byModule: moduleKind,
-				reason: expect.any(String),
-			},
+		expect(opposed.resolution.status).toBe("resolved");
+		expect(opposed.resolution.excluded).toEqual([]);
+		expect(opposed.spec?.candidates).toEqual([
+			{ optionKey: opinion.optionKey, p0: 1, b: null },
 		]);
-		expect(opposed.spec).toBeNull();
 	});
 }
 
@@ -410,7 +418,7 @@ for (const stances of [
 			opinion.stance = stance;
 			opinion.severity = stance === "oppose" ? "preference" : null;
 			opinion.unavailableReason =
-				stance === "unavailable" ? "missing evidence" : null;
+				stance === "unavailable" ? "insufficient_evidence" : null;
 		}
 		expect(parseAssessmentSet(input.set)).toEqual(input.set);
 		const { resolution } = resolvePersonalRound(input);

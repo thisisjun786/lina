@@ -30,6 +30,7 @@ import {
 	sampleSelection,
 	snapshotDigest,
 } from "../src/agents/index.ts";
+import { withCommitmentEvidence } from "./judgment-policy-commitment-fixture.ts";
 
 const actor = { agentId: "agent", scopeId: "scope" };
 const preconditions: PersonalPrecondition[] = [
@@ -128,7 +129,8 @@ function opinion(
 	return {
 		stance,
 		severity: stance === "oppose" ? (severity ?? "preference") : null,
-		unavailableReason: stance === "unavailable" ? "missing observation" : null,
+		unavailableReason:
+			stance === "unavailable" ? "insufficient_evidence" : null,
 	};
 }
 function fixture(
@@ -209,9 +211,12 @@ function fixture(
 	};
 }
 function resolve(input: Parameters<typeof resolvePersonalRound>[0]) {
-	const before = structuredClone(input);
+	const before = structuredClone({
+		...input,
+		evidence: input.evidence?.candidates,
+	});
 	const result = resolvePersonalRound(input);
-	expect(input).toEqual(before);
+	expect({ ...input, evidence: input.evidence?.candidates }).toEqual(before);
 	expect(parseResolutionRecord(result.resolution)).toEqual(result.resolution);
 	if (result.spec) {
 		expect(parseSelectionSpec(result.spec)).toEqual(result.spec);
@@ -483,16 +488,36 @@ test("(5) only original-acceptance suspend/cancel escape commitment protection",
 		"intention.cancel",
 		"intention.suspend",
 		"intention.resume",
-	].map((kind) => option(kind, kind as PersonalOptionKind));
+	].map((kind) => {
+		const candidate = option("intention", kind as PersonalOptionKind);
+		return kind === "intention.resume"
+			? buildCanonicalOption({
+					...candidate,
+					targetId: "resume-intention",
+					preconditions: {
+						kind: "intention.resume",
+						intentionId: "resume-intention",
+						acceptanceSourceRef: "request",
+						reason: "resume",
+					},
+				})
+			: candidate;
+	});
 	const result = resolve(
-		fixture("user_request", options, (m) => {
-			if (m === "atropos")
-				return {
-					...opinion("oppose", "commitment_breach"),
-					breachedIntentionIds: ["intention"],
-				};
-			return opinion("accept");
-		}),
+		withCommitmentEvidence(
+			fixture("user_request", options, (m) => {
+				if (m === "atropos")
+					return {
+						...opinion("oppose", "commitment_breach"),
+						breachedIntentionIds: ["intention"],
+					};
+				return opinion("accept");
+			}),
+			[
+				{ id: "intention", sourceRef: "request" },
+				{ id: "resume-intention", sourceRef: "request", suspended: true },
+			],
+		),
 	);
 	for (const o of options) {
 		const exempt =
@@ -526,7 +551,7 @@ test("(5) only original-acceptance suspend/cancel escape commitment protection",
 	expect(() => resolvePersonalRound(input)).toThrow();
 });
 
-test("(5) preference never excludes, and only clotho drives infeasible exclusion", () => {
+test("(5) preference and unverified infeasible opposition never exclude", () => {
 	for (const moduleKind of MODULE_KINDS) {
 		for (const severity of ["preference", "infeasible"] as const) {
 			const result = resolve(
@@ -539,15 +564,8 @@ test("(5) preference never excludes, and only clotho drives infeasible exclusion
 			const p0 = requireSpec(result).candidates.find(
 				(c) => c.optionKey === option("a").optionKey,
 			)?.p0;
-			if (moduleKind === "clotho" && severity === "infeasible") {
-				expect(p0).toBe(0);
-				expect(result.resolution.excluded).toContainEqual({
-					optionKey: option("a").optionKey,
-					stage: "infeasible",
-					byModule: "clotho",
-					reason: expect.any(String),
-				});
-			} else expect(p0).toBeGreaterThan(0);
+			expect(p0).toBeGreaterThan(0);
+			expect(result.resolution.excluded).toEqual([]);
 		}
 	}
 });
@@ -572,8 +590,15 @@ test("(7) no host-eligible or no remaining candidates defers, never supplies uni
 		expect(result.spec).toBeNull();
 	}
 	const excluded = resolve(
-		fixture("transition", undefined, (m) =>
-			m === "clotho" ? opinion("oppose", "infeasible") : opinion("accept"),
+		withCommitmentEvidence(
+			fixture("transition", undefined, (m) =>
+				m === "atropos"
+					? {
+							...opinion("oppose", "commitment_breach"),
+							breachedIntentionIds: ["intention"],
+						}
+					: opinion("accept"),
+			),
 		),
 	);
 	expect(excluded.resolution.status).toBe("deferred");
@@ -606,21 +631,26 @@ test("(7) eligible completeness precedes protection; ineligible candidates need 
 		m === "lachesis" && o.targetId === "a"
 			? null
 			: m === "atropos"
-				? opinion("oppose", "commitment_breach")
+				? {
+						...opinion("oppose", "commitment_breach"),
+						breachedIntentionIds: ["intention"],
+					}
 				: opinion("accept"),
 	);
-	const result = resolve(input);
+	const result = resolve(withCommitmentEvidence(input));
 	expect(result.resolution.status).toBe("held");
 	expect(result.resolution.holdReason).toBe(
 		`missing assessment lachesis for ${option("a").optionKey}`,
 	);
 	expect(result.spec).toBeNull();
-	const without = resolve({
-		...input,
-		eligibility: input.eligibility.filter(
-			(e) => e.optionKey !== option("a").optionKey,
-		),
-	});
+	const without = resolve(
+		withCommitmentEvidence({
+			...input,
+			eligibility: input.eligibility.filter(
+				(e) => e.optionKey !== option("a").optionKey,
+			),
+		}),
+	);
 	expect(without.resolution.status).toBe("deferred");
 	const mismatched = {
 		...input,
@@ -668,7 +698,7 @@ for (const situation of SITUATIONS) {
 		expect(result.resolution.abstentions).toContainEqual({
 			optionKey: option("c").optionKey,
 			moduleKind: m1,
-			reason: "missing observation",
+			reason: "insufficient_evidence",
 		});
 		expect(
 			resolve({ ...input, options: [...input.options].reverse() }),
@@ -803,6 +833,7 @@ test("personal policy is frozen at every level", () => {
 		...Object.values(PERSONAL_POLICY_V1.orders),
 		PERSONAL_POLICY_V1.lambda,
 		PERSONAL_POLICY_V1.stanceOrder,
+		PERSONAL_POLICY_V1.unavailableReasons,
 	])
 		expect(Object.isFrozen(value)).toBe(true);
 });
@@ -821,6 +852,8 @@ test("assignment cannot change personal policy arbitration", () => {
 		[PERSONAL_POLICY_V1, "orders", {}],
 		[PERSONAL_POLICY_V1, "lambda", {}],
 		[PERSONAL_POLICY_V1, "stanceOrder", []],
+		[PERSONAL_POLICY_V1, "unavailableReasons", []],
+		[PERSONAL_POLICY_V1.unavailableReasons, "0", "invented"],
 		[
 			PERSONAL_POLICY_V1.orders,
 			"autonomous",
@@ -850,5 +883,6 @@ test("policy public type exposes exactly the revision-one declaration", () => {
 		orders,
 		lambda: { user_request: 0, autonomous: 1, transition: 1 },
 		stanceOrder: ["prefer", "accept", "oppose"],
+		unavailableReasons: ["insufficient_evidence"],
 	});
 });

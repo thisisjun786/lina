@@ -2,6 +2,12 @@ export const MODULE_KINDS = ["clotho", "lachesis", "atropos"] as const;
 export type ModuleKind = (typeof MODULE_KINDS)[number];
 export const STANCES = ["prefer", "accept", "oppose", "unavailable"] as const;
 export type Stance = (typeof STANCES)[number];
+/** Initial personal.v1 vocabulary; detailed diagnosis belongs in evidence/text fields. */
+export const ASSESSMENT_UNAVAILABLE_REASONS = [
+	"insufficient_evidence",
+] as const;
+export type AssessmentUnavailableReason =
+	(typeof ASSESSMENT_UNAVAILABLE_REASONS)[number];
 export const SEVERITIES = [
 	"commitment_breach",
 	"infeasible",
@@ -86,12 +92,12 @@ export type OptionAssessment = {
 	optionKey: OptionKey;
 	stance: Stance;
 	severity: Severity | null;
-	unavailableReason: string | null;
+	unavailableReason: AssessmentUnavailableReason | null;
 	gain: string;
 	loss: string;
 	uncertainty: string;
 	evidenceRefs: string[];
-	/** Absent or empty means an unattributed breach and cannot justify a waiver. */
+	/** Absent/empty attribution cannot justify a hard veto or a targeted waiver. */
 	breachedIntentionIds?: string[];
 };
 export type JsonValue =

@@ -17,11 +17,11 @@ import {
 	type SelectionSpec,
 } from "./judgment.ts";
 import { type CandidateSet, parseCandidateSet } from "./judgment-candidates.ts";
+import { validateCandidateEvidence } from "./judgment-evidence.ts";
 import { PERSONAL_POLICY_V1, resolvePersonalRound } from "./judgment-policy.ts";
 import { initializeJudgmentSchema } from "./judgment-schema.ts";
 import {
 	canonicalJson,
-	INTENTION_TRANSITIONS,
 	intentionDigest,
 	judgmentDigest,
 	parseAssessment,
@@ -53,6 +53,7 @@ function validateCandidateBinding(
 	set: AssessmentSet | null,
 	snapshot: JudgmentSnapshotRef,
 	candidates: CandidateSet | null,
+	lookupIntention: (id: string) => IntentionRecord | null,
 ): void {
 	// Without complete evidence only a non-executable failure receipt is trusted.
 	// Its descriptive fields are not policy-replayed; deferred is not a fallback.
@@ -67,6 +68,7 @@ function validateCandidateBinding(
 		options: candidates.options,
 		eligibility: candidates.eligibility,
 		set,
+		evidence: { candidates, lookupIntention },
 		bias: Object.fromEntries(
 			selection?.candidates.map((c) => [c.optionKey, c.b]) ?? [],
 		),
@@ -94,107 +96,6 @@ function validateCandidateBinding(
 		throw Error("selection objective refs mismatch");
 	if (body(selection) !== body(replayed.spec))
 		throw Error("selection policy replay mismatch");
-}
-
-function validateCandidateEvidence(
-	set: CandidateSet,
-	snapshot: JudgmentSnapshotRef,
-	lookup: (id: string) => IntentionRecord | null,
-	assessments: Assessment[],
-	current: boolean,
-): void {
-	if (
-		set.roundId !== snapshot.roundId ||
-		set.snapshotDigest !== snapshotDigest(snapshot)
-	)
-		throw Error("candidate snapshot mismatch");
-	const referenced = new Map<string, IntentionRecord>();
-	for (const ref of set.intentionRefs) {
-		const record = lookup(ref.intentionId);
-		if (
-			!record ||
-			record.agentId !== snapshot.agentId ||
-			record.scopeId !== snapshot.scopeId
-		)
-			throw Error("candidate intention scope or reference mismatch");
-		if (
-			record.revision < ref.revision ||
-			(current && record.revision !== ref.revision)
-		)
-			throw Error("stale candidate intention revision");
-		// This owner changes only status/revision/history. Preserve every original
-		// field while reconstructing the frozen revision from validated history.
-		const historical = parseIntentionRecord({
-			...record,
-			revision: ref.revision,
-			status: ref.status,
-			history: record.history.slice(0, ref.revision),
-		});
-		if (intentionDigest(historical) !== ref.digest)
-			throw Error("candidate intention digest mismatch");
-		referenced.set(ref.intentionId, historical);
-	}
-	const eligible = new Set(
-		set.eligibility.filter((r) => r.eligible).map((r) => r.optionKey),
-	);
-	for (const option of set.options) {
-		if (
-			option.actor.agentId !== snapshot.agentId ||
-			option.actor.scopeId !== snapshot.scopeId
-		)
-			throw Error("candidate actor snapshot mismatch");
-		const precondition = option.preconditions;
-		if (!eligible.has(option.optionKey) || !("intentionId" in precondition))
-			continue;
-		const record = referenced.get(precondition.intentionId);
-		if (!record) throw Error("missing candidate intention ref");
-		if (
-			"acceptanceSourceRef" in precondition &&
-			precondition.acceptanceSourceRef !== record.acceptance.sourceRef
-		)
-			throw Error("candidate original acceptance mismatch");
-		if (precondition.kind === "task.start") continue;
-		if (option.targetId !== record.intentionId)
-			throw Error("candidate intention target mismatch");
-		const to = {
-			"intention.activate": "active",
-			"intention.resume": "active",
-			"intention.suspend": "suspended",
-			"intention.cancel": "cancelled",
-			"intention.complete": "completed",
-		}[precondition.kind] as IntentionStatus;
-		if (
-			!INTENTION_TRANSITIONS[record.status].includes(to) ||
-			(precondition.kind === "intention.activate" &&
-				record.status !== "adopted") ||
-			(precondition.kind === "intention.resume" &&
-				record.status !== "suspended")
-		)
-			throw Error("illegal candidate intention transition");
-	}
-	const keys = new Set(set.options.map((o) => o.optionKey));
-	for (const assessment of assessments) {
-		if (
-			[
-				...assessment.proposedOptionKeys,
-				...assessment.recommendedOptionKeys,
-				...assessment.objectiveAssessments.map((o) => o.optionKey),
-			].some((key) => !keys.has(key))
-		)
-			throw Error("unknown assessment option key");
-		if (assessment.moduleKind !== "atropos") continue;
-		for (const opinion of assessment.objectiveAssessments) {
-			for (const id of opinion.breachedIntentionIds ?? []) {
-				const record = referenced.get(id);
-				if (
-					record?.kind !== "user_commitment" ||
-					record.acceptance.acceptedBy !== "user" ||
-					!["adopted", "active", "suspended"].includes(record.status)
-				)
-					throw Error("missing protected commitment evidence");
-			}
-		}
-	}
 }
 
 /** The Host owns the single writer; this ledger is independent of session lifetimes. */
@@ -365,6 +266,21 @@ export class JudgmentStore {
 			);
 			if (body(active) !== body(parsed.objectiveProfileRefs))
 				throw Error("stale objective profile refs");
+			if (
+				parsed.intentionRevision !==
+				this.intentionRevision(parsed.agentId, parsed.scopeId)
+			)
+				throw Error("stale intention revision");
+			const highWater = this.db
+				.prepare(
+					"SELECT MAX(sequence) AS sequence FROM rounds WHERE agent_id = ? AND scope_id = ?",
+				)
+				.get(parsed.agentId, parsed.scopeId);
+			if (
+				highWater?.["sequence"] !== null &&
+				parsed.sequence <= Number(highWater?.["sequence"])
+			)
+				throw Error("stale round sequence");
 			const digest = snapshotDigest(parsed);
 			const now = this.now();
 			this.db
@@ -555,6 +471,20 @@ export class JudgmentStore {
 		const selection = spec === null ? null : parseSelectionSpec(spec);
 		this.transaction(() => {
 			const round = this.requireOpenRound(id);
+			if (
+				body(
+					this.activeObjectiveProfiles(
+						round.snapshot.agentId,
+						round.snapshot.scopeId,
+					),
+				) !== body(round.snapshot.objectiveProfileRefs)
+			)
+				throw Error("stale objective profile refs");
+			if (
+				round.snapshot.intentionRevision !==
+				this.intentionRevision(round.snapshot.agentId, round.snapshot.scopeId)
+			)
+				throw Error("stale intention revision");
 			if (parsed.roundId !== id) throw Error("resolution round mismatch");
 			if (
 				parsed.situation !== round.snapshot.situation ||
@@ -589,6 +519,7 @@ export class JudgmentStore {
 				set,
 				round.snapshot,
 				candidates,
+				(id) => this.getIntention(id),
 			);
 			const now = this.now();
 			this.db
@@ -642,6 +573,19 @@ export class JudgmentStore {
 		}, false);
 	}
 
+	/** Scoped create/+1-transition mutation counter; no delete or scope-move API.
+	 * Keep this invariant if future mutation APIs are introduced. */
+	intentionRevision(agentId: string, scopeId: string): number {
+		return this.transaction(() => {
+			const row = this.db
+				.prepare(
+					"SELECT COALESCE(SUM(1 + revision), 0) AS revision FROM intention_records WHERE agent_id = ? AND scope_id = ?",
+				)
+				.get(boundedId(agentId, "agent id"), boundedId(scopeId, "scope id"));
+			return revision(Number(row?.["revision"]));
+		}, false);
+	}
+
 	putIntention(record: IntentionRecord): void {
 		this.assertOpen();
 		const parsed = parseIntentionRecord(record);
@@ -654,6 +598,7 @@ export class JudgmentStore {
 		this.transaction(() => {
 			if (this.getIntention(parsed.intentionId))
 				throw Error("duplicate intention");
+			revision(this.intentionRevision(parsed.agentId, parsed.scopeId) + 1);
 			const now = this.now();
 			this.db
 				.prepare(
@@ -695,6 +640,7 @@ export class JudgmentStore {
 			const updated = parseIntentionRecord(
 				transitionIntention(record, transition),
 			);
+			revision(this.intentionRevision(record.agentId, record.scopeId) + 1);
 			this.db
 				.prepare(
 					"UPDATE intention_records SET revision = ?, status = ?, digest = ?, body = ?, updated_at = ? WHERE intention_id = ?",
@@ -1065,6 +1011,7 @@ export class JudgmentStore {
 				set,
 				snapshot,
 				candidatesByRound.get(record.roundId) ?? null,
+				(id) => intentionsById.get(id) ?? null,
 			);
 		}
 		if (this.db.prepare("PRAGMA foreign_key_check").all().length > 0)

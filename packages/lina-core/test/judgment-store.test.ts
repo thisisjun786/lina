@@ -100,7 +100,7 @@ function snapshot(
 		policyRevision: 1,
 		identityRevision: 1,
 		domainRevisions: { life: 0 },
-		intentionRevision: 0,
+		intentionRevision: store.intentionRevision("agent-1", "scope-1"),
 		objectiveProfileRefs: refs,
 		observationRef: null,
 		frozenNeuralRef: null,
@@ -740,7 +740,7 @@ for (const { label, change, error } of selectionMismatches) {
 	});
 }
 
-test("assessment and selection use frozen refs after objective activation changes", () => {
+test("3998853057 assessments retain frozen refs but stale objective resolution rejects atomically", () => {
 	const store = open();
 	const ref = snapshot(store);
 	store.openRound(ref);
@@ -752,20 +752,207 @@ test("assessment and selection use frozen refs after objective activation change
 	expect(selection.assessmentSetDigest).toBe(
 		judgmentDigest(store.assessmentSet(ref.roundId)),
 	);
-	store.recordResolution(ref.roundId, resolution(ref), selection);
-	expect(store.getSelectionSpec(ref.roundId)).toEqual(selection);
-	expect(store.getRound(ref.roundId)?.status).toBe("resolved");
+	expect(() =>
+		store.recordResolution(ref.roundId, resolution(ref), selection),
+	).toThrow("stale objective profile refs");
+	expect(store.assessmentSet(ref.roundId).assessments).toHaveLength(3);
+	expect(store.getResolution(ref.roundId)).toBeNull();
+	expect(store.getSelectionSpec(ref.roundId)).toBeNull();
+	expect(store.getRound(ref.roundId)?.status).toBe("open");
 });
+
+test("3998853057 resolved action remains historical after activation and intention changes", () => {
+	let store = open();
+	const ref = snapshot(store);
+	store.openRound(ref);
+	closeCandidates(store, ref);
+	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
+	store.activateObjectiveProfile(
+		ref.agentId,
+		ref.scopeId,
+		ref.objectiveProfileRefs.clotho,
+	);
+	store.activateObjectiveProfile(
+		"other-agent",
+		ref.scopeId,
+		store.putObjectiveProfile(profile("clotho", 2)),
+	);
+	store.activateObjectiveProfile(
+		ref.agentId,
+		"other-scope",
+		store.putObjectiveProfile(profile("clotho", 2)),
+	);
+	store.recordResolution(ref.roundId, resolution(ref), spec(ref));
+	store.activateObjectiveProfile(
+		ref.agentId,
+		ref.scopeId,
+		store.putObjectiveProfile(profile("clotho", 2)),
+	);
+	store.putIntention(intention());
+	store.transitionIntention("intention-1", transition("adopted"), 0);
+	close(store);
+	store = open();
+	expect(store.getResolution(ref.roundId)).toEqual(resolution(ref));
+	expect(store.getSelectionSpec(ref.roundId)).toEqual(spec(ref));
+});
+
+test("3998853070 scoped mutation sum counts creates/transitions and survives reopen", () => {
+	let store = open();
+	expect(store.intentionRevision("agent-1", "scope-1")).toBe(0);
+	store.putIntention(intention());
+	expect(store.intentionRevision("agent-1", "scope-1")).toBe(1);
+	store.putIntention(intention("second"));
+	expect(store.intentionRevision("agent-1", "scope-1")).toBe(2);
+	store.transitionIntention("intention-1", transition("adopted"), 0);
+	expect(() => store.putIntention(intention())).toThrow("duplicate intention");
+	expect(() =>
+		store.transitionIntention("intention-1", transition("active"), 0),
+	).toThrow("stale intention revision");
+	expect(() =>
+		store.transitionIntention("intention-1", transition("completed"), 1),
+	).toThrow();
+	expect(store.intentionRevision("agent-1", "scope-1")).toBe(3);
+	expect(store.intentionRevision("agent-1", "other")).toBe(0);
+	expect(store.intentionRevision("other", "scope-1")).toBe(0);
+	close(store);
+	store = open();
+	expect(store.intentionRevision("agent-1", "scope-1")).toBe(3);
+});
+
+for (const mutation of ["create", "transition"] as const) {
+	test(`3998853070 ${mutation} invalidates open and resolution even without candidate intention refs`, () => {
+		const store = open();
+		store.putIntention(intention());
+		const ref = { ...snapshot(store), intentionRevision: 1 };
+		store.openRound(ref);
+		closeCandidates(store, ref);
+		for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
+		if (mutation === "create") store.putIntention(intention("second"));
+		else store.transitionIntention("intention-1", transition("adopted"), 0);
+		expect(() =>
+			store.openRound({ ...ref, roundId: "stale", sequence: 2 }),
+		).toThrow("stale intention revision");
+		expect(() =>
+			store.recordResolution(ref.roundId, resolution(ref), spec(ref)),
+		).toThrow("stale intention revision");
+		expect(store.getRound(ref.roundId)?.status).toBe("open");
+		expect(store.getResolution(ref.roundId)).toBeNull();
+		expect(store.getSelectionSpec(ref.roundId)).toBeNull();
+		const fresh = {
+			...ref,
+			roundId: "fresh",
+			sequence: 3,
+			intentionRevision: store.intentionRevision(ref.agentId, ref.scopeId),
+		};
+		store.openRound(fresh);
+		closeCandidates(store, fresh);
+		for (const m of MODULE_KINDS) store.putAssessment(assessment(fresh, m));
+		store.recordResolution(fresh.roundId, resolution(fresh), spec(fresh));
+		expect(store.getRound(fresh.roundId)?.status).toBe("resolved");
+	});
+}
+
+test("3998853070 unsafe scoped counter prevents both mutation paths atomically", () => {
+	const store = open();
+	store.putIntention(intention());
+	// The owner counter boundary is the only synthetic value; all mutations use real SQLite.
+	const counter = spyOn(store, "intentionRevision").mockReturnValue(
+		Number.MAX_SAFE_INTEGER,
+	);
+	try {
+		expect(() => store.putIntention(intention("overflow"))).toThrow(
+			"invalid judgment revision",
+		);
+		expect(() =>
+			store.transitionIntention("intention-1", transition("adopted"), 0),
+		).toThrow("invalid judgment revision");
+		expect(store.getIntention("overflow")).toBeNull();
+		expect(store.getIntention("intention-1")).toEqual(intention());
+		expect(
+			database()
+				.prepare("SELECT count(*) AS n FROM intention_transitions")
+				.get(),
+		).toEqual({ n: 0 });
+	} finally {
+		counter.mockRestore();
+	}
+	expect(store.intentionRevision("agent-1", "scope-1")).toBe(1);
+});
+
+test("3998853089 scoped sequence increases across handles and reopen with gaps allowed", () => {
+	let store = open();
+	const ref = snapshot(store, "two", 2);
+	const second = open();
+	store.openRound(ref);
+	for (const sequence of [1, 2])
+		expect(() =>
+			second.openRound({ ...ref, roundId: `rejected-${sequence}`, sequence }),
+		).toThrow();
+	second.openRound({ ...ref, roundId: "four", sequence: 4 });
+	close(store);
+	store = open();
+	expect(() =>
+		store.openRound({ ...ref, roundId: "three", sequence: 3 }),
+	).toThrow("stale round sequence");
+	store.openRound({ ...ref, roundId: "five", sequence: 5 });
+	for (const change of [{ agentId: "other" }, { scopeId: "other" }]) {
+		const independent = {
+			...ref,
+			...change,
+			roundId: JSON.stringify(change),
+			sequence: 1,
+		};
+		for (const m of MODULE_KINDS)
+			store.activateObjectiveProfile(
+				independent.agentId,
+				independent.scopeId,
+				ref.objectiveProfileRefs[m],
+			);
+		store.openRound(independent);
+	}
+	expect(database().prepare("SELECT count(*) AS n FROM rounds").get()).toEqual({
+		n: 5,
+	});
+});
+
+for (const field of ["acceptedAt", "deadline", "at"] as const) {
+	test(`3995355457 store rejects noncanonical ${field} before mutation`, () => {
+		const store = open();
+		const value = "2026-02-30T00:00:00.000Z";
+		if (field === "at") {
+			store.putIntention(intention());
+			expect(() =>
+				store.transitionIntention(
+					"intention-1",
+					{ ...transition("adopted"), at: value },
+					0,
+				),
+			).toThrow();
+			expect(store.getIntention("intention-1")).toEqual(intention());
+		} else {
+			const record = intention();
+			if (field === "deadline") record.deadline = value;
+			else record.acceptance.acceptedAt = value;
+			expect(() => store.putIntention(record)).toThrow();
+			expect(store.getIntention(record.intentionId)).toBeNull();
+		}
+		expect(
+			database()
+				.prepare("SELECT count(*) AS n FROM intention_transitions")
+				.get(),
+		).toEqual({ n: 0 });
+	});
+}
 
 test("resolution and selection persist atomically and survive reopen with canonical JSON", () => {
 	let store = open();
+	store.putIntention(intention());
 	const ref = snapshot(store);
 	store.openRound(ref);
 	closeCandidates(store, ref);
 	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 	const record = resolution(ref);
 	const selection = spec(ref);
-	store.putIntention(intention());
 	store.recordResolution(ref.roundId, record, selection);
 	expect(store.getRound(ref.roundId)?.status).toBe("resolved");
 	expect(() =>
@@ -931,6 +1118,7 @@ test("SQLite transition insert failure rolls back updated intention", () => {
 
 test("external records are reparsed and malformed persisted bodies are rejected on read", () => {
 	const store = open();
+	store.putIntention(intention());
 	const ref = snapshot(store);
 	store.openRound(ref);
 	closeCandidates(store, ref);
@@ -966,7 +1154,6 @@ test("external records are reparsed and malformed persisted bodies are rejected 
 	])
 		expect(action).toThrow();
 	const db = database();
-	store.putIntention(intention());
 	for (const m of MODULE_KINDS) store.putAssessment(assessment(ref, m));
 	store.recordResolution(ref.roundId, resolution(ref), spec(ref));
 	for (const [table, column, read] of [
