@@ -22,7 +22,7 @@ This contract does not cover, and links instead to:
 - product families, canon, writers and the role rule itself: [product-families.md](product-families.md)
 - grants, epochs, receipts, sibling records, authorization and the approval policy: [main-authority.md](main-authority.md)
 - the envelope, delivery rules, effect states, idempotency keys, the `node` connection and the supported-combination table: [host-protocol.md](host-protocol.md)
-- the TypeScript runtime, installed tools, conversation tools, the effect ledger and the sandbox, the model path, usage accounting, packaging and the update order: [runtime.md](runtime.md)
+- the language of LINA's components, installed tools, conversation tools, the effect ledger and the sandbox, the model path, usage accounting, packaging and the update order: [runtime.md](runtime.md)
 - plugins, the GitHub plugin (identity, field-level canon, notifications, reconciliation) and the SION link: [integrations.md](integrations.md)
 - how cards, plans and work cards are drawn: [surfaces.md](surfaces.md)
 - Klotho's drafting, project supervision and the QA product map: [cognition-and-life.md](cognition-and-life.md)
@@ -96,7 +96,7 @@ The work area is `identities/<identity-id>/work/` under the state root ([filesys
 
 ## Contract input from CRW
 
-CRW ([codex-relay-workflow](https://github.com/thisisjun786/codex-relay-workflow)) is the operator tool that coordinates Codex work until the operational switch. The work engine is LINA Core's management session, built anew in TypeScript for LINA's system: it keeps how CRW works (the work ledger and its states, relay delivery and acknowledgement, and the supervisor, parent and child roles), with CRW's contract schemas (`contract/schema/`) and fixtures (`contract/fixtures/`) as fixed input. CRW code is never copied, vendored, translated or linked. The schemas and fixtures state the behavior that matters; CRW's own code and host paths stay with CRW.
+CRW ([codex-relay-workflow](https://github.com/thisisjun786/codex-relay-workflow)) is the operator tool that coordinates Codex work until the operational switch. The work engine is LINA Core's management session, built anew in Go for LINA's system: it keeps how CRW works (the work ledger and its states, relay delivery and acknowledgement, and the supervisor, parent and child roles), with CRW's contract schemas (`contract/schema/`) and fixtures (`contract/fixtures/`) as fixed input. CRW code is never copied, vendored, translated or linked. The schemas and fixtures state the behavior that matters; CRW's own code and host paths stay with CRW.
 
 ### Start gate
 
@@ -214,9 +214,9 @@ Every worker adapter offers the work engine the same operations:
 
 ### Codex adapter
 
-- The adapter is a stdio JSON-RPC client written over the TypeScript types that `codex app-server generate-ts --experimental` produces. The types are generated for each verified Codex version and committed with the list of verified versions. With an unverified version, the adapter uses the types of the newest verified version.
+- The adapter is a stdio JSON-RPC client written over Go types generated from the JSON Schema that `codex app-server generate-json-schema --experimental` produces. The types are generated for each verified Codex version and committed with the list of verified versions, as generated upstream code under the vendoring rules of [dependencies.md](../policy/dependencies.md): never edited by hand, and regenerated on sync. With an unverified version, the adapter uses the types of the newest verified version.
 - The app-server is experimental and is not a production-supported interface. The list of verified versions and a round trip on each listed version absorb that risk. A new experimental field is used only after LINA records a judgment for it.
-- Discriminated unions are handled exhaustively, so a missing branch fails at compile time.
+- Closed sets of variants are switched on exhaustively, and the `exhaustive` analyzer in `foundation` fails a switch that misses a variant.
 - Wire values come from the generated types, never from documentation examples.
 - The session opens with `initialize` carrying `capabilities.experimentalApi: true`, then `initialized`.
 - Methods used: `thread/start`, `thread/resume`, `thread/read`, `thread/list`, `thread/loaded/list`, `thread/archive` (explicit close only), `turn/start`, `turn/steer` (`expectedTurnId` required), `turn/interrupt`, `hooks/list`, `skills/list`.
@@ -281,7 +281,7 @@ Code-change work uses the harness's PABCD loop. Work without a pull request, suc
 
 The LINA work harness (`lina-work`) is what workers use to do coding work for LINA. LINA builds it in the LINA repository as its own rebuild of the coding-work harness of [CXC (codexclaw)](https://github.com/lidge-jun/codexclaw): the stage loop, its gates and its receipts work as they do in CXC. No CXC code is copied, vendored or translated line by line. The parts of CXC that are not the coding-work harness, such as messenger integrations like Telegram, recall and the GUI, are not brought in. The harness also carries the worker side of LINA's coordination protocol: receiving an assignment, submitting receipts and asking questions.
 
-- The harness is TypeScript on the bundled Node.js runtime and ships in LINA releases as the Codex plugin `lina-work@lina`.
+- The harness is Go, built as static binaries per platform, and ships in LINA releases as the Codex plugin `lina-work@lina`.
 - LINA installs the plugin into the user's Codex the first time the user delegates work to Codex, and tells the user once, in that conversation, that it did. After that LINA keeps the plugin at the revision of its own release and updates it before a delegation that finds another revision.
 - Installing and updating this plugin is the only change LINA makes to the user's Codex configuration. Settings, other plugins, MCP servers, the model provider, sandbox and approval mode stay as the user set them.
 - LINA Core never works through the harness. It dispatches and judges.

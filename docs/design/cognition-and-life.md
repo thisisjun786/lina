@@ -177,7 +177,7 @@ The design of persona growth is decided in implementation. This contract fixes o
 
 LIFE is two things: a background world engine, and a personal feed inside the LINA app. It is not a separate product.
 
-- The world engine keeps a world, its time, its events and LINA's daily activities going in the background. It belongs to the LINA Core family, runs on the main and is TypeScript ([runtime.md](runtime.md)).
+- The world engine keeps a world, its time, its events and LINA's daily activities going in the background. It belongs to the LINA Core family, runs on the main and is Go ([runtime.md](runtime.md)).
 - The LIFE feed shows LINA's activities, posts, reactions, media and conversation experiences, much like a social photo feed. It isn't connected to Instagram or any other real social network.
 - LIFE has no separate app, installer or login, and no persona of its own. The LINA in LIFE is the same LINA.
 - LINA APP is a thin client. It shows the LIFE feed and never runs the world engine ([surfaces.md](surfaces.md)).

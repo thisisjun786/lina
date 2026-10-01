@@ -23,9 +23,9 @@ Rules:
 
 - The schema lives in `protocol/schema/` of the LINA repository and is versioned per connection, as described under "Versions and capabilities". Siblings take it from a LINA release tag.
 - Every schema file declares draft 2020-12 with `$schema`. No other dialect is used.
-- Types are generated from the schema for TypeScript, Swift, Kotlin and Dart. Generated types are never edited by hand. CI regenerates them and fails on any difference.
-- The TypeScript types are part of the LINA kit ([runtime.md](runtime.md)). LINA Core, the TUI, Node and RUMI use them through the kit. SION generates the same TypeScript types from the schema it pins ([sion.md](https://github.com/thisisjun786/sion/blob/dev/docs/design/sion.md)).
-- Swift, Kotlin and Dart types are generated for the platforms whose native UI uses them ([surfaces.md](surfaces.md)).
+- Types are generated from the schema for each language that uses it: Go for LINA Core, the TUI, Node and RUMI; TypeScript for SION; and each app platform's own language: Swift, Kotlin, and the Windows app's language once it is chosen. Generated types are never edited by hand. CI regenerates them and fails on any difference.
+- The Go types are part of the LINA kit ([runtime.md](runtime.md)). LINA Core, the TUI, Node and RUMI use them through the kit. SION generates its TypeScript types from the schema it pins ([sion.md](https://github.com/thisisjun786/sion/blob/dev/docs/design/sion.md)).
+- Swift and Kotlin types, and the Windows app's types, are generated for the platforms whose native UI uses them ([surfaces.md](surfaces.md)).
 - Every generated type set parses and re-serializes every conformance fixture without loss.
 
 ## Envelope
@@ -208,5 +208,5 @@ The `state` and `mailbox` branches, and the rulesets that keep each one to its w
 
 ## Deferred
 
-- The code generators for Swift, Kotlin and Dart: chosen with each platform's UI framework, before the first GUI work on that platform ([surfaces.md](surfaces.md)).
+- The code generators for Swift, Kotlin and the Windows app's language: chosen with each platform's UI framework, before the first GUI work on that platform ([surfaces.md](surfaces.md)).
 - Request timeouts on the `client` and `node` connections: set by measurement during implementation acceptance of each connection.

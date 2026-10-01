@@ -113,7 +113,7 @@ Each measured cell has one record, and it holds:
 - the host OS and version, and the install mode
 - the session: OS user, GUI session, profile, the grant the work ran under, and any seat lease in force
 - the hardware: CPU, memory, and any relevant device
-- the versions and release manifest digests of every LINA artifact involved: LINA Core, Node, LINA APP and LINA OS (the manifest pins the bundled Node.js runtime)
+- the versions and release manifest digests of every LINA artifact involved: LINA Core, Node, LINA APP and LINA OS (the manifest pins opencodex and its Node.js runtime)
 - the version of every sibling process running on the machine
 - the workload: what the person did, what LINA did, what LIFE world activity ran and which sibling processes ran in the background
 - the traces: input, focus, clipboard and file access traces for the whole session, tied to the task and grant ids

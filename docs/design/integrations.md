@@ -64,7 +64,7 @@ Installing and turning on a plugin are the person's acts. LINA never installs or
 
 ### Host
 
-LINA Core is the host of every plugin. It is the MCP client of plugin servers, using the official TypeScript SDK ([modelcontextprotocol/typescript-sdk](https://github.com/modelcontextprotocol/typescript-sdk)) at a pinned version, and it negotiates the protocol version with each server.
+LINA Core is the host of every plugin. It is the MCP client of plugin servers, using the official [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) at a pinned version, and it negotiates the protocol version with each server.
 
 - Plugin tools are tools of LINA's conversation engine and of LINA Core's own background features. They are named and declared as defined in [runtime.md](runtime.md). An enabled plugin is available in every conversation; there is no per-conversation switch.
 - Worker agents never receive plugin tools. A worker agent uses the integrations connected in the agent itself ([work-and-delegation.md](work-and-delegation.md)).

@@ -94,7 +94,7 @@ Rules:
 - LINA and a sibling never call each other's APIs while running. The sibling's repository is the only point of contact. The payloads and the verification of records are in [host-protocol.md](host-protocol.md).
 - LINA never copies a sibling's repository. The vault is a connected source.
 - A sibling never takes LINA's persona, skills or memory. LINA never imitates a sibling's voice.
-- RUMI and LINA share the LINA kit, a stateless TypeScript module that RUMI vendors from LINA release tags ([runtime.md](runtime.md)). SION uses the TypeScript protocol types generated from the shared schema. Shared code is a convenience, never a condition of compatibility.
+- RUMI and LINA share the LINA kit, a stateless Go module that RUMI vendors from LINA release tags ([runtime.md](runtime.md)). SION uses TypeScript protocol types generated from the shared schema. Shared code is a convenience, never a condition of compatibility.
 
 ### Speaker rule
 
