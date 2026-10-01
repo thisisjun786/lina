@@ -298,7 +298,7 @@ The two apps feel connected through the same files, the same passage addresses a
 ## Launcher
 
 - On macOS, LINA's launcher does what the person uses Raycast for, without copying Raycast's structure. Which Raycast features it covers is filled in a feature map during implementation.
-- The launcher opens from a global shortcut. Whatever the person says to LINA from the launcher goes into the main conversation, and the answer continues there.
+- The launcher opens from a global shortcut. Whatever the person says to LINA from the launcher goes into the person's main conversation, and the answer continues there.
 - The launcher includes clipboard history. Items marked concealed, as password managers mark them, are never stored. The history stays on that Mac. It never goes to LINA Core and never becomes memory or material.
 - A clipboard item reaches LINA only when the person explicitly puts it into a message, like typed text.
 - The person turns the launcher and clipboard history on. Because the person turns them on, they are the only exception to the clipboard rule in [non-competition.md](non-competition.md); nothing else LINA does reads or writes the person's clipboard.
