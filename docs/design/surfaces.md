@@ -96,7 +96,7 @@ The LINA app is one Flutter codebase, built natively for iOS, Android, macOS, Wi
 - Motion is restrained: gentle springs with no exaggerated bounce, and nothing moves unless a state changes. One or two small signature interactions carry LINA's delight; everything else is familiar.
 - Every feed has an end.
 
-**Tokens.** One design token source, in the Design Tokens Community Group (DTCG) format, holds color, type, spacing, radius, motion and icon size, with light, dark and high-contrast values for every role. A build generates the Flutter theme, as a `ThemeExtension`, and the TUI's Lip Gloss palette from it. No widget or TUI view hard-codes a visual value. CI fails when a generated file drifts from the source or a text and background pair falls below WCAG 2.2 AA contrast. The LINA repository's `DESIGN.md` holds the rules that people and agents follow when they build screens, with do's and don'ts; its token values are generated from the token source and never edited by hand. The RUMI app uses the same token source.
+**Tokens.** One design token source, in the Design Tokens Community Group (DTCG) format, holds color, type, spacing, radius, motion and icon size, with light, dark and high-contrast values for every role. A build generates the Flutter theme, as a `ThemeExtension`, and the TUI's Lip Gloss palette from it. No widget or TUI view hard-codes a visual value. CI fails when a generated file drifts from the source or a text and background pair falls below WCAG 2.2 AA contrast. The LINA repository's `DESIGN.md` holds the rules that people and agents follow when they build screens, with do's and don'ts; its token values are generated from the token source and never edited by hand. The token source and the widgets both apps share, such as the citation chip, live in the LINA repository as one Dart package shipped in LINA release tags. The RUMI app vendors that package from a LINA release tag, as RUMI takes the LINA kit ([runtime.md](runtime.md)).
 
 **Icons.** One icon source serves every surface: one cross-platform licensed icon set, such as Lucide or Phosphor, and LINA's own icons drawn on the same grid. SF Symbols are licensed only for Apple platforms, so they are not part of it. The TUI maps each icon to a text glyph. A state icon always appears with its text label. Each sibling has one identity icon, used on every sibling card.
 
@@ -364,6 +364,8 @@ The TUI accepts the committed text the terminal's input method delivers, renders
 
 - LINA's accent color, the form and expressions of LINA's character, the signature interactions and the icon set: set by design exploration and recorded in `DESIGN.md` and the token source.
 - How the LINA app joins the Omarchy shell's bar, launcher and notifications: set before the first Omarchy GUI work.
+- An Omarchy edition of the LINA app's visual design that matches Omarchy's own identity: a follow-up design task. Until it exists, the app keeps LINA's visual language on Omarchy and follows the active theme as Platform adaptation defines.
+- The CI component, dependency and generation rules for the Flutter app (pub lockfile, exact versions, generated Dart types and theme): added to the CI and dependency policies by the first app implementation.
 - Exact sizes and motion of the screen skeleton: tuned during implementation and recorded in the token source.
 - Menu placement of the today feed, and the screen design of the today feed, meeting notes and the plugin list: set during their implementation.
 - The launcher's feature map: filled in during launcher implementation.
