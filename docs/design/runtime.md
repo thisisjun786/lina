@@ -133,7 +133,7 @@ Every model call of LINA's own engines goes through opencodex, the local Respons
 LINA Core calls the Responses API of opencodex at `http://127.0.0.1:10100/v1` directly with the official [openai-go](https://github.com/openai/openai-go) library at a pinned version, through a thin adapter between LINA's types and the SDK's types.
 
 - `store` is `false`. Every request carries the full input it needs.
-- With reasoning on, the request includes `reasoning.encrypted_content`. The [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) requires at least every reasoning item, tool call and tool output since the last user message to go back in the next request unchanged. When no compaction runs, LINA sends every earlier one back unchanged as well, because the conversation history carries them all ([Compaction and resume](conversation-and-memory.md#compaction-and-resume)).
+- With reasoning on, the request includes `reasoning.encrypted_content`. The [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) requires at least every reasoning item, tool call and tool output since the last user message to go back in the next request unchanged. LINA never sends an item of the current turn altered or dropped. When the current turn alone outgrows the window, LINA ends that turn and continues in a new one whose request carries a compaction summary and the person's input, so the round trip starts fresh ([Compaction and resume](conversation-and-memory.md#compaction-and-resume)). When no compaction runs, LINA sends every earlier item back unchanged as well, because the conversation history carries them all ([Compaction and resume](conversation-and-memory.md#compaction-and-resume)).
 - `previous_response_id`, `store: true`, server-side compaction and WebSocket mode are never used.
 - The request fields LINA sends form a list in the release manifest. A new field enters the list before it is sent.
 - Auxiliary reasoning (internal inference without tools) is a separate request with no tool list and no persona. It runs as its own run kind, can cause no external effect, and its output is never recorded as part of the conversation.
@@ -255,7 +255,7 @@ The adapter boundary, the Codex adapter, compatibility, readiness, assignment, a
 
 LINA Core and the `lina` TUI ship as one static binary per platform, and Node ships as its own static binary per platform, each built with the pinned Go toolchain. A device that runs only Node or only the TUI installs just that binary and needs no separate language runtime. The release manifest records each binary's version and digest and the Go toolchain that built it.
 
-Supported platforms are defined in [product-families.md](product-families.md). A platform and architecture enter the supported-combination table of [host-protocol.md](host-protocol.md) only after the packaging and resident measurement passes on them.
+Supported platforms are defined in [product-families.md](product-families.md). A platform and architecture enter release builds, and with them the supported-combination table of a release ([host-protocol.md](host-protocol.md)), only after the packaging and resident measurement passes on them. Until then they are built only as development builds.
 
 ### The `lina` command
 
