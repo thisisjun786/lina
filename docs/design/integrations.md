@@ -70,7 +70,7 @@ LINA Core is the host of every plugin. It is the MCP client of plugin servers, u
 - Worker agents never receive plugin tools. A worker agent uses the integrations connected in the agent itself ([work-and-delegation.md](work-and-delegation.md)).
 - LINA uses tools, tool annotations and elicitation. An elicitation from a server reaches the conversation as a question. A URL elicitation shows the full URL and opens it only after the person agrees.
 - A local server runs as a child process of LINA Core under the user's OS user, outside the command sandbox ([runtime.md](runtime.md)). Control sits at the tool call: the approval tiers and the effect ledger.
-- MCP Apps interfaces are never shown, because no surface renders web content ([surfaces.md](surfaces.md)). LINA uses the tool's text result.
+- LINA doesn't show MCP Apps interfaces (see Deferred). It uses the tool's text result.
 
 ### Registry
 
@@ -130,7 +130,7 @@ Sign-in to a remote MCP server follows the [MCP authorization specification](htt
 
 ### Consent through the client
 
-LINA Core has no inbound endpoint, and no surface renders web content. Consent runs through the client the person is using, and the sign-in belongs to the person that client connection acts for ([host-protocol.md](host-protocol.md)):
+LINA Core has no inbound endpoint, and no app UI is built with web technology ([surfaces.md](surfaces.md)). Consent runs through the client the person is using, and the sign-in belongs to the person that client connection acts for ([host-protocol.md](host-protocol.md)):
 
 1. LINA Core builds the authorization URL and keeps the PKCE verifier and the state.
 2. The LINA app or the TUI opens the URL in the system browser and receives the redirect on its own loopback port.
@@ -202,8 +202,9 @@ The shared role rule is in [product-families.md](product-families.md). [work-and
 
 ### SION link
 
-SION is a sibling product ([product-families.md](product-families.md)). LINA and SION connect only through the envelope. [host-protocol.md](host-protocol.md) defines the SION mailbox, the payloads and the handling of each result kind. On the GitHub side:
+SION is a sibling product ([product-families.md](product-families.md)). LINA and SION connect only through the envelope. [host-protocol.md](host-protocol.md) defines the SION mailbox, the declaration, the payloads and the handling of each result kind. On the GitHub side:
 
+- **Linking is the person's act.** The person names a SION operator repository in LINA. Naming it is the link and its approval, recorded with the person. LINA then reads SION's declaration, `outbox/declaration.json` on the `state` branch, which lists the target repositories whose link is on ([host-protocol.md](host-protocol.md)).
 - **Writes use the user's setup.** LINA Core writes its judgment input to the `mailbox` branch of SION's operator repository with the user's GitHub setup. SION's ruleset lets only the operator repository's maintainers update that branch. Klotho's judgment is input to SION's review, never a command ([cognition-and-life.md](cognition-and-life.md)).
 - **Results are checked on GitHub.** LINA Core checks every SION item result against the target repository before it accepts it as a sibling record. That covers the item, the head or merge commit, and the check state that the result names.
 - **No resend loop.** After a refused, failed or unknown result, LINA Core doesn't send the same input again in a loop.
@@ -276,3 +277,4 @@ When a token fails, LINA Core marks that account as needing sign-in and tells th
 - The messaging services that get a shipped profile: set during implementation acceptance of the plugin system.
 - Whether common MCP servers, including those on earlier protocol versions, connect through the pinned SDK: measured during implementation acceptance of the plugin system.
 - Whether Google's desktop OAuth client accepts the loopback redirect of the client relay: set by the first implementation of the Google plugin.
+- Showing MCP Apps interfaces: not supported; designed as a follow-up.

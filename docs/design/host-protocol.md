@@ -17,7 +17,7 @@ It does not cover the protocols of worker agents, such as the Codex app-server p
 
 ## Schema and generated types
 
-JSON Schema, draft 2020-12 ([json-schema.org](https://json-schema.org/specification)), is the canonical source of the protocol. The schema defines the envelope, every payload kind, every closed code list and every declaration file. This document explains the schema; when the two disagree about a field, the schema is the record and this document is corrected by pull request.
+JSON Schema, draft 2020-12 ([json-schema.org](https://json-schema.org/specification)), is the canonical source of the protocol. The schema defines the envelope, every payload kind, every closed code list and the declaration of every sibling. The RUMI vault format is RUMI's own (see RUMI). This document explains the schema; when the two disagree about a field, the schema is the record and this document is corrected by pull request.
 
 Rules:
 
@@ -96,7 +96,7 @@ Stream connections negotiate with a handshake:
 
 No other message is accepted before `welcome`. After the handshake, a message that needs a capability the handshake did not grant is refused with `capability_not_negotiated`, and the connection continues.
 
-Sibling connections negotiate through declarations. Each sibling keeps a declaration file in its repository with its product version, the protocol versions it speaks and its capabilities. LINA reads the declaration before it reads any record or writes any input. When the combination is not listed, LINA writes nothing to the sibling, takes no record as evidence and reports the refusal. LINA writes its inputs at the selected version.
+Sibling connections negotiate through declarations. Each sibling keeps a declaration in its repository with its product version, the protocol versions it speaks and its capabilities: SION in `outbox/declaration.json` on its `state` branch, and RUMI as one object in `.rumi/manifest.json` (see Sibling connections). LINA reads the declaration before it reads any record or writes any input. When the combination is not listed, LINA writes nothing to the sibling, takes no record as evidence and reports the refusal. LINA writes its inputs at the selected version.
 
 ## Supported combinations
 
@@ -106,7 +106,7 @@ LINA Core ships the table of combinations it supports in its release manifest ([
 | --- | --- |
 | Connection | `client`, `node`, `sion` or `rumi` |
 | Peer | The component, app or sibling |
-| Peer product version | The exact release of the peer |
+| Peer product version | The exact release of the peer. For RUMI it is the RUMI product version in the vault manifest, the release that last wrote the vault and therefore the one that tends it. |
 | Platform | For a LINA component, the OS and architecture it runs on |
 | LINA Core product version | The exact release of LINA Core |
 | Protocol version | The `MAJOR.MINOR` the row covers |
@@ -128,7 +128,8 @@ LINA keeps conformance fixtures for every protocol version in `protocol/fixtures
 Every protocol version has fixtures for at least:
 
 - the normal flow of each kind
-- refused, failed, unknown and cancelled outcomes
+- refused, failed and unknown outcomes
+- cancelled outcomes, on the connections that have cancellation: `client` and `node`. Sibling connections have no cancellation.
 - a peer at an older and at a newer version than the one under test
 - on `node`: a stale epoch, a reboot with a new node boot id and a lost receipt
 - on `sion` and `rumi`: a record whose commit does not exist and a record whose revision does not match
@@ -148,6 +149,8 @@ Every client connection acts for one person ([product-families.md](product-famil
 | Approval | Answer approval requests with the choices of their tier: once, always allow this tool, deny or block ([main-authority.md](main-authority.md)) |
 | Sign-in relay | Open a sign-in URL from LINA Core in the system browser, and return the redirect's `code`, `state` and `iss`, or the URL the person pasted ([integrations.md](integrations.md)) |
 | Multi-task control | Control several tasks at once |
+
+Version 1.0 of `client` has at least these kinds: `hello` and `welcome`; sending input; interrupting; reading history; subscribing to events; the stream events, which are an output delta, an item done and the turn state; a readiness failure that names the preparation step that failed ([conversation-and-memory.md](conversation-and-memory.md)); and an error. Their payload fields are set in the schema (see Deferred).
 
 Rules:
 
@@ -189,20 +192,25 @@ LINA and a sibling never call each other while running. Each sibling's repositor
 
 | Location in the vault | Writer | Content |
 | --- | --- | --- |
-| `.rumi/manifest.json` | RUMI | The declaration: vault format version, `rumi` protocol versions and capabilities |
+| `.rumi/manifest.json` | RUMI | The vault fields of the vault format (the vault id and the vault format version) and RUMI's declaration as one object: the RUMI product version that last wrote the vault and, once RUMI supports the link with LINA, the `rumi` protocol versions it speaks and its capabilities |
 | `inbox/` | LINA, new files only | Notes and files that LINA hands over, with front matter in the vault format ([materials-and-knowledge.md](materials-and-knowledge.md)). These are files, not envelopes. |
 | `.rumi/inputs/` | LINA | Input envelopes of three kinds. `focus`: what matters now (goals, projects and work in progress), as LINA's judgment. `request`: a research request, with the question and the target notebook. `source_deleted`: an original that LINA permanently deleted, such as a recording, so RUMI can mark the notes that came from it. |
 | `.rumi/records/` | RUMI | Record envelopes of six kinds: `add`, `merge`, `split`, `mark`, `delete` and `brief`. Each names the commit, the `rumi_id` values and the revisions it concerns. A `brief` answers one `request`: it names the request and the notebook, and carries the brief text and the source passages it cites. |
 
-The vault format (notebook files, source cards and front matter keys, including `rumi_id`) is part of the `rumi` protocol version. LINA's grant-scoped edits of existing notes are not protocol messages. They follow [materials-and-knowledge.md](materials-and-knowledge.md) and the vault rules of [rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md). A delete record starts revocation on LINA's side ([materials-and-knowledge.md](materials-and-knowledge.md)).
+- The vault format specification in [rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md) defines the vault files: notebook files, source cards, front matter keys (including `rumi_id` and the keys LINA writes on inbox items), the layout of `.rumi/` and the vault fields of the manifest. Each `rumi` protocol version names the vault format version it covers. A vault format version comes first, and a LINA release then carries it in a `rumi` protocol version.
+- The vault id is RUMI's `sender.id`. RUMI creates it when it first opens a folder as a vault, and it never changes.
+- For every input LINA writes that asks for a result, an item in `inbox/` or a `request`, RUMI writes exactly one result record: a success record such as `add` or `brief`, or a record that carries `effect_state` `refused` or `failed` with its `error`. An input at an envelope version RUMI does not support gets a `refused` record, written at an envelope version RUMI speaks, that names the input.
+- When RUMI writes a digest note, it writes an `add` record that names the note.
+
+LINA's grant-scoped edits of existing notes are not protocol messages. They follow [materials-and-knowledge.md](materials-and-knowledge.md) and the vault rules of [rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md). A delete record starts revocation on LINA's side ([materials-and-knowledge.md](materials-and-knowledge.md)).
 
 ### SION
 
 | Location in the operator repository | Writer | Content |
 | --- | --- | --- |
-| The declaration, in `outbox/` on the `state` branch | The SION installation | The pinned SION release tag, `sion` protocol versions and capabilities |
-| The `mailbox` branch | LINA, with the user's GitHub setup; the branch's ruleset admits only the operator repository's maintainers | Judgment input: Klotho's view of what matters in a repository and which items need attention ([cognition-and-life.md](cognition-and-life.md)). It is input to SION's review, never a command. |
-| SION records, in `outbox/` on the `state` branch | SION | Item results. Each names the action (reviewed with its verdict, fixed, merged, closed or reopened) and its effect state, the repository, the item, the head or merge commit and the state of the checks. |
+| `outbox/declaration.json` on the `state` branch | The SION installation | The declaration: the SION product version (the pinned SION release tag), the `sion` protocol versions, the capabilities and the target repositories whose link is on |
+| The `mailbox` branch | LINA, with the user's GitHub setup; the branch's ruleset admits only the operator repository's maintainers | Judgment input: Klotho's view of what matters in a repository and which items need attention ([cognition-and-life.md](cognition-and-life.md)). It is input to SION's review, never a command. File paths on the branch follow the schema and the conformance fixtures. |
+| SION records, in `outbox/` on the `state` branch | SION | Item results. Each names the action (reviewed with its verdict, fixed, merged, closed or reopened) and its effect state, the target repository, the item, the head or merge commit, the state of the checks, the ledger event, the `state` commit that holds the record, and the next step when there is one. |
 
 The `state` and `mailbox` branches, and the rulesets that keep each one to its writer, are defined in [sion.md](https://github.com/thisisjun786/sion/blob/dev/docs/design/sion.md). Refused, failed and unknown results never count as success, and LINA reports them. LINA checks every merge result against the target repository through its GitHub plugin before it accepts the record ([integrations.md](integrations.md)).
 
@@ -210,3 +218,4 @@ The `state` and `mailbox` branches, and the rulesets that keep each one to its w
 
 - The JSON Schema to Dart type generator: chosen before the first LINA app work ([surfaces.md](surfaces.md)).
 - Request timeouts on the `client` and `node` connections: set by measurement during implementation acceptance of each connection.
+- The payload fields of the `client` 1.0 kinds: set in the schema by the implementation issue that ships the first conversation product.

@@ -73,7 +73,7 @@ Git is the common base for versions of documents and code materials, for people 
 
 - Default surfaces never use Git words. A commit is shown as a saved version, a branch as a draft, and a merge as applying a draft.
 - Every edit to a versioned material, by the person or by LINA, creates a saved version.
-- LINA makes a large change as a draft. The draft enters only when the person applies it.
+- Only delegated results arrive as a draft that the person applies ([work-and-delegation.md](work-and-delegation.md)). LINA's own edits are made in place within the grant and are reverted like any saved version.
 - The person can compare and revert versions at any time.
 - A document project is local by default. Connecting a remote repository to it is optional and follows [integrations.md](integrations.md).
 - Structured fields of goals and plans live in the planning store defined in [work-and-delegation.md](work-and-delegation.md), not in Git.
@@ -102,7 +102,7 @@ RUMI keeps a person's knowledge as plain Markdown in a Git repository the person
 | `notebooks/<name>.md` | One notebook: a scope over sources and notes, not a copy | The person, RUMI | Reads as a notebook collection |
 | `sources/<rumi_id>/` | A source card and its captured original | RUMI | Reads |
 | `inbox/` | Everything LINA hands to RUMI | LINA, new files only | Writes new files |
-| `.rumi/manifest.json` | Vault format, protocol and capability versions | RUMI | Reads for the version check |
+| `.rumi/manifest.json` | The vault id, the vault format version and RUMI's declaration ([host-protocol.md](host-protocol.md)) | RUMI | Reads for the version check |
 | `.rumi/inputs/` | Envelopes from LINA to RUMI | LINA | Writes |
 | `.rumi/records/` | Envelopes from RUMI to LINA | RUMI | Reads and verifies |
 | `.rumi/proposals/` | RUMI's organizing proposals | RUMI | Never writes |
@@ -114,7 +114,7 @@ A source card that came from a LINA material names that material's asset id and 
 ### Connecting and the version check
 
 - Connecting a vault is the approval for LINA to read it. Connecting adds the vault to the default grant for reading and its mailbox (`inbox/` and `.rumi/inputs/`) for writing. Editing an existing note needs a grant that covers that note.
-- Before it shows notebooks, takes records or writes to the mailbox, LINA reads `.rumi/manifest.json`. The vault format, protocol and capability versions must form a supported combination in [host-protocol.md](host-protocol.md). The vault format is part of the protocol.
+- Before it shows notebooks, takes records or writes to the mailbox, LINA reads `.rumi/manifest.json`. The RUMI product version, protocol versions and capability versions it declares must form a supported combination in [host-protocol.md](host-protocol.md). Each `rumi` protocol version names the vault format version it covers.
 - If the combination is not supported, LINA refuses the sibling link and reports the refusal. It then treats the vault as a plain Git repository: its files are readable, but there are no notebook collections, no mailbox writes and no records.
 - LINA repeats the check whenever the manifest changes.
 
@@ -130,7 +130,7 @@ The screens for these actions are defined in [surfaces.md](surfaces.md).
 
 LINA writes to a vault only in its mailbox and, within grant, in existing notes. It never writes `notebooks/`, `sources/`, `.rumi/manifest.json`, `.rumi/records/`, `.rumi/proposals/`, `.rumi/index/` or `.rumi/local/`.
 
-- `inbox/` receives meeting notes, answers saved from a conversation and library files. Each one is a new file. Its front matter names the conversation or meeting it came from, the target notebook when one was chosen, the LINA asset id and revision, and the passage anchors of its citations. A non-text file goes in with a Markdown companion that carries the front matter. The exact keys belong to the vault format in [rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md). LINA never overwrites or deletes a file in `inbox/`. RUMI files each item as a note or a source card.
+- `inbox/` receives meeting notes, answers saved from a conversation and library files. Each one is a new file. Its front matter names the LINA asset id and revision, the sender, the time it was made, the target notebook when one was chosen, the conversation or meeting it came from, and the passage anchors of its citations. A non-text file goes in with a Markdown companion that carries the front matter. The exact keys belong to the vault format in [rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md). LINA never overwrites or deletes a file in `inbox/`. RUMI files each item as a note or a source card: an item with no target notebook goes where the vault's inbox rules put it, and a non-text file with its companion becomes one source card.
 - `.rumi/inputs/` receives the three input kinds of [host-protocol.md](host-protocol.md). LINA writes a `focus` input when its judgment of what matters now changes, a `request` input when it hands research to RUMI (see "Research through RUMI"), and a `source_deleted` input when it permanently deletes a LINA material it had handed to the vault. RUMI treats them as input, for example to rank its digest or to start a brief.
 - Every mailbox write is one commit that contains only the files it adds, with the author settings of Ownership. It is an effect under a grant, recorded with an idempotency key. If the outcome is unknown, LINA looks for the commit in the vault before anything else and never writes again blindly. Effect states are defined in [host-protocol.md](host-protocol.md).
 - The vault owns what LINA puts there. LINA's later deletion of the original doesn't remove the vault copy (see Deletion propagation).
@@ -159,7 +159,9 @@ An accepted record is a sibling record: external evidence with provenance (vault
 | delete | Applies the deletion rules below |
 | brief | Links the brief to its request and to the conversation or task that asked for it, and shows it as a RUMI card (see "Research through RUMI") |
 
-LINA is the only speaker in a LINA conversation. RUMI's results appear only as labeled RUMI cards, and LINA never re-voices them, as [product-families.md](product-families.md) requires. The today feed shows the RUMI digest that RUMI writes in the vault as a RUMI card ([surfaces.md](surfaces.md)).
+Every item LINA puts in `inbox/` and every `request` gets exactly one result record from RUMI ([host-protocol.md](host-protocol.md)). A `refused` or `failed` record is taken with the same checks, and LINA shows its cause where the input came from.
+
+LINA is the only speaker in a LINA conversation. RUMI's results appear only as labeled RUMI cards, and LINA never re-voices them, as [product-families.md](product-families.md) requires. RUMI's digest reaches LINA through the `add` record RUMI writes for the digest note; LINA takes it like any record and shows the digest as a RUMI card in the today feed ([surfaces.md](surfaces.md)).
 
 ### Research through RUMI
 
@@ -171,7 +173,7 @@ RUMI is the sibling for knowledge work. LINA hands research and organizing to RU
 
 - Context stays separate. The sources stay in the notebook, and LINA takes only the brief and its citations into its context. The person can still attach the whole notebook to a conversation (see "Notebooks in a LINA conversation").
 - LINA shows the brief as a RUMI card with "Open in RUMI", which opens the notebook in the RUMI app, where the person can continue ([surfaces.md](surfaces.md)).
-- Until an accepted brief arrives, LINA shows the request as waiting for RUMI.
+- Until an accepted brief arrives, LINA shows the request as waiting for RUMI. A `refused` or `failed` record for the request ends the wait, and LINA shows its cause.
 
 ### Independence
 
@@ -198,7 +200,7 @@ These rules apply to materials. Forgetting a memory item and deleting a conversa
 
 - Revoking a material makes its exposure zero in search, answers and LINA APP. Saved versions keep their history and LINA never rewrites it for a revocation. Past answers keep the revision they cited and show it as revoked evidence.
 - Deleting a material moves it to the trash for 30 days, where it can be recovered and is exposed zero times. After 30 days it is permanently deleted.
-- The person can choose immediate permanent deletion. That choice is the approval for an unrecoverable deletion.
+- The person can choose immediate permanent deletion. That choice is the approval for an unrecoverable deletion ([main-authority.md](main-authority.md)).
 - Permanent deletion removes every copy LINA manages: the current bytes, the saved versions in the version space, derived data, copies on registered Nodes and remote copies LINA manages. It is the only operation that alters saved-version history. It leaves a tombstone with the asset id, what was removed and when, and no content. A Node that is unreachable applies the deletion while it reconciles, before any new work. Backup generations are never rewritten; how a restore applies the tombstone, including one recorded after the latest generation, and when the content leaves the backups, is defined in [filesystem.md](filesystem.md).
 - Permanent deletion doesn't reach exported files, copies handed into a sibling's mailbox or copies other people hold. LINA says so when the person deletes.
 - When a permanently deleted material had been handed into a RUMI vault, LINA writes a `source_deleted` input to `.rumi/inputs/` so RUMI can mark the notes that came from it.
@@ -219,5 +221,4 @@ Disconnecting a source follows [filesystem.md](filesystem.md): derived data is d
 - Screen design for the library, meeting notes, notebook actions and RUMI cards: set while building each surface of the LINA app, per [surfaces.md](surfaces.md).
 - The order in which media types gain derived data, and the rebuild schedule: set during materials implementation acceptance.
 - The viewer for each document type: set during materials implementation acceptance.
-- The size of change that LINA makes as a draft instead of a saved version: set by use during materials implementation acceptance.
 - How often LINA writes `focus` inputs to a vault: set during implementation acceptance of the vault link.

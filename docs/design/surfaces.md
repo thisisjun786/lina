@@ -151,7 +151,7 @@ The person writes intent, LINA organizes, and the person zooms in and out. A per
 - The panel opens from the conversation. What the person edits in the panel enters the conversation's context.
 - On mobile the conversation is the default screen, and the left and right panels slide in.
 - The conversation is beside every screen. From any layer, "Talk about this with LINA" brings that context into the conversation.
-- A surface opens to the conversation. The first run asks for no setup before LINA talks ([conversation-and-memory.md](conversation-and-memory.md)).
+- A surface opens to the conversation. The first run asks for no LINA setup before LINA talks ([conversation-and-memory.md](conversation-and-memory.md)).
 
 ### Layers
 
@@ -247,7 +247,7 @@ What the library holds, its ownership rules, viewers, versions and states are de
 
 - The library is never drawn as a folder or file tree. Files appear as pages and collections, grouped by conversation, work, source and topic. Media has its own library view.
 - A library item opens in the work panel beside the conversation.
-- Saved versions can be compared and reverted from the item at any time. A large edit by LINA arrives as a draft with an apply action.
+- Saved versions can be compared and reverted from the item at any time.
 - In a GitHub-connected scope, the advanced view shows paths, a file tree, search and a code view.
 - Connected sources appear as sources, each with its state. The library has no action that connects a source on LINA's initiative; connecting is the person's act ([filesystem.md](filesystem.md)).
 
@@ -265,7 +265,7 @@ The today feed, the news feed and the LIFE feed are separate streams and never m
 
 ## Settings
 
-Settings hold four groups: plugins, command network, notifications, and models and processing.
+Settings include plugins, command network, notifications, models and processing, cognition, expression and the developer view.
 
 **Plugins.** The plugin list shows LINA's plugins ([integrations.md](integrations.md)), not a fixed set of items.
 
@@ -287,11 +287,17 @@ Settings hold four groups: plugins, command network, notifications, and models a
 
 A surface never notifies about what it is already showing. Opening a notification opens the item.
 
-**Models and processing.** The chat model (through opencodex) and, as separate items, the judge (Jev), embeddings and transcription ([runtime.md](runtime.md)). Each item shows its connection state, its key and its usage.
+**Models and processing.** The chat model (through opencodex) and, as separate items, the judge (Jev), embeddings and transcription ([runtime.md](runtime.md)). Each item shows its connection state, its key and its usage. The compaction threshold sits here as well ([conversation-and-memory.md](conversation-and-memory.md)).
 
 - An item that is off shows only its state and what LINA does without it, for example "keyword search in use instead of semantic search".
 - No surface asks for any of these at first run. LINA may suggest a plugin once in a conversation when it would help ([integrations.md](integrations.md)).
 - A setting the person edits is a request to LINA Core, like every other edit in the app.
+
+**Cognition.** Each product cognition feature, with a switch that turns it off on its own ([cognition-and-life.md](cognition-and-life.md)).
+
+**Expression.** The switch that turns LINA's emotional expression off ([conversation-and-memory.md](conversation-and-memory.md)).
+
+**Developer view.** The switch that shows the developer view of work cards ([work-and-delegation.md](work-and-delegation.md)).
 
 ## Sibling cards
 
@@ -369,5 +375,6 @@ The TUI accepts the committed text the terminal's input method delivers, renders
 - Exact sizes and motion of the screen skeleton: tuned during implementation and recorded in the token source.
 - Menu placement of the today feed, and the screen design of the today feed, meeting notes and the plugin list: set during their implementation.
 - The launcher's feature map: filled in during launcher implementation.
+- The links between the two apps: the "Open in RUMI" link (vault id, `rumi_id` and passage anchor), whose format RUMI defines, and the link that the RUMI app's "From LINA library" opens in the LINA app: set when the vault link is implemented.
 - How often LINA proposes promotions, archiving and splitting: set by measurement during development and recorded in the implementation issue.
 - The views of the plan map (structure, execution and gap): the UI choice is set during implementation of the plan screen.

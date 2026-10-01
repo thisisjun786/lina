@@ -125,7 +125,7 @@ third_party/<name>/
 
 `vendor.json` records the name, source repository URL, upstream commit (40 hex characters) and release tag when one exists, license, scope, SHA-256 hash of each file as upstream ships it and as it sits in the tree, and patch records.
 
-LINA publishes no separate release or module of the LINA kit. A sibling repository that uses it vendors it from one LINA release tag under these same rules, with the release tag as its upstream reference ([runtime.md](../design/runtime.md)).
+The LINA kit is the Go module in `kit/`, and LINA publishes no separate release of it. A sibling repository that uses it vendors it from one LINA release tag into `third_party/` under these same rules, with the release tag as its upstream reference ([runtime.md](../design/runtime.md)).
 
 ### Upstream sync
 
