@@ -150,7 +150,7 @@ Compaction runs at a turn boundary, before LINA builds the turn's first request,
 
 1. Compaction starts when the request input would reach 90% of the model's context window. This is a default and is configurable.
 2. Older tool outputs are condensed first. Each keeps its place after its call, and its content becomes a one-line note of the call and its result, such as the command and its exit code or the files a patch changed. The notes are built without a model. Tool outputs within the most recent 40,000 tokens of the history stay.
-3. If the input still does not fit, a summary replaces the history before the most recent user messages, up to 20,000 tokens of them. From the oldest of those messages on, the history stays as it is.
+3. If the input still does not fit, a summary replaces the history apart from the most recent user messages, up to 20,000 tokens of them. Those messages stay verbatim after the summary; LINA's items between and after them are part of what the summary replaces.
 
 Every summary covers the range of step 3. When a turn ends with its request input near the compaction threshold, LINA prepares the summary in the background after the answer is delivered. When compaction reaches step 3, LINA uses the prepared summary if the history it covers is unchanged and its revocation epoch still holds. LINA sends a summary request only when no prepared summary holds, and never waits for a preparation in progress. Preparing a summary changes no request: a prepared summary enters the history only when compaction runs.
 
