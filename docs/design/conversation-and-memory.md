@@ -114,8 +114,8 @@ A request is laid out from what changes least to what changes most, so the prefi
 1. **LINA Core instructions** (developer role): the fixed rules for tools, approvals and output. They change only with a release.
 2. **Persona** (developer role): the fixed layers in order, core, default voice, user voice, growth snapshot. They change only with a new persona revision.
 3. **Skill catalog index** (developer role): the name and description of each available skill. It changes only when skills or plugins change.
-4. **Tool declarations**: every tool the request may call, in a stable order. The list changes only when a plugin or a grant changes.
-5. **Conversation history**: the compaction summary, if any, and then the earlier turns' messages and tool results from the ledger. It only grows at its end.
+4. **Tool declarations**: the always-declared tools first, in a stable order, then the plugin tools loaded on demand for this request ([runtime.md](runtime.md)). The always-declared part changes only when a plugin or a grant changes.
+5. **Conversation history**: the compaction summary, if any, and then the earlier turns from the ledger: messages, and, as the model path requires, every reasoning item, tool call and tool output since the last user message, carried unchanged ([runtime.md](runtime.md)). It only grows at its end.
 6. **ContextPacket** (input items), from the most binding to the most optional:
    1. the current time and LINA's present emotional state
    2. commitments, decisions and the reasons for corrections that apply

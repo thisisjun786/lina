@@ -1,6 +1,6 @@
 # Cognition and LIFE
 
-This contract covers how LINA thinks beyond a single reply. That means the Moirai engine and its three modules (Lachesis, Atropos and Klotho), the Jev fast judge, and Klotho's goal discovery, project planning and project supervision, including the QA product map. It also covers skill suggestions and the boundaries of persona growth. One rule governs all of them: a cognition feature enters the product only when it is measured better than the base product. The contract also defines LIFE and holds LINA's backlog list. It is normative: implementations must follow it, and any change to it goes through a pull request against this file.
+This contract covers how LINA thinks beyond a single reply. That means the Moirai engine and its three modules (Lachesis, Atropos and Klotho), the Jev fast judge, and Klotho's goal discovery, project planning and project supervision, including the QA product map. It also covers skill suggestions and the boundaries of persona growth. Product cognition features are on by default and never block basic conversation; only experimental mechanisms enter use by measurement (see Adoption rule). The contract also defines LIFE and holds LINA's backlog list. It is normative: implementations must follow it, and any change to it goes through a pull request against this file.
 
 ## Scope
 
