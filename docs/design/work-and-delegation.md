@@ -89,7 +89,8 @@ The work area is `identities/<identity-id>/work/` under the state root ([filesys
 | `clones/<repository-id>/` | The parent clone of each repository that delegated work uses | LINA Core |
 | `tasks/<task-id>/` | The task's worktree, or its non-git work directory | LINA Core creates it; the task's worker writes inside it under its grant |
 
-- The work area is not part of the personal backup generation. Everything needed to recover work is canon: the work ledger, receipts and artifacts.
+- The work area is not part of the personal backup generation. Everything needed to recover work is canon and LINA materials: the work ledger, receipts and artifacts.
+- When a task's result is ready for review, LINA Core keeps a copy as LINA materials of the task: a Git bundle of the draft branch, or the output files of a non-Git task. A restore that lacks the work area applies the draft from that copy, so an unapplied result survives a lost disk.
 - A worker writes only inside its own task directory and the git directories it needs to commit. It never writes a protected ref in a parent clone.
 - Task directories are removed only under the retention rules of this contract.
 

@@ -40,7 +40,7 @@ There is one state root per main, written here as `<state-root>`. Every path bel
 | Installation state | `system/` | Install configuration and component events | The install and each component's event writer | OS root snapshot, where the install has one |
 | Secrets | `secrets/` | LINA's secret store when no OS keychain is available: tokens and API keys of plugins, Google client credentials and LINA's other secrets, each file with mode 0600 ([integrations.md](integrations.md)) | LINA Core | Not backed up |
 | Backup generations | `backups/<identity-id>/<generation-id>/` | Personal generations | The backup procedure | Is the unit |
-| Removal list | `backups/<identity-id>/removals` | Every retraction, trash recovery and tombstone of the identity, appended as each happens | LINA Core | Beside the generations, in none of them |
+| Removal list | `backups/<identity-id>/removals` | Every retraction, trash recovery, tombstone and source disconnection of the identity, appended as each happens | LINA Core | Beside the generations, in none of them |
 
 Rules for the layout:
 
@@ -205,7 +205,7 @@ A file LINA writes into a sibling's mailbox is a handover of the same kind. The 
 
 A backup generation captures one identity's canon, version space, materials areas, derived data and conversation workspace at one point in time, so that a restore never leaves them out of step.
 
-Connected sources are not in a generation. They belong to the person and have their own recovery. The generation holds their registry and observed revisions as part of canon, never their bytes. The work area is not in a generation either.
+Connected sources are not in a generation. They belong to the person and have their own recovery. The generation holds their registry and observed revisions as part of canon, never their bytes. The work area is not in a generation either; a task's result is kept in the generation as LINA materials once it is ready for review ([work-and-delegation.md](work-and-delegation.md)).
 
 A generation manifest records:
 
@@ -233,11 +233,11 @@ Restore rules:
 - Identity, receipts, artifacts and ledgers are restored first. Then the latest revocation watermark, and every retraction and tombstone recorded in canon, in any newer generation or in the removal list, are applied again before any read is served. A tombstone is the record a permanent deletion leaves: ids and time, never content. Revoked and deleted items are exposed zero times in search or answers, and a memory tombstone keeps the restored conversation ledger from yielding the forgotten item again ([conversation-and-memory.md](conversation-and-memory.md)).
 - Engine thread history and work-area state that the generation does not hold are marked as not restored.
 - Restore checks the freshness of the generation and an inventory of what it restored that is independent of the manifest.
-- After a restore, LINA observes every connected source again before serving from it. Observations newer than the generation win.
+- After a restore, LINA observes every connected source again before serving from it, except one the removal list shows as disconnected. Observations newer than the generation win.
 
 A published generation is never changed, and a permanent deletion never rewrites one. A generation captured before the deletion still holds the deleted content. A restore from it applies the tombstone again before serving any read, as above, so the content is never exposed, and the content is gone once every such generation has passed its retention and been removed.
 
-Every retraction, every recovery from the trash and every permanent deletion is also appended to the removal list at `backups/<identity-id>/removals`, beside the generations and outside every one of them. The list is append-only and holds ids, kinds and times, never content. A restore reads it with the generation, so an item forgotten or deleted after the latest generation stays hidden when canon is lost, including an item still in its 30 days in the trash, and an item recovered from the trash comes back. Generations move between machines only whole, together with the removal list.
+Every retraction, every recovery from the trash, every permanent deletion and every source disconnection is also appended to the removal list at `backups/<identity-id>/removals`, beside the generations and outside every one of them. The list is append-only and holds ids, kinds and times, never content. A restore reads it with the generation, so an item forgotten or deleted after the latest generation stays hidden when canon is lost, including an item still in its 30 days in the trash, an item recovered from the trash comes back, and a source disconnected after the latest generation stays disconnected and is not observed again. Generations move between machines only whole, together with the removal list.
 
 On LINA OS, the OS root snapshot, the boot configuration, the person's home data and LINA's personal generations are distinct recovery units. An OS root snapshot doesn't include the person's home data and is never a LINA Core restore. `system/` follows the OS root snapshot; the identity tree follows the personal generation. Neither stands in for the other. The update and rollback procedure that uses these units is defined in [runtime.md](runtime.md).
 
