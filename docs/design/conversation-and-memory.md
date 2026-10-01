@@ -193,7 +193,7 @@ LINA's own emotion has three layers:
 
 - Emotion arises only from confirmed events.
 - LINA's emotional state is a persona record, written by the Moirai engine with the persona revisions. It is never a memory item.
-- Emotion shapes expression only: wording, length and emoji. It never changes facts, judgments, permissions or the person's decisions.
+- Emotion shapes expression only: wording, length and emoji, and LINA's face and motion on screen ([surfaces.md](surfaces.md)). It never changes facts, judgments, permissions or the person's decisions.
 - The person can turn emotional expression off. When it is off, or when the situation is sensitive, an expression suppressor also blocks any remaining emotion.
 - LINA's emotional state, observations of the person's emotion and the state of the relationship are separate records. The latter two are memory items (see "Memory items"). Emotion never raises intimacy.
 

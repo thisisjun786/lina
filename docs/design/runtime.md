@@ -29,6 +29,8 @@ Go fits these components because:
 - An always-on main keeps a low resident cost.
 - It suits a main that may later serve many people.
 
+The LINA app is one Flutter codebase in Dart, built natively for each platform it supports ([surfaces.md](surfaces.md)).
+
 The conversation engine is LINA's own Go loop, built on the [Codex](https://github.com/openai/codex) tool contracts, with a structure that follows the [pi](https://github.com/earendil-works/pi) agent loop (see Conversation loop). pi is a design reference only: no pi code is vendored or translated line by line.
 
 Each function has exactly one path. A function never switches to a second transport when the first one fails. A missing piece makes its function unsupported, and the function says so.
@@ -346,13 +348,15 @@ Remote access uses [Tailscale](https://tailscale.com/kb) only. LINA APP, the TUI
 
 ## LINA OS composition
 
-LINA OS is Linux based on [Omarchy](https://github.com/basecamp/omarchy). It composes verified LINA Core, Node and LINA APP artifacts, pinned by manifest with version and digest, together with opencodex and its pinned Node.js runtime and an operating, update and recovery environment. opencodex on LINA OS never runs on a distribution-provided Node.js. Its profiles are defined in [product-families.md](product-families.md).
+LINA OS is Linux based on [Omarchy](https://github.com/basecamp/omarchy) 4. It composes verified LINA Core, Node and LINA APP artifacts, pinned by manifest with version and digest, together with opencodex and its pinned Node.js runtime and an operating, update and recovery environment. opencodex on LINA OS never runs on a distribution-provided Node.js. Its profiles are defined in [product-families.md](product-families.md).
 
 - opencodex is part of LINA's installation on LINA OS, as on every install.
 - LINA OS may offer to install a coding agent such as Codex, and RUMI, for the user. They are the user's installed tools (see Installed tools); LINA OS neither pins nor owns them. How RUMI runs there is defined in [product-families.md](product-families.md).
 - An Omarchy root snapshot or an Omarchy update is never a restore or a readiness proof for LINA Core. The recovery units of LINA OS are defined in [filesystem.md](filesystem.md).
+- Omarchy 4's desktop shell is one Quickshell-based shell that provides the bar, the launcher and notifications. Its active theme is `~/.local/state/omarchy/current/theme/colors.toml`, which third-party apps follow through templates in `~/.config/omarchy/themed/` and hooks in `~/.config/omarchy/hooks/theme-set.d/`.
+- Omarchy's default packages lack `fcitx5-hangul`. LINA OS adds it with its Hangul input setup, so Korean input works in the LINA app and the terminal.
 
-LINA APP's form on Omarchy is chosen in [surfaces.md](surfaces.md).
+How LINA APP and the TUI adapt to Omarchy is defined in [surfaces.md](surfaces.md).
 
 ## Runtime acceptance
 
