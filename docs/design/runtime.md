@@ -24,6 +24,8 @@ LINA Core, `moirai-worker`, the `lina` TUI, the worker adapters and Node are Typ
 
 The conversation engine stands on the [pi](https://github.com/earendil-works/pi) agent loop and the [Codex](https://github.com/openai/codex) tool contracts. LINA vendors pi because it is a TypeScript library inside LINA's own engine and is inherited, not translated. An upstream change reaches LINA as a diff, never as a new translation.
 
+Development runs TypeScript sources directly. Node.js strips types when it loads a file, so no build step sits between an edit and a test run; LINA's code therefore uses only TypeScript syntax that type stripping can erase. Type checking uses the native TypeScript compiler (TypeScript 7) in strict mode. Because AI agents write most of LINA's code, the time from an edit to a type-checked test result is a measured property of the stack (V7).
+
 Each function has exactly one path. A function never switches to a second transport when the first one fails. A missing piece makes its function unsupported, and the function says so.
 
 External components (document parsers, OCR, the local transcription component and similar) may be written in any language, need any runtime and carry any license, Python, a JRE and AGPL code included. They run only as separate processes at a version pinned by the release, and are never linked or loaded into a LINA process.
@@ -352,10 +354,12 @@ The first implementation issue demonstrates the runtime with these checks. Each 
 | V4 LINA work harness | The LINA work harness, installed by LINA as a plugin in the user's Codex, on an assignment from LINA Core | A stage receipt and a completion receipt reach LINA Core through LINA's work tools, and the Stop hook round-trips |
 | V5 worker adapter round trip | Types generated with `generate-ts --experimental` from the installed Codex, then `initialize`, `thread/start` with `dynamicTools`, `item/tool/call` and turn completion | The round trip completes with the installed Codex, and the adapter records its version |
 | V6 supply-chain baseline | The gates of [dependencies.md](../policy/dependencies.md) on the minimal dependency set, with the lockfile and transitive package count recorded | The gates pass and no dependency needs a lifecycle script |
+| V7 development loop | On the Phase 1 tree, an agent's edit to one package followed by strict type checking of the affected packages and their tests, and the full `foundation` run | The time from the edit to the test result, and the `foundation` time, stay within the declared budget |
 
 ## Deferred
 
 - The packaging and resident budget for LINA Core and Node: set by the first implementation issue's packaging and 24-hour resident measurement (V2).
+- The development loop budget: declared before V7 runs.
 - The compiled language for Node, should the device-Node exception apply: chosen when that measurement shows Node fails the budget.
 - The Windows sandbox mechanism for shell and file tools: chosen and verified by the Windows Node implementation, which cannot be accepted without it.
 - Exact pins (Node.js runtime, openai-node, sqlite-vec, opencodex, the pi commit): set by the first implementation issue and recorded in the release manifest.
