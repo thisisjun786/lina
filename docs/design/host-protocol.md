@@ -116,7 +116,7 @@ LINA Core ships the table of combinations it supports in the manifest of its bui
 Rules:
 
 - The table of every build lists the components built together with it from the same commit, with that commit's conformance fixture runs as their evidence. So the TUI and LINA Core of one build find their row, and a development build can run the acceptance of a platform or app that is not accepted yet.
-- A release build contains only the platforms and apps that have passed their acceptance ([runtime.md](runtime.md), [surfaces.md](surfaces.md)). Others are built only as development builds, so a release table never lists an unaccepted platform or app.
+- A release build contains only the platforms and apps that have passed their acceptance ([runtime.md](runtime.md), [surfaces.md](surfaces.md)). Others are built only as development builds, so a release table never lists an unaccepted platform or app. Rows for the LINA app, Node and LINA Core inside LINA OS also need the failure injections below before they enter a release.
 - Any other row is added only after its combination is tested and accepted. Nothing is listed by assumption.
 - Every listed combination has a passing test. Every unlisted combination is refused cleanly, and the refusal is reported to the user.
 - A row never widens to cover another version. Another version needs its own row and its own evidence.
