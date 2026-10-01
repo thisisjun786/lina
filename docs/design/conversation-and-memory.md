@@ -149,7 +149,7 @@ LINA Core owns the conversation record, its compaction and its resume, because m
 Compaction runs in this order:
 
 1. Compaction starts when the request input reaches 90% of the model's context window. This is a default and is configurable.
-2. Older tool outputs are condensed first. Each keeps its place after its call, and its content becomes a one-line note of the call and its result, such as the command and its exit code or the files a patch changed. The notes are built without a model. Tool outputs within the most recent 40,000 tokens stay.
+2. Older tool outputs are condensed first. Each keeps its place after its call, and its content becomes a one-line note of the call and its result, such as the command and its exit code or the files a patch changed. The notes are built without a model. Tool outputs of the current turn, and those within the most recent 40,000 tokens, stay.
 3. If the input still does not fit, LINA sends a summary request and keeps the most recent user messages verbatim, up to 20,000 tokens.
 
 When a turn ends with its request input near the compaction threshold, LINA prepares the summary in the background after the answer is delivered. When compaction reaches step 3, LINA uses the prepared summary if the history it covers is unchanged and its revocation epoch still holds, and keeps the turns after it verbatim. LINA sends the summary request only when no prepared summary holds, and never waits for a preparation in progress. Preparing a summary changes no request: a prepared summary enters the history only when compaction runs.
