@@ -13,7 +13,7 @@ This contract covers:
 - the conversation loop, the model path through opencodex and the non-chat adapters
 - the conversation tools, plugin tools and the OS sandbox
 - installed tools that LINA uses without owning them, including worker agents
-- storage engines, packaging, the release manifest and the packaging and resident budget
+- storage engines, packaging, the `lina` command, the release manifest and the packaging and resident budget
 - updates, recovery, failure injections, remote access and LINA OS composition
 
 It does not cover the envelope and wire formats ([host-protocol.md](host-protocol.md)), grants, epochs, receipts and the approval policy ([main-authority.md](main-authority.md)), turn preparation, request assembly, persona, memory and compaction ([conversation-and-memory.md](conversation-and-memory.md)), the work engine, the kind-of-work rule, worker adapters and the LINA work harness rules ([work-and-delegation.md](work-and-delegation.md)), plugins ([integrations.md](integrations.md)), installation modes and LINA OS profiles ([product-families.md](product-families.md)), the state root, backup generations and restore ([filesystem.md](filesystem.md)), screens ([surfaces.md](surfaces.md)) or dependency and vendoring rules ([dependencies.md](../policy/dependencies.md)).
@@ -71,17 +71,21 @@ Upstream code enters the LINA repository only as vendored source or generated up
 
 ## LINA kit
 
-The LINA kit is the stateless public Go module that LINA Core and RUMI share. It holds:
+The LINA kit is the stateless Go module that LINA Core and RUMI share. It lives in `kit/` of the LINA repository with its own `go.mod`, under the module path `github.com/thisisjun786/lina/kit`. LINA's own module uses it through a `replace` to that directory. It holds:
 
 - the Responses adapter: openai-go with `store=false`, the encrypted reasoning round trip and the stream assembly rules of this document
 - the loop core of the conversation loop (see Conversation loop)
-- the tool executor and the sandbox wrapper
-- document parsing, passage anchors and citation checks
+- the tool executor, with a web fetch tool, and the sandbox wrapper
 - the sibling protocol types, generated from the JSON Schema in [host-protocol.md](host-protocol.md)
+- document parsing, passage anchors and citation checks
+
+The web fetch tool is stateless: it takes one URL and hands the fetched document to the kit's document parsing. Its network access follows the caller's grant.
+
+The Responses adapter, the loop core, the tool executor with the sandbox wrapper and the protocol types are built as kit packages from their first implementation. Document parsing, passage anchors and citation checks are a separate stateless part of the kit: LINA's materials features and RUMI both use it, and it is not tied to any materials product feature ([materials-and-knowledge.md](materials-and-knowledge.md)).
 
 The kit never holds a default state path, a persona, skills or a database writer. Callers pass state locations, persona and skills explicitly, and each product stores its own records. What differs per host (writer fencing, queues, the layer that owns retries) stays in each product. The kit has its own version, separate from product and protocol versions.
 
-The kit ships only as source in LINA release tags; LINA publishes no separate release or module of the kit. A sibling takes the kit by vendoring it as source from one LINA release tag, under the same vendoring rules as any upstream source ([dependencies.md](../policy/dependencies.md)), and records the kit version and the LINA release tag in its release manifest.
+The kit ships only as source inside LINA release tags and has no release or tag of its own. RUMI vendors it from one LINA release tag into its `third_party/` and attaches it with a `replace`, under the same vendoring rules as any upstream source ([dependencies.md](../policy/dependencies.md)), and records the kit version and the LINA release tag in its release manifest.
 
 ## Conversation loop
 
@@ -116,7 +120,7 @@ Every model call of LINA's own engines goes through opencodex, the local Respons
 LINA Core calls the Responses API of opencodex at `http://127.0.0.1:10100/v1` directly with the official [openai-go](https://github.com/openai/openai-go) library at a pinned version, through a thin adapter between LINA's types and the SDK's types.
 
 - `store` is `false`. Every request carries the full input it needs.
-- With reasoning on, the request includes `reasoning.encrypted_content`. Every reasoning item, tool call and tool output since the last user message goes back in the next request unchanged, as the [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) requires.
+- With reasoning on, the request includes `reasoning.encrypted_content`. The [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) requires at least every reasoning item, tool call and tool output since the last user message to go back in the next request unchanged. LINA sends every earlier one back unchanged as well, because the conversation history carries them all ([conversation-and-memory.md](conversation-and-memory.md)).
 - `previous_response_id`, `store: true`, server-side compaction and WebSocket mode are never used.
 - The request fields LINA sends form a list in the release manifest. A new field enters the list before it is sent.
 - Auxiliary reasoning (internal inference without tools) is a separate request with no tool list and no persona. It runs as its own run kind, can cause no external effect, and its output is never recorded as part of the conversation.
@@ -148,7 +152,7 @@ LINA assembles the server-sent event stream itself:
 ### Usage and cost
 
 - Usage comes from `usage` in each conversation response and from the usage events a worker agent reports, such as Codex's `thread/tokenUsage/updated`. An unreported value is unknown, never zero.
-- The total budget covers conversation requests, worker threads, sub-agents inside workers and auxiliary reasoning. Selector cost and the number of reselections are capped.
+- The total budget covers conversation requests, worker threads, sub-agents inside workers and auxiliary reasoning.
 - The actual model, routing reason and cost per request come from the opencodex management plane (`/api/usage`, `/api/logs`), read by LINA Core. The management token lives in LINA's secret store ([filesystem.md](filesystem.md)) and is read only by LINA Core; it never reaches LINA APP, a remote client or a worker. When the plane can't be read, route and cost are unknown.
 - Budget totals count tokens. Catalog prices and zero values are not actual cost.
 - LINA Core reserves and settles the budget. At the limit the conversation stops sending requests, and workers are interrupted under the budget policy of [work-and-delegation.md](work-and-delegation.md). The Codex goal token budget is not used.
@@ -156,11 +160,13 @@ LINA assembles the server-sent event stream itself:
 
 ### Request regression
 
-A regression test compares LINA's requests with a baseline: the request that Codex sends through opencodex for the same conversation, with the Codex version recorded alongside the baseline. It compares fields, `include`, the reasoning resend and the built-in tool declarations. It runs again whenever the opencodex or SDK pin, or the baseline, moves.
+A regression test compares LINA's requests with a baseline: the request that Codex sends through opencodex for the same conversation, with the Codex version recorded alongside the baseline. It compares fields, `include`, the reasoning resend and the built-in tool declarations. The parts that differ by design are listed with the baseline and left out of the match: Codex's coding-agent base instructions, which a LINA request never carries, LINA's developer-role persona and context items, and LINA's own tools ([conversation-and-memory.md](conversation-and-memory.md)). It runs again whenever the opencodex or SDK pin, or the baseline, moves.
 
 ## Non-chat adapters
 
 The Jev judge, embedding and transcription each have their own adapter outside opencodex. Their keys, billing and failure diagnosis are separate from opencodex, and none of them appears in the chat model list, the catalog or automatic routing. Jev is called only through its own typed adapter, the judge adapter, which speaks to a hosted judge API (Jev by default) or to a local judge process ([cognition-and-life.md](cognition-and-life.md)).
+
+The embedding adapter calls the embedding endpoint the person configures: an OpenAI-compatible embeddings API and its key. Each vector index records the model id and the dimension it was built with. When the model changes, the index is rebuilt in the background, and until the rebuild finishes recall uses full-text search (FTS5) without the vector index. With no endpoint configured, recall does the same.
 
 None of them blocks basic conversation:
 
@@ -208,9 +214,11 @@ Shell and file tools run inside an OS sandbox that LINA Core invokes directly th
 
 On Linux the sandbox is [bubblewrap](https://github.com/containers/bubblewrap) with seccomp. bubblewrap runs as a separate executable and is never linked. Commands get their own user and PID namespaces, their own network namespace while network is blocked, and `no_new_privs`. The seccomp filter is a compiled BPF program shipped with the release for each architecture and handed to bubblewrap by file descriptor.
 
-On macOS the sandbox is Seatbelt: `/usr/bin/sandbox-exec` with an SBPL profile derived from the Codex profiles. Apple marks `sandbox-exec` deprecated and offers no command-line replacement, so LINA checks that it works on every start.
+LINA Core runs on the Linux main ([product-families.md](product-families.md)), so the conversation engine's shell and file tools always run in the Linux sandbox. The kit's sandbox wrapper also serves hosts other than Linux: the commands that Node runs on macOS and Windows, and RUMI on those systems ([rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md)).
 
-On Windows the conversation engine's shell and file tools run only inside a verified Windows sandbox. A verified Windows sandbox is part of Windows Node acceptance; until it passes, those tools report unsupported on Windows instead of running unsandboxed.
+On macOS the wrapper uses Seatbelt: `/usr/bin/sandbox-exec` with an SBPL profile derived from the Codex profiles. Apple marks `sandbox-exec` deprecated and offers no command-line replacement, so the wrapper checks that it works on every start.
+
+On Windows the wrapper runs commands only inside a verified Windows sandbox. A verified Windows sandbox is part of Windows Node acceptance; until it passes, sandboxed commands report unsupported on Windows instead of running unsandboxed.
 
 LINA Core checks on start, and before the first tool call, that the sandbox works on this host. Unprivileged user namespaces, AppArmor restrictions and hardened kernels can each disable bubblewrap. When the sandbox is missing or fails, conversation continues, only shell and file tools are unsupported, and the user sees why.
 
@@ -235,6 +243,18 @@ The adapter boundary, the Codex adapter, compatibility, readiness, assignment, a
 LINA Core and the `lina` TUI ship as one static binary per platform, and Node ships as its own static binary per platform, each built with the pinned Go toolchain. A device that runs only Node or only the TUI installs just that binary and needs no separate language runtime. The release manifest records each binary's version and digest and the Go toolchain that built it.
 
 Supported platforms are defined in [product-families.md](product-families.md). A platform and architecture enter the supported-combination table of [host-protocol.md](host-protocol.md) only after the packaging and resident measurement passes on them.
+
+### The `lina` command
+
+LINA Core and the TUI are one executable, `lina`. Its subcommands cover these uses:
+
+| Use | What it does |
+| --- | --- |
+| Core service | Runs LINA Core. The service manager starts LINA Core this way (see Services). |
+| TUI | Opens the terminal surface, a separate process that connects to LINA Core over the `client` connection ([surfaces.md](surfaces.md)) |
+| Install | Places the pinned opencodex package and its Node.js runtime, registers the LINA Core and opencodex services, and `moirai-worker` when it is part of the install, and creates the state root ([filesystem.md](filesystem.md)). When opencodex has no signed-in model provider, it opens the opencodex sign-in ([product-families.md](product-families.md)). |
+| Backup and restore | Takes a backup generation and restores one ([filesystem.md](filesystem.md)) |
+| Diagnosis | Reports the state and readiness of each component, with the cause of each failure |
 
 ### opencodex and its Node.js runtime
 
@@ -268,6 +288,8 @@ When a piece is missing:
 - A running service is never evidence that a turn succeeded.
 
 ### Release manifest
+
+Every build from a clean commit, a development build included, writes a manifest next to its executables. It records the commit, the digest of each executable, and the versions and digests of the pinned opencodex, its Node.js runtime and sqlite-vec. Turn preparation compares the running LINA Core executable with the manifest of its build ([conversation-and-memory.md](conversation-and-memory.md)). The manifest of a release build is the release manifest.
 
 The release manifest records:
 
@@ -364,23 +386,27 @@ The first implementation issue demonstrates the runtime with these checks. Each 
 
 | Check | What runs | Passes when |
 | --- | --- | --- |
-| V1 opencodex pass-through | openai-go through opencodex for three or more turns with `store=false`, the encrypted reasoning round trip, a custom tool (`apply_patch`) and parallel tool calls | Every turn round-trips without rejection, and the fields match the Codex baseline request |
-| V2 packaging, storage and residency | Static binaries per platform; SQLite with sqlite-vec from Go (WAL, FTS5 and vector queries); services registered with systemd on Omarchy x64 and launchd on macOS arm64, for 24 hours | sqlite-vec loads, the services start, and size, start time and resident memory and CPU stay within the declared budget on both platforms; the chosen SQLite binding is recorded in the release manifest |
+| V1 opencodex pass-through | openai-go through opencodex for three or more turns with `store=false`, the encrypted reasoning round trip, a custom tool (`apply_patch`) and parallel tool calls | Every turn round-trips without rejection, and the fields match the Codex baseline request apart from the parts that differ by design (see Request regression) |
+| V2 packaging, storage and residency | Static binaries per platform; SQLite with sqlite-vec from Go (WAL, FTS5 and vector queries); LINA Core's executable, built from the same commit, for 24 hours as a systemd service on Omarchy x64 and as a launchd job on macOS arm64. The macOS run stands in for Node's budget, because Node uses the same runtime parts. | sqlite-vec loads, the services start, and size, start time and resident memory and CPU stay within the budget declared before the run on both platforms; the chosen SQLite binding is recorded in the release manifest |
 | V3 own conversation loop | LINA's Go loop with openai-go through opencodex: streaming, tool calls with their before and after hooks, steering input, cancellation and parallel tool calls | The loop's tests pass |
-| V4 LINA work harness | The LINA work harness, installed by LINA as a plugin in the user's Codex, on an assignment from LINA Core | A stage receipt and a completion receipt reach LINA Core through LINA's work tools, and the Stop hook round-trips |
+| V4 LINA work harness | The LINA work harness, installed as a plugin in the user's Codex by an install command, on a test assignment from LINA Core | A stage receipt and a completion receipt reach LINA Core through LINA's work tools; the Stop hook round-trips: a managed turn that was about to end without a result continues through the Stop hook, and its receipt reaches LINA Core; and LINA Core records a test verdict on the receipts ([work-and-delegation.md](work-and-delegation.md)) |
 | V5 worker adapter round trip | Go types generated from the JSON Schema that the installed Codex writes with `generate-json-schema --experimental`, then `initialize`, `thread/start` with `dynamicTools`, `item/tool/call` and turn completion | The round trip completes with the installed Codex, and the adapter records its version |
 | V6 supply-chain baseline | The Go and npm gates of [dependencies.md](../policy/dependencies.md) on the minimal dependency set, with `go.sum`, the module count, the opencodex lockfile and its transitive package count recorded | The gates pass, `go.sum` verifies against the checksum database, `govulncheck` passes, and no npm package needs a lifecycle script |
 | V7 development loop | An agent's edit to Go code, then `go build`, `go vet` and `go test` for the affected packages; and a full `foundation` run | The time from the edit to the result of those commands, and the full `foundation` time, stay within the budget declared before the run |
 
 ## Deferred
 
-- The packaging and resident budget for LINA Core and Node: set by the first implementation issue's packaging and 24-hour resident measurement (V2).
+- The packaging and resident budget for LINA Core and Node: declared in the first implementation issue before the V2 measurement runs, and recorded with its result. A result outside the budget reopens the language choice.
 - The development-loop budget: declared before the V7 measurement and recorded with its result. A result outside the budget reopens the language choice.
 - The SQLite binding: chosen by V2 and recorded in the release manifest.
-- The Windows sandbox mechanism for shell and file tools: chosen and verified by the Windows Node implementation, which cannot be accepted without it.
+- The Windows sandbox mechanism of the kit's sandbox wrapper: chosen and verified by the Windows Node implementation, which cannot be accepted without it.
 - Exact pins (the Go toolchain, openai-go, the MCP Go SDK, Bubble Tea, the SQLite binding, sqlite-vec, the JSON Schema to Go type generator, opencodex and its Node.js runtime): set by the first implementation issue and recorded in the release manifest.
 - The verified versions of each installed tool: set by the first implementation issue (V5 for Codex) and recorded in the release manifest.
 - Whether LINA Core as a service sees the user's login environment (`PATH`, the SSH agent and the keychain), or reads the login shell's environment once at start instead: measured by the first implementation issue.
-- Per-tool deadlines, the selector cost cap and the reselection limit: set during implementation acceptance of the conversation engine.
+- Per-tool deadlines: set during implementation acceptance of the conversation engine.
 - Absolute install locations, the absolute state root, service names and socket paths per OS: set during packaging implementation acceptance.
+- The subcommand names and flags of `lina`: set by the first implementation issue.
+- The path and format of a build's manifest, how a build writes it, and its CI check: set by the first implementation issue.
+- Publishing binaries and their manifests: added to [releases.md](../policy/releases.md) when LINA is first packaged.
+- The default embedding model: chosen by the implementation issue that brings memory recall into answers.
 - LINA OS's own update steps (a pre-update snapshot check and an extra backup before drain): set during LINA OS implementation acceptance.

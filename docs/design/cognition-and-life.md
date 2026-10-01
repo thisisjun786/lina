@@ -50,7 +50,7 @@ Moirai is the cognition engine inside LINA Core. It handles the whole agent cont
 | Module | Time | Does | Runs in |
 | --- | --- | --- | --- |
 | Lachesis | Past: what has built up | The memory engine (facts and preferences, recall, corrections and deletions), the material index and derived materials, growth candidates, prepared judgment material | Background |
-| Atropos | Present: what to do now | Context assembly and judgment for each request: the intent of this request, which memories and materials to include, compression and budget, tracking commitments and task state. Jev lives here. | Request path |
+| Atropos | Present: what to do now | Context assembly and judgment for each turn: the intent of this request, which memories and materials to include, compression and budget, tracking commitments and task state. Jev lives here. | Request path |
 | Klotho | Future: what will come | Planning, next-action candidates, predictions with verification candidates, replanning, goal discovery, project supervision, skill suggestions, the news feed | Background |
 
 ### Shared canon
@@ -62,7 +62,7 @@ Moirai is the cognition engine inside LINA Core. It handles the whole agent cont
 ### Request path and background
 
 - Atropos is the only module in the request path, which runs from the moment LINA Core receives the user's input until it sends the model request. Atropos must be light and fast.
-- For each request, Atropos assembles the ContextPacket. Its time cap, its minimum packet and the way it enters the request are defined in [conversation-and-memory.md](conversation-and-memory.md), together with the turn latency points.
+- For each turn, Atropos assembles the ContextPacket. Its time cap, its minimum packet and the way it enters the request are defined in [conversation-and-memory.md](conversation-and-memory.md), together with the turn latency points.
 - Lachesis and Klotho run in `moirai-worker`, a background service that runs whether or not a conversation is active. The service is optional. Without it, only background memory and planning are unsupported. Its packaging is in [runtime.md](runtime.md).
 - Inside `moirai-worker`, each function of Lachesis and Klotho runs as its own background job. Each job has its own schedule, budget, on/off switch and adoption record. A job that fails, runs long or exceeds its budget stops only itself and never delays another job or the request path.
 - Data flows one way. Lachesis and Klotho publish results, and Atropos reads them. Atropos never waits on a background module during a request.
@@ -102,7 +102,7 @@ Judgment material:
 
 - In the background, Lachesis prepares past judgments with provenance, their actual outcomes, and the user's preferences and refusals.
 - At request time, Atropos checks this utterance's candidates, state, permissions and revocations, and does the final assembly.
-- Judgment records and outcome records are canon in the identity's store. Prepared material is derived data that can be rebuilt, and it follows the revocation generation rules. An outcome nobody knows is recorded as unknown.
+- Judgment records and outcome records are canon in the identity's store. Prepared material is derived data that can be rebuilt, and it follows the revocation epoch rules ([conversation-and-memory.md](conversation-and-memory.md)). An outcome nobody knows is recorded as unknown.
 - Jev records link to Klotho's prediction ledger by id only.
 - When the person corrects a routing choice, or a request or task is moved to another destination, the corrected destination is recorded as that judgment's label.
 - Lachesis puts confusable pairs side by side in the material: a judgment that went wrong next to the closest judgment that went right, so the difference that decides the destination is visible. The same pairs are training data for a local judge.

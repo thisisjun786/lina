@@ -16,7 +16,7 @@ This contract covers the main and its epochs, grants, the server and Node state 
 
 | Field | Meaning |
 | --- | --- |
-| server id | The main that issued the grant |
+| main id | The main that issued the grant |
 | node id | The Node the grant is issued to, or none for a worker that runs on the main |
 | node boot id | The boot of that Node the grant was issued to; a reboot produces a new one |
 | epoch | The main epoch the grant belongs to |
@@ -164,8 +164,9 @@ Text found in logs, web pages, sibling records or on screen is never an approval
 ## Approval
 
 - The default inside a device LINA uses is no approval. Reading, writing and executing there proceed inside the grant without asking.
-- Approval is required only for effects that reach outside the user and are hard to reverse: sending mail or messages, payments and purchases, public posting or publication, and unrecoverable deletion.
-- Deletion first goes to a recoverable form: a trash, a retained copy or a snapshot. Only deletion that cannot be recovered needs approval.
+- LINA asks every time only for effects that reach outside the user and are hard to reverse: sending mail or messages, payments and purchases, public posting or publication, and unrecoverable deletion.
+- A write outside the grant, and network access for a sandboxed command, asks the first time, with the choices once, always allow and deny. "Always allow" is a standing grant the person can revoke (see Plugin tools, and [runtime.md](runtime.md) for sandboxed commands).
+- Deletion first goes to a recoverable form: a trash, a retained copy or a snapshot. Only deletion that cannot be recovered needs approval. When the person chooses immediate permanent deletion of a conversation, a memory item or a material, that choice is the approval, and LINA records it as such with the person.
 - An approval request shows in one view what will happen, where, and whether it can be undone. For a plugin tool it also shows the arguments, such as the recipient and the body, and the choices of its tier. Repeated approvals of the same kind are grouped by scope instead of being asked one by one.
 - Every answer to an approval request is recorded with the choice and the person who gave it.
 - Accepting a draft (applying an edit) is acceptance of the edit. It is a separate state from a grant for an external effect and never authorizes one.

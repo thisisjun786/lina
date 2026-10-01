@@ -79,7 +79,7 @@ Product components are Go packages in the repository's Go modules, built with th
 Register a component in [ci-scope.mjs](../../.github/scripts/ci-scope.mjs) in the PR that adds it. Its entry names:
 
 - its directory, so that every path under it, including Markdown, belongs to the component;
-- its packages, which CI verifies with `go build`, `go vet` and `go test`, so local and CI verification use the same commands.
+- its packages, which CI verifies with `go build`, `go vet`, the `exhaustive` analyzer and `go test`, so local and CI verification use the same commands.
 
 The protocol JSON Schema in `protocol/schema/` and the conformance fixtures in `protocol/fixtures/` are registered with the component that generates types from them, so a schema or fixture change runs type regeneration and the fixtures ([host-protocol.md](../design/host-protocol.md)).
 
@@ -102,7 +102,7 @@ Markdown under `third_party/` is upstream content. The docs check skips it becau
 `dependencies` and `components` run after `selection`, in parallel with `docs` and `automation`. Selection lists the selected components. `foundation` evaluates both jobs like the others: a selected job must report `success`, and an unselected job must report `skipped`.
 
 - **dependencies:** runs the checks listed in the [dependency policy](dependencies.md#ci-enforcement), including `go mod verify` and `govulncheck`. It has no secrets and reads only the Go module proxy, the Go checksum and vulnerability databases, the npm registry, and recorded upstream repositories.
-- **components:** sets up Go from the `toolchain` line of `go.mod` and runs `go build`, `go vet` and `go test` with `-mod=readonly` for each selected component. Build checks use the produced binary. Short component checks share this job and its module download. A component gets its own parallel job only when a measured run shows that the shared job is the bottleneck.
+- **components:** sets up Go from the `toolchain` line of `go.mod` and runs `go build`, `go vet`, the `exhaustive` analyzer and `go test` with `-mod=readonly` for each selected component. The analyzer is a module tool pinned in `go.mod`, like `govulncheck` ([dependencies.md](dependencies.md)), and fails a switch over a closed set of variants that misses one. Build checks use the produced binary. Short component checks share this job and its module download. A component gets its own parallel job only when a measured run shows that the shared job is the bottleneck.
 
 Both jobs cache Go module downloads by the hash of `go.sum` and npm downloads by the lockfile hash, never `node_modules` or results, including the test results the `go` command caches. Adding either job changes the full-mode run, so the PR that registers the first component records a new full-mode baseline and bound in the timing table.
 
@@ -114,6 +114,7 @@ npm audit signatures
 node .github/scripts/check-dependencies.mjs
 go build ./<dir>/...
 go vet ./<dir>/...
+go tool exhaustive ./<dir>/...
 go test ./<dir>/...
 ```
 

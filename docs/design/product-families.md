@@ -28,6 +28,7 @@ LINA is open-source software, not a sold product. No release gate, such as age v
 A person is a human LINA serves. Each person has a person id: stable, assigned by LINA Core in canon, and never reused for another person. The first person is the owner, the person who sets up the LINA. LINA Core records the owner when it creates the identity, so the first run asks nothing for it. A LINA admits only its owner. Admitting more people is multi-person operation, a backlog item that this canon does not define yet ([cognition-and-life.md](cognition-and-life.md)).
 
 - A person is not an identity. The identity is LINA's own, with its canon under `identities/<identity-id>/` ([filesystem.md](filesystem.md)). The people a LINA serves are recorded in that canon.
+- A main holds exactly one identity. The main id names the main that confirms canon ([main-authority.md](main-authority.md)), and the identity id names the canon it confirms.
 - Every record of something a person said, decided, granted, connected or signed in to names that person's id. Each contract that lists a record's fields names the field. A client connection acts for one person ([host-protocol.md](host-protocol.md)).
 - Because a LINA admits only its owner, every person id in canon is the owner's.
 - "A person" in the role rules below means any human actor, whether or not LINA serves them.
@@ -159,14 +160,14 @@ Each mode and profile is built from one of the runtime compositions in [runtime.
 
 Siblings in installs:
 
-- RUMI runs on the user's device as a local process with the `rumi` CLI and the RUMI app, using one Responses-compatible endpoint that the user chooses. With a desktop install, the device's Node reaches the vault as a connected folder within its grant. On LINA OS, LINA OS may offer to install RUMI; once installed, it runs as a separate process with opencodex as its endpoint when the user creates or connects a vault. LINA never pins or ships a RUMI release.
+- RUMI runs on the user's device as a local process with the `rumi` CLI and the RUMI app, using one Responses-compatible endpoint that the user chooses. With a desktop install, the device's Node reaches the vault as a connected folder within its grant. On LINA OS, LINA OS may offer to install RUMI. That install sets RUMI's model endpoint, in RUMI's own settings, to the local opencodex endpoint; once installed, RUMI runs as a separate process with that endpoint when the user creates or connects a vault. LINA never pins or ships a RUMI release.
 - SION runs in GitHub Actions for each installation. Nothing of SION is installed on a LINA device.
 
 ## Repository, artifacts and versions
 
 LINA is the monorepo `thisisjun786/lina` under the MIT license. Work branches from `dev` and targets `dev` with pull requests. `main` mirrors releases, and releases are immutable `vX.Y.Z` tags ([releases.md](../policy/releases.md)). The one required CI check is `foundation` ([ci.md](../policy/ci.md)). SION and RUMI follow the same contribution, CI, branch and release policies. Issue #1 of each repository is its roadmap.
 
-No code, database or fixture is ported from another LINA codebase. Vendored upstream code follows [dependencies.md](../policy/dependencies.md).
+No code, database structure or fixture is ported from another LINA codebase. Planning records and the owner's existing intent card data come in as data, once, through the one-time import at the operational switch ([work-and-delegation.md](work-and-delegation.md)). Vendored upstream code follows [dependencies.md](../policy/dependencies.md).
 
 One source repository does not mean one release unit. LINA Core, the LINA app, Node and LINA OS each have independent artifacts and independent release cadences. Being in the monorepo is never a reason to merge release units.
 

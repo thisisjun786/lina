@@ -32,9 +32,11 @@ It builds on these documents and does not repeat them:
 
 **Turn.** One input from the person and everything LINA does to answer it: preparation, model requests, tool calls and the delivered answer. A turn records the person id of the person whose input it answers ([product-families.md](product-families.md)).
 
-**Prepare acknowledgment.** The ledger record that a turn's persona revision, context and model policy are ready. No model request is sent before it exists.
+**Model policy.** The settings that fix how a turn calls the model: the conversation model, its reasoning effort and the request fields the turn sends. Every change to it creates a new policy revision.
 
-**ContextPacket.** The per-request set of memory items, materials and state that Atropos selects for one model request. It is rebuilt for every request and never stored; its item ids are recorded.
+**Prepare acknowledgment.** The ledger record that a turn's persona revision, context and model policy revision are ready. No model request is sent before it exists.
+
+**ContextPacket.** The per-turn set of memory items, materials and state that Atropos selects for a turn. It is assembled once, before the turn's first model request, stays in place for the turn's follow-up requests, and is never stored; its item ids are recorded.
 
 **Memory item.** One unit of memory canon, defined under "Memory items".
 
@@ -44,7 +46,7 @@ It builds on these documents and does not repeat them:
 
 **Revocation epoch.** A counter in canon that advances with every retraction. Summaries and derived data record the epoch they were built at. Backup generations record it as the revocation watermark ([filesystem.md](filesystem.md)).
 
-**Moirai engine, Lachesis, Atropos.** The Moirai engine is the part of LINA Core that holds the agent context. Lachesis is its past-facing module (memory and recall); Atropos is its present-facing module (the context of each request). Their structure is defined in [cognition-and-life.md](cognition-and-life.md).
+**Moirai engine, Lachesis, Atropos.** The Moirai engine is the part of LINA Core that holds the agent context. Lachesis is its past-facing module (memory and recall); Atropos is its present-facing module (the context of each turn). Their structure is defined in [cognition-and-life.md](cognition-and-life.md).
 
 ## Conversation engine
 
@@ -69,7 +71,7 @@ It builds on these documents and does not repeat them:
 
 The ledger is the original record of a conversation. Its content is erased only when the person explicitly deletes a conversation or a part of it.
 
-- The deleted content is retracted at once and moves to the trash for 30 days, where it can be recovered. After 30 days it is permanently deleted. The person may skip the trash; that is an unrecoverable deletion under the approval policy in [main-authority.md](main-authority.md).
+- The deleted content is retracted at once and moves to the trash for 30 days, where it can be recovered. After 30 days it is permanently deleted. The person may skip the trash; that choice is the approval for the unrecoverable deletion ([main-authority.md](main-authority.md)).
 - Permanent deletion erases the chosen ledger content, and the derived data built from it such as summaries and index entries, from every copy LINA manages (see "Erasure scope" under "Correction, retraction and deletion"). It leaves a tombstone: the ids of the erased events, when, and the person who deleted them, with no content.
 - Memory items whose evidence was in the erased content stay until the person forgets them. Their evidence, and the evidence records of past answers, show the tombstone in its place.
 
@@ -87,9 +89,9 @@ The ledger is the original record of a conversation. Its content is erased only 
 
 No model request is sent before the turn is prepared. Preparation runs in this order and stops at the first failure:
 
-1. The hash of the running LINA Core executable matches the release manifest ([runtime.md](runtime.md)).
+1. The hash of the running LINA Core executable matches the manifest of the build it came from ([runtime.md](runtime.md)).
 2. opencodex answers ready on `/readyz`.
-3. The conversation model and its policy revision are resolved.
+3. The conversation model and the model policy revision are resolved.
 4. The persona, the context and the model policy are prepared, and the prepare acknowledgment is recorded.
 
 When a step fails, LINA sends no request and shows the cause on the conversation surface. A running service is not a successful turn.
@@ -103,8 +105,8 @@ Mandatory retraction checks and permission checks finish during preparation, bef
 - The ContextPacket goes in as input items. LINA's own memory and materials take the developer role. External evidence takes the user role and is marked untrusted.
 - Where each part sits is fixed by the request layout below.
 - Duplicate and superseded context across turns is resolved during assembly, not left to the model.
-- Atropos assembles the ContextPacket synchronously before each request, within a time cap. When the cap is reached, the turn proceeds with a minimal packet.
-- Atropos selects the skill bodies a request needs (see "Skills").
+- Atropos assembles the ContextPacket synchronously before the first request of each turn, within a time cap. When the cap is reached, the turn proceeds with a minimal packet.
+- Atropos selects the skill bodies a turn needs (see "Skills").
 - Turn latency is measured from receipt of the person's input to the request being sent, and from there to the first output delta and to response completion.
 
 ### Request layout
@@ -114,8 +116,8 @@ A request is laid out from what changes least to what changes most, so the prefi
 1. **LINA Core instructions** (developer role): the fixed rules for tools, approvals and output. They change only with a release.
 2. **Persona** (developer role): the fixed layers in order, core, default voice, user voice, growth snapshot. They change only with a new persona revision.
 3. **Skill catalog index** (developer role): the name and description of each available skill. It changes only when skills or plugins change.
-4. **Tool declarations**: the always-declared tools first, in a stable order, then the plugin tools loaded on demand for this request ([runtime.md](runtime.md)). The always-declared part changes only when a plugin or a grant changes.
-5. **Conversation history**: the compaction summary, if any, and then the earlier turns from the ledger: messages, and, as the model path requires, every reasoning item, tool call and tool output since the last user message, carried unchanged ([runtime.md](runtime.md)). It only grows at its end.
+4. **Tool declarations**: the always-declared tools first, in a stable order, then the plugin tools loaded on demand for this request ([runtime.md](runtime.md)). The always-declared part changes only when a plugin or a grant changes. The on-demand part can change from one request to the next.
+5. **Conversation history**: the compaction summary, if any, and then every earlier item of the conversation from the ledger, in order: messages, reasoning items, tool calls and tool outputs, carried unchanged ([runtime.md](runtime.md)). It only grows at its end. Its earlier part changes only at compaction (see Compaction and resume) and when the person deletes conversation content (see Deleting a conversation).
 6. **ContextPacket** (input items), from the most binding to the most optional:
    1. the current time and LINA's present emotional state
    2. commitments, decisions and the reasons for corrections that apply
@@ -126,8 +128,9 @@ A request is laid out from what changes least to what changes most, so the prefi
    7. external evidence (user role, marked untrusted): worker results, sibling records such as RUMI briefs, and what plugins read
 7. **The person's current input.**
 
-- Nothing that changes from turn to turn enters items 1 to 4. The time, the emotional state and the selected skill bodies sit in the ContextPacket.
-- The ContextPacket is never written into the history, so the history prefix of the next request is unchanged.
+- This layout is the first request of a turn. A follow-up request in the same turn, after tool results, keeps that request unchanged, apart from the plugin tools loaded on demand, and appends at its end, in ledger order, only the new reasoning items, tool calls and tool outputs and any steering input the person sent during the turn, in the user role ([runtime.md](runtime.md)). The ContextPacket is not rebuilt within a turn.
+- Nothing that changes from turn to turn enters items 1 to 3 or the always-declared part of item 4. The time, the emotional state and the selected skill bodies sit in the ContextPacket. When the plugin tools loaded on demand change, the cached prefix ends at that point.
+- The ContextPacket is never written into the history. The next turn's request therefore matches the previous turn's requests up to the position where the previous ContextPacket stood.
 - When the ContextPacket exceeds its budget or Atropos' time cap, items drop from the end of the packet: external evidence first, then material passages, then memory items, each by lowest rank first. Items 6.1 to 6.4 are never dropped.
 
 ### Evidence chain
@@ -151,7 +154,7 @@ Compaction runs in this order:
 
 Compaction is recorded as a ledger event. It never deletes the original events, and a summary is not canon.
 
-Compaction applies only to messages and tool results of earlier turns. The persona layers, commitments, decisions, the reasons for corrections and the per-request ContextPacket are assembled on every request, so they are never compacted and survive every compaction.
+Compaction applies only to the history of earlier turns. The persona layers, commitments, decisions, the reasons for corrections and the ContextPacket are assembled for every turn, so they are never compacted and survive every compaction.
 
 Retracted evidence never returns through a summary. Each summary records its input range and the revocation epoch it was built at. A summary whose input includes evidence retracted after that epoch is discarded and rebuilt.
 
@@ -161,10 +164,16 @@ On restart LINA resumes the conversation from the ledger. What LINA Core stops a
 
 ### First run
 
-- LINA is one companion, and its default persona is LINA.
-- The first run goes straight into conversation with the default persona. It has no onboarding step and requires no setup; optional components that are off report their state without blocking ([runtime.md](runtime.md), [surfaces.md](surfaces.md)).
-- The content of the default persona (name, voice and attitude) is supplied by the implementation (see Deferred).
+- LINA is one companion. Its default persona is named LINA.
+- The first run goes straight into conversation with the default persona. LINA has no onboarding of its own and asks for no LINA setup; optional components that are off report their state without blocking ([runtime.md](runtime.md), [surfaces.md](surfaces.md)).
+- Signing in to a model provider belongs to opencodex ([product-families.md](product-families.md)). The install opens the opencodex sign-in when no provider is signed in ([runtime.md](runtime.md)). While none is, preparation fails at its model step (see Preparation), and the TUI shows that cause with the opencodex command that signs in.
 - Companions other than LINA are in the backlog listed in [cognition-and-life.md](cognition-and-life.md).
+
+### Default persona
+
+- The LINA project owner keeps the persona and world material of the default persona in `persona/` of the LINA repository. The material's form follows the material itself.
+- The implementation places that material into the core and default voice layers and plants it as the first persona revision.
+- World material in `persona/` that the core layer does not hold is LINA material. Atropos recalls it as material passages in the ContextPacket (see Request layout), so the persona itself is still projected only through its fixed layers.
 
 ### Layers and revisions
 
@@ -173,7 +182,7 @@ The persona has four fixed layers, applied in this order: core, default voice, u
 - Persona records are the persona revisions and LINA's emotional state (see Emotion). They are stored in the identity's SQLite canon. The Moirai engine is the only writer.
 - There is one projection path: the developer-role instructions assembled for each request. The persona is never injected twice.
 - Storing a revision and applying it are different events. The applied revision is the one recorded in the prepare acknowledgment.
-- A new revision applies from the next request. It needs no fork and no restart.
+- A new revision applies from the next turn. It needs no fork and no restart.
 - Only a revision carried by a prepare acknowledgment counts as a growth effect. Growth itself is defined in [cognition-and-life.md](cognition-and-life.md).
 
 ### Changing the persona
@@ -200,8 +209,10 @@ LINA's own emotion has three layers:
 ## Skills
 
 - The skill catalog holds product documentation skills, usage skills for each engine (conversation, work, memory, materials and persona), and the persona-change skill.
-- LINA Core owns the catalog. Atropos loads the skill bodies a request needs into that request's ContextPacket (see Request layout).
-- A meta-skill defines how a skill is written: format, description, scope, verification and versioning. Every new skill follows it.
+- A skill is one folder: a `SKILL.md`, with the skill's `name` and `description` in its front matter and the body below them, and the files the skill uses.
+- Built-in skills live in `skills/` of the LINA repository and ship inside the LINA Core executable. Skills that the person or LINA creates live in the identity's version space ([filesystem.md](filesystem.md)).
+- LINA Core owns the catalog. Atropos loads the skill bodies a turn needs into that turn's ContextPacket (see Request layout).
+- The meta-skill is a built-in skill. It defines how a skill is written: format, description, scope, verification and versioning. Every new skill follows it.
 - Skills and instructions that an installed plugin brings join the catalog while the plugin is on ([integrations.md](integrations.md)).
 - Proposals for new skills from repeated patterns are defined in [cognition-and-life.md](cognition-and-life.md). Creating a skill is work for the work engine.
 
@@ -267,7 +278,7 @@ When the person asks LINA to remember, correct or forget something, the conversa
 | correct | Creates a new revision of an item and a linked correction item (see "Correction, retraction and deletion") |
 | forget | Forgets an item: it is retracted at once and moves to the trash (see "Correction, retraction and deletion") |
 
-- The memory tools are LINA tools in the conversation tool set ([runtime.md](runtime.md)). LINA calls them in the turn the person asks, and the change applies from the next request.
+- The memory tools are LINA tools in the conversation tool set ([runtime.md](runtime.md)). LINA calls them in the turn the person asks, and the change applies from the next turn.
 - The LINA app and the TUI offer remember, correct and forget as explicit actions as well. Each action is a request to LINA Core and goes through the same write path.
 - Every memory write, from a tool or from an action, goes through the Moirai engine's write path.
 
@@ -275,8 +286,8 @@ When the person asks LINA to remember, correct or forget something, the conversa
 
 - Recall returns only `active` items at their current revision. Retracted, trashed and superseded revisions are never returned.
 - Every recall result carries its evidence: the item id and revision, and the ledger events, material revisions, work results or external evidence it rests on.
-- Lachesis prepares recall material in the background. Atropos chooses, for each request, what enters the ContextPacket. Information flows one way: Lachesis produces, Atropos reads.
-- Recall prepared while a turn runs enters the next model request as input items. Recall reaches a worker only through the projections defined in [work-and-delegation.md](work-and-delegation.md).
+- Lachesis prepares recall material in the background. Atropos chooses, for each turn, what enters the ContextPacket. Information flows one way: Lachesis produces, Atropos reads.
+- Recall prepared while a turn runs enters the next turn's ContextPacket. Recall reaches a worker only through the projections defined in [work-and-delegation.md](work-and-delegation.md).
 - Without embeddings, recall uses full-text search and model reranking. The function stays; only the quality drops. The embedding adapter is defined in [runtime.md](runtime.md).
 - An answer that used memory keeps the evidence revisions it used. That record stays when the item is later corrected or retracted, so a past answer can always be traced. After a permanent deletion, the record shows the tombstone in place of the evidence.
 - One event counts once along its lineage: the original record, an external summary of it and a LINA derivation of that are one lineage. Repeated wording is never counted as independent evidence.
@@ -298,12 +309,12 @@ Retraction is the first step of every removal. A retracted item or revision is e
 
 - **Correction.** The person's correction creates a new revision of the same item and a linked correction item with the reason. The earlier revision is retracted.
 - **Forgetting.** A forgotten item is retracted at once and moves to the trash for 30 days, where it can be recovered. After 30 days it is permanently deleted.
-- **Immediate permanent deletion.** The person may skip the trash. This is an unrecoverable deletion and follows the approval policy in [main-authority.md](main-authority.md).
+- **Immediate permanent deletion.** The person may skip the trash. That choice is the approval for the unrecoverable deletion ([main-authority.md](main-authority.md)).
 - **Permanent deletion.** Permanent deletion erases the item, every revision of it and all derived data built from it. It leaves a tombstone: the item id, the ids of the ledger events it rested on, when it was deleted and the person who forgot or deleted it, with no content. The conversation the item came from stays in the ledger.
 - **No re-extraction.** Lachesis never extracts a forgotten item again from the ledger events it rested on, while the item is in the trash and after it leaves a tombstone. A forgotten item never comes back from the same conversation.
 - **Erasure scope.** Permanent deletion reaches every copy LINA manages: current canon, registered Nodes and remote copies. Backup generations are never rewritten: a restore applies every retraction and tombstone again, including those made after the latest generation, and the erased content leaves the backups as their generations age out ([filesystem.md](filesystem.md)). Exported files and copies held by other people are outside it, and LINA says so when it deletes.
 
-Corrections and deletions apply from the next request. A request already sent is not recalled; the next preparation's retraction check excludes the item.
+Corrections and deletions apply from the next turn. A request already sent is not recalled; the next preparation's retraction check excludes the item.
 
 Derived data (search and vector indexes, prepared recall material and summaries) records the revocation epoch it was built at. Derived data built before a retraction is rebuilt before it is used again. Derived data is never the only copy of anything and never outlives a deletion.
 
@@ -311,7 +322,8 @@ A restore never brings back a retracted or deleted item, or deleted conversation
 
 ## Deferred
 
-- The content of the default persona (name, voice and attitude): written by the implementation issue that ships the first conversation product.
+- The interim core and voice text used while `persona/` holds no material yet: written by the implementation issue that ships the first conversation product. When the material arrives, it replaces that text as a new persona revision.
+- The exact front matter keys of `SKILL.md`: set by the implementation issue that ships the first conversation product.
 - Emotion names, values and decay rates: set by measurement during development and recorded in the implementation issue.
 - The ContextPacket assembly time cap: set by latency measurement during implementation acceptance of the conversation engine.
 - The retention period for raw model request bodies beyond the recorded request hash and assembly list: set during implementation acceptance of the conversation engine.

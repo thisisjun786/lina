@@ -33,7 +33,7 @@ There is one state root per main, written here as `<state-root>`. Every path bel
 | LINA materials | `identities/<identity-id>/materials/lina/<asset-id>/<revision>/` | Bytes of LINA's own outputs, when they are not kept in the version space | LINA Core | Personal generation |
 | Derived data | `identities/<identity-id>/derived/<asset-id>/<revision>/` | Regenerable descriptions, transcripts, structure and indexes | LINA Core | Personal generation, recorded by source revision |
 | Conversation workspace | `identities/<identity-id>/workspace/` | The working directory of conversation tools | LINA Core conversation tools, inside the sandbox | Personal generation |
-| Parent clones | `identities/<identity-id>/work/clones/<clone-id>/` | Clones of the repositories that work runs against | LINA Core | Not in the personal generation |
+| Parent clones | `identities/<identity-id>/work/clones/<repository-id>/` | Clones of the repositories that work runs against, one per repository | LINA Core | Not in the personal generation |
 | Task workspaces | `identities/<identity-id>/work/tasks/<task-id>/` | The worktree or the non-Git work directory of each task | The worker of that task, inside its grant | Not in the personal generation |
 | Import staging | `identities/<identity-id>/staging/import/` | Material on its way in | LINA Core | Not backed up |
 | Export staging | `identities/<identity-id>/staging/export/` | Material on its way out | LINA Core | Not backed up |
@@ -169,7 +169,7 @@ Reconnecting the same folder is a new connection. Asset identity carries over on
 
 ## Version space
 
-The version space is a set of local Git repositories under `versions/`. It holds every versionable text and metadata of LINA: documents and pages, document projects, notes, meeting notes, imported text, and the saved versions of LINA's edits to connected sources that are not Git repositories.
+The version space is a set of local Git repositories under `versions/`. It holds every versionable text and metadata of LINA: documents and pages, document projects, notes, meeting notes, imported text, the skills that the person or LINA created, and the saved versions of LINA's edits to connected sources that are not Git repositories. Skills live in the repository `versions/skills/`, one folder per skill ([conversation-and-memory.md](conversation-and-memory.md)).
 
 - Large binaries and media stay outside Git, in the materials areas, linked by content hash.
 - The SQLite canon and fast-changing state stay outside Git.

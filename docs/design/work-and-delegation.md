@@ -46,6 +46,18 @@ This contract does not cover, and links instead to:
 
 **Task packet.** The first input a child receives. It uses the harness task format (TASK, SCOPE, MUST DO, MUST NOT, PROOF, RETURN FORMAT) and adds the LINA assignment id, the receipt requirement, a restore block, and references (id and revision) to the materials and memory projections the task may read.
 
+**PABCD.** The LINA work harness's stage loop for code-change work. Its stages are Plan (a plan for the change, inside the task's scope), Audit (an independent review of that plan before anything is built), Build (the change), Check (the verification commands the plan names run and pass) and Done (the work phase closes). An optional Interview stage before Plan settles unclear scope; its questions go through the LINA question tool. A stage advances only through an explicit transition that carries its evidence. The harness never advances a stage by itself, and every transition waits for LINA Core's verdict (see Stage judgment and delivery).
+
+**Work phase.** One pass through the PABCD loop, from Plan to Done, on one unit of a task. A task runs one or more work phases, and Done closes the current one.
+
+**Goalplan.** The harness's durable plan for a child work thread: the objective, its work phases and their steps, the success criteria with the evidence each one expects, checkpoints, and decisions with their reasons. Completion needs every criterion met. A goalplan binds to one child work thread.
+
+**Stop hook.** The harness hook that runs when a managed turn of the worker is about to end. While a work phase is in progress, it blocks the end and names the next step, so the worker goes on in a new turn; it never moves a stage. It lets the turn end when the work stalls or the context is nearly full. It also detects a managed turn that is ending without a declared result or receipt.
+
+**Stop-block limit.** How many times the Stop hook may block within one turn. Past the limit the turn ends, and the state of the work phase stands as it is.
+
+**Subagent evidence gate.** The check that runs when a write-scoped subagent called inside the PABCD loop stops: the subagent must leave an evidence receipt for what it changed. The gate blocks the subagent's stop a limited number of times per subagent and turn, then releases it with the verdict unresolved. A work phase cannot complete while any verdict is unresolved.
+
 **Stage receipt** and **completion receipt.** Receipts in the sense of [main-authority.md](main-authority.md), issued by a worker thread under its task's grant. A stage receipt states that a harness stage or work phase ended. A completion receipt states that a deliverable is ready for review, or that an execution ended without one. A receipt is necessary for a judgment and never sufficient.
 
 **Verdict.** LINA Core's recorded judgment on a stage receipt or on a delivery.
@@ -73,7 +85,7 @@ Rules:
 - **Routing.** Coding work and worker work such as planning go to a worker thread. Research and organizing go to RUMI when a RUMI vault is connected ([materials-and-knowledge.md](materials-and-knowledge.md)), and to a worker thread otherwise. Device work goes to the Node on that device. Worker and Node routes use the same grants, ids, effects and receipts; RUMI returns its brief as a sibling record. When these rules leave the destination or the worker agent open, Atropos may ask Jev to choose among the candidates that code fixes; the choice is a routing judgment, never permission to act ([cognition-and-life.md](cognition-and-life.md)).
 - **Workspaces.** Only file-producing work gets a worktree and a branch. Work with no file output runs in a non-git work directory in the work area and completes by its artifacts and receipts. A file-producing work thread has exactly one draft branch, and its result returns as an apply request. Finished and abandoned workspaces are cleaned up automatically after retention.
 - **Draft and apply.** Only delegated results go through a draft and an apply request. A document or goal edited through its own conversation thread is saved at once as a saved version.
-- **Profiles.** Each worker profile (direct, single, complementary) records its model, reasoning effort, tools, budget, session persistence, completion-verification capability and unsupported scope. Choosing a profile is a proposal. The work engine decides whether the work runs.
+- **Profiles.** Each worker profile (direct, single, complementary) records its model, reasoning effort, tools, budget, session persistence, completion-verification capability and unsupported scope. A profile names a model or an effort only when it sets one, and then only for the threads it starts; it never changes the agent's provider settings (see Assignment). Choosing a profile is a proposal. The work engine decides whether the work runs.
 - **Liveness.** The heartbeat interval H comes from worker events and LINA Core polling. A work thread is stale after max(3H, 90 s). A worker lease lasts at most 5 minutes.
 - **Budget.** LINA Core reserves and settles budget for every worker thread, including subagents inside the worker. At the cap the work engine sends `turn/interrupt` under the budget policy. Codex's own goal token budget is never used. Usage accounting is in [runtime.md](runtime.md).
 - **Optional configuration.** An installed worker agent and the LINA work harness are needed only for delegation. When either is missing or fails readiness, only delegation is unsupported. Conversation is never blocked by work, and the conversation and other tasks continue while work runs or waits.
@@ -102,13 +114,15 @@ CRW ([codex-relay-workflow](https://github.com/thisisjun786/codex-relay-workflow
 
 - The start gate for the work engine is a pinned CRW schema and fixture version.
 - The pin record names the CRW commit, the content hash of every adopted schema document and fixture file, and the adopted fixture domains. It lives in the LINA repository next to the work engine and is listed in the release manifest.
-- Work that needs the pinned schemas starts only after the pin: the work ledger and delivery records, delegation, orchestration, worker dispatch from the product, the harness's worker-side coordination protocol, and the takeover of CRW records.
-- The harness round trip and the worker adapter round trip do not depend on the pin. They are acceptance items of the first implementation issue and run first.
+- Work that needs the pinned schemas starts only after the pin: the work ledger and delivery records, delegation, orchestration, worker dispatch from the product, and the takeover of CRW records.
+- The pinned schemas fix only the records of the work ledger. The harness round trip and the worker adapter round trip do not depend on the pin. They are acceptance items of the first implementation issue and run first.
 - Conversation, memory, persona, TUI, LINA APP screens, materials, cognition outside the work engine, LIFE and the OS base never wait for the pin.
 
 ### Use
 
+- The stage receipt and the completion receipt that a worker submits are defined by the schema of the LINA work harness contract, at the harness contract version (see LINA work harness). The harness round trip uses them before the pin.
 - The pinned schema documents for relationships, completion receipts, delivery attempts, acknowledgements and verification verdicts fix the shape and allowed values of the matching ledger records. LINA adds fields only for LINA ids and evidence and never redefines a pinned field.
+- A ledger record of a receipt maps the harness receipt onto the pinned shape by adding fields only, so a receipt is never defined twice.
 - The harness contract extends these records with PABCD stage receipts, work phases and decision waits.
 - Single delegation uses these records from its first implementation, so delegation records are never built twice.
 - LINA runs every adopted fixture against the work engine with its own runner. Expected values come from the fixture, never from LINA's observed output. A failing fixture is fixed in LINA, never in the fixture.
@@ -402,13 +416,15 @@ At the operational switch LINA takes over CRW's coordination functions and CRW r
 - CRW records taken over (relay stores, scopes, assignments, links and parent bindings, attempts, receipts, verdicts, branches and worktrees, completion criteria and decision records) are read as observation data with their source and mapped to LINA ids exactly once.
 - A wrapper around CRW never completes the takeover.
 - Planning records that CRW keeps in an external tracker (plans, completion criteria, decisions, scope, project and parent bindings, titles and done state) are imported once, from one verified snapshot, by a one-time operator tool. That tool is not part of any LINA release. Every fetched record ends up imported, lost or unsupported and is reported record by record; silence never means imported. Each imported record is mapped to a LINA id exactly once and keeps its source id as provenance only, which no product path resolves. After the import nothing reads the tracker again.
+- The owner's existing intent card data is imported once by the same tool and under the same rules, into LINA's intent card model (see Intent cards). Only the data comes in; no code or database structure comes with it.
 - The product never depends on CRW's plugin, relay or state paths.
 
 ## Deferred
 
 - The task state set of the ledger projection, and the list of adopted CRW schema documents and fixture domains: set by the pin record at the start gate.
 - The verified Codex versions and the judgments of the experimental fields LINA uses: set by the worker adapter round trip of the first implementation issue (V5) and recorded in the release manifest.
-- How LINA installs and updates the harness plugin in the user's Codex: set by the harness round trip of the first implementation issue (V4).
+- How LINA installs the harness plugin in the user's Codex at the first delegation, keeps it updated and tells the person: set by the implementation issue that ships delegation. The harness round trip (V4) installs it with an install command.
+- What each worker profile (direct, single and complementary) means, and the values it records: set during work engine implementation acceptance.
 - The heartbeat interval H, execution slot limits and budget caps: set by measurement during work engine implementation acceptance.
 - Retention periods for closed workspaces: set during work engine implementation acceptance.
 - Whether Codex subagents inside a worker see the `lina_work` tools, and that a declined approval leaves the action unexecuted: confirmed by QA in the worker adapter implementation issue.

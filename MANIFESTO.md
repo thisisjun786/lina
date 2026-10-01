@@ -32,7 +32,7 @@ The need can surface halfway through a joke, a complaint, or an unrelated conver
 
 ## The legwork belongs to the machine
 
-LINA turns an initiative into projects and issues, does the deep research, and orchestrates the agents that will do the work. Each project has a parent agent coordinating its issue agents. LINA keeps the whole effort pointed at the original problem.
+LINA turns an initiative into projects and issues, does the deep research, and coordinates each project and the agents working on its tasks. LINA keeps the whole effort pointed at the original problem.
 
 Planning, research, execution, verification. LINA owns all of it. Routine work moves forward without asking a human to approve the obvious. You decide what’s worth solving and whether the result actually solves it.
 
