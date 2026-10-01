@@ -34,7 +34,7 @@ A surface is a program through which a person sees LINA and talks to LINA. There
 
 | Surface | What it is | Where it runs |
 | --- | --- | --- |
-| TUI | The terminal screen of the `lina` command, built on pi-tui | Ships with LINA Core |
+| TUI | The terminal screen of the `lina` command, built on Bubble Tea | Ships with LINA Core |
 | LINA app | The desktop and mobile app (component LINA APP) | Every supported OS, as native UI on each platform |
 | Launcher | A global launcher with clipboard history, part of the LINA app | macOS |
 
@@ -48,8 +48,8 @@ Every surface talks to the one main LINA Core, locally or across the tailnet ([r
 
 The TUI is the first surface. It is complete on its own: conversation, memory and its corrections, delegated work with its questions, results, cancellation and approvals, and plans with several tasks across devices all work from the TUI with no GUI installed.
 
-- The TUI is built on [pi-tui](https://github.com/earendil-works/pi/tree/main/packages/tui) from the pi project. pi-tui is the terminal UI of the same project whose loop LINA Core vendors, and it runs on the same Node.js runtime.
-- pi-tui is pinned to an exact version recorded in the release manifest. Code taken into the repository records its source commit, files, modifications and notice in `THIRD-PARTY-NOTICES.md` ([dependencies.md](../policy/dependencies.md)).
+- The TUI is built in Go on [Bubble Tea](https://github.com/charmbracelet/bubbletea), with Bubbles and Lip Gloss as needed, and ships in the same static binary as LINA Core ([runtime.md](runtime.md)).
+- Bubble Tea, and Bubbles and Lip Gloss when used, are pinned to exact versions recorded in the release manifest. Code taken into the repository records its source commit, files, modifications and notice in `THIRD-PARTY-NOTICES.md` ([dependencies.md](../policy/dependencies.md)).
 - The TUI is the terminal screen of the `lina` command. It runs as its own process, separate from LINA Core, and uses only LINA Core's public event and control API over the client connection in [host-protocol.md](host-protocol.md). The socket location is set with the install paths ([runtime.md](runtime.md)).
 - The TUI uses every capability of the client connection: conversation, task, approval, sign-in relay and multi-task control ([host-protocol.md](host-protocol.md)).
 - The plugin list and its actions (see Settings) work from the TUI as commands.
@@ -101,7 +101,7 @@ The LINA app is native UI on each platform. It never runs in a web-technology sh
 | Android | Android native UI | When Android app work starts |
 
 - A framework choice must satisfy every rule in this file: native UI, the thin client, the design language, the "no web feel" bar, Korean input and accessibility.
-- The app on each platform uses protocol types generated from the JSON Schema in one of the generated languages: TypeScript, Swift, Kotlin or Dart ([host-protocol.md](host-protocol.md)).
+- The app on each platform uses protocol types generated from the JSON Schema in one of the generated languages: Go, Swift, Kotlin, or the Windows app's language once it is chosen ([host-protocol.md](host-protocol.md)).
 - LINA OS ships the LINA app ([product-families.md](product-families.md)). Its form on Omarchy is the Omarchy choice in this table.
 - The RUMI app follows the same principle: native UI on each platform, with the same framework choice ([`thisisjun786/rumi` docs/design/rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md)).
 

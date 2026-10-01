@@ -12,7 +12,7 @@ Run the [Release workflow](../../.github/workflows/release.yml) from `dev` with:
 
 Keep `dry_run` enabled to validate without changing tags, releases, or branches. Disable it only when the owner has authorized publication. Dispatch and reruns are restricted to the repository owner.
 
-The workflow creates a GitHub source release. It does not publish an npm package or deploy a service. The release retains the repository's [license](../../LICENSE) and third-party notices.
+The workflow creates a GitHub source release. It does not publish a package to any registry or deploy a service. The release retains the repository's [license](../../LICENSE) and third-party notices.
 
 ## Credentials
 

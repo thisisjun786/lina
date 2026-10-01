@@ -70,48 +70,51 @@ Use the actionlint version pinned in the workflow. During iteration, run the aff
 
 Introduce a new component together with its real verification commands, path mapping, and gate expectations. Tests must exercise the behavior being changed; bug fixes need a regression that fails without the fix. Build/install checks should use the produced artifact. Share commands between local and CI execution, and avoid running the same suite again in an aggregator. Cache downloads and reproducible build inputs, not previous pass/fail results.
 
-## TypeScript components
+## Go components
 
-Product components are TypeScript packages in one npm workspace at the repository root. They run on the exact Node.js version in `.node-version`, which is also the version that releases bundle. The [dependency policy](dependencies.md) governs what the workspace may install and defines the `dependencies` check.
+Product components are Go packages in the repository's Go modules, built with the toolchain that the `toolchain` line of `go.mod` names. `go build` produces each component's static binary; there is no other build step. The [dependency policy](dependencies.md) governs what the modules may require and defines the `dependencies` check.
 
 ### Registration
 
-Register a workspace package in [ci-scope.mjs](../../.github/scripts/ci-scope.mjs) in the PR that adds it. Its entry names:
+Register a component in [ci-scope.mjs](../../.github/scripts/ci-scope.mjs) in the PR that adds it. Its entry names:
 
 - its directory, so that every path under it, including Markdown, belongs to the component;
-- the verification scripts from its `package.json`: `typecheck` and `test`, plus `build` when it produces an artifact. CI runs these scripts, so local and CI verification use the same commands.
+- its packages, which CI verifies with `go build`, `go vet` and `go test`, so local and CI verification use the same commands.
 
 The protocol JSON Schema in `protocol/schema/` and the conformance fixtures in `protocol/fixtures/` are registered with the component that generates types from them, so a schema or fixture change runs type regeneration and the fixtures ([host-protocol.md](../design/host-protocol.md)).
 
-The scope script reads workspace dependencies from each `package.json`, so a change to one component also selects every component that depends on it. Until a package is registered, its paths remain unmapped and `foundation` refuses to pass. Register a vendored tree under `vendor/<name>/` the same way as any other package. Its `test` script runs the upstream tests unchanged.
+The scope script reads the imports between components from the Go packages, so a change to one component also selects every component that depends on it. Until a component is registered, its paths remain unmapped and `foundation` refuses to pass. Register a vendored tree under `third_party/<name>/` the same way as any other component. `go test` runs its upstream tests unchanged.
 
 ### Path mapping
 
 | Change | Selection |
 | --- | --- |
 | A path under a registered component directory | `components` for that component and its dependents. |
-| A path under `vendor/<name>/` | `dependencies`, plus `components` for that tree and its dependents. |
-| Root `package.json`, `package-lock.json`, `.npmrc`, `.node-version`, or shared TypeScript configuration at the root | `dependencies`, plus `components` for every component. |
+| A path under `third_party/<name>/` | `dependencies`, plus `components` for that tree and its dependents. |
+| A `go.mod`, `go.sum` or Go workspace file, or the root `package.json`, `package-lock.json`, `.npmrc` or `.node-version` | `dependencies`, plus `components` for every component. |
 | `.github/dependency-exceptions.json` | `dependencies`. |
 | `THIRD-PARTY-NOTICES.md` | `docs` and `dependencies`. |
 
-Markdown under `vendor/` is upstream content. The docs check skips it because its relative links point into the upstream repository.
+Markdown under `third_party/` is upstream content. The docs check skips it because its relative links point into the upstream repository.
 
 ### Jobs
 
 `dependencies` and `components` run after `selection`, in parallel with `docs` and `automation`. Selection lists the selected components. `foundation` evaluates both jobs like the others: a selected job must report `success`, and an unselected job must report `skipped`.
 
-- **dependencies:** runs the checks listed in the [dependency policy](dependencies.md#ci-enforcement). It has no secrets and reads only the npm registry and recorded upstream repositories.
-- **components:** sets up Node.js from `.node-version`, installs with `npm ci --ignore-scripts`, and runs `typecheck`, `test`, and `build` for each selected component. Build checks use the produced artifact. Short component checks share this job and its install. A component gets its own parallel job only when a measured run shows that the shared job is the bottleneck.
+- **dependencies:** runs the checks listed in the [dependency policy](dependencies.md#ci-enforcement), including `go mod verify` and `govulncheck`. It has no secrets and reads only the Go module proxy, the Go checksum and vulnerability databases, the npm registry, and recorded upstream repositories.
+- **components:** sets up Go from the `toolchain` line of `go.mod` and runs `go build`, `go vet` and `go test` with `-mod=readonly` for each selected component. Build checks use the produced binary. Short component checks share this job and its module download. A component gets its own parallel job only when a measured run shows that the shared job is the bottleneck.
 
-Both jobs cache npm downloads by the lockfile hash, never `node_modules` or results. Adding either job changes the full-mode run, so the PR that registers the first component records a new full-mode baseline and bound in the timing table.
+Both jobs cache Go module downloads by the hash of `go.sum` and npm downloads by the lockfile hash, never `node_modules` or results, including the test results the `go` command caches. Adding either job changes the full-mode run, so the PR that registers the first component records a new full-mode baseline and bound in the timing table.
 
 ```sh
+go mod verify
+govulncheck ./...
 npm ci --ignore-scripts
 npm audit signatures
 node .github/scripts/check-dependencies.mjs
-npm run typecheck --workspace <dir>
-npm test --workspace <dir>
+go build ./<dir>/...
+go vet ./<dir>/...
+go test ./<dir>/...
 ```
 
 ## Boundaries and releases

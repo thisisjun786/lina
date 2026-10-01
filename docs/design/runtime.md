@@ -1,6 +1,6 @@
 # Runtime
 
-This contract fixes what LINA's components are built from and how they run: the language and the one runtime, the vendored source, the LINA kit, the conversation loop and its model path, the non-chat adapters, the tools and their sandbox, the tools LINA uses without owning them, storage, packaging, updates, recovery, remote access and the composition of LINA OS. It is normative: implementations must follow it, and any change to it goes through a pull request against this file. Finishing this document does not mean any component is built or accepted; runtime proof belongs to the implementation issues that consume it.
+This contract fixes what LINA's components are built from and how they run: the language and the build, the vendored source, the LINA kit, the conversation loop and its model path, the non-chat adapters, the tools and their sandbox, the tools LINA uses without owning them, storage, packaging, updates, recovery, remote access and the composition of LINA OS. It is normative: implementations must follow it, and any change to it goes through a pull request against this file. Finishing this document does not mean any component is built or accepted; runtime proof belongs to the implementation issues that consume it.
 
 ## Scope
 
@@ -8,21 +8,28 @@ In this document, Node is LINA's device execution component and Node.js is the J
 
 This contract covers:
 
-- the language, the runtime and the processes of every component LINA builds
-- the vendored pi loop core and the LINA kit
+- the language, the build and the processes of every component LINA builds
+- the vendored source and the LINA kit
 - the conversation loop, the model path through opencodex and the non-chat adapters
 - the conversation tools, plugin tools and the OS sandbox
 - installed tools that LINA uses without owning them, including worker agents
-- storage engines, packaging, the release manifest and the device-Node exception
+- storage engines, packaging, the release manifest and the packaging and resident budget
 - updates, recovery, failure injections, remote access and LINA OS composition
 
 It does not cover the envelope and wire formats ([host-protocol.md](host-protocol.md)), grants, epochs, receipts and the approval policy ([main-authority.md](main-authority.md)), turn preparation, request assembly, persona, memory and compaction ([conversation-and-memory.md](conversation-and-memory.md)), the work engine, the kind-of-work rule, worker adapters and the LINA work harness rules ([work-and-delegation.md](work-and-delegation.md)), plugins ([integrations.md](integrations.md)), installation modes and LINA OS profiles ([product-families.md](product-families.md)), the state root, backup generations and restore ([filesystem.md](filesystem.md)), screens ([surfaces.md](surfaces.md)) or dependency and vendoring rules ([dependencies.md](../policy/dependencies.md)).
 
-## Language and runtime
+## Language and build
 
-LINA Core, `moirai-worker`, the `lina` TUI, the worker adapters and Node are TypeScript and run on one Node.js runtime. The LINA work harness is TypeScript too and runs inside the worker agent ([work-and-delegation.md](work-and-delegation.md)). The LIFE world engine is part of the LINA Core family and is TypeScript on the same runtime; its packaging is a backlog item ([cognition-and-life.md](cognition-and-life.md)). Bun is not used.
+LINA Core, `moirai-worker`, the `lina` TUI, the worker adapters, Node, the LINA work harness (`lina-work`) and the LIFE world engine are Go. They are built as static binaries per platform, and LINA's own code needs no separate language runtime on any device. The LINA work harness runs inside the worker agent ([work-and-delegation.md](work-and-delegation.md)). The LIFE world engine is part of the LINA Core family; its packaging is a backlog item ([cognition-and-life.md](cognition-and-life.md)).
 
-The conversation engine stands on the [pi](https://github.com/earendil-works/pi) agent loop and the [Codex](https://github.com/openai/codex) tool contracts. LINA vendors pi because it is a TypeScript library inside LINA's own engine and is inherited, not translated. An upstream change reaches LINA as a diff, never as a new translation.
+Go fits these components because:
+
+- LINA Core, the TUI and device Node each ship as a single static binary per platform, cross-compiled from one source tree.
+- Code that AI agents write gets a fast edit, build and test loop, measured as V7 (see Runtime acceptance).
+- An always-on main keeps a low resident cost.
+- It suits a main that may later serve many people.
+
+The conversation engine is LINA's own Go loop, built on the [Codex](https://github.com/openai/codex) tool contracts, with a structure that follows the [pi](https://github.com/earendil-works/pi) agent loop (see Conversation loop). pi is a design reference only: no pi code is vendored or translated line by line.
 
 Each function has exactly one path. A function never switches to a second transport when the first one fails. A missing piece makes its function unsupported, and the function says so.
 
@@ -42,45 +49,50 @@ LINA uses some tools that the user installs and that LINA neither ships nor pins
 
 | Process | Built from | Runs as | Needed for |
 | --- | --- | --- | --- |
-| LINA Core | TypeScript on the bundled Node.js runtime | A service under the user's own OS user | Everything; it is the only canon writer |
-| `moirai-worker` | TypeScript on the bundled Node.js runtime | An optional background service of the LINA Core install | Background memory and planning |
-| `lina` TUI | TypeScript on pi-tui, on the bundled Node.js runtime | A user process connected to LINA Core over its local socket or the tailnet | The terminal surface ([surfaces.md](surfaces.md)) |
-| Node | TypeScript on the bundled Node.js runtime, subject to the device-Node exception | A service on each device | Device execution under grants |
+| LINA Core | Go, a static binary | A service under the user's own OS user | Everything; it is the only canon writer |
+| `moirai-worker` | Go, a static binary | An optional background service of the LINA Core install | Background memory and planning |
+| `lina` TUI | Go on Bubble Tea, a static binary | A user process connected to LINA Core over its local socket or the tailnet | The terminal surface ([surfaces.md](surfaces.md)) |
+| Node | Go, a static binary | A service on each device | Device execution under grants |
 | Worker agent | The coding agent the user installed, with the user's own configuration; Codex runs as `codex app-server` | A stdio child of LINA Core, or of Node on a remote device | Workers |
-| LINA work harness (`lina-work`) | LINA's own TypeScript, shipped in LINA releases as a Codex plugin | Inside the user's Codex, where LINA installs it at the first delegation | Delegated work |
+| LINA work harness (`lina-work`) | LINA's own Go, built as static binaries per platform and shipped in LINA releases as a Codex plugin | Inside the user's Codex, where LINA installs it at the first delegation | Delegated work |
 | Sandboxed commands | Whatever a tool call runs | Children of LINA Core inside the OS sandbox | Shell and file tools |
 | Plugin processes | Local MCP server commands of installed plugins, and the command-line tools that plugins rely on when LINA Core runs them for its own reads | Children of LINA Core under the user's OS user, outside the command sandbox, with the environment of sandboxed commands | Plugins ([integrations.md](integrations.md)) |
 | External components | Any language, pinned by the release | Separate processes | Parsing, OCR, local transcription |
-| opencodex | The upstream npm package [`@bitkyc08/opencodex`](https://github.com/lidge-jun/opencodex) (MIT), pinned by the release | A local service installed with LINA, which LINA connects to | Every chat model call |
+| opencodex | The upstream npm package [`@bitkyc08/opencodex`](https://github.com/lidge-jun/opencodex) (MIT), pinned by the release, on the pinned Node.js runtime the release ships with it | A local service installed with LINA, which LINA connects to | Every chat model call |
 | Sibling processes (RUMI) | Their own repositories and releases | Their own processes with their own state | Nothing in LINA; LINA reads their records as sibling records |
 
 LINA Core never calls a sibling's API at run time, and never starts, stops or restarts opencodex or a sibling process on its own. The operating system's service manager runs them as their own services.
 
 ## Vendored source
 
-LINA vendors one upstream source together with its tests, pinned to one upstream commit. How vendored code is kept unchanged, wrapped, patched, pinned and synced is defined in [dependencies.md](../policy/dependencies.md); the source commit, files and license notices are listed in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).
-
-### pi loop core
-
-The conversation loop is the agent loop core of pi (MIT): `agent-loop.ts`, `agent.ts`, `types.ts` and `stream-fn.ts` from `packages/agent/src`, with their tests. The loop imports message types, tool argument validation and its event stream from `pi-ai`; those files enter the vendored scope as part of the import closure. `pi-ai`'s providers and every provider SDK stay out. LINA supplies the stream function on openai-node (see Model path).
+Upstream code enters the LINA repository only as vendored source or generated upstream code, such as the Go types of the Codex app-server protocol, generated for each verified Codex version ([work-and-delegation.md](work-and-delegation.md)). How vendored code is kept unchanged, wrapped, patched, pinned and synced is defined in [dependencies.md](../policy/dependencies.md); the source, files and license notices are listed in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).
 
 ## LINA kit
 
-The LINA kit is the stateless public TypeScript module that LINA Core and RUMI share. It holds:
+The LINA kit is the stateless public Go module that LINA Core and RUMI share. It holds:
 
-- the Responses adapter: openai-node with `store=false`, the encrypted reasoning round trip and the stream assembly rules of this document
-- the loop: the vendored pi loop core
+- the Responses adapter: openai-go with `store=false`, the encrypted reasoning round trip and the stream assembly rules of this document
+- the loop core of the conversation loop (see Conversation loop)
 - the tool executor and the sandbox wrapper
 - document parsing, passage anchors and citation checks
 - the sibling protocol types, generated from the JSON Schema in [host-protocol.md](host-protocol.md)
 
 The kit never holds a default state path, a persona, skills or a database writer. Callers pass state locations, persona and skills explicitly, and each product stores its own records. What differs per host (writer fencing, queues, the layer that owns retries) stays in each product. The kit has its own version, separate from product and protocol versions.
 
-The kit ships only as source in LINA release tags. It is never published to the npm registry. A sibling takes the kit by vendoring it as source from one LINA release tag, under the same vendoring rules as any upstream source ([dependencies.md](../policy/dependencies.md)), and records the kit version and the LINA release tag in its release manifest.
+The kit ships only as source in LINA release tags; LINA publishes no separate release or module of the kit. A sibling takes the kit by vendoring it as source from one LINA release tag, under the same vendoring rules as any upstream source ([dependencies.md](../policy/dependencies.md)), and records the kit version and the LINA release tag in its release manifest.
 
 ## Conversation loop
 
-The conversation engine is LINA's own loop inside LINA Core, built on the vendored pi loop core through the kit. The Codex app-server never runs a conversation, and a Codex home never holds conversation state. Apart from installing its work harness plugin, LINA only reads the user's Codex home: for discovery ([work-and-delegation.md](work-and-delegation.md)) and as external evidence ([conversation-and-memory.md](conversation-and-memory.md)).
+The conversation engine is LINA's own Go loop inside LINA Core, built on the kit's loop core. The Codex app-server never runs a conversation, and a Codex home never holds conversation state. Apart from installing its work harness plugin, LINA only reads the user's Codex home: for discovery ([work-and-delegation.md](work-and-delegation.md)) and as external evidence ([conversation-and-memory.md](conversation-and-memory.md)).
+
+The loop's structure follows the pi agent loop (`packages/agent`):
+
+- a stream function at the model boundary
+- a transform of the context before each request
+- a hook before each tool call, which can approve or block it, and a hook after it, which can rewrite its result
+- steering input during a turn and follow-up input after it
+- cancellation through the whole turn
+- parallel tool calls
 
 The loop behaves as follows:
 
@@ -89,7 +101,7 @@ The loop behaves as follows:
 - A tool call in a response cut off by the output limit is never executed. The loop returns a result that asks the model to call again with complete arguments.
 - On abort, every open tool call receives an `aborted` result, so the recorded history stays valid for the next request.
 
-Retries and failover have one owner: LINA Core. The vendored loop and the SDK never retry on their own.
+Retries and failover have one owner: LINA Core. The loop core and the SDK never retry on their own.
 
 The conversation ledger, turn preparation (including the executable hash and opencodex readiness checks), request assembly, persona injection, compaction and resume are defined in [conversation-and-memory.md](conversation-and-memory.md).
 
@@ -99,7 +111,7 @@ Every model call of LINA's own engines goes through opencodex, the local Respons
 
 ### Requests
 
-LINA Core calls the Responses API of opencodex at `http://127.0.0.1:10100/v1` directly with [openai-node](https://github.com/openai/openai-node) at a pinned version, through a thin adapter between LINA's types and the SDK's types.
+LINA Core calls the Responses API of opencodex at `http://127.0.0.1:10100/v1` directly with the official [openai-go](https://github.com/openai/openai-go) library at a pinned version, through a thin adapter between LINA's types and the SDK's types.
 
 - `store` is `false`. Every request carries the full input it needs.
 - With reasoning on, the request includes `reasoning.encrypted_content`. Every reasoning item, tool call and tool output since the last user message goes back in the next request unchanged, as the [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) requires.
@@ -208,19 +220,23 @@ The adapter boundary, the Codex adapter, compatibility, readiness, assignment, a
 
 ## Storage
 
-- Structured state lives in SQLite through `node:sqlite` ([Node.js SQLite](https://nodejs.org/api/sqlite.html)), the SQLite built into the bundled runtime. No other database engine or SQLite binding is used.
-- Vector search uses [sqlite-vec](https://github.com/asg017/sqlite-vec) at a pinned version, loaded as an extension of `node:sqlite`. Its platform binary is verified against the digest in the release manifest before it loads.
+- Structured state lives in SQLite, used from Go through one SQLite binding. Which binding, with cgo or without, is chosen by the packaging and storage check (V2) and recorded in the release manifest. No other database engine or SQLite binding is used.
+- Vector search uses [sqlite-vec](https://github.com/asg017/sqlite-vec) at a pinned version through that binding, linked into the binary or loaded as an extension as the binding requires. A sqlite-vec platform binary loaded at run time is verified against the digest in the release manifest before it loads.
 - Canon databases run in WAL mode. Full-text search uses SQLite's FTS5. How recall uses FTS5 and sqlite-vec is defined in [conversation-and-memory.md](conversation-and-memory.md).
 - Vector indexes are derived data, rebuilt from canonical text. Moving the sqlite-vec pin rebuilds the indexes and never touches canon.
 - Backups use SQLite's online backup, never a copy of database or WAL files. What a backup generation holds is defined in [filesystem.md](filesystem.md).
 
 ## Packaging
 
-### Bundled Node.js runtime
+### Binaries
 
-LINA OS and every desktop install ship a verified Node.js runtime with the release. Verified means the official Node.js release archive, checked against the project's signed checksum list ([verifying binaries](https://github.com/nodejs/node#verifying-binaries)), with its version and digest in the release manifest. LINA components start on that runtime by absolute path. A system Node.js, a version manager or `node` on `PATH` is never used. A runtime update is a LINA release and is applied as described in Updates.
+LINA Core and the `lina` TUI ship as one static binary per platform, and Node ships as its own static binary per platform, each built with the pinned Go toolchain. A device that runs only Node or only the TUI installs just that binary and needs no separate language runtime. The release manifest records each binary's version and digest and the Go toolchain that built it.
 
 Supported platforms are defined in [product-families.md](product-families.md). A platform and architecture enter the supported-combination table of [host-protocol.md](host-protocol.md) only after the packaging and resident measurement passes on them.
+
+### opencodex and its Node.js runtime
+
+opencodex is an npm package and is the only part of a LINA install that runs on Node.js. An install that contains LINA Core ships the pinned opencodex package together with a verified Node.js runtime at the version opencodex needs, and runs opencodex as its own service. Verified means the official Node.js release archive, checked against the project's signed checksum list ([verifying binaries](https://github.com/nodejs/node#verifying-binaries)), with its version and digest in the release manifest. opencodex starts on that runtime by absolute path. A system Node.js, a version manager or `node` on `PATH` is never used. A runtime update is a LINA release and is applied as described in Updates.
 
 ### Services
 
@@ -254,8 +270,8 @@ When a piece is missing:
 The release manifest records:
 
 - external components, each with version, digest, execution mode, source and license
-- versions and digests of LINA Core, Node, LINA APP and `moirai-worker`
-- the bundled Node.js runtime and sqlite-vec, with versions and digests
+- versions and digests of LINA Core, Node, LINA APP and `moirai-worker`, and the Go toolchain that built them
+- opencodex's Node.js runtime, the SQLite binding and sqlite-vec, with versions and digests
 - the LINA kit version
 - the conversation SDK version and its retry values
 - the request field list
@@ -268,13 +284,11 @@ The release manifest records:
 - the supported-combination table ([host-protocol.md](host-protocol.md))
 - opencodex: its version, digest and address format
 
-The manifest pins only LINA's own artifacts and dependencies: its components, the bundled Node.js runtime, opencodex and the external components LINA ships. A change to a pinned value (opencodex, harness, SDK, request field list, environment rules, retry values) lands in the same pull request as its manifest change.
+The manifest pins only LINA's own artifacts and dependencies: its components, opencodex with its Node.js runtime, and the external components LINA ships. A change to a pinned value (opencodex, harness, SDK, request field list, environment rules, retry values) lands in the same pull request as its manifest change.
 
-### Device-Node exception
+### Packaging and resident budget
 
-Node is TypeScript on the bundled Node.js runtime like every other component. If Node fails the packaging or resident budget set by measurement, only Node moves to a compiled language, behind the `node` connection of [host-protocol.md](host-protocol.md). LINA Core and every other component stay TypeScript. The protocol is the boundary, so the move changes no canon, no grant rule and no LINA Core code.
-
-The budget covers artifact size, start time, and resident memory and CPU over 24 hours, measured with OS instrumentation. It is declared before the measurement runs and recorded with the result.
+LINA Core and Node each have a packaging and resident budget. The budget covers artifact size, start time, and resident memory and CPU over 24 hours, measured with OS instrumentation. It is declared before the measurement runs and recorded with the result.
 
 ## Supply chain
 
@@ -321,7 +335,7 @@ These runtime failures must end as their rules require:
 
 | Injection | Required outcome |
 | --- | --- |
-| Digest mismatch of the bundled runtime or sqlite-vec | The component doesn't start and reports the mismatch |
+| Digest mismatch of opencodex's Node.js runtime or of sqlite-vec | The component doesn't start and reports the mismatch |
 | Sandbox unavailable | Conversation continues; shell and file tools are unsupported and the reason is shown |
 | opencodex unavailable | No request is sent; the TUI shows the typed cause |
 | LINA Core killed with a tool call in flight | The effect is unknown and never re-run; a late result from the old generation is fenced |
@@ -332,7 +346,7 @@ Remote access uses [Tailscale](https://tailscale.com/kb) only. LINA APP, the TUI
 
 ## LINA OS composition
 
-LINA OS is Linux based on [Omarchy](https://github.com/basecamp/omarchy). It composes verified LINA Core, Node and LINA APP artifacts, pinned by manifest with version and digest, together with the bundled Node.js runtime and an operating, update and recovery environment. LINA components on LINA OS never run on a distribution-provided Node.js. Its profiles are defined in [product-families.md](product-families.md).
+LINA OS is Linux based on [Omarchy](https://github.com/basecamp/omarchy). It composes verified LINA Core, Node and LINA APP artifacts, pinned by manifest with version and digest, together with opencodex and its pinned Node.js runtime and an operating, update and recovery environment. opencodex on LINA OS never runs on a distribution-provided Node.js. Its profiles are defined in [product-families.md](product-families.md).
 
 - opencodex is part of LINA's installation on LINA OS, as on every install.
 - LINA OS may offer to install a coding agent such as Codex, and RUMI, for the user. They are the user's installed tools (see Installed tools); LINA OS neither pins nor owns them. How RUMI runs there is defined in [product-families.md](product-families.md).
@@ -342,23 +356,25 @@ LINA APP's form on Omarchy is chosen in [surfaces.md](surfaces.md).
 
 ## Runtime acceptance
 
-The first implementation issue demonstrates the runtime with these checks. Each check's baseline comes from outside LINA: requests sent by Codex, tests written upstream, the installed Codex and OS instrumentation.
+The first implementation issue demonstrates the runtime with these checks. Each check's baseline comes from outside LINA: requests sent by Codex, the opencodex endpoint, the installed Codex, the Go module checksum and vulnerability databases, and OS instrumentation.
 
 | Check | What runs | Passes when |
 | --- | --- | --- |
-| V1 opencodex pass-through | openai-node through opencodex for three or more turns with `store=false`, the encrypted reasoning round trip, a custom tool (`apply_patch`) and parallel tool calls | Every turn round-trips without rejection, and the fields match the Codex baseline request |
-| V2 packaging, storage and residency | The bundled Node.js runtime, `node:sqlite` with sqlite-vec (WAL, FTS5 and vector queries), registered with systemd on Omarchy x64 and launchd on macOS arm64, for 24 hours | The extension loads, the services start, and size, start time and resident memory and CPU stay within the declared budget on both platforms |
-| V3 pi loop vendoring | The vendored loop core with its upstream tests, with the stream function on openai-node | The loop tests pass and the build pulls in no provider SDK |
+| V1 opencodex pass-through | openai-go through opencodex for three or more turns with `store=false`, the encrypted reasoning round trip, a custom tool (`apply_patch`) and parallel tool calls | Every turn round-trips without rejection, and the fields match the Codex baseline request |
+| V2 packaging, storage and residency | Static binaries per platform; SQLite with sqlite-vec from Go (WAL, FTS5 and vector queries); services registered with systemd on Omarchy x64 and launchd on macOS arm64, for 24 hours | sqlite-vec loads, the services start, and size, start time and resident memory and CPU stay within the declared budget on both platforms; the chosen SQLite binding is recorded in the release manifest |
+| V3 own conversation loop | LINA's Go loop with openai-go through opencodex: streaming, tool calls with their before and after hooks, steering input, cancellation and parallel tool calls | The loop's tests pass |
 | V4 LINA work harness | The LINA work harness, installed by LINA as a plugin in the user's Codex, on an assignment from LINA Core | A stage receipt and a completion receipt reach LINA Core through LINA's work tools, and the Stop hook round-trips |
-| V5 worker adapter round trip | Types generated with `generate-ts --experimental` from the installed Codex, then `initialize`, `thread/start` with `dynamicTools`, `item/tool/call` and turn completion | The round trip completes with the installed Codex, and the adapter records its version |
-| V6 supply-chain baseline | The gates of [dependencies.md](../policy/dependencies.md) on the minimal dependency set, with the lockfile and transitive package count recorded | The gates pass and no dependency needs a lifecycle script |
+| V5 worker adapter round trip | Go types generated from the JSON Schema that the installed Codex writes with `generate-json-schema --experimental`, then `initialize`, `thread/start` with `dynamicTools`, `item/tool/call` and turn completion | The round trip completes with the installed Codex, and the adapter records its version |
+| V6 supply-chain baseline | The Go and npm gates of [dependencies.md](../policy/dependencies.md) on the minimal dependency set, with `go.sum`, the module count, the opencodex lockfile and its transitive package count recorded | The gates pass, `go.sum` verifies against the checksum database, `govulncheck` passes, and no npm package needs a lifecycle script |
+| V7 development loop | An agent's edit to Go code, then `go build`, `go vet` and `go test` for the affected packages; and a full `foundation` run | The time from the edit to the result of those commands, and the full `foundation` time, stay within the budget declared before the run |
 
 ## Deferred
 
 - The packaging and resident budget for LINA Core and Node: set by the first implementation issue's packaging and 24-hour resident measurement (V2).
-- The compiled language for Node, should the device-Node exception apply: chosen when that measurement shows Node fails the budget.
+- The development-loop budget: declared before the V7 measurement and recorded with its result. A result outside the budget reopens the language choice.
+- The SQLite binding: chosen by V2 and recorded in the release manifest.
 - The Windows sandbox mechanism for shell and file tools: chosen and verified by the Windows Node implementation, which cannot be accepted without it.
-- Exact pins (Node.js runtime, openai-node, sqlite-vec, opencodex, the pi commit): set by the first implementation issue and recorded in the release manifest.
+- Exact pins (the Go toolchain, openai-go, the MCP Go SDK, Bubble Tea, the SQLite binding, sqlite-vec, the JSON Schema to Go type generator, opencodex and its Node.js runtime): set by the first implementation issue and recorded in the release manifest.
 - The verified versions of each installed tool: set by the first implementation issue (V5 for Codex) and recorded in the release manifest.
 - Whether LINA Core as a service sees the user's login environment (`PATH`, the SSH agent and the keychain), or reads the login shell's environment once at start instead: measured by the first implementation issue.
 - Per-tool deadlines, the selector cost cap and the reselection limit: set during implementation acceptance of the conversation engine.
