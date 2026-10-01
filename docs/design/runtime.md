@@ -62,7 +62,7 @@ LINA vendors one upstream source together with its tests, pinned to one upstream
 
 ### pi loop core
 
-The conversation loop is the agent loop core of pi (MIT): `agent-loop.ts`, `agent.ts`, `types.ts` and `stream-fn.ts` from `packages/agent/src`, with their tests. It is vendored without `pi-ai` and without any provider SDK. LINA supplies the stream function on openai-node (see Model path).
+The conversation loop is the agent loop core of pi (MIT): `agent-loop.ts`, `agent.ts`, `types.ts` and `stream-fn.ts` from `packages/agent/src`, with their tests. The loop imports message types, tool argument validation and its event stream from `pi-ai`; those files enter the vendored scope as part of the import closure. `pi-ai`'s providers and every provider SDK stay out. LINA supplies the stream function on openai-node (see Model path).
 
 ## LINA kit
 
