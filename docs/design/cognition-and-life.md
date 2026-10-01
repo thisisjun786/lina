@@ -73,7 +73,16 @@ Persona storage, revisions and injection are defined in [conversation-and-memory
 
 ## Jev
 
-Jev is an optional fast judge that only Atropos uses. Atropos uses it only for closed choices that rules can't settle: the intent of this utterance, the response mode, and the ranking of context candidates. When Jev is off or has no key, rules plus the main model provide the same function.
+Jev is an optional fast judge that only Atropos uses. Atropos uses it only for closed choices that rules can't settle:
+
+- the intent of this utterance and the response mode
+- the ranking of context candidates
+- where a request goes when the routing rules of [work-and-delegation.md](work-and-delegation.md) leave it open: an answer in the conversation, a task for the work engine, research for RUMI, work for a device's Node, or a question to the person
+- which installed worker agent takes a task, among the agents whose adapters LINA supports
+
+Jev never chooses the chat model or its effort. A model change discards the prompt cache of the conversation, so the model stays the person's setting ([runtime.md](runtime.md)). When Jev is off or has no key, rules plus the main model provide the same function.
+
+Atropos reaches Jev through the judge adapter. The adapter speaks either to Jev's hosted API or to a local judge model that runs as a separate pinned process on the person's device ([runtime.md](runtime.md)). A local judge is trained on the person's own labeled judgments and keeps the judged text on the device. Atropos uses one judge at a time. A judge, a threshold or a change to the judgment material enters use only when it does better than the current one on the evaluation set below.
 
 Handoff rules:
 
@@ -87,6 +96,10 @@ Judgment material:
 - At request time, Atropos checks this utterance's candidates, state, permissions and revocations, and does the final assembly.
 - Judgment records and outcome records are canon in the identity's store. Prepared material is derived data that can be rebuilt, and it follows the revocation generation rules. An outcome nobody knows is recorded as unknown.
 - Jev records link to Klotho's prediction ledger by id only.
+- When the person corrects a routing choice, or a request or task is moved to another destination, the corrected destination is recorded as that judgment's label.
+- Lachesis puts confusable pairs side by side in the material: a judgment that went wrong next to the closest judgment that went right, so the difference that decides the destination is visible. The same pairs are training data for a local judge.
+- An evaluation set of labeled judgments is held out. It never enters judgment material or training, and every judge, threshold and material change is measured on it for accuracy and latency.
+- Each judge call records its latency. A call that runs past the latency budget counts as no answer and follows the handoff rules.
 
 Jev is called through its own non-chat adapter, separate from the model path ([runtime.md](runtime.md)).
 
@@ -202,7 +215,8 @@ The following items are out of scope until each one has a design of its own.
 ## Deferred
 
 - The design of persona growth, including the steps of growth adoption: decided by the first growth implementation.
-- Jev's confidence threshold, the size of its judgment material and how often that material is refreshed: measured during implementation acceptance of Jev.
+- Jev's confidence threshold, its latency budget, the size of its judgment material, how often that material is refreshed, and the size of the held-out evaluation set: measured during implementation acceptance of Jev.
+- Whether a local judge is offered, which model it starts from and when it is retrained: decided when enough labeled judgments exist to measure it against Jev on the evaluation set.
 - Thresholds and frequency of skill suggestions: measured during implementation acceptance of skill suggestions.
 - The metric and evaluation set for each cognition feature: set by that feature's implementation before it is measured.
 - The periods for repository scans, card tidy-up and QA product map refresh: set during implementation acceptance of project supervision.
