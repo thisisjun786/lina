@@ -75,13 +75,13 @@ The LINA kit is the stateless Go module that LINA Core and RUMI share. It lives 
 
 - the Responses adapter: openai-go with `store=false`, the encrypted reasoning round trip and the stream assembly rules of this document
 - the loop core of the conversation loop (see Conversation loop)
-- the tool executor, with a web fetch tool, and the sandbox wrapper
-- the sibling protocol types, generated from the JSON Schema in [host-protocol.md](host-protocol.md)
-- document parsing, passage anchors and citation checks
+- the tool executor and the sandbox wrapper
+- the protocol types of every connection (`client`, `node`, `sion` and `rumi`), generated from the JSON Schema in [host-protocol.md](host-protocol.md)
+- document parsing, passage anchors, citation checks and the web fetch tool
 
 The web fetch tool is stateless: it takes one URL and hands the fetched document to the kit's document parsing. Its network access follows the caller's grant.
 
-The Responses adapter, the loop core, the tool executor with the sandbox wrapper and the protocol types are built as kit packages from their first implementation. Document parsing, passage anchors and citation checks are a separate stateless part of the kit: LINA's materials features and RUMI both use it, and it is not tied to any materials product feature ([materials-and-knowledge.md](materials-and-knowledge.md)).
+The Responses adapter, the loop core, the tool executor with the sandbox wrapper and the protocol types are built as kit packages from their first implementation. Document parsing, passage anchors, citation checks and the web fetch tool are a separate stateless part of the kit: LINA's materials features and RUMI both use it, and it is not tied to any materials product feature ([materials-and-knowledge.md](materials-and-knowledge.md)). It ships in the LINA release tag that carries the `sion` and `rumi` payload schemas, from which RUMI takes it.
 
 The kit never holds a default state path, a persona, skills or a database writer. Callers pass state locations, persona and skills explicitly, and each product stores its own records. What differs per host (writer fencing, queues, the layer that owns retries) stays in each product. The kit has its own version, separate from product and protocol versions.
 
@@ -133,7 +133,7 @@ Every model call of LINA's own engines goes through opencodex, the local Respons
 LINA Core calls the Responses API of opencodex at `http://127.0.0.1:10100/v1` directly with the official [openai-go](https://github.com/openai/openai-go) library at a pinned version, through a thin adapter between LINA's types and the SDK's types.
 
 - `store` is `false`. Every request carries the full input it needs.
-- With reasoning on, the request includes `reasoning.encrypted_content`. The [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) requires at least every reasoning item, tool call and tool output since the last user message to go back in the next request unchanged. LINA sends every earlier one back unchanged as well, because the conversation history carries them all ([conversation-and-memory.md](conversation-and-memory.md)).
+- With reasoning on, the request includes `reasoning.encrypted_content`. The [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) requires at least every reasoning item, tool call and tool output since the last user message to go back in the next request unchanged. When no compaction runs, LINA sends every earlier one back unchanged as well, because the conversation history carries them all ([Compaction and resume](conversation-and-memory.md#compaction-and-resume)).
 - `previous_response_id`, `store: true`, server-side compaction and WebSocket mode are never used.
 - The request fields LINA sends form a list in the release manifest. A new field enters the list before it is sent.
 - Auxiliary reasoning (internal inference without tools) is a separate request with no tool list and no persona. It runs as its own run kind, can cause no external effect, and its output is never recorded as part of the conversation.
@@ -193,7 +193,7 @@ Each adapter reports its connection state, key presence and usage to settings. A
 
 ### Tool set
 
-The conversation engine's tools are the same kind as a Codex worker's, declared with Codex's names and formats: shell execution (`exec_command`, `write_stdin`), file editing (`apply_patch`), `view_image`, `update_plan`, a question tool and a permission request. LINA adds its own tools: reading materials and memory, searching the conversation ledger, reading a skill body, the memory tools (write, correct and forget, defined in [conversation-and-memory.md](conversation-and-memory.md)), dispatching work, reading plans and querying its own events ([self-diagnosis-log.md](self-diagnosis-log.md)).
+The conversation engine's tools are the same kind as a Codex worker's, declared with Codex's names and formats: shell execution (`exec_command`, `write_stdin`), file editing (`apply_patch`), `view_image`, `update_plan`, a question tool and a permission request. LINA adds its own tools: reading materials and memory, searching the conversation ledger, reading a skill body, the memory tools (write, correct and forget, defined in [conversation-and-memory.md](conversation-and-memory.md)), dispatching work, reading plans and querying its own events ([self-diagnosis-log.md](self-diagnosis-log.md)). Once LINA's materials take in web pages, LINA also declares the kit's web fetch tool as its own tool (see LINA kit). Under the default approval policy a fetch is a read and never asks ([main-authority.md](main-authority.md)).
 
 Plugin tools are the tools of the plugins that are on ([integrations.md](integrations.md)). Each is named `<plugin>__<tool>`, at most 64 characters, and plugin tools are declared in a deterministic order. When there are many, the conversation declares a subset and loads the rest on demand. The release manifest lists the built-in tools. Plugin tools come from the user's installed plugins, so the conversation ledger records the hash of the plugin tool declarations sent with each request.
 
@@ -302,7 +302,12 @@ When a piece is missing:
 
 ### Release manifest
 
-Every build from a clean commit, a development build included, writes a manifest next to its executables. It records the commit, the digest of each executable, and the versions and digests of the pinned opencodex, its Node.js runtime and sqlite-vec. Turn preparation compares the running LINA Core executable with the manifest of its build ([conversation-and-memory.md](conversation-and-memory.md)). The manifest of a release build is the release manifest.
+Every build from a clean commit, a development build included, writes a manifest next to its executables. Every build's manifest holds the same fields as the release manifest, listed below, and records its commit. The release manifest is the name of a release build's manifest.
+
+- A build's version is its release tag, or `dev-<commit>` for a build that is not a release.
+- The supported-combination table of a build lists the components built together from the same commit, so the TUI and LINA Core of one build find their row ([host-protocol.md](host-protocol.md)).
+- A running component reads the values this design places in the release manifest, such as the request field list, the harness revision and the verified agent versions, from the manifest of its own build.
+- Turn preparation compares the running LINA Core executable with the manifest of its build ([conversation-and-memory.md](conversation-and-memory.md)).
 
 The release manifest records:
 

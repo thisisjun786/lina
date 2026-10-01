@@ -72,7 +72,7 @@ Introduce a new component together with its real verification commands, path map
 
 ## Go components
 
-Product components are Go packages in the repository's Go modules, built with the toolchain that the `toolchain` line of `go.mod` names. `go build` produces each component's static binary; there is no other build step. The [dependency policy](dependencies.md) governs what the modules may require and defines the `dependencies` check.
+Product components are Go packages in the repository's two Go modules: the root module and the LINA kit in `kit/`, each with its own `go.mod` ([runtime.md](../design/runtime.md)). A `go.work` file at the repository root lists both modules; the first PR that adds Go code creates it. The `toolchain` lines of both `go.mod` files and of `go.work` name the same Go release, CI checks that they match, and components are built with that toolchain. `go build` produces each component's static binary; there is no other build step. The [dependency policy](dependencies.md) governs what the modules may require and defines the `dependencies` check.
 
 ### Registration
 
@@ -102,9 +102,11 @@ Markdown under `third_party/` is upstream content. The docs check skips it becau
 `dependencies` and `components` run after `selection`, in parallel with `docs` and `automation`. Selection lists the selected components. `foundation` evaluates both jobs like the others: a selected job must report `success`, and an unselected job must report `skipped`.
 
 - **dependencies:** runs the checks listed in the [dependency policy](dependencies.md#ci-enforcement), including `go mod verify` and `govulncheck`. It has no secrets and reads only the Go module proxy, the Go checksum and vulnerability databases, the npm registry, and recorded upstream repositories.
-- **components:** sets up Go from the `toolchain` line of `go.mod` and runs `go build`, `go vet`, the `exhaustive` analyzer and `go test` with `-mod=readonly` for each selected component. The analyzer is a module tool pinned in `go.mod`, like `govulncheck` ([dependencies.md](dependencies.md)), and fails a switch over a closed set of variants that misses one. Build checks use the produced binary. Short component checks share this job and its module download. A component gets its own parallel job only when a measured run shows that the shared job is the bottleneck.
+- **components:** sets up Go from the shared `toolchain` line and runs `go build`, `go vet`, the `exhaustive` analyzer and `go test` with `-mod=readonly` for each selected component, in the directory of the module that holds it. The analyzer is a module tool pinned in `go.mod`, like `govulncheck` ([dependencies.md](dependencies.md)), and fails a switch over a closed set of variants that misses one. Build checks use the produced binary. Short component checks share this job and its module download. A component gets its own parallel job only when a measured run shows that the shared job is the bottleneck.
 
-Both jobs cache Go module downloads by the hash of `go.sum` and npm downloads by the lockfile hash, never `node_modules` or results, including the test results the `go` command caches. Adding either job changes the full-mode run, so the PR that registers the first component records a new full-mode baseline and bound in the timing table.
+Both jobs cache Go module downloads by the hash of the `go.sum` files and npm downloads by the lockfile hash, never `node_modules` or results, including the test results the `go` command caches. Adding either job changes the full-mode run, so the PR that registers the first component records a new full-mode baseline and bound in the timing table.
+
+The Go commands run in the directory of each module they cover (the repository root or `kit/`), with `<dir>` relative to that module. The npm and Node commands run once, at the repository root.
 
 ```sh
 go mod verify

@@ -375,6 +375,6 @@ The TUI accepts the committed text the terminal's input method delivers, renders
 - Exact sizes and motion of the screen skeleton: tuned during implementation and recorded in the token source.
 - Menu placement of the today feed, and the screen design of the today feed, meeting notes and the plugin list: set during their implementation.
 - The launcher's feature map: filled in during launcher implementation.
-- The links between the two apps: the "Open in RUMI" link (vault id, `rumi_id` and passage anchor), whose format RUMI defines, and the link that the RUMI app's "From LINA library" opens in the LINA app: set when the vault link is implemented.
+- The links between the two apps: the "Open in RUMI" link (vault id, `rumi_id` and passage anchor) and the link that the RUMI app's "From LINA library" opens in the LINA app: set by RUMI together with LINA during the RUMI app stage.
 - How often LINA proposes promotions, archiving and splitting: set by measurement during development and recorded in the implementation issue.
 - The views of the plan map (structure, execution and gap): the UI choice is set during implementation of the plan screen.

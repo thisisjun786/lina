@@ -52,7 +52,7 @@ This contract does not cover, and links instead to:
 
 **Goalplan.** The harness's durable plan for a child work thread: the objective, its work phases and their steps, the success criteria with the evidence each one expects, checkpoints, and decisions with their reasons. Completion needs every criterion met. A goalplan binds to one child work thread.
 
-**Stop hook.** The harness hook that runs when a managed turn of the worker is about to end. While a work phase is in progress, it blocks the end and names the next step, so the worker goes on in a new turn; it never moves a stage. It lets the turn end when the work stalls or the context is nearly full. It also detects a managed turn that is ending without a declared result or receipt.
+**Stop hook.** The harness hook that runs when a managed turn of the worker is about to end. While a work phase is in progress, it blocks the end and names the next step, so the same turn continues; it never moves a stage. It lets the turn end when the work stalls or the context is nearly full. It also detects a managed turn that is ending without a declared result or receipt.
 
 **Stop-block limit.** How many times the Stop hook may block within one turn. Past the limit the turn ends, and the state of the work phase stands as it is.
 
@@ -394,7 +394,7 @@ Observation is not control.
 
 - When a person sends input to a worker thread from outside LINA Core, for example from their own Codex, LINA Core records that turn as `control_handover`, shows "the user is operating directly" on the card, and sends no new input to that thread.
 - When the user marks control as returned, LINA Core checks owner, turn and binding again and continues under a new binding epoch.
-- `control_handover` applies only to turns with user input from outside LINA Core. Goal auto-continuation, Codex subagent turns and Stop-hook continuation turns are internal worker execution. A turn of unknown origin is `unattributed` and never counts as a handover.
+- `control_handover` applies only to turns with user input from outside LINA Core. Goal auto-continuation, Codex subagent turns and a turn's continuation through the Stop hook are internal worker execution. A turn of unknown origin is `unattributed` and never counts as a handover.
 - Reading and observing never count as an answer, an approval or a handover.
 
 Read-only discovery:
