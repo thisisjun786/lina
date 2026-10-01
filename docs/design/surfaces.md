@@ -1,6 +1,6 @@
 # Surfaces
 
-This contract fixes how a person meets LINA on screen: the TUI, the LINA app on each supported platform, and the launcher. It defines what a surface may do, the one design language every surface shares, the native UI on each platform, how its framework is chosen and the quality bar it must meet, and the screens for conversation, plans, work, the library, feeds and sibling results. It is normative: surfaces must follow it, and any change to it goes through a pull request against this file. Finishing this document does not mean any surface is implemented or accepted; runtime proof belongs to the implementation issues that consume it.
+This contract fixes how a person meets LINA on screen: the TUI, the LINA app on each supported platform, and the launcher. It defines what a surface may do, the one design language every surface shares, the one app codebase and how it adapts to each platform, the quality bar it must meet, and the screens for conversation, plans, work, the library, feeds and sibling results. It is normative: surfaces must follow it, and any change to it goes through a pull request against this file. Finishing this document does not mean any surface is implemented or accepted; runtime proof belongs to the implementation issues that consume it.
 
 ## Scope
 
@@ -8,8 +8,8 @@ This contract covers:
 
 - the TUI as the first surface
 - the LINA app as a thin client, and the only state it may hold
-- the design language: terms, flows, icons and how LINA is presented
-- native UI on each platform: how its framework is chosen, the candidates, and the "no web feel" quality bar
+- the design language: terms, flows, the visual language, design tokens, icons and how LINA is presented
+- the app framework, platform adaptation and the "no web feel" quality bar
 - the screen skeleton: home, conversation, work panel, layers and threads on screen
 - plans, intent cards and work cards; the library; the today feed, the news feed and the LIFE feed; settings, including the plugin list
 - sibling cards and the handoff between the LINA app and the RUMI app
@@ -35,12 +35,12 @@ A surface is a program through which a person sees LINA and talks to LINA. There
 | Surface | What it is | Where it runs |
 | --- | --- | --- |
 | TUI | The terminal screen of the `lina` command, built on Bubble Tea | Ships with LINA Core |
-| LINA app | The desktop and mobile app (component LINA APP) | Every supported OS, as native UI on each platform |
+| LINA app | The desktop and mobile app (component LINA APP) | Every supported OS, as one Flutter app built natively for each platform |
 | Launcher | A global launcher with clipboard history, part of the LINA app | macOS |
 
 LINA APP is the component name in code, artifacts and documents. People see it as the LINA app, named LINA, and no other app name exists ([product-families.md](product-families.md)).
 
-The LINA app targets every operating system that [product-families.md](product-families.md) supports: Linux (Omarchy), macOS and Windows on desktop, and iOS and Android on mobile. A platform's app enters the supported-combination table ([host-protocol.md](host-protocol.md)) only after its native UI passes the acceptance in this file.
+The LINA app targets every operating system that [product-families.md](product-families.md) supports: Linux (Omarchy), macOS and Windows on desktop, and iOS and Android on mobile. A platform's app enters the supported-combination table ([host-protocol.md](host-protocol.md)) only after its build passes the acceptance in this file.
 
 Every surface talks to the one main LINA Core, locally or across the tailnet ([runtime.md](runtime.md)). No surface reaches the model path, the model proxy, a sibling's repository or a connected source on LINA's behalf; LINA reaches them only through LINA Core.
 
@@ -66,7 +66,7 @@ The LINA app shows and asks. It never writes canon. All logic lives in LINA Core
 - Every edit made in the app (an intent field, a front page, a document, a plan, a memo, a setting) is a request to LINA Core. LINA Core applies it and records the saved version; the app then shows the saved result.
 - The app holds client display state only: what is on screen, layout, reading position and unsent drafts. Display state is never authoritative ([product-families.md](product-families.md)).
 - The app makes no judgment of its own: no ranking, recall, completion, plan decision or permission check. It shows LINA Core's result, including "unknown".
-- The app's protocol types are generated from the protocol JSON Schema in its platform's language. An unsupported app and LINA Core combination is refused and the refusal is shown to the person ([host-protocol.md](host-protocol.md)).
+- The app's protocol types are generated in Dart from the protocol JSON Schema. An unsupported app and LINA Core combination is refused and the refusal is shown to the person ([host-protocol.md](host-protocol.md)).
 - When the connection to LINA Core drops, the app shows that state, keeps unsent drafts and the reading position, and shows nothing as saved until LINA Core confirms it.
 - Work in progress or an open question never blocks the main conversation or other work. The app never loses a conversation draft or a reading position while work runs.
 
@@ -74,7 +74,7 @@ The app provides conversation and its threads, work threads, questions, results,
 
 ## One design language
 
-Platforms are unified by one design language, not by one codebase. Each platform's native UI is its own code. Every surface shares the design language and the generated protocol types. The design language has four parts, each defined once for all surfaces.
+The LINA app is one Flutter codebase, built natively for iOS, Android, macOS, Windows and Linux. The TUI is its own Go code on Bubble Tea. One design language unifies every surface, and every surface shares the generated protocol types. The design language has six parts, each defined once for all surfaces.
 
 **Terms.** Every surface takes its user-facing words from one shared term list.
 
@@ -85,32 +85,56 @@ Platforms are unified by one design language, not by one codebase. Each platform
 
 **Flows.** A task has one flow on every surface. Desktop and mobile carry the same features, flows and terms; only layout differs by screen size. The TUI follows the same flows in terminal form.
 
-**Icons.** One icon set serves every surface. A state icon always appears with its text label. Each sibling has one identity icon, used on every sibling card.
+**Visual language.** LINA's brand is a visual language in the style of Apple's own apps and Things 3. It looks the same on every platform: the LINA app draws it itself and never imitates a platform's chrome, while the behavior people rely on follows the platform (see Platform adaptation).
 
-**How LINA is presented.** There is one LINA on every surface: one name, one look, one voice. LINA is the only speaker in a LINA conversation and in LINA's feeds ([product-families.md](product-families.md)). Engines, workers and siblings never appear as speakers; work progress appears on work cards and sibling results on sibling cards. How emotion shows in LINA's expression is defined in [conversation-and-memory.md](conversation-and-memory.md).
+- Surfaces are calm, light and airy, with generous whitespace. The conversation, cards and documents are the subject.
+- Titles are large and firm.
+- One accent color marks the primary action, the selection, LINA's mark and "Waiting for me". It never fills a large surface.
+- Corners are soft, with continuous curvature (squircles).
+- Hairline separators and steps of lightness divide layers, never heavy shadows.
+- Pretendard sets Korean and Latin text, bundled with the app so that text looks the same on every platform; code uses a monospaced face. Korean text breaks between words, and body text has a line height of at least 1.5.
+- Motion is restrained: gentle springs with no exaggerated bounce, and nothing moves unless a state changes. One or two small signature interactions carry LINA's delight; everything else is familiar.
+- Every feed has an end.
 
-## Native UI per platform
+**Tokens.** One design token source, in the Design Tokens Community Group (DTCG) format, holds color, type, spacing, radius, motion and icon size, with light, dark and high-contrast values for every role. A build generates the Flutter theme, as a `ThemeExtension`, and the TUI's Lip Gloss palette from it. No widget or TUI view hard-codes a visual value. CI fails when a generated file drifts from the source or a text and background pair falls below WCAG 2.2 AA contrast. The LINA repository's `DESIGN.md` holds the rules that people and agents follow when they build screens, with do's and don'ts; its token values are generated from the token source and never edited by hand. The token source and the widgets both apps share, such as the citation chip, live in the LINA repository as one Dart package shipped in LINA release tags. The RUMI app vendors that package from a LINA release tag, as RUMI takes the LINA kit ([runtime.md](runtime.md)).
 
-The LINA app is native UI on each platform. It never runs in a web-technology shell, which packages web pages as an app, or in a WebView shell. Each platform's UI framework is chosen before that platform's first GUI work starts. The first GUI work is the Mac launcher and menu bar, so the Apple choice comes first. A platform has candidates only until its choice is recorded in this section.
+**Icons.** One icon source serves every surface: one cross-platform licensed icon set, such as Lucide or Phosphor, and LINA's own icons drawn on the same grid. SF Symbols are licensed only for Apple platforms, so they are not part of it. The TUI maps each icon to a text glyph. A state icon always appears with its text label. Each sibling has one identity icon, used on every sibling card.
 
-| Platform | Candidate | Chosen |
-| --- | --- | --- |
-| macOS and iOS | Swift and SwiftUI | Before the Mac launcher and menu bar work starts |
-| Omarchy (LINA OS) | The TUI plus Omarchy integration: a bar plugin, LINA entries in Walker, notifications, Hyprland key bindings, and following the Omarchy theme | Before the first Omarchy GUI work starts |
-| Windows | Windows native UI | When Windows app work starts |
-| Android | Android native UI | When Android app work starts |
+**How LINA is presented.** There is one LINA on every surface: one name, one form, one voice. LINA's form is its own simple abstract character. The form never changes; its expression does. Emotion shows only in expression: wording, length, emoji, and LINA's face and motion on screen ([conversation-and-memory.md](conversation-and-memory.md)). LINA's face appears in the conversation header, beside LINA's messages, on the working indicator and as the author mark in the LIFE feed. Approvals, evidence, results, failures and "unknown" carry no expression. When the person turns emotional expression off, LINA's face stays neutral. At a goodbye, LINA's expression is neutral or warm. LINA is the only speaker in a LINA conversation and in LINA's feeds ([product-families.md](product-families.md)). Engines, workers and siblings never appear as speakers; work progress appears on work cards and sibling results on sibling cards.
 
-- A framework choice must satisfy every rule in this file: native UI, the thin client, the design language, the "no web feel" bar, Korean input and accessibility.
-- The app on each platform uses protocol types generated from the JSON Schema in one of the generated languages: Go, Swift, Kotlin, or the Windows app's language once it is chosen ([host-protocol.md](host-protocol.md)).
-- LINA OS ships the LINA app ([product-families.md](product-families.md)). Its form on Omarchy is the Omarchy choice in this table.
-- The RUMI app follows the same principle: native UI on each platform, with the same framework choice ([`thisisjun786/rumi` docs/design/rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md)).
+## Platform adaptation
+
+Flutter draws LINA's brand the same way on every platform. The behavior people rely on follows the platform: text input and input methods, menus and keyboard shortcuts, scrolling, focus, notifications, the back gesture, text size, dark mode, reduced motion, high contrast and, on Omarchy, the active theme. The person's settings override LINA's defaults; LINA's mark keeps LINA's color.
+
+Two acceptance checks of the first app milestone confirm Flutter as the app framework:
+
+- Korean input: every platform passes the Korean input acceptance below with every input method listed there.
+- The macOS launcher: the global shortcut, the non-activating panel and clipboard history that skips concealed items work in the Flutter app with platform code (see Launcher).
+
+A platform that fails a check gets native input code or native launcher code for that part, behind the same design tokens.
+
+| Platform | Follows the platform |
+| --- | --- |
+| macOS | Menu bar commands, the menu bar extra, windows and full screen, keyboard shortcuts, notifications, text input |
+| iOS | Dynamic Type, sheets and the share sheet, notifications, text input |
+| Android | Font scale, the back gesture, notifications, text input |
+| Windows | Text scale, the title bar, keyboard shortcuts, notifications, text input |
+| Linux (Omarchy) | The active Omarchy theme, read from `~/.local/state/omarchy/current/theme/colors.toml` through a `~/.config/omarchy/themed/*.tpl` template and a hook in `~/.config/omarchy/hooks/theme-set.d/`; Hyprland window rules through a fixed app id, and Hyprland key bindings; the Omarchy shell for the bar, launcher entries and notifications; fcitx5-hangul for text input |
+
+- Flutter, and any native code a platform gets, satisfies every rule in this file: the thin client, the design language, the "no web feel" bar, Korean input and accessibility.
+- On desktop the app offers its own text size and high-contrast settings where the platform gives the app no signal.
+- On Omarchy the app draws no window shadow, rounded window corner or blur of its own; Hyprland draws the window. The TUI follows the active Omarchy theme as well.
+- The app on every platform uses the Dart protocol types generated from the JSON Schema ([host-protocol.md](host-protocol.md)).
+- LINA OS ships the LINA app ([product-families.md](product-families.md)). On Omarchy it is the Linux build, beside the TUI.
+- The RUMI app follows the same choice: one Flutter codebase with the same design language and design tokens, sharing widgets such as the citation chip with the LINA app ([`thisisjun786/rumi` docs/design/rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md)).
 
 ## No web feel
 
-The native UI on every platform meets one quality bar: no web feel.
+The LINA app on every platform meets one quality bar: no web feel.
 
-- No surface renders its interface with web technology, in a WebView or in an embedded browser engine.
+- No surface renders its interface with web technology, in a WebView or in an embedded browser engine. The LINA app never runs in a web-technology shell, which packages web pages as an app, or in a WebView shell, and never ships as a Flutter web build.
 - An app has no web feel when nothing in normal use reveals a web page. Text input and input methods, selection, scrolling, focus, menus, keyboard shortcuts, drag and drop, windows and notifications behave as in the platform's own apps. No screen shows a page load, a blank frame, a browser context menu or browser-style navigation.
+- The app draws its kept display state, such as the reading position and unsent drafts, in its first frame. No control shows a hover state that the platform's own apps don't show.
 - The bar is judged by using the installed app on the real platform.
 
 ## Screen skeleton
@@ -283,7 +307,7 @@ A sibling's result appears only as a sibling card.
 
 ## The LINA app and RUMI
 
-The two apps feel connected through the same files, the same passage addresses and the same visual language, never through a shared speaker. A citation chip looks and behaves the same in both apps, and the same passage has the same address in both, because both use the passage anchors of the LINA kit. RUMI's own screens are defined in RUMI's design doc.
+The two apps feel connected through the same files, the same passage addresses, the same visual language and the same design tokens, never through a shared speaker. A citation chip is one widget that both apps share, so it looks and behaves the same in both, and the same passage has the same address in both, because both use the passage anchors of the LINA kit. RUMI's own screens are defined in RUMI's design doc.
 
 | Moment | Where in the LINA app | What the person sees and does | What happens behind |
 | --- | --- | --- | --- |
@@ -302,16 +326,27 @@ The two apps feel connected through the same files, the same passage addresses a
 - The launcher includes clipboard history. Items marked concealed, as password managers mark them, are never stored. The history stays on that Mac. It never goes to LINA Core and never becomes memory or material.
 - A clipboard item reaches LINA only when the person explicitly puts it into a message, like typed text.
 - The person turns the launcher and clipboard history on. Because the person turns them on, they are the only exception to the clipboard rule in [non-competition.md](non-competition.md); nothing else LINA does reads or writes the person's clipboard.
-- The launcher is part of the LINA app on macOS and follows the Apple framework choice. On Omarchy, launching belongs to the Omarchy choice, where Walker entries are the candidate.
+- The launcher is part of the LINA app on macOS. Flutter draws it with the app's design tokens; platform code owns its global shortcut, its non-activating panel that floats above the person's apps, and its clipboard access. The launcher is one of the two acceptance checks that confirm Flutter (see Platform adaptation); if it fails, the launcher's shortcut, panel and clipboard use native code behind the same design tokens.
+- On Omarchy, launching LINA belongs to the Omarchy shell's launcher.
 
 ## Korean input
 
-Hangul composition input is an acceptance criterion of the LINA app on every supported platform: Omarchy with fcitx5, macOS, Windows, iOS and Android. An app that fails it is not accepted on that platform.
+Hangul composition input is an acceptance criterion of the LINA app on every supported platform: Omarchy with fcitx5-hangul, macOS, Windows, iOS and Android. An app that fails it is not accepted on that platform. It is one of the two acceptance checks that confirm Flutter (see Platform adaptation).
 
-It applies to every text input: the composer, intent fields, documents, memos, search and the launcher. A platform passes when all of the following hold:
+It applies to every text input: the composer, intent fields, documents, memos, search and the launcher. Each platform is judged on a real device with these input methods:
+
+| Platform | Input methods |
+| --- | --- |
+| Windows | Microsoft IME in 2-beolsik and 3-beolsik, including fast typing |
+| Linux (Omarchy) | fcitx5-hangul |
+| macOS and iOS | The system Korean input |
+| Android | Gboard and the Samsung keyboard |
+
+A platform passes when all of the following hold with each of its input methods:
 
 - The syllable being composed shows inline at the caret, and the candidate window opens at the caret.
-- Sending while a syllable is in composition sends the whole text exactly once. The composing syllable is neither dropped nor duplicated.
+- No syllable is lost, however fast the person types.
+- Sending while a syllable is in composition sends the whole text exactly once. The composing syllable is neither dropped nor duplicated, and Enter to send never breaks the composition.
 - Keys the input method consumes never trigger a shortcut or a send.
 - Backspace, arrow keys and focus moves during composition behave as in the platform's own text fields.
 
@@ -322,11 +357,16 @@ The TUI accepts the committed text the terminal's input method delivers, renders
 - No state is conveyed by color alone. Paused, waiting for me, done and every other state carry a text label and a distinct icon or shape; color only reinforces them. This applies to the TUI as well.
 - The working indicator has a text equivalent.
 - "Unknown" is a visible state with its own label.
+- Text meets WCAG 2.2 AA contrast in the light, dark and high-contrast values. Korean text counts as large text only from 18 point, or 14 point bold.
+- Text size, reduced motion and high contrast follow the person's settings (see Platform adaptation). With reduced motion on, motion becomes a fade or stops.
 
 ## Deferred
 
-- The UI framework per platform: set before that platform's first GUI work (for Apple, before the Mac launcher and menu bar; for Omarchy, before its first GUI work; for Windows and Android, when that work starts) and recorded in "Native UI per platform".
-- Exact sizes and motion of the screen skeleton: tuned during implementation on each platform.
+- LINA's accent color, the form and expressions of LINA's character, the signature interactions and the icon set: set by design exploration and recorded in `DESIGN.md` and the token source.
+- How the LINA app joins the Omarchy shell's bar, launcher and notifications: set before the first Omarchy GUI work.
+- An Omarchy edition of the LINA app's visual design that matches Omarchy's own identity: a follow-up design task. Until it exists, the app keeps LINA's visual language on Omarchy and follows the active theme as Platform adaptation defines.
+- The CI component, dependency and generation rules for the Flutter app (pub lockfile, exact versions, generated Dart types and theme): added to the CI and dependency policies by the first app implementation.
+- Exact sizes and motion of the screen skeleton: tuned during implementation and recorded in the token source.
 - Menu placement of the today feed, and the screen design of the today feed, meeting notes and the plugin list: set during their implementation.
 - The launcher's feature map: filled in during launcher implementation.
 - How often LINA proposes promotions, archiving and splitting: set by measurement during development and recorded in the implementation issue.
