@@ -1,6 +1,6 @@
 # Cognition and LIFE
 
-This contract covers how LINA thinks beyond a single reply. That means the Moirai engine and its three modules (Lachesis, Atropos and Klotho), the Jev fast judge, and Klotho's goal discovery, project planning and project supervision, including the QA product map. It also covers skill suggestions and the boundaries of persona growth. One rule governs all of them: a cognition feature enters the product only when it is measured better than the base product. The contract also defines LIFE and holds LINA's backlog list. It is normative: implementations must follow it, and any change to it goes through a pull request against this file.
+This contract covers how LINA thinks beyond a single reply. That means the Moirai engine and its three modules (Lachesis, Atropos and Klotho), the Jev fast judge, and Klotho's goal discovery, project planning and project supervision, including the QA product map. It also covers skill suggestions and the boundaries of persona growth. Product cognition features are on by default and never block basic conversation; only experimental mechanisms enter use by measurement (see Adoption rule). The contract also defines LIFE and holds LINA's backlog list. It is normative: implementations must follow it, and any change to it goes through a pull request against this file.
 
 ## Scope
 
@@ -27,16 +27,21 @@ This contract does not cover:
 
 ## Adoption rule
 
-The base product is basic conversation. It is LINA Core with Atropos' minimum turn preparation and Lachesis' minimum memory, and it works with every other cognition feature turned off.
+The base product is basic conversation. It is LINA Core with Atropos' minimum turn preparation and Lachesis' minimum memory, and it keeps working whatever else is missing.
 
-Every other cognition feature enters the default product only when a measurement shows that it does better than the base product without it. This covers each Klotho function, Jev, any advanced Atropos or Lachesis capability, and any growth mechanism.
+Product cognition features are on by default: Atropos' context selection, Lachesis' memory and recall, Jev, each Klotho function and skill suggestions. Each one:
 
-- A measurement runs the same inputs with the feature and without it.
+- never blocks basic conversation. If it is missing or failing, conversation continues and only that feature is unsupported.
+- can be turned off on its own.
+- runs its evaluation as a regression check where quality matters (recall, routing judgments, LINA-likeness), and a drop is reported.
+
+Experimental mechanisms are different. A learned mechanism that replaces or augments a working baseline, such as a circuit model derived from a connectome, a world model, reinforcement learning or a growth mechanism, enters use only when a measurement shows that it does better than the baseline it would replace. Swapping one component for another that does the same job, such as one judge for another, is decided the same way.
+
+- A measurement runs the same inputs with the mechanism and without it.
 - Before it runs, the measurement names its metric and its evaluation set.
-- A feature's own judgment never decides whether that feature is better.
-- The measurement and its result are recorded with the feature.
-- A feature that isn't measured better stays off.
-- A feature that is on never blocks basic conversation. If the feature is missing or failing, conversation continues and only that feature is unsupported.
+- A mechanism's own judgment never decides whether that mechanism is better.
+- The measurement and its result are recorded with the mechanism.
+- A mechanism that isn't measured better stays off.
 
 ## Moirai engine
 
@@ -222,5 +227,5 @@ The following items are out of scope until each one has a design of its own.
 - Which other hosted judges the adapter supports, such as a model provider's decision API: decided by measurement against Jev on the evaluation set.
 - Whether a local judge is offered, which model it starts from and when it is retrained: decided when enough labeled judgments exist to measure it against Jev on the evaluation set.
 - Thresholds and frequency of skill suggestions: measured during implementation acceptance of skill suggestions.
-- The metric and evaluation set for each cognition feature: set by that feature's implementation before it is measured.
+- The metric and evaluation set for each regression check and each experimental mechanism: set by its implementation before it runs.
 - The periods for repository scans, card tidy-up and QA product map refresh: set during implementation acceptance of project supervision.

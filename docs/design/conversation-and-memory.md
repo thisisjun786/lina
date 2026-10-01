@@ -101,10 +101,34 @@ Mandatory retraction checks and permission checks finish during preparation, bef
 - LINA Core assembles every instruction in a request. A request carries no coding-agent base instructions; LINA Core puts the persona and the context in directly.
 - The fixed persona layers go into the developer-role instructions of every request.
 - The ContextPacket goes in as input items. LINA's own memory and materials take the developer role. External evidence takes the user role and is marked untrusted.
+- Where each part sits is fixed by the request layout below.
 - Duplicate and superseded context across turns is resolved during assembly, not left to the model.
 - Atropos assembles the ContextPacket synchronously before each request, within a time cap. When the cap is reached, the turn proceeds with a minimal packet.
 - Atropos selects the skill bodies a request needs (see "Skills").
 - Turn latency is measured from receipt of the person's input to the request being sent, and from there to the first output delta and to response completion.
+
+### Request layout
+
+A request is laid out from what changes least to what changes most, so the prefix that the model provider caches stays the same from one request to the next. The order is:
+
+1. **LINA Core instructions** (developer role): the fixed rules for tools, approvals and output. They change only with a release.
+2. **Persona** (developer role): the fixed layers in order, core, default voice, user voice, growth snapshot. They change only with a new persona revision.
+3. **Skill catalog index** (developer role): the name and description of each available skill. It changes only when skills or plugins change.
+4. **Tool declarations**: the always-declared tools first, in a stable order, then the plugin tools loaded on demand for this request ([runtime.md](runtime.md)). The always-declared part changes only when a plugin or a grant changes.
+5. **Conversation history**: the compaction summary, if any, and then the earlier turns from the ledger: messages, and, as the model path requires, every reasoning item, tool call and tool output since the last user message, carried unchanged ([runtime.md](runtime.md)). It only grows at its end.
+6. **ContextPacket** (input items), from the most binding to the most optional:
+   1. the current time and LINA's present emotional state
+   2. commitments, decisions and the reasons for corrections that apply
+   3. state that waits on the person: open questions, pending approvals and the state of active tasks and plans
+   4. the skill bodies this request needs
+   5. recalled memory items, with their evidence ids
+   6. material passages, with their asset ids and revisions
+   7. external evidence (user role, marked untrusted): worker results, sibling records such as RUMI briefs, and what plugins read
+7. **The person's current input.**
+
+- Nothing that changes from turn to turn enters items 1 to 4. The time, the emotional state and the selected skill bodies sit in the ContextPacket.
+- The ContextPacket is never written into the history, so the history prefix of the next request is unchanged.
+- When the ContextPacket exceeds its budget or Atropos' time cap, items drop from the end of the packet: external evidence first, then material passages, then memory items, each by lowest rank first. Items 6.1 to 6.4 are never dropped.
 
 ### Evidence chain
 
@@ -176,7 +200,7 @@ LINA's own emotion has three layers:
 ## Skills
 
 - The skill catalog holds product documentation skills, usage skills for each engine (conversation, work, memory, materials and persona), and the persona-change skill.
-- LINA Core owns the catalog. Atropos loads the skill bodies a request needs into that request's instructions.
+- LINA Core owns the catalog. Atropos loads the skill bodies a request needs into that request's ContextPacket (see Request layout).
 - A meta-skill defines how a skill is written: format, description, scope, verification and versioning. Every new skill follows it.
 - Skills and instructions that an installed plugin brings join the catalog while the plugin is on ([integrations.md](integrations.md)).
 - Proposals for new skills from repeated patterns are defined in [cognition-and-life.md](cognition-and-life.md). Creating a skill is work for the work engine.
