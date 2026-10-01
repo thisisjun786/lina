@@ -91,7 +91,7 @@ A capability is a named, versioned feature of a connection, such as answering ap
 Stream connections negotiate with a handshake:
 
 1. The connecting party sends `hello` with its party, id, product version, the protocol versions it speaks and the capabilities it declares.
-2. LINA Core selects the highest protocol version that both sides speak and that the supported-combination table lists for the peer's product version. It answers `welcome` with the selected version, the granted capabilities, the main id and the current epoch.
+2. LINA Core selects the highest protocol version that both sides speak and that the supported-combination table lists for the peer's product version. It answers `welcome` with the selected version, the granted capabilities, the main id and the current epoch, and on `client` the person id the connection acts for.
 3. When no listed combination exists, LINA Core answers with `unsupported_combination` and closes the connection. It reports the refusal to the user and records it as an event ([self-diagnosis-log.md](self-diagnosis-log.md)).
 
 No other message is accepted before `welcome`. After the handshake, a message that needs a capability the handshake did not grant is refused with `capability_not_negotiated`, and the connection continues.
@@ -138,6 +138,8 @@ Every implementation of a side of a connection passes the fixtures of every vers
 ## Client connection
 
 The TUI and the LINA app on every platform talk to LINA Core over the `client` connection. A local client uses the LINA Core local socket, and a remote client reaches LINA Core directly inside the tailnet ([runtime.md](runtime.md)). Clients use only the public event and control API.
+
+Every client connection acts for one person ([product-families.md](product-families.md)). LINA Core settles the person during the handshake and names the person id in `welcome`. Every later message on the connection is that person's: a message, an answer to a question or an approval, a cancel, a sign-in relay. A LINA admits only its owner, so a client on the local socket or inside the tailnet acts for the owner.
 
 | Capability | What the client can do |
 | --- | --- |

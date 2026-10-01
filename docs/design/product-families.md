@@ -6,6 +6,7 @@ This contract fixes what LINA is made of: the product families and their compone
 
 This contract covers:
 
+- the people LINA serves: the person id and the owner
 - each component's responsibility, and what it never takes on
 - canon, its one writer, and the other kinds of state
 - the sibling products, their boundaries, the speaker rule and the six conditions of sibling compatibility
@@ -21,6 +22,15 @@ It does not define the envelope, version negotiation, the supported-combination 
 LINA (Lifelong Intelligent Navigator & Ally) is one companion. Product text calls LINA a companion or a partner, never an AI.
 
 LINA is open-source software, not a sold product. No release gate, such as age verification, is required before a release.
+
+## People
+
+A person is a human LINA serves. Each person has a person id: stable, assigned by LINA Core in canon, and never reused for another person. The first person is the owner, the person who sets up the LINA. LINA Core records the owner when it creates the identity, so the first run asks nothing for it. A LINA admits only its owner. Admitting more people is multi-person operation, a backlog item that this canon does not define yet ([cognition-and-life.md](cognition-and-life.md)).
+
+- A person is not an identity. The identity is LINA's own, with its canon under `identities/<identity-id>/` ([filesystem.md](filesystem.md)). The people a LINA serves are recorded in that canon.
+- Every record of something a person said, decided, granted, connected or signed in to names that person's id. Each contract that lists a record's fields names the field. A client connection acts for one person ([host-protocol.md](host-protocol.md)).
+- Because a LINA admits only its owner, every person id in canon is the owner's.
+- "A person" in the role rules below means any human actor, whether or not LINA serves them.
 
 ## Product families and components
 

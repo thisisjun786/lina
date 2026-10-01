@@ -56,7 +56,7 @@ Built-in connectors exist only in first-party plugins. A third-party plugin conn
 Installing and turning on a plugin are the person's acts. LINA never installs or turns on a plugin by itself.
 
 - Before installing, LINA shows the manifest: what the plugin connects to, how it signs in, the skills it brings and its tool tiers. A local server command is shown in full, without truncation, before it first runs.
-- LINA records the source and version of every plugin the person adds, and the commit for one from a Git URL. A plugin changes only when the person updates it.
+- LINA records the source and version of every plugin the person adds, the commit for one from a Git URL, and the person who added it. A plugin changes only when the person updates it.
 - A plugin is in one state: available, installed (off), on, needs sign-in, or failing with its cause.
 - Skills and instructions a plugin brings join LINA's skill catalog while the plugin is on ([conversation-and-memory.md](conversation-and-memory.md)).
 - Removing a plugin turns it off, deletes the credentials LINA holds for it and removes its skills from the catalog. Its standing grants are revoked ([main-authority.md](main-authority.md)).
@@ -74,7 +74,7 @@ LINA Core is the host of every plugin. It is the MCP client of plugin servers, u
 
 ### Registry
 
-LINA Core keeps one plugin registry in canon ([filesystem.md](filesystem.md)). Each entry holds the plugin's manifest and source, the recorded version and commit, its state, its account, the hash of its local command when it has one, and a snapshot of its tools, each with its tier and the person's policy.
+LINA Core keeps one plugin registry in canon ([filesystem.md](filesystem.md)). Each entry holds the plugin's manifest and source, the recorded version and commit, its state, its account with the person the account belongs to, the hash of its local command when it has one, and a snapshot of its tools, each with its tier and the person's policy, recorded with the person who set it.
 
 ## Service profiles
 
@@ -110,6 +110,8 @@ A plugin's credential comes from one of three places:
 
 LINA's secret store is the OS keychain. Where no keychain is available, it is files with mode 0600 in the secrets area of the state root ([filesystem.md](filesystem.md)). Only LINA Core reads it.
 
+Every account and credential LINA keeps belongs to one person and is kept under that person's id ([product-families.md](product-families.md)). A LINA admits only its owner, so only the owner's exist.
+
 Rules:
 
 - A plugin's credential goes only to that plugin's server, in the way its manifest names (a header, or the server process's environment). It never enters a model request, a log or the sandbox.
@@ -128,7 +130,7 @@ Sign-in to a remote MCP server follows the [MCP authorization specification](htt
 
 ### Consent through the client
 
-LINA Core has no inbound endpoint, and no surface renders web content. Consent runs through the client the person is using:
+LINA Core has no inbound endpoint, and no surface renders web content. Consent runs through the client the person is using, and the sign-in belongs to the person that client connection acts for ([host-protocol.md](host-protocol.md)):
 
 1. LINA Core builds the authorization URL and keeps the PKCE verifier and the state.
 2. The LINA app or the TUI opens the URL in the system browser and receives the redirect on its own loopback port.
@@ -144,7 +146,7 @@ These rules apply to every plugin.
 - **Every field has one owner.** The data model names the canonical side of each field. LINA Core never treats its copy of an externally owned field as canonical. When the two disagree, LINA Core reads the external side again.
 - **Change signals are hints.** A notification or a change feed tells LINA Core to read again. It isn't a record of what changed. Periodic reconciliation compares LINA's links and derived data with the external side and catches missed signals. LINA Core reaches every service with outbound requests only. No service calls in to LINA Core.
 - **External content is evidence, not instruction.** Everything read through a plugin, tool results included, carries provenance: the plugin, the account, the object id when there is one, the fetch time, and the revision or etag when the service has one. It enters model requests as untrusted input ([conversation-and-memory.md](conversation-and-memory.md)). It never becomes a fact, an approval, a current instruction or a persona change by itself, and it never changes an approval decision ([main-authority.md](main-authority.md)).
-- **Every write is an effect.** A plugin write runs under a grant or an approval ([main-authority.md](main-authority.md)). The effect ledger ([runtime.md](runtime.md)) records the plugin, the account, the tool, the argument hash, the tier, the approval basis (a task grant, a standing grant, or approval of this call), the effect state ([host-protocol.md](host-protocol.md)) and the conversation or task id. Its idempotency key takes the plugin and tool as the action and the argument hash as the intent, and a normalized target only when the service profile names one.
+- **Every write is an effect.** A plugin write runs under a grant or an approval ([main-authority.md](main-authority.md)). The effect ledger ([runtime.md](runtime.md)) records the plugin, the account, the tool, the argument hash, the tier, the approval basis (a task grant, a standing grant, or approval of this call), the effect state ([host-protocol.md](host-protocol.md)), the conversation or task id, and the person the write acts for. Its idempotency key takes the plugin and tool as the action and the argument hash as the intent, and a normalized target only when the service profile names one.
 - **Unknown outcomes are never sent again.** When a write's outcome is unknown, LINA Core reads the service to settle it if the service profile says how. Otherwise it tells the person that the outcome is unknown.
 - **A failing plugin never blocks conversation.** The plugin shows as failing, with its cause, and the rest of LINA keeps working.
 
@@ -225,11 +227,11 @@ LINA's setup guide tells the user to:
 
 The publishing status must be In production. In Testing status, Google issues refresh tokens that expire after 7 days for this kind of app, which would break every connection each week ([Google OAuth 2.0: refresh token expiration](https://developers.google.com/identity/protocols/oauth2#expiration)). An unverified app in production shows Google's unverified-app warning on the consent screen and is limited to 100 users, which a personal client never reaches ([Google Cloud: exceptions to verification](https://support.google.com/cloud/answer/13464323)).
 
-The client id, the client secret and every refresh token live in LINA's secret store, and only LINA Core reads them.
+The client id, the client secret and every refresh token live in LINA's secret store, under the person who set up the client or connected the account, and only LINA Core reads them.
 
 ### Accounts
 
-The user can connect several Google accounts, both personal and company accounts, through the same client. Each account has its own consent, tokens and areas. Every item read carries the account it came from, and every write names the account it goes to.
+The user can connect several Google accounts, both personal and company accounts, through the same client. Each account has its own consent, tokens and areas, and belongs to the person who connected it. Every item read carries the account it came from, and every write names the account it goes to.
 
 A company's Google Workspace administrator can block the user's client or mark it as trusted. If an administrator blocks it, that account is unsupported and LINA tells the user why. LINA never works around an administrator's policy.
 

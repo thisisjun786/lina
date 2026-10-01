@@ -30,7 +30,7 @@ It builds on these documents and does not repeat them:
 
 **Conversation ledger.** The append-only event log of every conversation, held in LINA Core canon. It is the only record a conversation is rebuilt from.
 
-**Turn.** One input from the person and everything LINA does to answer it: preparation, model requests, tool calls and the delivered answer.
+**Turn.** One input from the person and everything LINA does to answer it: preparation, model requests, tool calls and the delivered answer. A turn records the person id of the person whose input it answers ([product-families.md](product-families.md)).
 
 **Prepare acknowledgment.** The ledger record that a turn's persona revision, context and model policy are ready. No model request is sent before it exists.
 
@@ -57,7 +57,7 @@ It builds on these documents and does not repeat them:
 
 ## Conversation ledger
 
-- Every conversation is written to the ledger from its first input. Each event carries a parent id, so a conversation can branch.
+- Every conversation is written to the ledger from its first input. Each event carries a parent id, so a conversation can branch. An event that holds a person's input or decision carries that person's id.
 - Model requests are assembled from the ledger, never from a client's copy or an engine's thread.
 - After a restart the same conversation continues from the ledger. A restart never creates a new LINA, and there is no engine thread to bind or rebuild.
 - The ledger is never rewritten. The one exception is the person's explicit deletion of a conversation or a part of it (see "Deleting a conversation"). Forgetting or deleting a memory item never changes the ledger.
@@ -70,12 +70,12 @@ It builds on these documents and does not repeat them:
 The ledger is the original record of a conversation. Its content is erased only when the person explicitly deletes a conversation or a part of it.
 
 - The deleted content is retracted at once and moves to the trash for 30 days, where it can be recovered. After 30 days it is permanently deleted. The person may skip the trash; that is an unrecoverable deletion under the approval policy in [main-authority.md](main-authority.md).
-- Permanent deletion erases the chosen ledger content, and the derived data built from it such as summaries and index entries, from every copy LINA manages (see "Erasure scope" under "Correction, retraction and deletion"). It leaves a tombstone: the ids of the erased events and when, with no content.
+- Permanent deletion erases the chosen ledger content, and the derived data built from it such as summaries and index entries, from every copy LINA manages (see "Erasure scope" under "Correction, retraction and deletion"). It leaves a tombstone: the ids of the erased events, when, and the person who deleted them, with no content.
 - Memory items whose evidence was in the erased content stay until the person forgets them. Their evidence, and the evidence records of past answers, show the tombstone in its place.
 
 ### Threads
 
-- There is one main conversation and any number of threads, each attached to one artifact such as a document or a goal.
+- Each person has one main conversation, and there are any number of threads, each attached to one artifact such as a document or a goal.
 - Every thread is a conversation with the same LINA and shares the same memory. A thread is a window for dividing talk, not a memory partition.
 - When the main conversation turns to a specific artifact, LINA proposes moving to that artifact's thread.
 - Between threads, only sourced facts, decisions and materials are shared. Follow-up instructions, approvals, cancellations and control handovers are bound to the id of their target task or thread and never become permission anywhere else.
@@ -219,6 +219,8 @@ Every item carries:
 | item id | Identity of the item. A correction keeps it. |
 | kind | One of the kinds above |
 | content | What is remembered |
+| person | The person the item is about |
+| source person | The person whose words or acts the item came from, or none when it came from no person's input, such as a verified work result or external evidence |
 | evidence | The ledger events, material revisions, verified work results or external evidence the item rests on |
 | scope | Where the item may be used, checked before it is recalled or projected |
 | revision | Advances with every correction |
@@ -273,7 +275,7 @@ Retraction is the first step of every removal. A retracted item or revision is e
 - **Correction.** The person's correction creates a new revision of the same item and a linked correction item with the reason. The earlier revision is retracted.
 - **Forgetting.** A forgotten item is retracted at once and moves to the trash for 30 days, where it can be recovered. After 30 days it is permanently deleted.
 - **Immediate permanent deletion.** The person may skip the trash. This is an unrecoverable deletion and follows the approval policy in [main-authority.md](main-authority.md).
-- **Permanent deletion.** Permanent deletion erases the item, every revision of it and all derived data built from it. It leaves a tombstone: the item id, the ids of the ledger events it rested on and when it was deleted, with no content. The conversation the item came from stays in the ledger.
+- **Permanent deletion.** Permanent deletion erases the item, every revision of it and all derived data built from it. It leaves a tombstone: the item id, the ids of the ledger events it rested on, when it was deleted and the person who forgot or deleted it, with no content. The conversation the item came from stays in the ledger.
 - **No re-extraction.** Lachesis never extracts a forgotten item again from the ledger events it rested on, while the item is in the trash and after it leaves a tombstone. A forgotten item never comes back from the same conversation.
 - **Erasure scope.** Permanent deletion reaches every copy LINA manages: current canon, registered Nodes and remote copies. Backup generations are never rewritten: a restore applies every retraction and tombstone again, including those made after the latest generation, and the erased content leaves the backups as their generations age out ([filesystem.md](filesystem.md)). Exported files and copies held by other people are outside it, and LINA says so when it deletes.
 

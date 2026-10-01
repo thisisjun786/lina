@@ -28,7 +28,7 @@ This contract covers the main and its epochs, grants, the server and Node state 
 | GUI session | The interactive session the work may touch, or none |
 | profile | The Node profile (for example a dedicated browser profile) the work runs in, or none |
 | file revision | The revision of each file the work may read or change |
-| task owner | Who the work is done for |
+| task owner | The person the work is done for, by person id ([product-families.md](product-families.md)) |
 | scope | What the work may touch: paths, targets, effects and model calls |
 | expiry deadline | The moment after which the grant is not valid on the executor, even without a message from the main |
 
@@ -106,7 +106,7 @@ Rules:
 - A command that carries an earlier epoch than the main's current epoch is rejected by the main and by the executor, whichever sees it first.
 - A response for a command the main does not expect (an earlier epoch, a revoked grant, or a command id already settled) is rejected and never applied.
 - A lost receipt yields unknown. The main never re-runs a command automatically because its receipt is missing, and never falls back to another path.
-- Any effect that cannot be undone requires an explicit disposition from the task owner before any replay. A disposition is a recorded decision: confirm it happened, confirm it did not, or abandon the command.
+- Any effect that cannot be undone requires an explicit disposition from the task owner before any replay. A disposition is a recorded decision, with the person id of the person who made it: confirm it happened, confirm it did not, or abandon the command.
 - A disconnect cannot be distinguished from a hardware failure of the Node. Both are treated as unknown for every effect that was in flight.
 - The main does not guarantee cancellation of an irreversible effect once it has started, and does not guarantee immediate detection of a physical failure. A contract that needs either says how it obtains it.
 - Provenance is recorded with every receipted effect that produced or touched an artifact, so that a later reader can tell which Node observed which revision, where, and when.
@@ -155,6 +155,8 @@ The user always has three controls:
 - immediate stop: cancel running work and block queued work now
 - revoke: withdraw a grant, so that a Node returns to BLOCKED
 
+An immediate stop and a revoke are recorded with the person who used them.
+
 Ordinary work inside a grant is separated, in the execution layer, from secret and private areas, administrator changes, external effects and destructive actions. The separation is enforced there, never by prompt wording and never by the default posture of a native runtime. For plugin tools and the commands a plugin classifies, the separation is the tool tier of [integrations.md](integrations.md).
 
 Text found in logs, web pages, sibling records or on screen is never an approval. Only the task owner's recorded decision counts.
@@ -165,6 +167,7 @@ Text found in logs, web pages, sibling records or on screen is never an approval
 - Approval is required only for effects that reach outside the user and are hard to reverse: sending mail or messages, payments and purchases, public posting or publication, and unrecoverable deletion.
 - Deletion first goes to a recoverable form: a trash, a retained copy or a snapshot. Only deletion that cannot be recovered needs approval.
 - An approval request shows in one view what will happen, where, and whether it can be undone. For a plugin tool it also shows the arguments, such as the recipient and the body, and the choices of its tier. Repeated approvals of the same kind are grouped by scope instead of being asked one by one.
+- Every answer to an approval request is recorded with the choice and the person who gave it.
 - Accepting a draft (applying an edit) is acceptance of the edit. It is a separate state from a grant for an external effect and never authorizes one.
 - When no surface can present an approval request, LINA Core refuses every effect outside the grant, records the refusal and reports it in the conversation that asked for the work.
 
@@ -178,7 +181,7 @@ The tools of LINA's plugins, and the commands a plugin classifies, are approved 
 | Write | Changes outside LINA that the user can reverse, and every tool whose tier is not known | Never asks inside a task grant; otherwise asks on first use | Once, always allow this tool, deny, block |
 | Outward or irreversible | Effects that reach other people (sending, inviting, sharing, public posting), payments and purchases, and unrecoverable deletion | Asks every time | Once, deny |
 
-- "Always allow" records a standing grant in canon for one plugin tool, or for network access of sandboxed commands with one prefix ([runtime.md](runtime.md)). The user revokes it in settings at any time ([surfaces.md](surfaces.md)). An approval choice never widens what the service itself permits.
+- "Always allow" records a standing grant in canon, with the person who chose it, for one plugin tool or for network access of sandboxed commands with one prefix ([runtime.md](runtime.md)). The user revokes it in settings at any time ([surfaces.md](surfaces.md)). An approval choice never widens what the service itself permits.
 - LINA Core makes every tier decision. Prompt wording, tool descriptions and content read through a plugin never change it.
 
 ## Deferred

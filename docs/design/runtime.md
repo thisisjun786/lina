@@ -170,7 +170,7 @@ Conversation and work are split by the kind of work, not by tools. The routing r
 
 ### Execution rules
 
-- Before a tool runs, LINA Core checks the user, scope, grant, target, revision and current epoch ([main-authority.md](main-authority.md)).
+- Before a tool runs, LINA Core checks the person the call acts for, scope, grant, target, revision and current epoch ([main-authority.md](main-authority.md)).
 - Every tool has a deadline and always returns a result. A failure before the effect starts returns the failure and its reason. When the deadline passes while the effect runs, or its outcome can't be known, the tool returns "outcome unknown, do not retry" and the effect ledger records `unknown`. Effect states are defined in [host-protocol.md](host-protocol.md).
 - The effect ledger deduplicates tool effects by the idempotency key defined in [host-protocol.md](host-protocol.md), never by call ID. The same effect called again with a new call ID never runs twice; the call returns the first result, or `unknown`. The record and key of a plugin write are defined in [integrations.md](integrations.md).
 - An effect outside the grant, and every plugin tool call, follows the approval policy of [main-authority.md](main-authority.md), including its tiers for plugin tools and the rule for when no surface can present an approval request.
@@ -328,7 +328,7 @@ These runtime failures must end as their rules require:
 
 ## Remote access
 
-Remote access uses [Tailscale](https://tailscale.com/kb) only. LINA APP, the TUI and Node connect to LINA Core directly inside the tailnet. Tailscale owns device identity and access control. LINA has no login of its own and registers a device on its first connection. LINA Core accepts remote connections only on its tailnet address; there is no relay and no public listener. A relay and a login of LINA's own are on the backlog ([cognition-and-life.md](cognition-and-life.md)).
+Remote access uses [Tailscale](https://tailscale.com/kb) only. LINA APP, the TUI and Node connect to LINA Core directly inside the tailnet. Tailscale owns device identity and access control. LINA has no login of its own and registers a device on its first connection. A LINA admits only its owner, so every client connection acts for the owner ([host-protocol.md](host-protocol.md)). LINA Core accepts remote connections only on its tailnet address; there is no relay and no public listener. A relay and a login of LINA's own are on the backlog ([cognition-and-life.md](cognition-and-life.md)).
 
 ## LINA OS composition
 

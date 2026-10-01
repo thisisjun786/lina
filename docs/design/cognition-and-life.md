@@ -193,7 +193,7 @@ The following items are out of scope until each one has a design of its own.
 | Item | Covers |
 | --- | --- |
 | LIFE design | The world model, LINA's activities in it, feed content, the connection to conversation and memory, and the packaging of the world engine |
-| Multi-person operation | More than one person and more than one world, and relationships between them |
+| Multi-person operation | Admitting people other than the owner ([product-families.md](product-families.md)), more than one world, and relationships between them, including what people share and who may decide for whom |
 | Other companions | Creating companions other than LINA. This item goes together with multi-person operation. |
 | Object names | Product names for goal, initiative, project, issue and the materials manager. Until then, documents use working names and describe objects by role and permission. |
 | Male version | A male version of LINA |

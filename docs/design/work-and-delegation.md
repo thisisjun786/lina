@@ -32,7 +32,7 @@ This contract does not cover, and links instead to:
 
 ## Terms
 
-**Task.** The unit of work in a plan and in the work engine. A task is the size of one pull request. It references acceptance criteria, and it owns its procedure, its pull-request scope, its execution record and its verification evidence.
+**Task.** The unit of work in a plan and in the work engine. A task is the size of one pull request. It references acceptance criteria, and it owns its procedure, its pull-request scope, its execution record and its verification evidence. It records its task owner, the person it is done for ([main-authority.md](main-authority.md)).
 
 **Work thread.** The execution of one task by one executor: a worker thread, or a command sequence on a Node. A work thread is a different object from a conversation thread.
 
@@ -50,7 +50,7 @@ This contract does not cover, and links instead to:
 
 **Verdict.** LINA Core's recorded judgment on a stage receipt or on a delivery.
 
-**Apply record.** LINA Core's ledger record that a task's result was merged or otherwise applied, with the evidence that shows it.
+**Apply record.** LINA Core's ledger record that a task's result was merged or otherwise applied, with the evidence that shows it and, when the result was applied through an apply request, the person who accepted it.
 
 ## Work engine
 
@@ -338,7 +338,7 @@ Harness report words are structured receipt fields bound to the harness contract
 - Questions and results return to the conversation that made the request and to its current reply thread. The user never relays messages. A follow-up instruction for a task reaches only that task.
 - Follow-ups, approvals, cancels and handovers are bound to their target task or thread id and never become execution authority for another thread.
 - A worker asks through the LINA question tool. When `item/tool/requestUserInput` or `mcpServer/elicitation/request` arrives, LINA Core routes it as a question to the originating conversation.
-- A question whose decision owner is the user (`decision`) is answered only by the user. No model thread answers it.
+- A question whose decision owner is the user (`decision`) is answered only by the user. No model thread answers it. Every answer is recorded with the person who gave it.
 - A question is shared between tasks only when decision owner, permissions, budget, goal and dependency revision are all identical. A task waiting for a decision never blocks unrelated tasks.
 
 ## Effects and unknown outcomes

@@ -27,7 +27,7 @@ There is one state root per main, written here as `<state-root>`. Every path bel
 
 | Area | Relative path | Holds | Writer | Backup unit |
 | --- | --- | --- | --- | --- |
-| Canon | `identities/<identity-id>/canon/` | LINA Core's SQLite canon: identity, ledgers, memory, materials metadata, the connected-source registry, the plugin registry, standing grants, and derived indexes | LINA Core | Personal generation |
+| Canon | `identities/<identity-id>/canon/` | LINA Core's SQLite canon: identity, the people it serves, ledgers, memory, materials metadata, the connected-source registry, the plugin registry, standing grants, and derived indexes | LINA Core | Personal generation |
 | Version space | `identities/<identity-id>/versions/` | Local Git repositories for versionable text and metadata | LINA Core | Personal generation |
 | Imported materials | `identities/<identity-id>/materials/user/<asset-id>/<revision>/` | Bytes of material a person handed to LINA, when they are not kept in the version space | LINA Core | Personal generation |
 | LINA materials | `identities/<identity-id>/materials/lina/<asset-id>/<revision>/` | Bytes of LINA's own outputs, when they are not kept in the version space | LINA Core | Personal generation |
@@ -38,7 +38,7 @@ There is one state root per main, written here as `<state-root>`. Every path bel
 | Import staging | `identities/<identity-id>/staging/import/` | Material on its way in | LINA Core | Not backed up |
 | Export staging | `identities/<identity-id>/staging/export/` | Material on its way out | LINA Core | Not backed up |
 | Installation state | `system/` | Install configuration and component events | The install and each component's event writer | OS root snapshot, where the install has one |
-| Secrets | `secrets/` | LINA's secret store when no OS keychain is available: tokens and API keys of plugins, Google client credentials and LINA's other secrets, each file with mode 0600 ([integrations.md](integrations.md)) | LINA Core | Not backed up |
+| Secrets | `secrets/` | LINA's secret store when no OS keychain is available: tokens and API keys of plugins, Google client credentials and LINA's other secrets, each file with mode 0600 and each plugin secret keyed by the id of the person it belongs to ([integrations.md](integrations.md)) | LINA Core | Not backed up |
 | Backup generations | `backups/<identity-id>/<generation-id>/` | Personal generations | The backup procedure | Is the unit |
 | Removal list | `backups/<identity-id>/removals` | Every retraction, trash recovery, tombstone and source disconnection of the identity, appended as each happens | LINA Core | Beside the generations, in none of them |
 
@@ -120,7 +120,7 @@ The library scope is the set of connected sources. It is the scope that conversa
 ### Connecting
 
 - Nothing becomes a connected source unless a person connects it. LINA never connects a folder on its own. A folder being visible to the machine or to a Node doesn't make it a connected source.
-- The act of connecting is the approval. Connecting adds the source to the default grant for reading. There is no separate import step and no per-file approval.
+- The act of connecting is the approval. Connecting adds the source to the default grant for reading. There is no separate import step and no per-file approval. The connected-source registry records the person who connected each source.
 - On LINA OS, the person's data area on that device is offered as one connected source when the person sets up the device. On a general Linux main and on every device with a Node, the person connects the folders they choose.
 - Connected sources do not overlap. Connecting a folder that lies inside an existing connected source makes it its own source, and the outer source excludes it. A file belongs to at most one connected source.
 - Nothing under `<state-root>` is ever a connected source.
@@ -193,7 +193,7 @@ A sibling's own index, such as the RUMI vault's `.rumi/index/`, is not LINA's de
 
 An import is a person handing material to LINA: an attachment in a conversation, an upload, a recording made in LINA APP, a file dropped into the library, or a capture saved from a connected service under a grant. Handing the material over is the approval.
 
-- Imports go through `staging/import/`. The item receives an asset id, is placed in its byte store (the version space or `materials/user/`) and is recorded in canon.
+- Imports go through `staging/import/`. The item receives an asset id, is placed in its byte store (the version space or `materials/user/`) and is recorded in canon with the person who handed it over.
 - The original stays where it was and stays the person's.
 - An import is a copy. LINA never imports a file from a connected source in order to read it. A person may still import a copy of such a file; the copy is a new asset.
 
