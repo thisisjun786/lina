@@ -128,7 +128,7 @@ Klotho never executes. It sends requests for code work, other work, research and
 
 ### Goal discovery
 
-- In the background, Klotho gathers context from the user's messages. It turns goals and concerns that keep coming up into initiative drafts.
+- In the background, Klotho gathers context from the user's messages. It turns goals and concerns that keep coming up into initiative drafts, each stated as one sentence of the outcome.
 - Discovery stops at the draft. An initiative draft has no task list.
 - When the user accepts an initiative draft, it becomes a goal. A goal isn't a plan yet.
 - Klotho also produces the goal drafts that LINA proposes when a memo or a to-do grows into something LINA should track. The promotion rules are in [work-and-delegation.md](work-and-delegation.md).
