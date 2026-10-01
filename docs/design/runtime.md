@@ -75,9 +75,11 @@ The LINA kit is the stateless Go module that LINA Core and RUMI share. It lives 
 
 - the Responses adapter: openai-go with `store=false`, the encrypted reasoning round trip and the stream assembly rules of this document
 - the loop core of the conversation loop (see Conversation loop)
-- the tool executor and the sandbox wrapper
+- the tool executor, with a web fetch tool, and the sandbox wrapper
 - the sibling protocol types, generated from the JSON Schema in [host-protocol.md](host-protocol.md)
 - document parsing, passage anchors and citation checks
+
+The web fetch tool is stateless: it takes one URL and hands the fetched document to the kit's document parsing. Its network access follows the caller's grant.
 
 The Responses adapter, the loop core, the tool executor with the sandbox wrapper and the protocol types are built as kit packages from their first implementation. Document parsing, passage anchors and citation checks are a separate stateless part of the kit: LINA's materials features and RUMI both use it, and it is not tied to any materials product feature ([materials-and-knowledge.md](materials-and-knowledge.md)).
 
