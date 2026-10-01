@@ -123,7 +123,7 @@ Planning is built into LINA Core. Plans, bindings and summaries live in LINA Cor
 | --- | --- | --- |
 | Memo | A captured thought with no place and no category. | Nothing. A memo surfaces only when searched or referenced. |
 | To-do | A small item of work. | Done or not done. A to-do is never forced into a hierarchy or an execution. |
-| Goal | An outcome LINA is responsible for following. | Progress, blockage and completion. |
+| Goal | An outcome LINA is responsible for following, stated in one sentence. | Progress, blockage and completion. |
 | Project | A body of work under a goal. The parent role in delegation. | Its tasks, milestones and dates. |
 | Task | A pull-request-sized unit of work (see Terms). The child role in delegation. | Its work through the work engine. |
 | Milestone | An ordered checkpoint inside a project with completion conditions, an optional date and an assignee. | Its completion conditions. |
@@ -131,6 +131,7 @@ Planning is built into LINA Core. Plans, bindings and summaries live in LINA Cor
 Rules:
 
 - What separates a memo, a to-do and a goal is whether LINA is responsible for tracking it, not its name. The user is never asked to classify.
+- A goal is one sentence: the outcome it reaches, in the person's own words. That sentence is the goal's name. The first page, the projects and the milestones explain and deliver it; they never replace it with a list of topics.
 - Promotion from memo to to-do to goal is proposed by LINA and confirmed once by the user. Silence is not consent.
 - A plan is the confirmed structure of projects, tasks and milestones under a goal. A plan drafted by LINA becomes a plan at exactly one point: the draft is saved and the user confirms it. A plan the user writes directly on the plan screen is a plan without further confirmation.
 - Goal decomposition, and where it starts, is Klotho's planning function ([cognition-and-life.md](cognition-and-life.md)).
