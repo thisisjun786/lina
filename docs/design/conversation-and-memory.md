@@ -120,7 +120,7 @@ A request is laid out from what changes least to what changes most, so the prefi
 5. **Conversation history**: the compaction summary, if any, and then every earlier item of the conversation from the ledger, in order: messages, reasoning items, tool calls and tool outputs, carried unchanged ([runtime.md](runtime.md)). It only grows at its end. Its earlier part changes only at compaction (see Compaction and resume) and when the person deletes conversation content (see Deleting a conversation).
 6. **ContextPacket** (input items), from the most binding to the most optional:
    1. the current time and LINA's present emotional state
-   2. commitments, decisions and the reasons for corrections that apply
+   2. commitments, decisions, the person's standing preferences about how LINA talks and works with them, and the reasons for corrections that apply
    3. state that waits on the person: open questions, pending approvals and the state of active tasks and plans
    4. the skill bodies this request needs
    5. recalled memory items, with their evidence ids
@@ -149,10 +149,18 @@ LINA Core owns the conversation record, its compaction and its resume, because m
 Compaction runs in this order:
 
 1. Compaction starts when the request input reaches 90% of the model's context window. This is a default and is configurable.
-2. Older tool outputs are dropped first. Tool outputs within the most recent 40,000 tokens stay.
+2. Older tool outputs are condensed first. Each keeps its place after its call, and its content becomes a one-line note of the call and its result, such as the command and its exit code or the files a patch changed. The notes are built without a model. Tool outputs within the most recent 40,000 tokens stay.
 3. If the input still does not fit, LINA sends a summary request and keeps the most recent user messages verbatim, up to 20,000 tokens.
 
+When a turn ends with its request input near the compaction threshold, LINA prepares the summary in the background after the answer is delivered. When compaction reaches step 3, LINA uses the prepared summary if the history it covers is unchanged and its revocation epoch still holds, and keeps the turns after it verbatim. LINA sends the summary request only when no prepared summary holds, and never waits for a preparation in progress. Preparing a summary changes no request: a prepared summary enters the history only when compaction runs.
+
 Compaction is recorded as a ledger event. It never deletes the original events, and a summary is not canon.
+
+The summary is a handoff for reference. It opens with a fixed note: the summary records earlier turns, the person's latest input is the active request, and work that appears only in the summary is not resumed unless the latest input asks for it.
+
+The summary holds, in fixed sections, the person's requests that are still unanswered, the topics discussed and what was concluded on each, completed actions with their outcomes, and specific values that must not be lost, such as names, numbers, paths and quoted wording. Commitments, decisions and open state are not repeated in it, because the ContextPacket carries them every turn.
+
+A compaction after an earlier one updates the earlier summary with the turns since then, unless that summary must be rebuilt because of a retraction. The summary is written in the language of the conversation and states completed actions as dated past facts.
 
 Compaction applies only to the history of earlier turns. The persona layers, commitments, decisions, the reasons for corrections and the ContextPacket are assembled for every turn, so they are never compacted and survive every compaction.
 
@@ -212,6 +220,7 @@ LINA's own emotion has three layers:
 - A skill is one folder: a `SKILL.md`, with the skill's `name` and `description` in its front matter and the body below them, and the files the skill uses.
 - Built-in skills live in `skills/` of the LINA repository and ship inside the LINA Core executable. Skills that the person or LINA creates live in the identity's version space ([filesystem.md](filesystem.md)).
 - LINA Core owns the catalog. Atropos loads the skill bodies a turn needs into that turn's ContextPacket (see Request layout).
+- When a turn needs a skill whose body is not in its ContextPacket, the model reads the body with LINA's skill reading tool ([runtime.md](runtime.md)), and the body enters the history as that tool's output.
 - The meta-skill is a built-in skill. It defines how a skill is written: format, description, scope, verification and versioning. Every new skill follows it.
 - Skills and instructions that an installed plugin brings join the catalog while the plugin is on ([integrations.md](integrations.md)).
 - Proposals for new skills from repeated patterns are defined in [cognition-and-life.md](cognition-and-life.md). Creating a skill is work for the work engine.
@@ -228,7 +237,7 @@ LINA's memory is its own system. It serves LINA's work, and it is designed first
 ### Writer and storage
 
 - The Moirai engine inside LINA Core is the only writer of memory canon. Its writer scope is memory, materials metadata, persona records and the revocation epoch.
-- Memory canon is a per-identity SQLite database in WAL mode, in the identity's canon area ([filesystem.md](filesystem.md)). Recall uses full-text search (FTS5) and a vector index (sqlite-vec). The engine and extension pins are in [runtime.md](runtime.md).
+- Memory canon is a per-identity SQLite database in WAL mode, in the identity's canon area ([filesystem.md](filesystem.md)). Recall uses full-text search (FTS5) and a vector index (sqlite-vec). Full-text search, over memory and over the conversation ledger, finds a Korean word when a particle or an ending is attached to it, and finds words of two syllables. Each full-text index records its tokenizer and fallback, and the implementation acceptance of recall includes Korean queries. The engine and extension pins are in [runtime.md](runtime.md).
 - Lachesis manages memory: facts and preferences, recall, correction and deletion, and persona growth candidates. Its background work runs in the `moirai-worker` service, and its results reach canon only through the Moirai engine's write path.
 - Without `moirai-worker`, background memory is unsupported. Remembering what the person asks, correction, deletion and recall in the request path keep working.
 
@@ -267,6 +276,7 @@ Rules for writing:
 - Items Lachesis derives in the background cite the ledger events they rest on. A derived item never overrides what the person stated, and the person's correction always wins.
 - A work result enters memory only after a `verified` verdict ([work-and-delegation.md](work-and-delegation.md)), with its source, run, revision and scope.
 - External evidence never becomes a fact, an approval, a current instruction or a persona change on its own. Sibling records are handled as defined in [materials-and-knowledge.md](materials-and-knowledge.md).
+- The content of an item is a statement, never an instruction to LINA: "prefers short answers" is content, "answer briefly" is not.
 
 ### Memory tools
 
@@ -289,6 +299,7 @@ When the person asks LINA to remember, correct or forget something, the conversa
 - Lachesis prepares recall material in the background. Atropos chooses, for each turn, what enters the ContextPacket. Information flows one way: Lachesis produces, Atropos reads.
 - Recall prepared while a turn runs enters the next turn's ContextPacket. Recall reaches a worker only through the projections defined in [work-and-delegation.md](work-and-delegation.md).
 - Without embeddings, recall uses full-text search and model reranking. The function stays; only the quality drops. The embedding adapter is defined in [runtime.md](runtime.md).
+- When the person refers to an earlier conversation, LINA searches the conversation ledger with its ledger search tool ([runtime.md](runtime.md)) before asking the person to repeat it. A result carries the matching messages, the messages around them and their ledger event ids. Retracted and deleted content never appears in a result. A result is a record of what was said and never becomes a current instruction or an approval. Ledger events that a forgotten memory item rests on are marked in a result, and LINA never brings the forgotten item back from them. When the person deletes conversation content, its copies in earlier results are retracted and erased with it.
 - An answer that used memory keeps the evidence revisions it used. That record stays when the item is later corrected or retracted, so a past answer can always be traced. After a permanent deletion, the record shows the tombstone in place of the evidence.
 - One event counts once along its lineage: the original record, an external summary of it and a LINA derivation of that are one lineage. Repeated wording is never counted as independent evidence.
 
@@ -326,4 +337,7 @@ A restore never brings back a retracted or deleted item, or deleted conversation
 - The exact front matter keys of `SKILL.md`: set by the implementation issue that ships the first conversation product.
 - Emotion names, values and decay rates: set by measurement during development and recorded in the implementation issue.
 - The ContextPacket assembly time cap: set by latency measurement during implementation acceptance of the conversation engine.
+- The share of the ContextPacket budget that standing preferences take: set by latency measurement together with the assembly time cap.
+- How near the compaction threshold a turn's request input must be before LINA prepares a summary: set by measurement during implementation acceptance of the conversation engine.
+- The full-text tokenizer that finds Korean words, and its fallback: chosen by the implementation issue that brings memory recall into answers.
 - The retention period for raw model request bodies beyond the recorded request hash and assembly list: set during implementation acceptance of the conversation engine.

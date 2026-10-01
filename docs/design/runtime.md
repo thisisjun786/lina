@@ -31,7 +31,7 @@ Go fits these components because:
 
 The LINA app is one Flutter codebase in Dart, built natively for each platform it supports ([surfaces.md](surfaces.md)).
 
-The conversation engine is LINA's own Go loop, built on the [Codex](https://github.com/openai/codex) tool contracts, with a structure that follows the [pi](https://github.com/earendil-works/pi) agent loop (see Conversation loop). pi is a design reference only: no pi code is vendored or translated line by line.
+The conversation engine is LINA's own Go loop, built on the [Codex](https://github.com/openai/codex) tool contracts, with a structure that follows the [pi](https://github.com/earendil-works/pi) agent loop and conversation patterns from [Hermes Agent](https://github.com/NousResearch/hermes-agent) (see Conversation loop). pi and Hermes Agent are design references only: no code from either is vendored or translated line by line.
 
 Each function has exactly one path. A function never switches to a second transport when the first one fails. A missing piece makes its function unsupported, and the function says so.
 
@@ -109,6 +109,19 @@ The loop behaves as follows:
 
 Retries and failover have one owner: LINA Core. The loop core and the SDK never retry on their own.
 
+Conversation quality follows patterns from Hermes Agent (Nous Research):
+
+- the person's standing preferences in every turn
+- memory written as statements, never as instructions to LINA
+- memory review in the background, outside the request path
+- a tool that searches past conversations
+- a compaction summary written as a handoff for reference
+- older tool outputs condensed into one-line notes
+- full-text search that finds Korean words
+- a tool that reads a skill body the turn did not receive
+
+Where each applies is defined in [conversation-and-memory.md](conversation-and-memory.md). Recall is prepared outside the request path, and a compaction summary is prepared before the request that needs it.
+
 The conversation ledger, turn preparation (including the executable hash and opencodex readiness checks), request assembly, persona injection, compaction and resume are defined in [conversation-and-memory.md](conversation-and-memory.md).
 
 ## Model path
@@ -180,7 +193,7 @@ Each adapter reports its connection state, key presence and usage to settings. A
 
 ### Tool set
 
-The conversation engine's tools are the same kind as a Codex worker's, declared with Codex's names and formats: shell execution (`exec_command`, `write_stdin`), file editing (`apply_patch`), `view_image`, `update_plan`, a question tool and a permission request. LINA adds its own tools: reading materials and memory, the memory tools (write, correct and forget, defined in [conversation-and-memory.md](conversation-and-memory.md)), dispatching work, reading plans and querying its own events ([self-diagnosis-log.md](self-diagnosis-log.md)).
+The conversation engine's tools are the same kind as a Codex worker's, declared with Codex's names and formats: shell execution (`exec_command`, `write_stdin`), file editing (`apply_patch`), `view_image`, `update_plan`, a question tool and a permission request. LINA adds its own tools: reading materials and memory, searching the conversation ledger, reading a skill body, the memory tools (write, correct and forget, defined in [conversation-and-memory.md](conversation-and-memory.md)), dispatching work, reading plans and querying its own events ([self-diagnosis-log.md](self-diagnosis-log.md)).
 
 Plugin tools are the tools of the plugins that are on ([integrations.md](integrations.md)). Each is named `<plugin>__<tool>`, at most 64 characters, and plugin tools are declared in a deterministic order. When there are many, the conversation declares a subset and loads the rest on demand. The release manifest lists the built-in tools. Plugin tools come from the user's installed plugins, so the conversation ledger records the hash of the plugin tool declarations sent with each request.
 
