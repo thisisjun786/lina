@@ -63,7 +63,7 @@ A redaction failure is a defect of the writing component. Any check that finds f
 
 ## Query interface
 
-LINA reads its own events through one read-only query. The tool's name and the port it is exposed on belong to the LINA Core host contract, not to this document; this document fixes what the query accepts and returns.
+LINA reads its own events through one read-only query, exposed to LINA as one of its own conversation tools ([runtime.md](runtime.md)). The tool's name is set with its tool declaration, not by this document; this document fixes what the query accepts and returns.
 
 Filters:
 
@@ -94,7 +94,7 @@ Events are not canon and not materials. Events never go through the canon writer
 
 Events from a Node use the same schema. A Node event is never a receipt and never confirms an effect on its own.
 
-The concrete file or database form under `system/` is owned by the LINA Core install paths and is not fixed here.
+The concrete file or database form under `system/` is not fixed here; it follows the storage rules of [runtime.md](runtime.md).
 
 ## Diagnosis acceptance
 
@@ -120,8 +120,8 @@ Passing these checks in an implementation is claimed by the implementation issue
 ## Deferred
 
 - The retention period and the size cap of the event store are set during implementation acceptance, after the first measurement of a running install.
-- The query tool's name, port and transport are owned by the LINA Core host contract; its implementation is set during implementation acceptance.
+- The query tool's name and declaration, recorded with the conversation tool declarations in the release manifest ([runtime.md](runtime.md)), and its implementation are set during implementation acceptance.
 - The cause-code and action-code allowlists, and the rule for growing them, are set during implementation acceptance.
-- The concrete file or database form of the event store under `system/`, and its rotation, are owned by the LINA Core install paths.
+- The concrete file or database form of the event store under `system/`, and its rotation, are set during implementation acceptance within the storage rules of [runtime.md](runtime.md).
 - The diagnosis acceptance runs themselves, including how each failure is injected and which install they run on, are set during implementation acceptance.
 - Whether and how Node events are copied to the main beyond the reports that the main authority contract already allows is set during implementation acceptance.

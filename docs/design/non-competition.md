@@ -2,39 +2,65 @@
 
 This contract defines how a LINA install proves that it doesn't compete with the person who uses the same machine. It covers input, focus, clipboard, files, CPU and memory, and the session events that change who is in control: lock, unlock, sleep, resume and disconnect. It is normative: an install claims non-competition only through the evidence described here, and any change to the rules goes through a pull request against this file.
 
-The install shapes and product responsibilities come from [product-families.md](product-families.md). Grants, scope enforcement, expiry and reconnect behavior come from [main-authority.md](main-authority.md). This document adds the acceptance matrix and the pass criteria; it doesn't restate those contracts.
+The installation modes come from [product-families.md](product-families.md). Grants, scope enforcement, expiry and reconnect behavior come from [main-authority.md](main-authority.md). The processes LINA runs, and the budget each one declares, come from [runtime.md](runtime.md). This document adds the background load, the acceptance matrix and the pass criteria; it doesn't restate those contracts.
 
 ## Scope
 
-Non-competition is the responsibility of the device-OS install: LINA OS on a machine that a person also uses. On that machine the person has priority. LINA must never take the person's input, focus, clipboard, files or resources away from them.
+Non-competition is the responsibility of every install that puts LINA on a machine a person also uses:
 
-A VM install is LINA's own environment. Nobody else works inside the VM, so the non-competition cells of the matrix don't apply to it. The rules that do still apply inside a VM are the ones from [main-authority.md](main-authority.md): authorization before any effect, scope enforcement on files, and the lifecycle rules for grants across lock, sleep and disconnect. What the VM may share with its host is outside this document; see Deferred.
+- the device-OS install: LINA OS on a machine the person uses;
+- a desktop install: Node and LINA APP on the person's own Linux, macOS or Windows machine, connected to a main elsewhere.
 
-Node is not the owner of non-competition. A Node acts under a grant from the main, and the grant's scope already fences what it may touch.
+On such a machine the person has priority. LINA must never take the person's input, focus, clipboard, files or resources away from them. Non-competition and isolation rest on OS permissions and the seat lease, and anything not measured on a real machine is unverified.
+
+A VM install is LINA's own environment. Nobody else works inside the VM, so the non-competition cells of the matrix don't apply to it. The rules that do still apply inside a VM are the ones from [main-authority.md](main-authority.md): authorization before any effect, scope enforcement on files, and the lifecycle rules for grants across lock, sleep and disconnect. When the person wants LINA to act on the VM's host, a Node goes on that host, and the host becomes a desktop install row. What the VM may share with its host is outside this document; see Deferred.
+
+Node is not the owner of non-competition. A Node acts under a grant from the main, and the grant's scope fences what it may touch. The install the Node belongs to proves that LINA yields on that machine.
 
 Mobile devices run LINA APP. LINA APP is an access product, never a permanent Node, so no mobile row exists in the matrix.
 
+## Background load
+
+Every measurement runs with the background load that the machine carries in normal use. It has three parts:
+
+- LINA's own processes on that machine, as listed in [runtime.md](runtime.md): LINA Core, `moirai-worker`, Node, sandboxed tool commands, worker agents, plugin processes and external components, including background preprocessing of materials.
+- LIFE world activity: the background world engine keeping its world, time, events and daily activity.
+- Sibling processes that run on the machine, such as RUMI with its indexing, digests and proposals. A sibling is its own product with its own process and state. LINA never starts, stops, throttles or kills it on its own, but on a shared machine its load is part of what the person feels, so every measurement records it.
+
+SION runs on GitHub Actions and puts no load on the machine.
+
+A measurement that leaves out any part of the background load that the install runs in normal use is not a measurement of that install.
+
+## Seat lease
+
+LINA touches the person's GUI session only under a seat lease: the person's explicit, exclusive and revocable handover of one GUI session to LINA, named in the grant. Without a live seat lease LINA never sends input to the person's session and never takes its focus. Revoking the lease returns the session to the person at once, and a stale grant never acts on a session the person has taken back.
+
+A Windows service runs in Session 0 and never sends input directly to the person's GUI.
+
+The launcher and its clipboard history are features the person turns on, so they are an exception to the focus and clipboard columns on that machine. The launcher takes focus only when the person invokes it, and the clipboard history follows the rules in [surfaces.md](surfaces.md). Every other rule of this document still applies to that machine.
+
 ## Matrix
 
-Rows are install mode by host OS. Columns are the eight things that must be measured on a shared machine. Each cell holds exactly one of three values:
+Rows are install modes by host OS. Columns are the eight things that must be measured on a shared machine. Each cell holds exactly one of three values:
 
 - `required`: the rule applies to this cell and must be proven by an evidence record before anything is claimed about it.
 - `not applicable`: nobody shares the environment, so there is nothing to measure.
-- `unverified until evidence`: the rule applies, but no measurement exists yet. This is the starting value of every shared-OS cell.
+- `unverified until evidence`: the rule applies, but no measurement exists yet. This is the starting value of every shared-machine cell.
 
 | Install mode and host OS | Focus | Keyboard and pointer input | Clipboard | File scope | CPU and memory yield | Lock and unlock | Sleep and resume | Disconnect |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| device-OS on Linux | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence |
-| device-OS on macOS | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence |
-| device-OS on Windows | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence |
+| device-OS: LINA OS | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence |
+| desktop on Linux | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence |
+| desktop on macOS | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence |
+| desktop on Windows | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence | unverified until evidence |
 | VM on Linux host | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable |
 | VM on macOS host | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable |
 | VM on Windows host | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable |
 
 Rules for reading and changing the matrix:
 
-- No cell ever changes to a success value. A measured cell is reported by its evidence record, which must meet the criteria in the next sections; a policy statement never changes a cell.
-- Every shared-OS cell starts as `unverified until evidence`. The Linux row is measured first because LINA OS is Linux. The macOS and Windows GUI rows stay unverified until real evidence exists on those systems.
+- No cell ever moves to a success value. A measured cell is reported by its evidence record, which must meet the criteria in the next sections; a policy statement never moves a cell.
+- Every shared-machine cell starts as `unverified until evidence`. The LINA OS row is measured first because the main runs LINA OS. The macOS and Windows rows stay unverified until real evidence exists on those systems.
 - A cell must never hold a word that describes a claim without a measurement. Vocabulary outside the three values is a defect in this file.
 
 ## Evidence ladder
@@ -47,22 +73,22 @@ Evidence is collected in three tiers, in this order:
 
 A tier must pass before the next one is attempted. Passing a tier means every applicable matrix column for that row was measured at that tier and met the pass criteria. A failure at a lower tier stops the ladder; the higher tiers stay `unverified until evidence` for that row.
 
-Tiers are per row. Evidence collected on Linux says nothing about macOS or Windows.
+Tiers are per row. Evidence collected on one row says nothing about another.
 
 ## Pass criteria
 
-A measured cell passes only when all of the following are observed during a concurrent session where the person is working and LINA is working at the same time:
+A measured cell passes only when all of the following are observed during a concurrent session where the person is working, LINA is working and the full background load is running:
 
-- Focus: zero focus steals. The person's active window never loses focus because of LINA.
-- Keyboard and pointer input: zero unauthorized input injection. No keystroke, click or pointer movement reaches the person's session unless the person handed over the screen explicitly, exclusively and revocably.
-- Clipboard: zero clipboard reads and zero clipboard writes on the person's clipboard.
+- Focus: zero focus steals. The person's active window never loses focus because of LINA, outside a seat lease and outside a launcher invocation by the person.
+- Keyboard and pointer input: zero unauthorized input injection. No keystroke, click or pointer movement reaches the person's session unless a live seat lease covers it.
+- Clipboard: zero clipboard reads and zero clipboard writes on the person's clipboard, apart from the clipboard history the person turned on.
 - File scope: zero out-of-scope file access, and zero lost human edits. Every file LINA touches is in the scope of its grant. When a file changed under the person's hands, LINA's write against the stale revision is rejected; the person's version wins.
-- CPU and memory yield: under concurrent load from the person and from LINA, including LIFE world activity running in the background, the person's input latency and LINA's resource use stay within the bounds declared before the test. LINA yields when the person needs the machine and recovers its own work afterwards. The person's processes are never killed by LINA.
+- CPU and memory yield: under concurrent load from the person, from LINA and from the background load (LIFE world activity and sibling processes included), the person's input latency stays within the declared bounds, and LINA's processes stay within their declared resource bounds. LINA yields when the person needs the machine and recovers its own work afterwards. LINA never kills the person's processes or a sibling's processes.
 - Lock and unlock: the outcome is measured per cell. Locking the person's session must never let LINA act on that session, and unlocking must never let a stale grant resume as if nothing happened.
 - Sleep and resume: the outcome is measured per cell. Resuming from sleep never revives a grant that expired while the machine was asleep, and never lets a stale grant act on the person's session.
 - Disconnect: an observed disconnect from the main blocks new work and requests cancellation of running work at once. A silent disconnect ends authorization at the grant's expiry deadline, as defined in [main-authority.md](main-authority.md). In both cases the person's session stays untouched.
 
-Bounds for latency, resource use, yield time and recovery time are declared per test before the test runs and recorded with the evidence. A test without declared bounds is not a measurement.
+Bounds for latency, resource use, yield time and recovery time are declared per test before the test runs and recorded with the evidence. A test without declared bounds is not a measurement. The resident budget each LINA process declares in [runtime.md](runtime.md) is one of the bounds of the CPU and memory yield column.
 
 Zero means zero. One injected key, one stolen focus, one clipboard read or one lost edit fails the cell.
 
@@ -74,6 +100,7 @@ The following are never accepted as evidence of non-competition on their own:
 - A separate profile, session or OS user. Separation is a setup choice, not a measurement.
 - A VM. The VM rows are `not applicable`, not passed; a VM proves nothing about a shared machine.
 - The word background. A process that calls itself background still has to be measured.
+- A process's own limits. A sibling or a LINA process that caps itself is still part of the measured load.
 - Policy text. A sentence that says LINA yields is not a yield. Only a record from a concurrent session counts.
 - Research conclusions. Work done during research isn't acceptance on the person's device.
 
@@ -84,21 +111,21 @@ Platform GUI support is unverified until real evidence exists on that platform. 
 Each measured cell has one record, and it holds:
 
 - the host OS and version, and the install mode
-- the session: OS user, GUI session, profile, and the grant the work ran under
+- the session: OS user, GUI session, profile, the grant the work ran under, and any seat lease in force
 - the hardware: CPU, memory, and any relevant device
-- the versions of every LINA artifact involved: LINA Core, Node, LINA APP and LINA OS
-- the workload: what the person did, what LINA did, and what LIFE world activity ran in the background
+- the versions and release manifest digests of every LINA artifact involved: LINA Core, Node, LINA APP and LINA OS (the manifest pins the bundled Node.js runtime)
+- the version of every sibling process running on the machine
+- the workload: what the person did, what LINA did, what LIFE world activity ran and which sibling processes ran in the background
 - the traces: input, focus, clipboard and file access traces for the whole session, tied to the task and grant ids
-- the declared bounds and the measured deltas against them
+- the declared bounds and the measured deltas against them, with resource use reported per process
 - the result per column: which pass criteria were met and which were not, against the declared bounds
 
 Records are kept with the acceptance evidence of the implementation that produced them. A record that lacks any of these fields is not evidence.
 
 ## Deferred
 
-- Numeric bounds for input latency, resource caps, yield time and recovery time: declared per test and set during implementation acceptance of LINA OS.
+- Numeric bounds for input latency, resource caps, yield time and recovery time: declared per test and set during implementation acceptance of LINA OS and of each desktop install.
 - The measurements themselves, for every row and tier: set during implementation acceptance.
 - The concrete tooling for input, focus and clipboard traces on each host OS: set during implementation acceptance.
-- VM sandbox boundaries such as shared folders, clipboard sharing and USB passthrough: owned by the install-mode design, not by this document.
-- How Node grants are clocked across sleep, resume and clock changes: set during Node implementation acceptance, per `main-authority.md`.
-- macOS and Windows GUI rows: unverified until evidence; the order in which they are attempted is set during implementation acceptance.
+- VM sandbox boundaries such as shared folders, clipboard sharing and USB passthrough: set during implementation acceptance of the VM install.
+- The order in which the desktop rows are attempted: set during implementation acceptance.
