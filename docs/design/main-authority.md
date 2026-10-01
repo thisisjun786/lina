@@ -1,21 +1,23 @@
-# Main authority, Node grants and recovery
+# Main authority, grants and receipts
 
-This contract fixes who holds authority in a LINA installation, how a Node receives and loses permission to act, what happens when the main stops or a Node disconnects, and how the effects of interrupted work are reconciled. It is normative: implementations must follow it, and any change to it goes through a pull request against this file.
+This contract fixes who holds authority in a LINA installation: the one main, how a Node or a worker receives and loses permission to act, what happens when the main stops or a Node disconnects, how the effects of interrupted work are reconciled, how receipts differ from sibling records, and when LINA asks for approval. It is normative: implementations follow it, and any change to it goes through a pull request against this file.
 
-It builds on the product responsibilities in [product-families.md](product-families.md). Finishing this document does not mean any state machine is implemented or accepted. Runtime proof belongs to the implementation issues that consume this contract.
+## Scope
+
+This contract covers the main and its epochs, grants, the server and Node state machines, the outcomes of commands, receipts, sibling records, observed results, provenance, authorization and approval. It builds on the product boundaries in [product-families.md](product-families.md). The wire format of every message named here is in [host-protocol.md](host-protocol.md). How LINA Core dispatches, supervises and judges workers is in [work-and-delegation.md](work-and-delegation.md). This contract proves nothing about an implementation. Runtime proof belongs to the implementation issues that consume it.
 
 ## Terms
 
-**Server host.** The one machine that runs the main LINA Core and confirms the canonical identity, memory and work intent of a LINA. "Main" in this document and "server host" in user-facing documents name the same thing. There is exactly one per LINA.
+**Main.** The one LINA Core that confirms the canon of a LINA, and the machine it runs on. There is exactly one per LINA. User-facing documents call the machine "server host"; this contract says "main".
 
 **Epoch.** A persistent generation owned by the main. Every start of the main creates a new epoch and stores it durably before anything else happens. Grants, commands and receipts carry the epoch they belong to.
 
-**Grant.** The main's permission for one Node to perform one scope of work. A grant is a record with these fields. Every field is present; a field that does not apply holds an explicit none:
+**Grant.** The main's permission for one executor to perform one scope of work. A grant is a record with the fields below. Every field is present; a field that does not apply holds an explicit none.
 
 | Field | Meaning |
 | --- | --- |
 | server id | The main that issued the grant |
-| node id | The Node the grant is issued to |
+| node id | The Node the grant is issued to, or none for a worker that runs on the main |
 | node boot id | The boot of that Node the grant was issued to; a reboot produces a new one |
 | epoch | The main epoch the grant belongs to |
 | grant id | Identity of this grant |
@@ -24,39 +26,44 @@ It builds on the product responsibilities in [product-families.md](product-famil
 | host | The machine the work runs on |
 | OS user | The operating-system account the work runs as |
 | GUI session | The interactive session the work may touch, or none |
-| profile | The Node profile (for example a dedicated browser profile) the work runs in |
+| profile | The Node profile (for example a dedicated browser profile) the work runs in, or none |
 | file revision | The revision of each file the work may read or change |
 | task owner | Who the work is done for |
 | scope | What the work may touch: paths, targets, effects and model calls |
-| expiry deadline | The moment after which the grant is no longer valid on the Node, even without a message from the main |
+| expiry deadline | The moment after which the grant is not valid on the executor, even without a message from the main |
 
-**Receipt.** The Node's durable statement of what it did under a grant: which command, which effect, on which target, with what result. A receipt is the only proof the main accepts that an effect happened.
+**Receipt.** An executor's durable statement of what it did under a grant: which command, which effect, on which target, with what result. Executors are Node and workers; both follow the same grant, id, effect and receipt rules. A receipt is the only proof the main accepts that an effect under one of its grants happened.
 
-**Provenance.** The record that ties an artifact to where and when it was observed. It carries the artifact id, the task id, the node id, the observed path, the content revision or hash, and the observation time. A file is never assumed to be the same file on two devices because of its name, path or identical content alone.
+**Sibling record.** A sibling's statement about its own work, written in the sibling's own repository ([product-families.md](product-families.md)). It is not a receipt. See "Receipts, sibling records and observed results".
+
+**Observed result.** LINA Core's record of a result that another actor produced outside any LINA grant and outside any sibling record, such as a merge made by a person, after LINA Core checked it against the external system. It is not a receipt.
+
+**Provenance.** The record that ties an artifact to where and when it was observed: the artifact id, the task id, the node id, the observed path, the content revision or hash, and the observation time. For a sibling record, provenance is the sibling's repository, the record's id, the commit and the observation time. A file is never assumed to be the same file on two devices because of its name, path or identical content alone.
 
 ## Invariants
 
-- There is one canonical writer: the main LINA Core on the server host. Identity, memory and work intent are confirmed there and nowhere else.
-- A write to canonical state that arrives from any other device is rejected. LINA APP and Node report and reflect; they never confirm canonical state.
-- Two devices must never be the main at the same time. There is no path by which a second device becomes the main automatically.
-- There is no automatic replacement main. When the main stops, every dependent LINA function stops with it until the same main comes back. This does not mean the user's computer shuts down.
+- There is one canonical writer: LINA Core on the main. Identity, conversation, memory, work intent, permissions and results are confirmed there and nowhere else.
+- A write to canon that arrives from any other device is rejected. The LINA app shows and asks, and Node executes and reports; neither confirms canon.
+- Two devices are never the main at the same time. No path makes a second device the main automatically.
+- There is no automatic failover to another main. When the main stops, every dependent LINA function stops with it until the same main returns. This does not mean the user's computer shuts down.
 - A Node never executes offline. Without a live, valid grant from the main there is no planning, no queued work and no execution on the Node.
-- A Node is not a separate LINA. It is an execution location for the one LINA.
-- User-facing documents say "server host" where this document says "main".
+- A Node is not a separate LINA. It is an execution location of the one LINA.
 
 ## Server states
 
 | State | Meaning | Leaves the state when |
 | --- | --- | --- |
-| STOPPED | The main isn't running. Nothing is dispatched. Nodes treat the main as absent. | The main process starts, entering RECOVERING. |
-| RECOVERING | The main has started, created a new epoch and stored it durably. It reconciles every task and every Node effect left from earlier epochs before accepting new work. | Reconciliation finishes, entering READY. |
+| STOPPED | The main is not running. Nothing is dispatched. Nodes treat the main as absent. | The main process starts, entering RECOVERING. |
+| RECOVERING | The main has started, created a new epoch and stored it durably. It reconciles every task and every effect left from earlier epochs before accepting new work. | Reconciliation finishes, entering READY. |
 | READY | The main dispatches work, issues grants and accepts receipts for the current epoch. | The main stops or crashes, entering STOPPED. |
 
 A crash from any state goes to STOPPED. There is no partial state in which an old process keeps dispatching.
 
-The main must not dispatch any command before the new epoch is durable. Everything issued under an earlier epoch is stale from the moment the new epoch exists, whether or not the Node has learned about it yet.
+The main never dispatches a command before the new epoch is durable. Everything issued under an earlier epoch is stale from the moment the new epoch exists, whether or not an executor has learned about it yet.
 
-Reconciliation in RECOVERING means: read every stored task, collect the receipts already present, ask each reconnecting Node for the outcome of every unconfirmed effect, and assign each effect one of the outcomes in "Task effect outcomes". Work resumes only after that assignment.
+What LINA Core stops and fences on restart is defined in [runtime.md](runtime.md).
+
+Reconciliation in RECOVERING means: read every stored task, collect the receipts already present, ask each reconnecting Node for the outcome of every unconfirmed effect, and assign each effect one of the outcomes in "Command outcomes". Work resumes only after that assignment.
 
 ## Node states
 
@@ -67,79 +74,115 @@ Reconciliation in RECOVERING means: read every stored task, collect the receipts
 | GRANTED | The Node holds a valid grant for the current epoch and is idle. | The main dispatches a command under that grant, entering RUNNING. |
 | RUNNING | A command is executing under the grant. | The command completes and its receipt is stored, returning to GRANTED; or a stop condition below applies. |
 | CANCEL_REQUESTED | The main or the Node has asked the running command to stop. | The command confirms it stopped, entering STOPPED; or no confirmation can be obtained, entering UNKNOWN. |
-| STOPPED | The command ended before completion and the Node has confirmed that no further effect will occur from it. | The Node returns to GRANTED if its grant is still valid, otherwise to BLOCKED. |
+| STOPPED | The command ended before completion, and the Node has confirmed that no further effect will come from it. | The Node returns to GRANTED if its grant is still valid, otherwise to BLOCKED. |
 | UNKNOWN | The command may or may not have produced its effect, and the Node cannot say which. The effect is reported to the main as unknown. | The Node returns to BLOCKED until the main has reconciled the unknown effect. |
 
 Stop conditions:
 
 - An observed disconnect from the main, a revoke from the main, or reaching the grant's expiry deadline blocks all new and queued work at once and requests cancellation of running work. RUNNING goes to CANCEL_REQUESTED; GRANTED goes to BLOCKED.
-- A Node reboot always lands in BLOCKED. A reboot never extends, restores or reuses an earlier grant; the node boot id no longer matches.
+- A Node reboot always lands in BLOCKED. A reboot never extends, restores or reuses an earlier grant, because the node boot id does not match.
 - A silent partition, where messages stop without an observed disconnect, ends the Node's authorization at the expiry deadline of its local grant. Until that moment the Node may finish the command it is running; after it, the Node behaves as if revoked.
-- Reconnecting always passes through RECONCILING. A Node must never go from BLOCKED straight to RUNNING, and a grant from an earlier epoch is never honored after reconnect.
+- Reconnecting always passes through RECONCILING. A Node never goes from BLOCKED straight to RUNNING, and a grant from an earlier epoch is never honored after reconnect.
 
-How the expiry deadline is clocked across sleep, resume and clock changes on the Node is set during Node implementation acceptance.
+A worker on another device runs under that device's Node and stops with it. When the Node cancels a worker's turn under these stop conditions, it reports the command as STOPPED or UNKNOWN ([work-and-delegation.md](work-and-delegation.md)).
 
-## Task effect outcomes
+## Command outcomes
 
-Every command is in exactly one of these states at any time, recorded by the main:
+The main records every command in exactly one of these outcomes at any time:
 
 | Outcome | Meaning |
 | --- | --- |
-| queued | The main has recorded the command but has not sent it to a Node. |
+| queued | The main has recorded the command but has not sent it. |
 | dispatched | The command was sent under a valid grant; no receipt has arrived. |
-| receipted | A receipt for the command arrived and matches the grant, epoch and command id. |
-| reconciled | The main compared the receipt, or its absence, with the task record after a restart or reconnect and settled the effect. |
-| cancelled | The Node confirmed that the command stopped before its effect occurred. |
+| receipted | A receipt arrived and matches the grant, epoch and command id. Its result may be applied, refused or failed. |
+| reconciled | After a restart or reconnect, the main compared the receipt, or its absence, with the task record and settled the effect. |
+| cancelled | The executor confirmed that the command stopped before its effect occurred. |
 | unknown | The effect may or may not have occurred, and no receipt can settle it. |
+
+Executors report effects with the effect states of [host-protocol.md](host-protocol.md).
 
 Rules:
 
-- A command that carries an earlier epoch than the main's current epoch is rejected by the main and by the Node, whichever sees it first.
-- A response that arrives for a command the main no longer expects (an earlier epoch, a revoked grant, or a command id already settled) is rejected and never applied.
-- A lost receipt yields unknown. The main must never re-run a command automatically because its receipt is missing.
-- Any effect that cannot be undone requires an explicit disposition from the task owner before any replay. Disposition is a recorded decision: confirm it happened, confirm it did not, or abandon the command.
+- A command that carries an earlier epoch than the main's current epoch is rejected by the main and by the executor, whichever sees it first.
+- A response for a command the main does not expect (an earlier epoch, a revoked grant, or a command id already settled) is rejected and never applied.
+- A lost receipt yields unknown. The main never re-runs a command automatically because its receipt is missing, and never falls back to another path.
+- Any effect that cannot be undone requires an explicit disposition from the task owner before any replay. A disposition is a recorded decision: confirm it happened, confirm it did not, or abandon the command.
 - A disconnect cannot be distinguished from a hardware failure of the Node. Both are treated as unknown for every effect that was in flight.
-- The main does not guarantee cancellation of an irreversible effect once it has started, and does not guarantee immediate detection of physical failure. Contracts that need either must say how they obtain it.
-- Provenance is recorded with every receipted effect that produced or changed an artifact, so that a later reader can tell which Node observed which revision, where, and when.
+- The main does not guarantee cancellation of an irreversible effect once it has started, and does not guarantee immediate detection of a physical failure. A contract that needs either says how it obtains it.
+- Provenance is recorded with every receipted effect that produced or touched an artifact, so that a later reader can tell which Node observed which revision, where, and when.
+
+## Receipts, sibling records and observed results
+
+A receipt, a sibling record and an observed result are different kinds of evidence:
+
+| | Receipt | Sibling record | Observed result |
+| --- | --- | --- | --- |
+| Written by | A Node or a worker | SION or RUMI, in its own repository | LINA Core |
+| States | An effect under a grant from the main | The sibling's own work | A result another actor produced, such as a merge by a person |
+| Accepted when | It matches the grant, epoch and command id | The commit that holds it exists in the sibling's repository and its revisions match ([host-protocol.md](host-protocol.md)) | LINA Core has checked it against the external system ([integrations.md](integrations.md)) |
+| Becomes | A command outcome in canon | External evidence with provenance | A record in canon, marked as observed |
+
+Rules:
+
+- A receipt is necessary, never sufficient on its own. Engine posture, a policy echo, an exit code and a model's final text are never evidence of permission or of success. Where work needs facts checked outside the executor, [work-and-delegation.md](work-and-delegation.md) defines the checks.
+- A sibling record proves no effect under a LINA grant and grants nothing. LINA Core never promotes it automatically into a fact, an approval, a current instruction or a persona change.
+- An observed result proves no effect under a LINA grant and grants nothing. LINA Core applies a merge result to canon only from its own receipted merge, a verified sibling record or an observed result ([work-and-delegation.md](work-and-delegation.md)).
 
 ## Authorization
 
-Authenticating a device and permitting an operation are different things. A Node that has proven its identity has no permission to do anything until the main issues a grant, and a grant covers only the scope written in it.
+Authenticating a device and permitting an operation are different things.
 
-Every effect and every model call on a Node checks all of the following together, and fails closed if any check fails:
+Device identity comes from remote access, defined in [runtime.md](runtime.md). Registration identifies the device; it grants nothing. A Node that has proven its identity may do nothing until the main issues a grant, and a grant covers only the scope written in it.
+
+Every effect and every model call by a Node checks all of the following together, and fails closed if any check fails:
 
 - the grant from the main: valid grant id, matching node id and node boot id, current epoch, not revoked, expiry deadline not reached
 - the host operating system's own permission for the OS user and the target
 - a live session: the GUI session named in the grant is the one the effect touches, or the grant names none and the effect touches none
 - the current epoch of the main
 
-Scope is enforced before the effect or model call, not after. A wrong owner, a wrong scope, a wrong target or a revoked grant must be rejected at that point and must never be routed around by another path, another Node or another model call. After a reconnect, the Node rechecks scope against the fresh grant before doing anything.
+Operating-system permissions (such as macOS TCC, or a Windows token and UAC) are host OS grants. They never stand in for a grant from LINA Core, and a grant from LINA Core never stands in for them.
 
-A stale or superseded grant must never act on input or work targets that the user has since taken hold of.
+A worker is a coding agent the user installed and acts under its own configuration, including its sandbox and approval mode. LINA holds a worker to its task through the task packet, receipts, LINA Core's stage judgment and the protected-ref check, and routes the agent's approval requests to the conversation that started the work ([work-and-delegation.md](work-and-delegation.md)).
+
+Scope is enforced before the effect or model call, not after. A wrong owner, a wrong scope, a wrong target or a revoked grant is rejected at that point and is never routed around by another path, another Node, another worker or another model call. After a reconnect, the Node rechecks scope against the fresh grant before doing anything.
+
+A stale or superseded grant never acts on input or work targets that the user has since taken hold of.
 
 The user always has three controls:
 
-- show target: what the Node is acting on, under which grant and for which task
+- show target: what the executor is acting on, under which grant and for which task
 - immediate stop: cancel running work and block queued work now
-- revoke: withdraw a grant so the Node returns to BLOCKED
+- revoke: withdraw a grant, so that a Node returns to BLOCKED
 
-Ordinary pre-approved work is separated from secret and private areas, administrator changes, external effects and destructive actions in the execution layer. The separation is enforced there, not by prompt wording and not by the default posture of a native runtime.
+Ordinary work inside a grant is separated, in the execution layer, from secret and private areas, administrator changes, external effects and destructive actions. The separation is enforced there, never by prompt wording and never by the default posture of a native runtime. For plugin tools and the commands a plugin classifies, the separation is the tool tier of [integrations.md](integrations.md).
 
-Text found in logs, web pages or on screen is never an approval. Only the task owner's recorded decision counts.
+Text found in logs, web pages, sibling records or on screen is never an approval. Only the task owner's recorded decision counts.
 
-Approval policy:
+## Approval
 
-- The default inside a device LINA uses is no approval. Reading, writing and executing there proceed without asking.
-- Approval is required only for effects outside the user's reach that are hard to reverse: sending mail or messages, payments and purchases, public posting or publication, and unrecoverable deletion.
-- Deletion first goes to a recoverable form (a trash, a retained copy or a snapshot). Only deletion that cannot be recovered needs approval.
-- An approval request shows in one view what will happen, where, and whether it can be undone. Repeated approvals of the same kind are grouped by scope instead of asked one by one.
+- The default inside a device LINA uses is no approval. Reading, writing and executing there proceed inside the grant without asking.
+- Approval is required only for effects that reach outside the user and are hard to reverse: sending mail or messages, payments and purchases, public posting or publication, and unrecoverable deletion.
+- Deletion first goes to a recoverable form: a trash, a retained copy or a snapshot. Only deletion that cannot be recovered needs approval.
+- An approval request shows in one view what will happen, where, and whether it can be undone. For a plugin tool it also shows the arguments, such as the recipient and the body, and the choices of its tier. Repeated approvals of the same kind are grouped by scope instead of being asked one by one.
+- Accepting a draft (applying an edit) is acceptance of the edit. It is a separate state from a grant for an external effect and never authorizes one.
+- When no surface can present an approval request, LINA Core refuses every effect outside the grant, records the refusal and reports it in the conversation that asked for the work.
+
+### Plugin tools
+
+The tools of LINA's plugins, and the commands a plugin classifies, are approved in three tiers. [integrations.md](integrations.md) defines how each tool gets its tier.
+
+| Tier | Covers | Default | Choices |
+| --- | --- | --- | --- |
+| Read | Calls that change nothing outside LINA | Never asks | Block the tool |
+| Write | Changes outside LINA that the user can reverse, and every tool whose tier is not known | Never asks inside a task grant; otherwise asks on first use | Once, always allow this tool, deny, block |
+| Outward or irreversible | Effects that reach other people (sending, inviting, sharing, public posting), payments and purchases, and unrecoverable deletion | Asks every time | Once, deny |
+
+- "Always allow" records a standing grant in canon for one plugin tool, or for network access of sandboxed commands with one prefix ([runtime.md](runtime.md)). The user revokes it in settings at any time ([surfaces.md](surfaces.md)). An approval choice never widens what the service itself permits.
+- LINA Core makes every tier decision. Prompt wording, tool descriptions and content read through a plugin never change it.
 
 ## Deferred
 
-The following items are recognized but not settled here. Each names the place where it is decided.
-
 - Grant expiry values, the heartbeat interval and the maximum stop latency: set by measurement during Node implementation acceptance.
 - Clocking of the expiry deadline across Node sleep, resume and clock changes: set during Node implementation acceptance.
-- The wire format of grants, commands, receipts and reconciliation messages: LINA Core host contract, set during implementation acceptance.
-- Supervision of several tasks on one Node, and parent and child tasks: set during implementation acceptance of delegated work.
-- Registration, enrollment and withdrawal of a Node on each supported OS: set during Node implementation acceptance.
+- Enrollment and withdrawal steps for a Node on each supported OS: set during Node implementation acceptance.
