@@ -128,7 +128,7 @@ A request is laid out from what changes least to what changes most, so the prefi
    7. external evidence (user role, marked untrusted): worker results, sibling records such as RUMI briefs, and what plugins read
 7. **The person's current input.**
 
-- This layout is the first request of a turn. A follow-up request in the same turn, after tool results, keeps that request unchanged, apart from the plugin tools loaded on demand, and appends only the new reasoning items, tool calls and tool outputs at its end. The ContextPacket is not rebuilt within a turn.
+- This layout is the first request of a turn. A follow-up request in the same turn, after tool results, keeps that request unchanged, apart from the plugin tools loaded on demand, and appends at its end, in ledger order, only the new reasoning items, tool calls and tool outputs and any steering input the person sent during the turn, in the user role ([runtime.md](runtime.md)). The ContextPacket is not rebuilt within a turn.
 - Nothing that changes from turn to turn enters items 1 to 3 or the always-declared part of item 4. The time, the emotional state and the selected skill bodies sit in the ContextPacket. When the plugin tools loaded on demand change, the cached prefix ends at that point.
 - The ContextPacket is never written into the history. The next turn's request therefore matches the previous turn's requests up to the position where the previous ContextPacket stood.
 - When the ContextPacket exceeds its budget or Atropos' time cap, items drop from the end of the packet: external evidence first, then material passages, then memory items, each by lowest rank first. Items 6.1 to 6.4 are never dropped.

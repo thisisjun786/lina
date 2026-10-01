@@ -210,7 +210,7 @@ LINA's grant-scoped edits of existing notes are not protocol messages. They foll
 | --- | --- | --- |
 | `outbox/declaration.json` on the `state` branch | The SION installation | The declaration: the SION product version (the pinned SION release tag), the `sion` protocol versions, the capabilities and the target repositories whose link is on |
 | The `mailbox` branch | LINA, with the user's GitHub setup; the branch's ruleset admits only the operator repository's maintainers | Judgment input: Klotho's view of what matters in a repository and which items need attention ([cognition-and-life.md](cognition-and-life.md)). It is input to SION's review, never a command. |
-| SION records, in `outbox/` on the `state` branch | SION | Item results. Each names the action (reviewed with its verdict, fixed, merged, closed or reopened) and its effect state, the target repository, the item, the head or merge commit, the state of the checks, the ledger event, the `state` commit that holds the record, and the next step when there is one. |
+| SION records, in `outbox/` on the `state` branch | SION | Item results. Each names the action (reviewed with its verdict, fixed, merged, closed or reopened) and its effect state, the target repository, the item, the head or merge commit, the state of the checks at that commit, the ledger event, and the next step when there is one. The `state` commit that holds the record is its provenance: LINA reads it from the branch, and the record never names it. |
 
 File paths on the `mailbox` branch and of the results in `outbox/` follow the schema and the conformance fixtures. Only the declaration's path, `outbox/declaration.json`, is fixed.
 
