@@ -158,7 +158,7 @@ A regression test compares LINA's requests with a baseline: the request that Cod
 
 ## Non-chat adapters
 
-The Jev judge, embedding and transcription each have their own adapter outside opencodex. Their keys, billing and failure diagnosis are separate from opencodex, and none of them appears in the chat model list, the catalog or automatic routing. Jev is called only through its own typed adapter, the judge adapter, which speaks to Jev's hosted API or to a local judge process ([cognition-and-life.md](cognition-and-life.md)).
+The Jev judge, embedding and transcription each have their own adapter outside opencodex. Their keys, billing and failure diagnosis are separate from opencodex, and none of them appears in the chat model list, the catalog or automatic routing. Jev is called only through its own typed adapter, the judge adapter, which speaks to a hosted judge API (Jev by default) or to a local judge process ([cognition-and-life.md](cognition-and-life.md)).
 
 None of them blocks basic conversation:
 

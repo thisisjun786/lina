@@ -82,7 +82,7 @@ Jev is an optional fast judge that only Atropos uses. Atropos uses it only for c
 
 Jev never chooses the chat model or its effort. A model change discards the prompt cache of the conversation, so the model stays the person's setting ([runtime.md](runtime.md)). When Jev is off or has no key, rules plus the main model provide the same function.
 
-Atropos reaches Jev through the judge adapter. The adapter speaks either to Jev's hosted API or to a local judge model that runs as a separate pinned process on the person's device ([runtime.md](runtime.md)). A local judge is trained on the person's own labeled judgments and keeps the judged text on the device. Atropos uses one judge at a time. A judge, a threshold or a change to the judgment material enters use only when it does better than the current one on the evaluation set below.
+Atropos reaches Jev through the judge adapter. Every judge answers in one typed shape: a closed question with its candidates goes in, and a choice with a probability for each candidate comes out. The adapter speaks to a hosted judge API, Jev by default, or to a local judge model that runs as a separate pinned process on the person's device, like the other external components ([runtime.md](runtime.md)). A local judge is trained on the person's own labeled judgments and keeps the judged text on the device. Atropos uses one judge at a time. A judge, a threshold or a change to the judgment material enters use only when it does better than the current one on the evaluation set below.
 
 Handoff rules:
 
@@ -216,6 +216,7 @@ The following items are out of scope until each one has a design of its own.
 
 - The design of persona growth, including the steps of growth adoption: decided by the first growth implementation.
 - Jev's confidence threshold, its latency budget, the size of its judgment material, how often that material is refreshed, and the size of the held-out evaluation set: measured during implementation acceptance of Jev.
+- Which other hosted judges the adapter supports, such as a model provider's decision API: decided by measurement against Jev on the evaluation set.
 - Whether a local judge is offered, which model it starts from and when it is retrained: decided when enough labeled judgments exist to measure it against Jev on the evaluation set.
 - Thresholds and frequency of skill suggestions: measured during implementation acceptance of skill suggestions.
 - The metric and evaluation set for each cognition feature: set by that feature's implementation before it is measured.
