@@ -40,7 +40,7 @@ A surface is a program through which a person sees LINA and talks to LINA. There
 
 LINA APP is the component name in code, artifacts and documents. People see it as the LINA app, named LINA, and no other app name exists ([product-families.md](product-families.md)).
 
-The LINA app targets every operating system that [product-families.md](product-families.md) supports: Linux (Omarchy), macOS and Windows on desktop, and iOS and Android on mobile. A platform's app enters the supported-combination table of a release build ([host-protocol.md](host-protocol.md)) only after its build passes the acceptance in this file.
+The LINA app targets every operating system that [product-families.md](product-families.md) supports: Linux (Omarchy), macOS and Windows on desktop, and iOS and Android on mobile. A platform's app enters release builds, and with them the supported-combination table of a release ([host-protocol.md](host-protocol.md)), only after its build passes the acceptance in this file. Until then it is built only as a development build.
 
 Every surface talks to the one main LINA Core, locally or across the tailnet ([runtime.md](runtime.md)). No surface reaches the model path, the model proxy, a sibling's repository or a connected source on LINA's behalf; LINA reaches them only through LINA Core.
 
