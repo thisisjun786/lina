@@ -80,7 +80,7 @@ Jev is an optional fast judge that only Atropos uses. Atropos uses it only for c
 - where a request goes when the routing rules of [work-and-delegation.md](work-and-delegation.md) leave it open: an answer in the conversation, a task for the work engine, research for RUMI, work for a device's Node, or a question to the person
 - which installed worker agent takes a task, among the agents whose adapters LINA supports
 
-Jev never chooses the chat model or its effort. A model change discards the prompt cache of the conversation, so the model stays the person's setting ([runtime.md](runtime.md)). When Jev is off or has no key, rules plus the main model provide the same function.
+Jev never chooses the chat model or its effort. A model change discards the prompt cache of the conversation, so the model stays the person's setting ([runtime.md](runtime.md)). When no judge is available (Jev is off or has no key, and no local judge is running), rules plus the main model provide the same function.
 
 Atropos reaches Jev through the judge adapter. Every judge answers in one typed shape: a closed question with its candidates goes in, and a choice with a probability for each candidate comes out. The adapter speaks to a hosted judge API, Jev by default, or to a local judge model that runs as a separate pinned process on the person's device, like the other external components ([runtime.md](runtime.md)). A local judge is trained on the person's own labeled judgments and keeps the judged text on the device. Atropos uses one judge at a time. A judge, a threshold or a change to the judgment material enters use only when it does better than the current one on the evaluation set below.
 
