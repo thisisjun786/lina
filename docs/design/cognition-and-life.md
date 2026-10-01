@@ -59,6 +59,7 @@ Moirai is the cognition engine inside LINA Core. It handles the whole agent cont
 - Atropos is the only module in the request path, which runs from the moment LINA Core receives the user's input until it sends the model request. Atropos must be light and fast.
 - For each request, Atropos assembles the ContextPacket. Its time cap, its minimum packet and the way it enters the request are defined in [conversation-and-memory.md](conversation-and-memory.md), together with the turn latency points.
 - Lachesis and Klotho run in `moirai-worker`, a background service that runs whether or not a conversation is active. The service is optional. Without it, only background memory and planning are unsupported. Its packaging is in [runtime.md](runtime.md).
+- Inside `moirai-worker`, each function of Lachesis and Klotho runs as its own background job. Each job has its own schedule, budget, on/off switch and adoption record. A job that fails, runs long or exceeds its budget stops only itself and never delays another job or the request path.
 - Data flows one way. Lachesis and Klotho publish results, and Atropos reads them. Atropos never waits on a background module during a request.
 
 ### Persona as a shared layer
@@ -81,6 +82,8 @@ Jev is an optional fast judge that only Atropos uses. Atropos uses it only for c
 - which installed worker agent takes a task, among the agents whose adapters LINA supports
 
 Jev never chooses the chat model or its effort. A model change discards the prompt cache of the conversation, so the model stays the person's setting ([runtime.md](runtime.md)). When no judge is available (Jev is off or has no key, and no local judge is running), rules plus the main model provide the same function.
+
+Atropos asks all of a turn's open closed choices in one judge call, so a turn pays the judge's latency once. When a judge takes one question per call, the judge adapter splits the call and the turn's latency budget covers all the parts.
 
 Atropos reaches Jev through the judge adapter. Every judge answers in one typed shape: a closed question with its candidates goes in, and a choice with a probability for each candidate comes out. The adapter speaks to a hosted judge API, Jev by default, or to a local judge model that runs as a separate pinned process on the person's device, like the other external components ([runtime.md](runtime.md)). A local judge is trained on the person's own labeled judgments and keeps the judged text on the device. Atropos uses one judge at a time. A judge, a threshold or a change to the judgment material enters use only when it does better than the current one on the evaluation set below.
 
@@ -114,7 +117,7 @@ Goal discovery, planning, prediction and project supervision form one project pl
 5. risk and replanning
 6. design and quality upkeep: tidying intent cards, the QA product map, and research
 
-Every step uses the built-in plan data and the intent cards ([work-and-delegation.md](work-and-delegation.md)). No step has a store of its own.
+Every step uses the built-in plan data and the intent cards ([work-and-delegation.md](work-and-delegation.md)). No step has a store of its own. Each step, like supervision, the news feed and skill suggestions, is a separate background job with its own schedule and budget.
 
 Klotho never executes. It sends requests for code work, other work, research and skill creation to the work engine, and the work engine decides whether and how they run. The one exception is project supervision, which updates its own outputs directly: the tidy-up of intent cards and the QA product map. Even then, Klotho never touches the user's intent text ([work-and-delegation.md](work-and-delegation.md)).
 
