@@ -80,7 +80,7 @@ The ledger is the original record of a conversation. Its content is erased only 
 - Each person has one main conversation, and there are any number of threads, each attached to one artifact such as a document or a goal.
 - Every thread is a conversation with the same LINA and shares the same memory. A thread is a window for dividing talk, not a memory partition.
 - When the main conversation turns to a specific artifact, LINA proposes moving to that artifact's thread.
-- Between threads, only sourced facts, decisions and materials are shared. Follow-up instructions, approvals, cancellations and control handovers are bound to the id of their target task or thread and never become permission anywhere else.
+- Between threads, sourced facts, decisions and materials are shared, and the results of a ledger search (see "Recall with evidence") read what was said in any thread, with its ledger event ids. A search result never becomes an instruction or an approval. Follow-up instructions, approvals, cancellations and control handovers are bound to the id of their target task or thread and never become permission anywhere else.
 - A conversation thread is not a work thread. Work threads belong to the work engine ([work-and-delegation.md](work-and-delegation.md)). How threads appear on screen is defined in [surfaces.md](surfaces.md).
 
 ## Turns
@@ -128,9 +128,9 @@ A request is laid out from what changes least to what changes most, so the prefi
    7. external evidence (user role, marked untrusted): worker results, sibling records such as RUMI briefs, and what plugins read
 7. **The person's current input.**
 
-- This layout is the first request of a turn. A follow-up request in the same turn, after tool results, keeps that request unchanged, apart from the plugin tools loaded on demand, and appends at its end, in ledger order, only the new reasoning items, tool calls and tool outputs and any steering input the person sent during the turn, in the user role ([runtime.md](runtime.md)). The ContextPacket is not rebuilt within a turn.
+- This layout is the first request of a turn. When no compaction runs during the turn (see Compaction and resume), a follow-up request in the same turn, after tool results, keeps that request unchanged, apart from the plugin tools loaded on demand, and appends at its end, in ledger order, only the new reasoning items, tool calls and tool outputs and any steering input the person sent during the turn, in the user role ([runtime.md](runtime.md)). The ContextPacket is not rebuilt within a turn.
 - Nothing that changes from turn to turn enters items 1 to 3 or the always-declared part of item 4. The time, the emotional state and the selected skill bodies sit in the ContextPacket. When the plugin tools loaded on demand change, the cached prefix ends at that point.
-- The ContextPacket is never written into the history. The next turn's request therefore matches the previous turn's requests up to the position where the previous ContextPacket stood.
+- The ContextPacket is never written into the history. When no compaction runs at the turn boundary, the next turn's request therefore matches the previous turn's requests up to the position where the previous ContextPacket stood.
 - When the ContextPacket exceeds its budget or Atropos' time cap, items drop from the end of the packet: external evidence first, then material passages, then memory items, each by lowest rank first. Items 6.1 to 6.4 are never dropped.
 
 ### Evidence chain
@@ -146,13 +146,15 @@ The chain from state to answer is: LINA state and preparation inputs, then the m
 
 LINA Core owns the conversation record, its compaction and its resume, because model requests keep nothing on the server ([runtime.md](runtime.md)).
 
-Compaction runs in this order:
+Compaction runs at a turn boundary, before LINA builds the turn's first request, in this order:
 
-1. Compaction starts when the request input reaches 90% of the model's context window. This is a default and is configurable.
-2. Older tool outputs are condensed first. Each keeps its place after its call, and its content becomes a one-line note of the call and its result, such as the command and its exit code or the files a patch changed. The notes are built without a model. Tool outputs of the current turn, and those within the most recent 40,000 tokens, stay.
-3. If the input still does not fit, LINA sends a summary request and keeps the most recent user messages verbatim, up to 20,000 tokens.
+1. Compaction starts when the request input would reach 90% of the model's context window. This is a default and is configurable.
+2. Older tool outputs are condensed first. Each keeps its place after its call, and its content becomes a one-line note of the call and its result, such as the command and its exit code or the files a patch changed. The notes are built without a model. Tool outputs within the most recent 40,000 tokens of the history stay.
+3. If the input still does not fit, a summary replaces the history apart from the most recent user messages, up to 20,000 tokens of them. Those messages stay verbatim after the summary; LINA's items between and after them are part of what the summary replaces.
 
-When a turn ends with its request input near the compaction threshold, LINA prepares the summary in the background after the answer is delivered. When compaction reaches step 3, LINA uses the prepared summary if the history it covers is unchanged and its revocation epoch still holds, and keeps the turns after it verbatim. LINA sends the summary request only when no prepared summary holds, and never waits for a preparation in progress. Preparing a summary changes no request: a prepared summary enters the history only when compaction runs.
+Every summary covers the range of step 3. When a turn ends with its request input near the compaction threshold, LINA prepares the summary in the background after the answer is delivered. When compaction reaches step 3, LINA uses the prepared summary if the history it covers is unchanged and its revocation epoch still holds. LINA sends a summary request only when no prepared summary holds, and never waits for a preparation in progress. Preparing a summary changes no request: a prepared summary enters the history only when compaction runs.
+
+When a follow-up request within a turn would reach the threshold, LINA compacts only the history of earlier turns, with the same steps. The person's current input, the ContextPacket and the items of the current turn stay as they are. The cached prefix ends once, where the history changes, and the turn's later follow-up requests keep the compacted request and append at its end. When the items of the current turn alone do not fit, LINA condenses the current turn's tool outputs into one-line notes as in step 2, oldest first, and keeps the most recent tool output as it is.
 
 Compaction is recorded as a ledger event. It never deletes the original events, and a summary is not canon.
 
@@ -162,7 +164,7 @@ The summary holds, in fixed sections, the person's requests that are still unans
 
 A compaction after an earlier one updates the earlier summary with the turns since then, unless that summary must be rebuilt because of a retraction. The summary is written in the language of the conversation and states completed actions as dated past facts.
 
-Compaction applies only to the history of earlier turns. The persona layers, commitments, decisions, the reasons for corrections and the ContextPacket are assembled for every turn, so they are never compacted and survive every compaction.
+Apart from the current turn's tool outputs in the case above, compaction changes only the history of earlier turns. The persona layers, commitments, decisions, the reasons for corrections and the ContextPacket are assembled for every turn, so they are never compacted and survive every compaction.
 
 Retracted evidence never returns through a summary. Each summary records its input range and the revocation epoch it was built at. A summary whose input includes evidence retracted after that epoch is discarded and rebuilt.
 
@@ -196,6 +198,7 @@ The persona has four fixed layers, applied in this order: core, default voice, u
 ### Changing the persona
 
 - The person changes the persona by asking LINA, not by editing settings. The persona-change skill carries the procedure, and its result is a new persona revision.
+- How LINA talks, when the person sets it directly, goes into the user voice layer through the persona-change skill. A preference that shows in conversation is a Preference memory item and reaches the request as a standing preference in item 6.2 (see Request layout). Each preference is held in only one of the two.
 - LINA's disposition changes only through the growth adoption procedure in [cognition-and-life.md](cognition-and-life.md).
 
 ### Emotion
@@ -337,7 +340,7 @@ A restore never brings back a retracted or deleted item, or deleted conversation
 - The exact front matter keys of `SKILL.md`: set by the implementation issue that ships the first conversation product.
 - Emotion names, values and decay rates: set by measurement during development and recorded in the implementation issue.
 - The ContextPacket assembly time cap: set by latency measurement during implementation acceptance of the conversation engine.
-- The share of the ContextPacket budget that standing preferences take: set by latency measurement together with the assembly time cap.
+- The size that standing preferences reach in item 6.2: measured together with the assembly time cap.
 - How near the compaction threshold a turn's request input must be before LINA prepares a summary: set by measurement during implementation acceptance of the conversation engine.
 - The full-text tokenizer that finds Korean words, and its fallback: chosen by the implementation issue that brings memory recall into answers.
 - The retention period for raw model request bodies beyond the recorded request hash and assembly list: set during implementation acceptance of the conversation engine.

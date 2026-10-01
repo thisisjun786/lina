@@ -102,7 +102,7 @@ RUMI keeps a person's knowledge as plain Markdown in a Git repository the person
 | `notebooks/<name>.md` | One notebook: a scope over sources and notes, not a copy | The person, RUMI | Reads as a notebook collection |
 | `sources/<rumi_id>/` | A source card and its captured original | RUMI | Reads |
 | `inbox/` | Everything LINA hands to RUMI | LINA, new files only | Writes new files |
-| `.rumi/manifest.json` | The vault id, the vault format version and RUMI's declaration ([host-protocol.md](host-protocol.md)) | RUMI | Reads for the version check |
+| `.rumi/manifest.json` | The vault fields (the vault id, the vault format version and the RUMI version that last wrote the vault) and, once RUMI supports the link with LINA, RUMI's declaration ([host-protocol.md](host-protocol.md)) | RUMI | Reads for the version check |
 | `.rumi/inputs/` | Envelopes from LINA to RUMI | LINA | Writes |
 | `.rumi/records/` | Envelopes from RUMI to LINA | RUMI | Reads and verifies |
 | `.rumi/proposals/` | RUMI's organizing proposals | RUMI | Never writes |
@@ -130,14 +130,14 @@ The screens for these actions are defined in [surfaces.md](surfaces.md).
 
 LINA writes to a vault only in its mailbox and, within grant, in existing notes. It never writes `notebooks/`, `sources/`, `.rumi/manifest.json`, `.rumi/records/`, `.rumi/proposals/`, `.rumi/index/` or `.rumi/local/`.
 
-- `inbox/` receives meeting notes, answers saved from a conversation and library files. Each one is a new file. Its front matter names the LINA asset id and revision, the sender, the time it was made, the target notebook when one was chosen, the conversation or meeting it came from, and the passage anchors of its citations. A non-text file goes in with a Markdown companion that carries the front matter. The exact keys belong to the vault format in [rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md). LINA never overwrites or deletes a file in `inbox/`. RUMI files each item as a note or a source card: an item with no target notebook goes where the vault's inbox rules put it, and a non-text file with its companion becomes one source card.
+- `inbox/` receives meeting notes, answers saved from a conversation and library files. Each one is a new file. Its front matter names the LINA asset id and revision, the sender, where it came from (the conversation, meeting or library item), the time it was made, the target notebook when one was chosen, and the passage anchors of its citations. A non-text file goes in with a Markdown companion that carries the front matter. The exact keys belong to the vault format in [rumi.md](https://github.com/thisisjun786/rumi/blob/dev/docs/design/rumi.md). LINA never overwrites or deletes a file in `inbox/`. RUMI files each item as a note or a source card: an item with no target notebook goes where the vault's inbox rules put it, and a non-text file with its companion becomes one source card.
 - `.rumi/inputs/` receives the three input kinds of [host-protocol.md](host-protocol.md). LINA writes a `focus` input when its judgment of what matters now changes, a `request` input when it hands research to RUMI (see "Research through RUMI"), and a `source_deleted` input when it permanently deletes a LINA material it had handed to the vault. RUMI treats them as input, for example to rank its digest or to start a brief.
 - Every mailbox write is one commit that contains only the files it adds, with the author settings of Ownership. It is an effect under a grant, recorded with an idempotency key. If the outcome is unknown, LINA looks for the commit in the vault before anything else and never writes again blindly. Effect states are defined in [host-protocol.md](host-protocol.md).
 - The vault owns what LINA puts there. LINA's later deletion of the original doesn't remove the vault copy (see Deletion propagation).
 
 ### RUMI records
 
-RUMI reports to LINA only through `.rumi/records/`. There are six record kinds: add, merge, split, mark, delete and brief. Each record is an envelope with a RUMI payload ([host-protocol.md](host-protocol.md)) that names the commit which made the change.
+RUMI reports to LINA only through `.rumi/records/`. There are six record kinds: add, merge, split, mark, delete and brief. Each record is an envelope with a RUMI payload ([host-protocol.md](host-protocol.md)) that names a commit: the commit which made the change, or, for a `refused` or `failed` result, the commit that added the input it answers.
 
 LINA accepts a record only after all of these checks pass:
 
@@ -159,7 +159,7 @@ An accepted record is a sibling record: external evidence with provenance (vault
 | delete | Applies the deletion rules below |
 | brief | Links the brief to its request and to the conversation or task that asked for it, and shows it as a RUMI card (see "Research through RUMI") |
 
-Every item LINA puts in `inbox/` and every `request` gets exactly one result record from RUMI ([host-protocol.md](host-protocol.md)). A `refused` or `failed` record is taken with the same checks, and LINA shows its cause where the input came from.
+Every item LINA puts in `inbox/` and every `request` gets exactly one result record from RUMI, an `add` or a `brief` ([host-protocol.md](host-protocol.md)). A `refused` or `failed` result carries no content and is taken with the same checks: the commit it names and the path of its input must match. LINA shows its cause where the input came from.
 
 LINA is the only speaker in a LINA conversation. RUMI's results appear only as labeled RUMI cards, and LINA never re-voices them, as [product-families.md](product-families.md) requires. RUMI's digest reaches LINA through the `add` record RUMI writes for the digest note; LINA takes it like any record and shows the digest as a RUMI card in the today feed ([surfaces.md](surfaces.md)).
 
