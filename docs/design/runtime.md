@@ -158,13 +158,13 @@ A regression test compares LINA's requests with a baseline: the request that Cod
 
 ## Non-chat adapters
 
-The Jev judge, embedding and transcription each have their own adapter outside opencodex. Their keys, billing and failure diagnosis are separate from opencodex, and none of them appears in the chat model list, the catalog or automatic routing. Jev is called only through its own typed adapter.
+The Jev judge, embedding and transcription each have their own adapter outside opencodex. Their keys, billing and failure diagnosis are separate from opencodex, and none of them appears in the chat model list, the catalog or automatic routing. Jev is called only through its own typed adapter, the judge adapter, which speaks to a hosted judge API (Jev by default) or to a local judge process ([cognition-and-life.md](cognition-and-life.md)).
 
 None of them blocks basic conversation:
 
 - When embedding is off or failing, recall keeps working at lower quality, as defined in [conversation-and-memory.md](conversation-and-memory.md).
 - Transcription defaults to a local transcription component pinned in the release, which needs no key and no setting. An external transcription API is optional, and the transcription adapter is that optional path. With no transcription at all, only recording-to-meeting-notes is unsupported.
-- When Jev is off or has no key, rules and the main model produce the same function ([cognition-and-life.md](cognition-and-life.md)).
+- When no judge is available (Jev is off or has no key, and no local judge is running), rules and the main model produce the same function ([cognition-and-life.md](cognition-and-life.md)).
 
 Each adapter reports its connection state, key presence and usage to settings. An adapter that is off reports its state and is never required at first run.
 
