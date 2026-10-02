@@ -29,7 +29,7 @@ This contract does not cover:
 
 The base product is basic conversation. It is LINA Core with Atropos' minimum turn preparation and Lachesis' minimum memory, and it keeps working whatever else is missing.
 
-Product cognition features are on by default: Atropos' context selection, Lachesis' memory and recall, Jev, each Klotho function and skill suggestions. Each one:
+Product cognition features are on by default: Atropos' context selection, Lachesis' memory and recall (including the person brief), Jev, each Klotho function and skill suggestions. Each one:
 
 - never blocks basic conversation. If it is missing or failing, conversation continues and only that feature is unsupported.
 - can be turned off on its own.
@@ -49,8 +49,8 @@ Moirai is the cognition engine inside LINA Core. It handles the whole agent cont
 
 | Module | Time | Does | Runs in |
 | --- | --- | --- | --- |
-| Lachesis | Past: what has built up | The memory engine (facts and preferences, recall, corrections and deletions), the material index and derived materials, growth candidates, prepared judgment material | Background |
-| Atropos | Present: what to do now | Context assembly and judgment for each turn: the intent of this request, which memories and materials to include, compression and budget, tracking commitments and task state. Jev lives here. | Request path |
+| Lachesis | Past: what has built up | The memory engine (facts and preferences, recall, corrections and deletions), the person brief, the material index and derived materials, growth candidates, prepared judgment material | Background |
+| Atropos | Present: what to do now | Context assembly and judgment for each turn: the intent of this request, a time-capped recall query on the current input, which memories and materials to include, compression and budget, tracking commitments and task state. Jev lives here. | Request path |
 | Klotho | Future: what will come | Planning, next-action candidates, predictions with verification candidates, replanning, goal discovery, project supervision, skill suggestions, the news feed | Background |
 
 ### Shared canon
@@ -65,7 +65,7 @@ Moirai is the cognition engine inside LINA Core. It handles the whole agent cont
 - For each turn, Atropos assembles the ContextPacket. Its time cap, its minimum packet and the way it enters the request are defined in [conversation-and-memory.md](conversation-and-memory.md), together with the turn latency points.
 - Lachesis and Klotho run in `moirai-worker`, a background service that runs whether or not a conversation is active. The service is optional. Without it, only background memory and planning are unsupported. Its packaging is in [runtime.md](runtime.md).
 - Inside `moirai-worker`, each function of Lachesis and Klotho runs as its own background job. Each job has its own schedule, budget, on/off switch and adoption record. A job that fails, runs long or exceeds its budget stops only itself and never delays another job or the request path.
-- Data flows one way. Lachesis and Klotho publish results, and Atropos reads them. Atropos never waits on a background module during a request.
+- Data flows one way. Lachesis and Klotho publish results, and Atropos reads them. Atropos never waits on a background module during a request. Its own query on the current input reads the memory index within its time cap ([conversation-and-memory.md](conversation-and-memory.md)).
 
 ### Persona as a shared layer
 
