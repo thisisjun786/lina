@@ -112,6 +112,7 @@ Retries and failover have one owner: LINA Core. The loop core and the SDK never 
 Conversation quality follows patterns from Hermes Agent (Nous Research):
 
 - the person's standing preferences in every turn
+- a brief about the person, synthesized from memory after each answer and used in the next turn
 - memory written as statements, never as instructions to LINA
 - memory review in the background, outside the request path
 - a tool that searches past conversations
@@ -120,7 +121,7 @@ Conversation quality follows patterns from Hermes Agent (Nous Research):
 - full-text search that finds Korean words
 - a tool that reads a skill body the turn did not receive
 
-Where each applies is defined in [conversation-and-memory.md](conversation-and-memory.md). Recall is prepared outside the request path, and a compaction summary is prepared before the request that needs it; only an in-turn compaction that must also cover the earlier verbatim tail, and a continuation turn, build their summary when they need it.
+Where each applies is defined in [conversation-and-memory.md](conversation-and-memory.md). Recall is prepared outside the request path, apart from a time-capped query on the person's current input, and a compaction summary, written with the conversation model, is prepared before the request that needs it; only an in-turn compaction that must also cover the earlier verbatim tail, and a continuation turn, build their summary when they need it.
 
 The conversation ledger, turn preparation (including the executable hash and opencodex readiness checks), request assembly, persona injection, compaction and resume are defined in [conversation-and-memory.md](conversation-and-memory.md).
 
