@@ -151,6 +151,9 @@ func eventValue(e ledger.Event) Event {
 // visible gates original sources before reading content. Forgotten evidence and
 // copies follow canon's existing revocation projection; scope is checked across
 // holders so a common copy cannot launder a private source into an export.
+// sourceRestriction uses the shared citation ancestry, so a replay copy, a
+// view, or an event reached through an intermediate memory is refused once
+// any event in that chain is private or never-leaves evidence.
 func visible(ctx context.Context, tx *canon.Tx, scope Scope, id string) error {
 	if err := sourceRestriction(ctx, tx, scope, "event", id); err != nil {
 		return err
