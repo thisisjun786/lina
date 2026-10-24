@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -23,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/thisisjun786/lina/e2e/fixture"
 	"github.com/thisisjun786/lina/internal/core/canon"
 	"github.com/thisisjun786/lina/internal/core/install"
 	"github.com/thisisjun786/lina/internal/core/work"
@@ -34,9 +34,7 @@ import (
 // This scenario launches the real Core command. Only the model, ACP agent and
 // GitHub boundary are synthetic; dispatch, worktrees, commits and cards are real.
 func TestACPTypedFailuresThroughRunningCore(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("installed worker capacity requires Linux host sampling")
-	}
+	fixture.RequireLoadavgFixture(t)
 	bwrap, err := exec.LookPath("bwrap")
 	if err != nil {
 		t.Fatal("worker load fixture requires bubblewrap:", err)
