@@ -128,6 +128,9 @@ func TestReplayInvalidCaseReasons(t *testing.T) {
 		},
 		"duplicate declaration": func(c map[string]any) { v := c["declared_tools"].([]any); c["declared_tools"] = append(v, v[0]) },
 		"null call":             func(c map[string]any) { c["turn"].(map[string]any)["tool_calls"] = []any{nil} },
+		"null text":             func(c map[string]any) { c["turn"].(map[string]any)["text"] = []any{nil} },
+		"null thinking":         func(c map[string]any) { c["turn"].(map[string]any)["thinking"] = []any{nil} },
+		"null delta":            func(c map[string]any) { c["turn"].(map[string]any)["delta_timestamps_ms"] = []any{nil} },
 	}
 	for name, change := range changes {
 		t.Run(name, func(t *testing.T) {
