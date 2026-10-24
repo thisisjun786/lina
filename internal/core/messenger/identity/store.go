@@ -955,6 +955,17 @@ func (s *Store) Confirm(ctx context.Context, id Identity, record, words string) 
 				}
 			}
 		}
+		// A sender with no link yet, such as one whose phone two records list,
+		// still has its observed identifiers; a later move must end this link.
+		stored, err := s.identifiersTx(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		for _, identifier := range stored {
+			if identifier.Kind == Phone || identifier.Kind == Email {
+				signals = appendSignal(signals, Signal{Kind: string(identifier.Kind), Source: identifier.Source, Value: identifier.Value})
+			}
+		}
 		if chosen == nil {
 			if err := s.insertLink(ctx, tx, id, record, Confirmed, s.person, at, from, signals); err != nil {
 				return err
@@ -1424,6 +1435,19 @@ func (s *Store) UndoMerge(ctx context.Context, merge string) error {
 			return err
 		}
 		for _, item := range items {
+			// A forgotten, erased or since-moved item is no longer where the
+			// merge put it, and stays where it is.
+			var state, subject string
+			err := tx.QueryRowContext(ctx, "SELECT state,subject_id FROM memory_item WHERE id=? AND person=?", item.item, s.person).Scan(&state, &subject)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if state != string(memory.Active) || subject != into {
+				continue
+			}
 			if _, err := memory.ReassignSubject(ctx, tx, s.person, item.item, into, item.record); err != nil {
 				return err
 			}

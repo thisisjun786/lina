@@ -91,7 +91,7 @@ validity covers the time asked about: a confirmed phone or email link ends when
 the identifier moves, exactly as an exact one does. `Confirm` and `Correct` keep
 the cutoff a move recorded — the answer settles the record, not how long the
 identifier was theirs — so answering again brings nothing back that the move
-retracted. Ambiguity is derived from all observed identifiers within the link window, never stored. Ending a window preserves unresolved conflicts within it; disjoint links do not conflict. Confirmation of a rejected or removed link reactivates the existing record without erasing its bounds. A new confirmed destination inherits the known bounds and identifier signals.
+retracted. Ambiguity is derived from all observed identifiers within the link window, never stored. Ending a window preserves unresolved conflicts within it; disjoint links do not conflict. Confirmation of a rejected or removed link reactivates the existing record without erasing its bounds. A new confirmed destination inherits the known bounds and identifier signals, and the identity's observed phones and emails, so a sender confirmed without any link still ends its link when one of them moves.
 
 ## Person actions and repair
 
@@ -103,6 +103,8 @@ the old link produced and requeues that identity.
 
 `Merge` records both record ids, moves the links and the items of the first
 record to the second, and `UndoMerge` puts each back on the record it came from.
+An item forgotten, erased or moved to another record since the merge is left
+where it is.
 `Split` moves the identities the person chooses and the items their evidence
 produced; an item cited by two of the chosen identities moves once. Item moves run through `memory.ReassignSubject` in the same
 transaction, so an item keeps its evidence, holder and scope.

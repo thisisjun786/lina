@@ -124,9 +124,17 @@ func usable(t *testing.T, f *fixture, id identity.Identity) []identity.Link {
 
 func (f *fixture) item(t *testing.T, subject, content string) memory.Item {
 	t.Helper()
+	return f.itemIn(t, "native:agent", subject, content)
+}
+
+// itemIn writes an item whose evidence is in the given conversation. Forgetting
+// an item blocks its evidence conversation, so separate conversations keep one
+// forgotten item from freezing the others.
+func (f *fixture) itemIn(t *testing.T, conversation, subject, content string) memory.Item {
+	t.Helper()
 	event := "event-" + content
 	if _, err := f.events.Admit(t.Context(), guard.EntryOwner, ledger.Input{
-		ID: event, ConversationID: "native:agent", AgentID: "agent", PersonID: "person",
+		ID: event, ConversationID: conversation, AgentID: "agent", PersonID: "person",
 		Surface: ledger.Surface{Kind: "tui"}, OccurredAt: f.now, RecordedAt: f.now,
 		TimeQuality: "recorded", Body: content, Locator: event,
 	}); err != nil {
@@ -575,6 +583,46 @@ func TestConfirmedLinkIsUnusableAfterTheNumberMoves(t *testing.T) {
 	}
 }
 
+// TestConfirmKeepsTheObservedIdentifiersOfAnUnlinkedSender proves confirming a
+// sender that had no link, because its phone matches two records, keeps the
+// stored phone on the confirmed link, so a later move of the number ends it.
+func TestConfirmKeepsTheObservedIdentifiersOfAnUnlinkedSender(t *testing.T) {
+	t.Parallel()
+	const number = "+821055550001"
+	people := identity.StaticPeople{
+		{Record: "person-parent", Identifiers: []identity.SeenIdentifier{{Kind: identity.Phone, Value: number, Source: "family card"}}},
+		{Record: "person-child", Identifiers: []identity.SeenIdentifier{{Kind: identity.Phone, Value: number, Source: "family card"}}},
+	}
+	f := newFixture(t, people)
+	jan := time.Date(2026, 1, 10, 9, 0, 0, 0, time.UTC)
+	feb := time.Date(2026, 2, 10, 9, 0, 0, 0, time.UTC)
+	may := time.Date(2026, 5, 10, 9, 0, 0, 0, time.UTC)
+	f.now = jan
+	observe(t, f, discord("d-family"), "Family", phone(number, "Discord profile"))
+	if got := links(t, f, discord("d-family")); len(got) != 0 {
+		t.Fatalf("links = %+v, want none for a shared phone", got)
+	}
+	confirmed, err := f.store.Confirm(t.Context(), discord("d-family"), "person-parent", "that is my parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := false
+	for _, signal := range confirmed.Signals {
+		if signal.Kind == identity.SignalPhone && signal.Value == number && signal.Source == "Discord profile" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatalf("signals = %+v, want the observed phone", confirmed.Signals)
+	}
+	f.now = may
+	observeAt(t, f, imessage(number), feb, "Someone else", phone(number, "iMessage profile"))
+	got := links(t, f, discord("d-family"))
+	if len(got) != 1 || !got[0].ValidThrough.Equal(feb) {
+		t.Fatalf("links = %+v, want the confirmed link ended at the February move", got)
+	}
+}
+
 // TestConfirmKeepsTheRecordedCutoff pins the other half of the same rule: the
 // person's answer settles which record the identity is, not how long the
 // identifier was theirs. Confirming a link whose number already moved must keep
@@ -988,6 +1036,44 @@ func TestMergeThenUndoRestoresLinksAndItems(t *testing.T) {
 	}
 	if state != "undone" {
 		t.Fatalf("merge state = %q", state)
+	}
+}
+
+// TestUndoMergeAfterAMovedItemIsForgotten proves a merge can be undone after
+// the person forgot an item it moved: the links go back and the forgotten item
+// is left alone.
+func TestUndoMergeAfterAMovedItemIsForgotten(t *testing.T) {
+	t.Parallel()
+	people := identity.StaticPeople{
+		{Record: "person-a", Names: []string{"Anna Kim"}, Identifiers: []identity.SeenIdentifier{{Kind: identity.Phone, Value: "+821012340001", Source: "iMessage profile"}}},
+		{Record: "person-b", Names: []string{"Anna K."}},
+	}
+	f := newFixture(t, people)
+	f.now = at(9)
+	observe(t, f, imessage("+821012340001"), "Anna", phone("+821012340001", "iMessage profile"))
+	if len(usable(t, f, imessage("+821012340001"))) != 1 {
+		t.Fatal("the identity did not link")
+	}
+	forgotten := f.itemIn(t, "native:forgotten", "person-a", "forgotten later")
+	kept := f.itemIn(t, "native:kept", "person-a", "kept")
+	merge, err := f.store.Merge(t.Context(), "person-a", "person-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.removal.Forget(t.Context(), retract.Request{Person: "person", Targets: []retract.Ref{{Kind: retract.Memory, ID: forgotten.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.UndoMerge(t.Context(), merge); err != nil {
+		t.Fatal(err)
+	}
+	if got := links(t, f, imessage("+821012340001")); len(got) != 1 || got[0].Record != "person-a" {
+		t.Fatalf("restored link = %+v", got)
+	}
+	if subject(t, f, kept.ID) != "person-a" {
+		t.Fatal("undo did not put the kept item back")
+	}
+	if visible(t, f, forgotten.ID) {
+		t.Fatal("undo brought a forgotten item back")
 	}
 }
 
