@@ -147,8 +147,8 @@ func (m Measures) WrongRateBound() float64 {
 // below one percent.
 const OwnerSampleTrials = 300
 
-// Gate reports the synthetic gate: no wrong usable link and every planted
-// ambiguity flagged and moved-identifier window rejected. An owner sample uses OwnerGate.
+// Gate reports the synthetic gate: no wrong usable link, every planted
+// ambiguity flagged, and every moved-identifier window rejected. An owner sample uses OwnerGate.
 func (m Measures) Gate() bool {
 	return m.WrongLinks == 0 && m.AmbiguitiesFlagged == m.Ambiguities && m.WindowsRejected == m.Windows
 }

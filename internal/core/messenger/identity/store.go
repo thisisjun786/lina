@@ -717,9 +717,13 @@ func (s *Store) endValidity(ctx context.Context, tx *canon.Tx, links []Link, ide
 // evidence time cannot be placed in the window and is left alone.
 func (s *Store) citingItemsBetween(ctx context.Context, tx *canon.Tx, linkID string, from, through time.Time) ([]string, error) {
 	// An item cites the link either as an artifact it produced or as external
-	// evidence, and both are retracted when the window becomes invalid.
-	rows, err := tx.QueryContext(ctx, `SELECT m.id, m.record FROM retract_visible_memory m
-WHERE m.person=? AND m.id IN (
+	// evidence, and both are retracted when the window becomes invalid. A row
+	// hidden only because an ancestor was forgotten is still in the window.
+	// An item already retracted on its own is left as it is.
+	rows, err := tx.QueryContext(ctx, `SELECT m.id, m.record FROM memory_item m
+WHERE m.person=? AND m.state='active'
+AND NOT EXISTS(SELECT 1 FROM retract_target r WHERE r.kind='memory' AND r.id=m.id AND r.state<>'active')
+AND m.id IN (
   SELECT id FROM identity_artifact WHERE link=? AND kind='item'
   UNION
   SELECT view_id FROM cite WHERE view_kind='memory' AND target_kind='external' AND target_id=? AND dropped_revision IS NULL)`,
@@ -1298,9 +1302,6 @@ func (s *Store) commitRepair(ctx context.Context, mutate func(*canon.Tx) ([]stri
 				return err
 			}
 			if len(items) > 0 {
-				if s.removals == nil {
-					return ErrInvalid
-				}
 				var intent repairIntent
 				if err := json.Unmarshal(raw, &intent); err != nil {
 					return err

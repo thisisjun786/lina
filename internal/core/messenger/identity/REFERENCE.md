@@ -36,7 +36,8 @@ The same identity seen in two chats or two sources is one identity. Every
 admission of a person's or an external participant's record observes the author
 inside the page's transaction (`messenger.Store.WithIdentities`); bots and
 platform notices are not observed. The person's own account (`Self`) is recorded
-so it is known, and is never linked as another person.
+so it is known, and is never linked as another person. A later observation that
+omits the mark does not change it.
 
 Core composes one identity store per conversation and gives it to every reader
 it starts: the messenger sync loop, the built-in Teams service and the built-in
@@ -131,11 +132,13 @@ list, so a restored generation finishes the same line. The backup
 package does not import the identity store.
 
 Migration 79 adds `identity_repair` for items invalidated by a moved validity
-end and for removal paths that cannot share Core's writer. Pending item ids
+end and for removal paths that cannot share Core's writer, including a missing
+removal handler. Pending item ids
 commit with the link change; `Rematch` drains these
 repairs before matching at startup and on scheduled passes. Failed delivery
 stays pending, and already-hidden or deleted items are acknowledged without
-a duplicate `Forget` transition.
+a duplicate `Forget` transition. An unavailable removal handler returns an error
+after the intent commits, so a later retry can finish delivery.
 
 A repair leaves one row per identity in `identity_requeue`, from the source's
 learning watermark or, without one, the identity's first sighting. Extraction
@@ -162,8 +165,8 @@ inside the contact section is refused rather than guessed at.
 ## Evaluation
 
 `testdata/identity/synthetic.json` holds the hard cases; `lina identity-eval`
-runs it and prints the measures. The synthetic gate is no wrong usable link and
-every planted ambiguity. `--private <dir>` runs the owner's labelled export and
+runs it and prints the measures. The synthetic gate is no wrong usable link,
+every planted ambiguity, and every moved-identifier window. `--private <dir>` runs the owner's labelled export and
 writes `counts.json` with counts and rates only. Its `gate` is the owner-sample
 gate: the synthetic conditions plus at least 300 usable links. Each sender
 identity counts once, so repeated observations of one sender are one trial. A shorter sample

@@ -1191,7 +1191,7 @@ func (r stopRemovals) ForgetDuring(ctx context.Context, _ string, mutate func(*c
 
 func TestRepairDoesNotKeepALinkChangeWhenRetractionStops(t *testing.T) {
 	t.Parallel()
-	for _, act := range []string{"remove", "correct", "confirm", "no removal path"} {
+	for _, act := range []string{"remove", "correct", "confirm"} {
 		t.Run(act, func(t *testing.T) {
 			t.Parallel()
 			people := identity.StaticPeople{
@@ -1210,13 +1210,10 @@ func TestRepairDoesNotKeepALinkChangeWhenRetractionStops(t *testing.T) {
 				t.Fatal(err)
 			}
 			var removals identity.Removals = stopRemovals{db: f.db}
-			if act == "no removal path" {
-				removals = nil
-			}
 			f.store = identity.Open(f.db, "person", people, removals).WithClock(func() time.Time { return f.now })
 			var err error
 			switch act {
-			case "remove", "no removal path":
+			case "remove":
 				_, err = f.store.Remove(t.Context(), before[0].ID)
 			case "correct":
 				_, err = f.store.Correct(t.Context(), before[0].ID, "person-right")
@@ -1232,6 +1229,92 @@ func TestRepairDoesNotKeepALinkChangeWhenRetractionStops(t *testing.T) {
 			}
 			if !visible(t, f, item.ID) {
 				t.Fatal("the item was hidden without a committed repair")
+			}
+		})
+	}
+}
+
+// queuedStopRemovals records that delivery was attempted and stopped. The link
+// change and its repair intent stay; a later recovery delivers the retraction.
+type queuedStopRemovals struct{}
+
+func (queuedStopRemovals) Forget(context.Context, retract.Request) error {
+	return errors.New("removal stopped")
+}
+
+func TestRepairKeepsIntentWhenRetractionStops(t *testing.T) {
+	t.Parallel()
+	for _, act := range []string{"remove", "correct", "confirm", "no removal path"} {
+		t.Run(act, func(t *testing.T) {
+			t.Parallel()
+			people := identity.StaticPeople{
+				{Record: "person-wrong", Identifiers: []identity.SeenIdentifier{{Kind: identity.Phone, Value: "+821012340001", Source: "Discord profile"}}},
+				{Record: "person-right"},
+			}
+			f := newFixture(t, people)
+			f.now = at(9)
+			observe(t, f, discord("d-repair"), "Someone", phone("+821012340001", "Discord profile"))
+			before := usable(t, f, discord("d-repair"))
+			if len(before) != 1 || before[0].Record != "person-wrong" {
+				t.Fatalf("exact link = %+v", before)
+			}
+			item := f.item(t, "person-wrong", "repair pending "+act)
+			if err := f.store.RecordArtifact(t.Context(), before[0].ID, "item", item.ID); err != nil {
+				t.Fatal(err)
+			}
+			var removals identity.Removals = queuedStopRemovals{}
+			if act == "no removal path" {
+				removals = nil
+			}
+			f.store = identity.Open(f.db, "person", people, removals).WithClock(func() time.Time { return f.now })
+			var err error
+			switch act {
+			case "remove", "no removal path":
+				_, err = f.store.Remove(t.Context(), before[0].ID)
+			case "correct":
+				_, err = f.store.Correct(t.Context(), before[0].ID, "person-right")
+			case "confirm":
+				_, err = f.store.Confirm(t.Context(), discord("d-repair"), "person-right", "that one")
+			}
+			if act == "no removal path" {
+				if !errors.Is(err, identity.ErrInvalid) {
+					t.Fatalf("error = %v, want ErrInvalid", err)
+				}
+			} else if err == nil || err.Error() != "removal stopped" {
+				t.Fatalf("error = %v, want the stopped removal", err)
+			}
+			got := links(t, f, discord("d-repair"))
+			switch act {
+			case "remove", "no removal path":
+				if len(got) != 1 || got[0].Record != "person-wrong" || got[0].State != identity.Removed {
+					t.Fatalf("removed link = %+v", got)
+				}
+			case "correct":
+				if len(got) != 1 || got[0].Record != "person-right" || got[0].Class != identity.Confirmed || got[0].State != identity.Active {
+					t.Fatalf("corrected link = %+v", got)
+				}
+			case "confirm":
+				var confirmed bool
+				for _, link := range got {
+					if link.Record == "person-right" && link.Class == identity.Confirmed && link.State == identity.Active {
+						confirmed = true
+					}
+				}
+				if !confirmed {
+					t.Fatalf("confirmed links = %+v", got)
+				}
+			}
+			if !visible(t, f, item.ID) {
+				t.Fatal("a stopped removal hid the item")
+			}
+			var pending int
+			if err := f.db.Read(t.Context(), func(tx *canon.Tx) error {
+				return tx.QueryRowContext(t.Context(), "SELECT count(*) FROM identity_repair WHERE item=?", item.ID).Scan(&pending)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if pending != 1 {
+				t.Fatalf("pending repairs = %d, want the item still queued", pending)
 			}
 		})
 	}

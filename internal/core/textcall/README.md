@@ -21,9 +21,13 @@ child tags, `function_calls`/`invoke`, `antml:` invocations and wrappers, and
 without invented separators; thinking blocks never enter detection.
 
 A call starts on its own visible line, optionally after prose or a thinking block.
-Fenced and indented code, block quotes, diff lines and thinking markup are ignored.
-A complete call followed by explanatory prose is not a terminal call. The parser
-does not infer a call from an inline mention of its syntax.
+Fenced and indented code, inline code spans, block quotes, diff lines and thinking
+markup are ignored. A line opening with three or more backticks is a fence only
+when the rest of that line contains no backtick; a same-line closing sequence is
+an inline span. A span counts only when a closer of the same length exists, so an
+unclosed backtick run stays literal. A complete call followed by explanatory prose
+is not a terminal call. The parser does not infer a call from an inline mention
+of its syntax.
 
 The exact declared name wins. Otherwise exactly one leading underscore may be
 removed if that result is declared. Duplicate declarations, duplicate JSON keys,
@@ -61,8 +65,8 @@ Each UTF-8 JSONL line has these required fields:
 | `declared_tools` | Array of `{ "name": "bash", "schema": { "type": "object" } }` |
 | `turn.stop_reason` | Nonempty stop reason; only the terminal reasons above permit recovery |
 | `turn.tool_calls` | Array of structured `{ "name": "...", "arguments": { ... } }` objects; additional provider fields may be retained |
-| `turn.text`, `turn.thinking` | Arrays of text blocks in wire order |
-| `turn.delta_timestamps_ms` | Nonnegative, nondecreasing elapsed millisecond offsets; an empty array means no recorded deltas |
+| `turn.text`, `turn.thinking` | Arrays of strings in wire order; a null or non-string element is invalid |
+| `turn.delta_timestamps_ms` | Nonnegative, nondecreasing elapsed millisecond offsets; an empty array means no recorded deltas; a null or non-number element is invalid |
 | `gold.detected` | Boolean |
 | `gold.action` | One of the three actions |
 | `gold.parsed_call` | Required only for dispatch: canonical declared `name` and object `arguments` |
