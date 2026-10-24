@@ -163,6 +163,40 @@ func TestQuestionPromptsValidateTypedValuesAndNeverApprove(t *testing.T) {
 	}
 }
 
+// An answer that does not match the form schema never reaches Core. The card
+// stays open with the draft, and the notice names the field whose value failed.
+func TestInvalidQuestionChoiceKeepsDraftAndNamesTheField(t *testing.T) {
+	c := approvalCard()
+	c.Kind = protocol.KindQuestion
+	c.Choices = nil
+	choices := []string{"North orchard", "South orchard"}
+	c.Form = &protocol.QuestionForm{PluginName: "LINA", Fields: []protocol.FormField{{Name: "answer", Type: protocol.FormFieldTypeChoice, Choices: &choices}}}
+	s, _ := Reduce(State{Epoch: "1"}, PutCard{Card: c})
+	s, _ = Reduce(s, OpenCard{ID: c.ID})
+	s, _ = Reduce(s, EditQuestionField{Name: "answer", Value: "1"})
+	s, cmds := Reduce(s, AnswerQuestion{Action: protocol.QuestionAnswerActionAccept})
+	if len(cmds) != 0 {
+		t.Fatal("invalid choice was sent")
+	}
+	if s.Cards[0].Outcome != "" || s.CardView.Pending {
+		t.Fatal("invalid choice settled the card")
+	}
+	if s.CardView.Fields["answer"] != "1" {
+		t.Fatal("invalid draft was cleared")
+	}
+	if s.CardView.Notice != "card.form_invalid" || s.CardView.NoticeField != "answer" {
+		t.Fatalf("notice=%q field=%q", s.CardView.Notice, s.CardView.NoticeField)
+	}
+	s, _ = Reduce(s, EditQuestionField{Name: "answer", Value: "North orchard"})
+	if s.CardView.Notice != "" || s.CardView.NoticeField != "" {
+		t.Fatal("correction did not clear the notice")
+	}
+	_, cmds = Reduce(s, AnswerQuestion{Action: protocol.QuestionAnswerActionAccept})
+	if len(cmds) != 1 {
+		t.Fatal("corrected choice was not sent")
+	}
+}
+
 func TestReconnectRequiresFreshSelectionWithoutReplayingAnswer(t *testing.T) {
 	s, _ := Reduce(State{Epoch: "1"}, PutCard{Card: approvalCard()})
 	s, _ = Reduce(s, OpenCard{ID: "approval"})
