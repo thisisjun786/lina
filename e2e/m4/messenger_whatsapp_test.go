@@ -113,9 +113,11 @@ func TestM4WhatsAppHistoryAndLiveSurviveARestart(t *testing.T) {
 	if got := readString(t, root, `SELECT chat FROM messenger_record WHERE message='l-2'`); got != whatsappPeer {
 		t.Fatalf("live record chat = %q", got)
 	}
-	if got := readString(t, root, `SELECT state FROM messenger_source WHERE platform='whatsapp' AND account='account-1'`); got != "connected" {
-		t.Fatalf("source state = %q", got)
-	}
+	// The records commit before the source's connected mark, and a process the
+	// OS kills makes one read fail, so the state is awaited rather than sampled.
+	waitFor(t, "the source connected", func() bool {
+		return readString(t, root, `SELECT state FROM messenger_source WHERE platform='whatsapp' AND account='account-1'`) == "connected"
+	})
 }
 
 // TestM4WhatsAppForbiddenMarksTheSourceFailing proves a platform refusal stays
@@ -147,7 +149,7 @@ func TestM4WhatsAppForbiddenMarksTheSourceFailing(t *testing.T) {
 	waitFor(t, "the other account reading", func() bool {
 		return readCanon(t, root, `SELECT count(*) FROM messenger_record WHERE account='account-1'`) == 2
 	})
-	if got := readString(t, root, `SELECT state FROM messenger_source WHERE account='account-1'`); got != "connected" {
-		t.Fatalf("other account state = %q", got)
-	}
+	waitFor(t, "the other account connected", func() bool {
+		return readString(t, root, `SELECT state FROM messenger_source WHERE account='account-1'`) == "connected"
+	})
 }
