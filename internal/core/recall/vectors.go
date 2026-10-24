@@ -362,7 +362,7 @@ func (v *Vectors) Query(ctx context.Context, scope Scope, text string) ([]string
 	}
 	restricted := scope.Projection || scope.ExternalModel
 	where, args := scopeWhere(scope, kindsOf(scope), at, restricted, "d")
-	prefix, prefixArgs := restrictedCTE(scope)
+	prefix, prefixArgs := RestrictionCTE(scope)
 	if !scope.History {
 		older, olderArgs := olderExpr(kindsOf(scope), at, "d")
 		where = append(where, "("+older+")=0")
@@ -379,7 +379,7 @@ func (v *Vectors) Query(ctx context.Context, scope Scope, text string) ([]string
 	if prefix != "" {
 		prefix += ", "
 	}
-	prefix = "WITH " + prefix + `candidates AS MATERIALIZED (` + candidateSQL + `), ` + lineageCTE(containsKind(kindsOf(scope), Event)) + `
+	prefix = "WITH RECURSIVE " + prefix + `candidates AS MATERIALIZED (` + candidateSQL + `), ` + lineageCTE(containsKind(kindsOf(scope), Event)) + `
  unique_docs AS (SELECT c.*,row_number() OVER(PARTITION BY CASE WHEN kind='event' THEN conversation||':'||text_hash ELSE kind||':'||source_id END ORDER BY distance,julianday(occurred_at),source_id) AS twin FROM candidates c` + lineageFilter(containsKind(kindsOf(scope), Event)) + `) SELECT kind,source_id FROM unique_docs WHERE twin=1 ORDER BY distance,julianday(occurred_at) DESC,source_id LIMIT ?`
 	args = append(append(prefixArgs, candidateArgs...), VectorCandidates)
 	var ids []string
