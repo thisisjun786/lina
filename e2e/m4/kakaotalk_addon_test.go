@@ -231,6 +231,21 @@ func TestM4KakaoTalkSource(t *testing.T) {
 	waitFor(t, "incremental read after restart", func() bool {
 		return readCanon(t, root, `SELECT count(*) FROM messenger_record WHERE platform='kakaotalk'`) == 4
 	})
+	t.Run("edited_message_without_platform_edit_signal", func(t *testing.T) {
+		// The fixture reread message 1 with a changed body through the real
+		// KakaoTalk add-on. Without an SDK edit signal, Core keeps its original
+		// revision and does not fabricate an edit timestamp or duplicate event.
+		if got := readString(t, root, `SELECT e.body FROM conv_event e JOIN messenger_record r ON r.event=e.id WHERE r.platform='kakaotalk' AND r.message='1'`); got != "first" {
+			t.Fatalf("invented an unsupported edit: %q", got)
+		}
+		if got := readCanon(t, root, `SELECT count(*) FROM messenger_record_revision WHERE platform='kakaotalk' AND message='1'`); got != 1 {
+			t.Fatalf("edited fixture created %d revisions without an edit signal", got)
+		}
+		if got := readString(t, root, `SELECT edited_at FROM messenger_record WHERE platform='kakaotalk' AND message='1'`); got != "" {
+			t.Fatalf("invented edit time: %q", got)
+		}
+	})
+
 	waitFor(t, "one gap notice", func() bool {
 		return readCanon(t, root, `SELECT count(*) FROM conv_event WHERE json_extract(origin,'$.locator') LIKE 'background-notice:%' AND body LIKE '%kakaotalk%'`) == 1
 	})
@@ -291,10 +306,6 @@ func TestM4KakaoTalkSource(t *testing.T) {
 	if got := readCanon(t, root, `SELECT count(*) FROM messenger_record WHERE platform='kakaotalk'`); got != 4 {
 		t.Fatalf("disconnect lost history: %d", got)
 	}
-	if got := readString(t, root, `SELECT e.body FROM conv_event e JOIN messenger_record r ON r.event=e.id WHERE r.platform='kakaotalk' AND r.message='1'`); got != "first" {
-		t.Fatalf("invented an unsupported edit: %q", got)
-	}
-
 }
 
 // Core runs in a child, so the parent client is an independent eligible owner

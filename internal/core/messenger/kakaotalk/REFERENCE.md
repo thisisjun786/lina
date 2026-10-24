@@ -149,3 +149,17 @@ through the add-on's line protocol, and the service against a scripted add-on.
 fill, incremental restart, empty message type and file metadata, a quiet-chat
 skip, gap notification and rejected-session isolation through a running Core
 and its sandboxed TypeScript add-on.
+
+## Edited-message fixture
+
+The named Node contract test `an edited-message fixture crosses the KakaoTalk
+add-on without an invented edit signal` sends two JSON-line page requests for
+one 64-bit log ID, with `before edit` then `after edit` in the synthetic SDK.
+Both bodies cross the real driver and dispatcher; neither response invents an
+edit timestamp. The SDK's descriptor still reports no edit signal.
+
+The running-Core scenario's `edited_message_without_platform_edit_signal`
+subtest rereads an already admitted message with changed text through the
+sandboxed add-on. It verifies that Core keeps the original body, one revision,
+and an empty edit timestamp. This covers the edited-message fixture required
+by #1071 while preserving the pinned SDK's documented limitation.

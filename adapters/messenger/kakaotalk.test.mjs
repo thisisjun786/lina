@@ -456,3 +456,49 @@ test('a session revoked after login stops reads and asks for sign-in', async () 
   await assert.rejects(driver.listChats(), error => error.code === 'needs_sign_in');
   assert.equal(await driver.signInState(), 'needs_sign_in');
 });
+
+// The pinned SDK can return a changed body on a repeated read, but exposes no
+// edit timestamp or edit event. Exercise that edited-message fixture through
+// stdio dispatch without claiming a signal the platform does not provide.
+test('an edited-message fixture crosses the KakaoTalk add-on without an invented edit signal', async t => {
+  const script = signedIn({ pages: { '': {
+    messages: [log(BIG_LOG_ID, 'before edit')], next_cursor: BIG_LOG_ID, complete: true,
+  } } });
+  const { driver, fixture } = open(script);
+  const input = new PassThrough(), output = new PassThrough();
+  const replies = new Map();
+  let buffer = '';
+  output.on('data', chunk => {
+    buffer += chunk;
+    for (;;) {
+      const end = buffer.indexOf('\n');
+      if (end < 0) break;
+      const reply = JSON.parse(buffer.slice(0, end));
+      buffer = buffer.slice(end + 1);
+      const resolve = replies.get(reply.id);
+      replies.delete(reply.id);
+      resolve?.(reply);
+    }
+  });
+  const done = serve(input, output, { open: async () => driver }, { platform: 'kakaotalk', account: '7788' });
+  t.after(async () => { input.end(); await done; });
+  const request = async frame => {
+    const response = new Promise(resolve => replies.set(frame.id, resolve));
+    input.write(JSON.stringify(frame) + '\n');
+    const reply = await response;
+    assert.equal(reply.ok, true);
+    return reply.result;
+  };
+  const state = await request({ id: 'state', op: 'signIn' });
+  assert.equal(state.capabilities.edits, false);
+  const before = await request({ id: 'before', op: 'page', chat: '100', cursor: '' });
+  assert.equal(before.messages[0].text, 'before edit');
+  script.pages[''].messages[0].message = 'after edit';
+  const after = await request({ id: 'after', op: 'page', chat: '100', cursor: '' });
+  assert.equal(after.messages[0].id, before.messages[0].id);
+  assert.equal(after.messages[0].text, 'after edit');
+  assert.equal(Object.hasOwn(after.messages[0], 'edited'), false);
+  assert.equal(after.next, BIG_LOG_ID);
+  assert.equal(fixture.calls.filter(method => method === 'getMessagePage').length, 2);
+  for (const method of fixture.calls) assert.ok(READ_METHODS.kakaotalk.includes(method), method);
+});
