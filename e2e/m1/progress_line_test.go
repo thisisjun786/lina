@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thisisjun786/lina/internal/clientapi"
 	"github.com/thisisjun786/lina/internal/core/boot"
 	"github.com/thisisjun786/lina/internal/core/canon"
 	"github.com/thisisjun786/lina/internal/core/progress"
@@ -131,22 +130,9 @@ func TestM3ProgressLinePublished(t *testing.T) {
 		}
 	})
 	socket := filepath.Join(root, "run/client.sock")
-	var c *clientapi.Client
-	for attempt := 0; ; attempt++ {
-		select {
-		case err := <-done:
-			done <- err
-			t.Fatalf("Core stopped before serving: %v", err)
-		default:
-		}
-		c, err = clientapi.DialWithCapabilities(ctx, socket, "progress-line", []protocol.Capability{{Name: "progress", Version: "1.0"}})
-		if err == nil {
-			break
-		}
-		if ctx.Err() != nil || attempt > 1500 {
-			t.Fatalf("Core socket: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
+	c, err := dialCoreSocket(ctx, socket, "progress-line", []protocol.Capability{{Name: "progress", Version: "1.0"}}, done)
+	if err != nil {
+		t.Fatal(err)
 	}
 	defer c.Close()
 	// One reader owns the connection; every wait is a select on its frames, so

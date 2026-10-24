@@ -70,6 +70,16 @@ type Author struct {
 	ID    string
 	Name  string
 	Email string // Profile evidence; never an identity key.
+	// Identifiers are the phone numbers and email addresses the platform shows
+	// for this author, with where each was seen. Sender identity normalizes them.
+	Identifiers []Identifier
+}
+
+// Identifier is one contact value a platform shows for an author.
+type Identifier struct {
+	Kind   string // phone or email
+	Value  string
+	Source string
 }
 
 // Attachment is metadata only; its bytes enter LINA when the person asks.
@@ -216,6 +226,9 @@ type Source struct {
 	Person   string
 	Platform string
 	Account  string
+	// Workspace is the workspace or tenant the platform scopes its user ids
+	// by. It is empty where the platform's ids are global.
+	Workspace string
 	// Owner is the person's own numeric user id on the platform, confirmed when
 	// the source was connected. A bot-mode source reads a bot's servers, so only
 	// this id proves that a message is the person's.
@@ -225,8 +238,11 @@ type Source struct {
 	State             State
 	Failure           string
 	LearningWatermark string
-	AcceptedTerms     *Terms
-	ConnectedAt       time.Time
+	// Learn is the person's source-wide learning switch. A chat's own switch
+	// narrows it further.
+	Learn         bool
+	AcceptedTerms *Terms
+	ConnectedAt   time.Time
 }
 
 // Holder is what holds a messenger record that has no participating agent. The
@@ -240,8 +256,19 @@ type ChatRecord struct {
 	Name, Kind              string
 	FirstMessageAt          time.Time
 	Sync, Learn, Embed      bool
-	Cursor                  Cursor
+	// Scope is the chat's sensitivity class. A never-leaves chat is searchable
+	// but never learning input.
+	Scope  string
+	Cursor Cursor
 }
+
+// Chat scopes. They match the memory scope names; the messenger package keeps
+// its own strings so it does not import the memory store.
+const (
+	ChatLocal       = "local"
+	ChatPrivate     = "private"
+	ChatNeverLeaves = "never-leaves"
+)
 
 // Switches are the person's choices for one chat.
 type Switches struct {
