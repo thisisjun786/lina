@@ -147,9 +147,8 @@ func (m Measures) WrongRateBound() float64 {
 // below one percent.
 const OwnerSampleTrials = 300
 
-// Gate reports whether the matcher may be used for learning: no wrong usable
-// link, every planted ambiguity flagged, and every moved-identifier window
-// rejected. An owner sample uses OwnerGate.
+// Gate reports the synthetic gate: no wrong usable link, every planted
+// ambiguity flagged, and every moved-identifier window rejected. An owner sample uses OwnerGate.
 func (m Measures) Gate() bool {
 	return m.WrongLinks == 0 && m.AmbiguitiesFlagged == m.Ambiguities && m.WindowsRejected == m.Windows
 }
@@ -252,27 +251,38 @@ func Evaluate(ctx context.Context, store *Store, set Set) (Measures, error) {
 		return Measures{}, err
 	}
 	run := store.WithPeople(people)
-	identities := append([]SetIdentity(nil), set.Identities...)
-	// Evidence can arrive out of order: a backfill is observed after a later
-	// sighting. ObservedAt is the arrival order; At stays the sighting time.
-	arrival := func(identity SetIdentity) string {
-		if identity.ObservedAt != "" {
-			return identity.ObservedAt
-		}
-		return identity.At
+	type observed struct {
+		identity SetIdentity
+		at       time.Time
+		arrival  time.Time
 	}
-	sort.SliceStable(identities, func(i, j int) bool { return arrival(identities[i]) < arrival(identities[j]) })
-	var latest time.Time
-	for _, identity := range identities {
+	ordered := make([]observed, len(set.Identities))
+	for i, identity := range set.Identities {
 		at, err := time.Parse(time.RFC3339, identity.At)
 		if err != nil {
 			return Measures{}, err
 		}
+		arrival := at
+		if identity.ObservedAt != "" {
+			arrival, err = time.Parse(time.RFC3339, identity.ObservedAt)
+			if err != nil {
+				return Measures{}, err
+			}
+		}
+		ordered[i] = observed{identity: identity, at: at, arrival: arrival}
+	}
+	// Parsed instants, not the timestamp text. Two RFC3339 offsets do not
+	// sort chronologically as strings.
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].arrival.Before(ordered[j].arrival) })
+	var latest time.Time
+	for _, row := range ordered {
+		identity := row.identity
+		at := row.at
 		if at.After(latest) {
 			latest = at
 		}
-		if seen, err := time.Parse(time.RFC3339, arrival(identity)); err == nil && seen.After(latest) {
-			latest = seen
+		if row.arrival.After(latest) {
+			latest = row.arrival
 		}
 		observation := Observation{
 			Identity: Identity{Platform: identity.Platform, Scope: identity.Scope, User: identity.User},
@@ -294,7 +304,8 @@ func Evaluate(ctx context.Context, store *Store, set Set) (Measures, error) {
 	// One sender identity is one trial. Repeated observations of that identity
 	// read the same link and must not multiply the usable-link count.
 	seen := map[string]bool{}
-	for _, identity := range identities {
+	for _, row := range ordered {
+		identity := row.identity
 		id := Identity{Platform: identity.Platform, Scope: identity.Scope, User: identity.User}
 		if seen[id.Key()] {
 			continue

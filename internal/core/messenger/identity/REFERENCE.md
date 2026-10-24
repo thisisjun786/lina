@@ -110,12 +110,35 @@ record to the second, and `UndoMerge` puts each link and each item that still
 exists back on the record it came from. A forgotten item moves back still
 forgotten. A permanently deleted item stays gone, and neither blocks the undo.
 `Split` moves the identities the person chooses and the items their evidence
-produced. Item moves run through `memory.ReassignSubject` in the same
-transaction, so an item keeps its evidence, holder and scope.
+produced. A forgotten item moves still forgotten. A permanently deleted item
+stays gone, and neither blocks the split. Item moves run through
+`memory.ReassignSubject` in the same transaction, so an item keeps its evidence,
+holder and scope.
 
 What a link produced is recorded in `identity_artifact` (memory items, and the
 kind reserved for people-record entries) and a citation of the link as external
-evidence counts too. Migration 79 adds `identity_repair`: pending item ids are written with the link change and requeue in canon. Delivery through the removal list follows commit; `Rematch` drains pending repairs before matching at startup and on scheduled passes. A citing item hidden only because an ancestor was forgotten is still queued and retracted, so restoring that ancestor does not show it again. An item already retracted, or whose row is gone, is acknowledged without a duplicate `Forget`. A failure remains pending and is returned to the caller; it is never reported as completed repair.
+evidence counts too. Removing, correcting, or superseding a link hides those
+items through the removal list in the same writer transaction as the link
+change. The repair leaves the source events and their conversations eligible, including after the repaired item is permanently deleted. A citing item that is hidden only because an ancestor was forgotten is
+retracted too, so restoring that ancestor does not show it again. An item that
+is already retracted, or whose row is gone, stays as it is. The link change and the retraction become visible together. An empty
+retraction commits the link and writes no removal-list line. A failure rolls
+the link change back with the retraction. When the removal list already has
+the line, recovery replays the journaled link change and requeue with the
+retraction before reads reopen. That line records ids and the resulting
+state, not the person's answer or other signal text. The backup and
+restore commands pass this replay function when they open the removal
+list, so a restored generation finishes the same line. The backup
+package does not import the identity store.
+
+Migration 79 adds `identity_repair` for items invalidated by a moved validity
+end and for removal paths that cannot share Core's writer, including a missing
+removal handler. Pending item ids
+commit with the link change; `Rematch` drains these
+repairs before matching at startup and on scheduled passes. Failed delivery
+stays pending, and already-hidden or deleted items are acknowledged without
+a duplicate `Forget` transition. An unavailable removal handler returns an error
+after the intent commits, so a later retry can finish delivery.
 
 A repair leaves one row per identity in `identity_requeue`, from the source's
 learning watermark or, without one, the identity's first sighting. Extraction
@@ -152,7 +175,7 @@ records `gate` false and the command exits unsuccessfully. The files are
 without `expect`) and `labels.json` (`{"<platform>/<scope>/<user>": "<record id>"|"unknown"|"self"}`).
 
 `Evaluate` replaces the store's people source with the set's, observes every
-identity in arrival order (`observed_at`, defaulting to `at`, so a backfill can
+identity in order of the parsed arrival instant (`observed_at`, defaulting to `at`, so a backfill can
 be seen after a later sighting), and then measures. A `windows` entry names a
 period in which a link to a record must not be usable; it pins the end of a link
 whose identifier moved. It removes one link as its repair check, so a store is
