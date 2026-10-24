@@ -68,7 +68,7 @@ func TestLiveTopicRecall(t *testing.T) {
 			if found != tc.match {
 				t.Errorf("topic evidence=%v, want %v", found, tc.match)
 			}
-			for _, name := range []string{"recall", "expand"} {
+			for _, name := range []string{"recall", "expand", "recall_person"} {
 				_, bound := s.bindings[name]
 				declared := false
 				for _, decl := range prepared.Request.Tools {
@@ -147,7 +147,7 @@ func TestReplayRecallKeepsReplayVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reads, err := r.replayReads(source, replay.Episode{TurnID: "replayed", RevocationEpoch: epoch})
+	reads, err := r.replayReads(source, replay.Episode{TurnID: "replayed", RevocationEpoch: epoch}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

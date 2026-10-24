@@ -87,7 +87,7 @@ func TestProtectedEvidenceAcrossLiveAndReplayReads(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			replayed, err := r.replayReads(source, replay.Episode{TurnID: "replayed", RevocationEpoch: epoch})
+			replayed, err := r.replayReads(source, replay.Episode{TurnID: "replayed", RevocationEpoch: epoch}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
