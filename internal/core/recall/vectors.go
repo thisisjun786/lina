@@ -407,11 +407,11 @@ func (v *Vectors) Query(ctx context.Context, scope Scope, text string) ([]string
 
 // restrictedPrefix supplies a complete WITH clause for vector and messenger queries.
 func restrictedPrefix(scope Scope) (string, []any) {
-	cte, args := restrictedCTE(scope)
+	cte, args := RestrictionCTE(scope)
 	if cte == "" {
-		cte = "restricted AS (SELECT NULL AS id WHERE 0)"
+		cte = "restricted AS (SELECT NULL AS kind, NULL AS id WHERE 0)"
 	}
-	return "WITH " + cte, args
+	return "WITH RECURSIVE " + cte, args
 }
 
 // SetImportConsent is called only after the import flow has presented its
