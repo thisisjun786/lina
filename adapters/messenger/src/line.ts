@@ -329,7 +329,8 @@ export function lineDriver(sdk: unknown, options: DriverOptions): Driver {
             if (event?.kind === 'message') {
               const value = event.message;
               const type = value.raw.toType;
-              const group = type === 'GROUP' || type === 'ROOM' || type === 0 || type === 1;
+              // LINE destination enum: USER=0, ROOM=1, GROUP=2.
+              const group = type === 'GROUP' || type === 'ROOM' || type === 1 || type === 2;
               const chat = group || value.isMyMessage ? value.to?.id : value.from?.id;
               if (typeof chat !== 'string' || !chat) throw new Refusal('upstream_changed', 'LINE live chat');
               deliver({ event: 'message', chat, message: liveRecord(value) });

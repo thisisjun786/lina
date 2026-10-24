@@ -277,9 +277,12 @@ test('a live subscription that cannot open reports needs_sign_in', { timeout: 10
 
 test('live events name the destination for groups and outgoing direct messages', async () => {
   for (const routing of [
-    { toType: 'GROUP', from: 'you', to: 'group', own: false },
-    { toType: 1, from: 'you', to: 'room', own: false },
-    { toType: 'USER', from: 'me', to: 'you', own: true },
+    { toType: 'GROUP', from: 'you', to: 'group', own: false, expected: 'group' },
+    { toType: 2, from: 'you', to: 'group', own: false, expected: 'group' },
+    { toType: 0, from: 'you', to: 'me', own: false, expected: 'you' },
+    { toType: 0, from: 'me', to: 'you', own: true, expected: 'you' },
+    { toType: 1, from: 'you', to: 'room', own: false, expected: 'room' },
+    { toType: 'USER', from: 'me', to: 'you', own: true, expected: 'you' },
   ]) {
     const { sdk } = sdkWith({
       credentials,
@@ -291,6 +294,6 @@ test('live events name the destination for groups and outgoing direct messages',
     const { events, error } = await liveEnd(lineDriver(sdk, { configDir: '/synthetic' }));
     assert.equal(error.code, 'live_ended');
     assert.equal(events.length, 1);
-    assert.equal(events[0].chat, routing.to);
+    assert.equal(events[0].chat, routing.expected);
   }
 });
