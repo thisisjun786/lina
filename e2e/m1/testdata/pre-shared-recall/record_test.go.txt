@@ -1,0 +1,191 @@
+// SPDX-License-Identifier: Apache-2.0
+package e2e_test
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/thisisjun786/lina/internal/clientapi"
+	"github.com/thisisjun786/lina/internal/core/boot"
+	"github.com/thisisjun786/lina/internal/core/canon"
+	"github.com/thisisjun786/lina/internal/core/ctlfiles"
+	"github.com/thisisjun786/lina/internal/core/ledger"
+	"github.com/thisisjun786/lina/internal/core/replay"
+	"github.com/thisisjun786/lina/kit/protocol"
+)
+
+// Copy this file into the exact historical source's e2e/m1 directory. No
+// production source is changed; the installed and replayed CLI is unmodified.
+func TestRecordPreSharedRecall(t *testing.T) {
+	base, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commandBuilds.binaries["lina"] = filepath.Join(base, "lina-old")
+	commandBuilds.binaries["lina-node"] = filepath.Join(base, "lina-node-old")
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		emitResponse(w, "Use violet ink in the notebook.", true)
+	}))
+	defer server.Close()
+	h, _ := installedConversationHarnessWithin(t, 2*time.Minute, server.URL)
+	core := h.command("core", "--state-root", h.root, "--socket", h.socket)
+	core.command.Env = append(core.command.Env, "PATH="+preRecallSandboxPath(t), "LINA_RESPONSES_BASE_URL="+server.URL+"/v1", "LINA_RESPONSES_MODEL=fixture-model", "LINA_RESPONSES_API_KEY=synthetic-key")
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("Core stderr: %s", core.stderr.String())
+		}
+	})
+	core.start(t)
+	h.connect(core).Close()
+	waitCoreReady(t, h)
+	c, err := clientapi.DialWithCapabilities(h.ctx, h.socket, "test", []protocol.Capability{{Name: "memory", Version: "1.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, person := c.Welcome.Agents[0].AgentID, c.Welcome.PersonID
+	memory := func(operation, text string) protocol.MemoryResult {
+		t.Helper()
+		if _, err := c.Memory(h.ctx, protocol.MemoryRequest{Operation: &operation, AgentID: &agent, Text: &text}); err != nil {
+			t.Fatal(err)
+		}
+		frame, err := c.Receive(h.ctx)
+		result, ok := frame.Payload.(protocol.MemoryResult)
+		if err != nil || frame.Error != nil || !ok {
+			t.Fatalf("memory: %+v %v", frame, err)
+		}
+		return result
+	}
+	remembered := memory("remember", "I prefer violet ink.")
+	if remembered.ItemID == nil {
+		t.Fatal("missing remembered identity")
+	}
+	for _, query := range []string{"violet", "amber"} {
+		result := memory("list", query)
+		if result.Items == nil {
+			t.Fatal("missing memory results")
+		}
+		if query == "violet" {
+			if len(*result.Items) != 1 || (*result.Items)[0].ItemID != *remembered.ItemID {
+				t.Fatalf("old memory text match: %+v", result)
+			}
+		} else if len(*result.Items) != 0 {
+			t.Fatal("old memory query ignored its text")
+		}
+	}
+	c.Close()
+	c, conversation := conversationClient(t, h)
+	admittedTurn(t, h, c, conversation, "pre-shared-recall", "I keep a violet notebook. Which ink do I prefer?")
+	c.Close()
+	if calls.Load() != 1 {
+		t.Fatalf("native model calls=%d", calls.Load())
+	}
+	p := h.command("export", "--socket", h.socket, "--agent", agent, "--conversation", conversation, "--since", "2020-01-01T00:00:00Z", "--until", "2100-01-01T00:00:00Z")
+	p.start(t)
+	p.wait(t, 0)
+	var exported protocol.ExportResult
+	if err := json.Unmarshal(p.stdout.Bytes(), &exported); err != nil {
+		t.Fatal(err)
+	}
+	var manifest replay.Manifest
+	if err := json.Unmarshal([]byte(exported.Manifest), &manifest); err != nil || manifest.Exported != 1 || manifest.LeftOut != 0 {
+		t.Fatalf("export: %+v %v", manifest, err)
+	}
+	data, err := os.ReadFile(filepath.Join(exported.Directory, "episodes.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ep replay.Episode
+	if err := json.Unmarshal(data, &ep); err != nil {
+		t.Fatal(err)
+	}
+	if len(ep.Calls) != 0 || len(ep.Evidence.Assembly.Profile) != 1 || ep.Evidence.Assembly.Profile[0].ID != *remembered.ItemID {
+		t.Fatal("export lost the memory-backed request")
+	}
+	if err := os.WriteFile(filepath.Join(base, "episodes.jsonl"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(h.root, "historical-replay")
+	p = h.command("replay", filepath.Join(base, "episodes.jsonl"), "--socket", h.socket, "--out", out)
+	p.start(t)
+	p.wait(t, 0)
+	data, err = os.ReadFile(filepath.Join(out, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var replayed struct {
+		Replayed int `json:"replayed"`
+		LeftOut  int `json:"left_out"`
+	}
+	if err := json.Unmarshal(data, &replayed); err != nil || replayed.Replayed != 1 || replayed.LeftOut != 0 || calls.Load() != 2 {
+		t.Fatalf("historical replay: %s calls=%d %v", data, calls.Load(), err)
+	}
+	h.stopCore(core)
+	ctl, err := ctlfiles.Open(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ctl.Acquire(); err != nil {
+		t.Fatal(err)
+	}
+	epoch, err := ctl.Epoch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := canon.Open(h.ctx, canon.Config{Path: filepath.Join(h.root, "canon/canon.sqlite"), Epoch: epoch, Controls: ctl, Migrations: boot.ApplicationMigrations()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"notebook", "amber"} {
+		hits, err := ledger.New(db, nil).Search(h.ctx, ledger.SearchQuery{AgentID: agent, PersonID: person, Text: query})
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, hit := range hits {
+			found = found || hit.ID == ep.Input.ID
+		}
+		if query == "notebook" && !found || query == "amber" && len(hits) != 0 {
+			t.Fatalf("old ledger search %q: %+v", query, hits)
+		}
+	}
+	if err := db.Close(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := ctl.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"canon", "materials", "versions"} {
+		if out, err := exec.Command("cp", "-a", filepath.Join(h.root, dir), filepath.Join(base, dir)).CombinedOutput(); err != nil {
+			t.Fatalf("copy %s: %s %v", dir, out, err)
+		}
+	}
+	t.Logf("old export/replay digest: %s; memory text match and ledger search passed", ep.Evidence.Hash)
+}
+
+// Expose only the sandbox launcher; host worker discovery is unrelated to replay.
+func preRecallSandboxPath(t *testing.T) string {
+	t.Helper()
+	name := "bwrap"
+	if runtime.GOOS == "darwin" {
+		name = "sandbox-exec"
+	}
+	launcher, err := exec.LookPath(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	if err := os.Symlink(launcher, filepath.Join(directory, name)); err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
