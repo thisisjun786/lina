@@ -45,6 +45,22 @@ func validKind(k Kind) bool {
 	}
 	return false
 }
+
+// validMessengerKind reports the kinds that the person's own messenger records
+// can state. Shared history, relationship and emotion observation are held by
+// one agent and do not arise from a messenger conversation. A name carries a
+// structured identity value that a name write supplies, so it does not come
+// from this job either.
+func validMessengerKind(k Kind) bool {
+	switch k {
+	case Fact, Preference, Commitment, Decision:
+		return true
+	case Name, Correction, SharedHistory, Relationship, EmotionObservation:
+		return false
+	}
+	return false
+}
+
 func validBasis(b Basis) bool {
 	switch b {
 	case Stated, Derived, Imported, Automation:
@@ -67,8 +83,13 @@ func defaultHolder(in Write) Holder {
 	}
 	return ""
 }
-func validate(in Write) (Item, error) { return validateWrite(in, false) }
-func validateWrite(in Write, promotion bool) (Item, error) {
+func validate(in Write) (Item, error)                      { return validateWrite(in, false) }
+func validateWrite(in Write, promotion bool) (Item, error) { return validateMode(in, promotion, false) }
+
+// validateMode validates one write. A messenger write has no source agent: its
+// items are common, so the holder is always all, and the kinds that one agent
+// holds never arise from the person's messenger records.
+func validateMode(in Write, promotion, messenger bool) (Item, error) {
 	item := in.Item
 	if err := validateName(item); err != nil {
 		return Item{}, err
@@ -79,7 +100,14 @@ func validateWrite(in Write, promotion bool) (Item, error) {
 			return Item{}, ErrInvalid
 		}
 	}
-	if !present(in.Agent) || in.Agent == string(All) || !present(in.Person) || !validKind(item.Kind) || !validBasis(item.Basis) || !present(item.Content) || item.ID != "" || item.Revision != 0 || item.State != "" || len(item.Evidence) == 0 || item.ValidFrom < 0 || item.ValidUntil < 0 || item.ValidUntil != 0 && item.ValidUntil <= item.ValidFrom {
+	if messenger {
+		if present(in.Agent) || !present(in.Person) || !validMessengerKind(item.Kind) || item.Basis != Stated {
+			return Item{}, ErrInvalid
+		}
+	} else if !present(in.Agent) || in.Agent == string(All) || !present(in.Person) || !validKind(item.Kind) || !validBasis(item.Basis) {
+		return Item{}, ErrInvalid
+	}
+	if !present(item.Content) || item.ID != "" || item.Revision != 0 || item.State != "" || len(item.Evidence) == 0 || item.ValidFrom < 0 || item.ValidUntil < 0 || item.ValidUntil != 0 && item.ValidUntil <= item.ValidFrom {
 		return Item{}, ErrInvalid
 	}
 	if in.AgentPreference && item.Kind != Preference {
@@ -112,6 +140,9 @@ func validateWrite(in Write, promotion bool) (Item, error) {
 	if item.Holder != All && item.Holder != Holder(in.Agent) {
 		return Item{}, ErrScope
 	}
+	if messenger && (item.Holder != All || item.SourceAgent != "" || item.Subject.Kind != Person || item.Subject.ID != in.Person || item.Scope == NeverLeaves) {
+		return Item{}, ErrScope
+	}
 	if item.Scope == "" {
 		item.Scope = Local
 		if item.Subject.Kind == ThirdParty {
@@ -125,7 +156,10 @@ func validateWrite(in Write, promotion bool) (Item, error) {
 		return Item{}, ErrInvalid
 	}
 	item.Person = in.Person
-	item.SourceAgent = in.Agent
+	item.SourceAgent = ""
+	if !messenger {
+		item.SourceAgent = in.Agent
+	}
 	item.SourcePerson = ""
 	item.State = Active
 	item.Revision = 1
@@ -148,8 +182,26 @@ func Insert(ctx context.Context, tx *canon.Tx, in Write, resolve ResolveEvidence
 	return insert(ctx, tx, in, resolve, false)
 }
 
+// insertKind carries the authenticated write mode. The zero value is the
+// ordinary agent write; a messenger write has no agent and names the source
+// holders whose records may be its evidence.
+type insertKind struct {
+	messenger bool
+	holders   map[string]bool
+}
+
 func insert(ctx context.Context, tx *canon.Tx, in Write, resolve ResolveEvidence, promotion bool) (Item, error) {
-	item, err := validateWrite(in, promotion)
+	return insertWith(ctx, tx, in, resolve, promotion, insertKind{})
+}
+
+func insertWith(ctx context.Context, tx *canon.Tx, in Write, resolve ResolveEvidence, promotion bool, kind insertKind) (Item, error) {
+	var item Item
+	var err error
+	if kind.messenger {
+		item, err = validateMode(in, false, true)
+	} else {
+		item, err = validateWrite(in, promotion)
+	}
 	if err != nil {
 		return Item{}, err
 	}
@@ -190,7 +242,16 @@ func insert(ctx context.Context, tx *canon.Tx, in Write, resolve ResolveEvidence
 		if item.Subject.Kind == Person && !confirmedExternal && origin.Speaker != guard.Person {
 			return Item{}, ErrPersonEvidence
 		}
-		if origin.Speaker == guard.ExternalParticipant || origin.Person != in.Person || origin.Agent != "" && origin.Agent != in.Agent || origin.PlanEnded {
+		if kind.messenger {
+			// A messenger record belongs to its source, not to an agent, and no
+			// record outside this batch may become evidence.
+			if !origin.Messenger || !kind.holders[origin.Agent] {
+				return Item{}, ErrEvidence
+			}
+		} else if origin.Agent != "" && origin.Agent != in.Agent {
+			return Item{}, ErrEvidence
+		}
+		if origin.Speaker == guard.ExternalParticipant || origin.Person != in.Person || origin.PlanEnded {
 			return Item{}, ErrEvidence
 		}
 		if in.Item.Scope == "" && scopeRank(origin.Scope) > scopeRank(item.Scope) {
@@ -215,6 +276,9 @@ func insert(ctx context.Context, tx *canon.Tx, in Write, resolve ResolveEvidence
 			e.ID = origin.ID
 		}
 		e.SourceAgent = origin.Agent
+		if kind.messenger {
+			e.SourceAgent = ""
+		}
 		e.OccurredAt = origin.OccurredAt
 		e.Quote = origin.Quote
 		if !slices.ContainsFunc(evidence, func(old Evidence) bool { return old.Kind == e.Kind && old.ID == e.ID && old.Revision == e.Revision }) {
@@ -404,7 +468,9 @@ func (s *Store) recall(ctx context.Context, scope RecallScope, q Query, standing
 		found, err := recall.Match(ctx, s.db, recall.Scope{
 			Person: scope.Person, Agent: scope.Agent, Kinds: []recall.Kind{recall.Memory},
 			CommonOnly: scope.CommonOnly, History: q.History, At: q.At,
+			PersonOnly: q.PersonOnly,
 			Projection: scope.Projection, ExternalModel: scope.ExternalModel,
+			PersonMemory: q.PersonOnly || relationship,
 		}, recall.Query{Text: q.Text})
 		if err != nil {
 			return nil, err
@@ -425,34 +491,33 @@ func (s *Store) recall(ctx context.Context, scope RecallScope, q Query, standing
 	var hits []Hit
 	err := s.db.Read(ctx, func(tx *canon.Tx) error {
 		holders := scope.Holders()
-		restricted, err := restrictedEvents(ctx, tx, scope)
-		if err != nil {
-			return err
+		cte, prefixArgs := recall.RestrictionCTE(recall.Scope{Person: scope.Person, Projection: scope.Projection, ExternalModel: scope.ExternalModel})
+		prefix, restriction := "WITH ", ""
+		if cte != "" {
+			prefix = "WITH RECURSIVE " + cte + ", "
+			restriction = "AND NOT EXISTS(SELECT 1 FROM restricted r WHERE r.kind='memory' AND r.id=m.id)"
 		}
-		restrictedJSON, _ := json.Marshal(restricted)
 		match := "1"
-		args := []any{q.At, q.At, scope.Person, q.ID, q.ID, matched, matched, holders[0], holders[1], q.At, scope.Projection, scope.ExternalModel, standing, q.PersonOnly, relationship, scope.Agent, scope.Person, string(restrictedJSON), q.Kind, q.Kind, q.History}
+		args := []any{q.At, q.At, scope.Person, q.ID, q.ID, matched, matched, holders[0], holders[1], q.At, standing, q.PersonOnly, relationship, scope.Agent, scope.Person, q.Kind, q.Kind, q.History}
 		if matched != "" {
 			match = "EXISTS(SELECT 1 FROM json_each(?) WHERE value=e.id)"
 			args = append(args, matched)
 		}
 		args = append(args, q.After, q.After, q.After, q.After, limit)
-		rows, err := tx.QueryContext(ctx, `WITH candidates AS MATERIALIZED (
+		rows, err := tx.QueryContext(ctx, prefix+`candidates AS MATERIALIZED (
    SELECT m.id,m.sequence,m.record,m.normalized,
    (SELECT max(r.sequence) FROM memory_revision r WHERE r.item_id=m.id) AS priority,
    ((m.valid_until<>0 AND m.valid_until<=?) OR EXISTS(SELECT 1 FROM memory_item n WHERE n.supersedes=m.id AND n.valid_from<=?)) AS older
    FROM retract_visible_memory m WHERE m.person=? AND (?='' OR m.id=?) AND (?='' OR m.id IN (SELECT value FROM json_each(?))) AND m.holder IN (?,?) AND m.state='active' AND m.valid_from<=?
-   AND (?=0 OR m.scope='local') AND (?=0 OR m.scope<>'never-leaves') AND (?=0 OR m.standing=1)
+   AND (?=0 OR m.standing=1)
    AND (?=0 OR m.subject_kind='person')
    AND (?=0 OR (m.holder=? AND m.subject_kind='person' AND m.subject_id=? AND json_extract(m.record,'$.kind')='relationship'))
-   AND NOT EXISTS(SELECT 1 FROM json_each(m.record,'$.evidence') refs
-    JOIN json_each(?) blocked ON blocked.key=json_extract(refs.value,'$.id')
-    WHERE json_extract(refs.value,'$.kind')='event')
+   `+restriction+`
    AND (?='' OR json_extract(m.record,'$.kind')=?)
    ), eligible AS MATERIALIZED (SELECT * FROM candidates WHERE ? OR NOT older)
    SELECT e.record,e.older FROM eligible e WHERE `+match+` AND (?='' OR e.priority < (SELECT max(sequence) FROM memory_revision WHERE item_id=?)
    OR (e.priority=(SELECT max(sequence) FROM memory_revision WHERE item_id=?) AND e.id>?))
-   ORDER BY e.priority DESC,e.id LIMIT ?`, args...)
+   ORDER BY e.priority DESC,e.id LIMIT ?`, append(prefixArgs, args...)...)
 		if err != nil {
 			return err
 		}
@@ -534,18 +599,11 @@ func (s *Store) RestrictedEvents(ctx context.Context, scope RecallScope) (map[st
 }
 func restrictedEvents(ctx context.Context, tx *canon.Tx, scope RecallScope) (map[string]bool, error) {
 	ids := map[string]bool{}
-	if !scope.Projection && !scope.ExternalModel {
+	cte, args := recall.RestrictionCTE(recall.Scope{Person: scope.Person, Projection: scope.Projection, ExternalModel: scope.ExternalModel})
+	if cte == "" {
 		return ids, nil
 	}
-	// A protected source stays protected when another holder has a common copy.
-	// Only event ids leave this query; candidate records still use RecallScope.
-	// The citation index supplies the item's current evidence without decoding
-	// or copying the record JSON.
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.target_id
-  FROM cite c JOIN memory_item m ON m.id=c.view_id
-  WHERE c.view_kind='memory' AND c.target_kind='event' AND c.dropped_revision IS NULL
-  AND m.person=? AND ((?=1 AND m.scope IN ('private','never-leaves')) OR (?=1 AND m.scope='never-leaves'))`,
-		scope.Person, scope.Projection, scope.ExternalModel)
+	rows, err := tx.QueryContext(ctx, "WITH RECURSIVE "+cte+" SELECT id FROM restricted WHERE kind='event'", args...)
 	if err != nil {
 		return nil, err
 	}

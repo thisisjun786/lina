@@ -96,16 +96,9 @@ func TestM3RunLimitInstalledCore(t *testing.T) {
 		}
 	})
 	socket := filepath.Join(root, "run/client.sock")
-	var c *clientapi.Client
-	for attempt := 0; ; attempt++ {
-		c, err = clientapi.DialWithCapabilities(ctx, socket, "run-limit", []protocol.Capability{{Name: "work", Version: "1.0"}, {Name: "progress", Version: "1.0"}})
-		if err == nil {
-			break
-		}
-		if ctx.Err() != nil || attempt > 1500 {
-			t.Fatalf("Core socket: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
+	c, err := dialCoreSocket(ctx, socket, "run-limit", []protocol.Capability{{Name: "work", Version: "1.0"}, {Name: "progress", Version: "1.0"}}, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 	defer c.Close()
 	reads := make(chan workCommandRead)
