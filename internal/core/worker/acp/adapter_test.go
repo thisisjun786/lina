@@ -47,6 +47,8 @@ func fixture(t *testing.T) (*Adapter, context.Context, lease.Lease, worker.Start
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	l := lease.New(func() {})
 	a := New(Config{Profile: Profile{Name: "added", Command: exe}, Environment: []string{"ACP_FIXTURE=1", "LINA_RESPONSES_API_KEY=must-not-leak", "WORKER_LOGIN=preserved"}, Epoch: 7, Leaser: testLeaser{}})
+	// Cleanups run in reverse order: stop the worker before removing its files.
+	workdir := t.TempDir()
 	t.Cleanup(func() {
 		cancel()
 		if err := a.Close(context.Background()); err != nil {
@@ -54,7 +56,7 @@ func fixture(t *testing.T) (*Adapter, context.Context, lease.Lease, worker.Start
 		}
 		l.Release()
 	})
-	return a, ctx, l, worker.StartSpec{TaskID: "task", AttemptID: "attempt", Workdir: t.TempDir(), TaskPacket: "success"}
+	return a, ctx, l, worker.StartSpec{TaskID: "task", AttemptID: "attempt", Workdir: workdir, TaskPacket: "success"}
 }
 func event(t *testing.T, ctx context.Context, a *Adapter) worker.Event {
 	t.Helper()
