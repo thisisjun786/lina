@@ -106,7 +106,13 @@ records the model, dimension, endpoint, generation and rebuild readiness.
 The optional Moirai worker calls Core's private `Embed` operation; Core selects
 at most 32 documents, resolves material bytes and removes secret spans before
 calling the adapter. Source hash, queue sequence, current eligibility and model
-generation are checked before dispatch and again on publication. A failed row
+generation are checked before dispatch and again on publication. The embedding
+eligibility view mirrors `RestrictionCTE` with all never-leaves roots in canon:
+a forward sensitive-source walk followed by a reverse dependent-view walk.
+Both directions include current citations, legacy memory evidence, replay/view
+links and material locators. It does not walk down newly excluded dependent
+views, so their independent public inputs remain eligible. Parity tests compare
+this SQL view with `SourceRestricted` and observe the embedding adapter's inputs. A failed row
 remains queued; the cursor wraps so later rows can advance. Empty derived text
 and ineligible documents consume their queue entry without a model call.
 
