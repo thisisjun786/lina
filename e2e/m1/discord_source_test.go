@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -338,79 +339,112 @@ func countRows(t *testing.T, h *harness, query string, args ...any) int {
 	return n
 }
 
-func waitRecords(t *testing.T, h *harness, want int) {
+// TestWaitRowsReturnsWhenTheConditionHolds checks that the shared poll
+// stops at the first true sample instead of waiting out its deadline.
+func TestWaitRowsReturnsWhenTheConditionHolds(t *testing.T) {
+	t.Parallel()
+	var polls int
+	waitRows(t, &harness{}, time.Second, func() bool {
+		polls++
+		return polls == 3
+	}, func() string { return "rows became ready" })
+	if polls != 3 {
+		t.Fatalf("polls = %d, want 3", polls)
+	}
+}
+
+// TestWaitRowsNamesTheTimedOutCondition checks that a deadline names the
+// condition that stayed false. The helper stops the test, so the check runs
+// in a child process.
+func TestWaitRowsNamesTheTimedOutCondition(t *testing.T) {
+	if os.Getenv("LINA_WAIT_ROWS_CHILD") == "1" {
+		waitRows(t, &harness{}, 40*time.Millisecond, func() bool { return false }, func() string { return "the cursor page" })
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestWaitRowsNamesTheTimedOutCondition$", "-test.count=1")
+	cmd.Env = append(os.Environ(), "LINA_WAIT_ROWS_CHILD=1")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("waitRows returned while the condition stayed false: %s", out)
+	}
+	if !strings.Contains(string(out), "the cursor page") {
+		t.Fatalf("timeout did not name the condition: %s", out)
+	}
+}
+
+// waitRows polls ready until it is true or timeout elapses, then stops the
+// test. what runs only after the deadline so the message can name the
+// condition with the rows observed then. The source waits below are wrappers
+// around this loop; each still uses the two-operation budget and the 20 ms
+// pause the duplicated loops used.
+func waitRows(t *testing.T, h *harness, timeout time.Duration, ready func() bool, what func() string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * operationTimeout)
+	if h == nil || ready == nil || what == nil {
+		t.Fatal("waitRows needs a harness, a condition and a name")
+	}
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if n := countRows(t, h, "SELECT count(*) FROM messenger_record WHERE state='live'"); n >= want {
+		if ready() {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("live records = %d, want %d", countRows(t, h, "SELECT count(*) FROM messenger_record WHERE state='live'"), want)
+	t.Fatal(what())
+}
+
+func waitRecords(t *testing.T, h *harness, want int) {
+	t.Helper()
+	query := "SELECT count(*) FROM messenger_record WHERE state='live'"
+	waitRows(t, h, 2*operationTimeout, func() bool {
+		return countRows(t, h, query) >= want
+	}, func() string {
+		return fmt.Sprintf("live records = %d, want %d", countRows(t, h, query), want)
+	})
 }
 
 func waitEdited(t *testing.T, h *harness, id, text string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * operationTimeout)
-	for time.Now().Before(deadline) {
-		if n := countRows(t, h, "SELECT count(*) FROM conv_event WHERE body=? AND speaker_kind='person'", text); n == 1 {
-			if countRows(t, h, "SELECT count(*) FROM ev_rel WHERE kind='supersedes'") == 1 {
-				return
-			}
+	waitRows(t, h, 2*operationTimeout, func() bool {
+		if countRows(t, h, "SELECT count(*) FROM conv_event WHERE body=? AND speaker_kind='person'", text) != 1 {
+			return false
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("the edit of %s did not supersede its earlier record", id)
+		return countRows(t, h, "SELECT count(*) FROM ev_rel WHERE kind='supersedes'") == 1
+	}, func() string {
+		return fmt.Sprintf("the edit of %s did not supersede its earlier record", id)
+	})
 }
 
 func waitDeleted(t *testing.T, h *harness, id string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * operationTimeout)
-	for time.Now().Before(deadline) {
-		if countRows(t, h, "SELECT count(*) FROM messenger_record WHERE message=? AND state='deleted'", id) == 1 &&
-			countRows(t, h, "SELECT count(*) FROM removal_applied") >= 1 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("the platform deletion did not hide the record")
+	waitRows(t, h, 2*operationTimeout, func() bool {
+		return countRows(t, h, "SELECT count(*) FROM messenger_record WHERE message=? AND state='deleted'", id) == 1 &&
+			countRows(t, h, "SELECT count(*) FROM removal_applied") >= 1
+	}, func() string { return "the platform deletion did not hide the record" })
 }
 
 func waitReceipt(t *testing.T, h *harness, native string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * operationTimeout)
-	for time.Now().Before(deadline) {
-		if n := countRows(t, h, "SELECT count(*) FROM channel_receipts WHERE native_id=?", native); n == 1 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("the channel binding did not receive the shared event")
+	waitRows(t, h, 2*operationTimeout, func() bool {
+		return countRows(t, h, "SELECT count(*) FROM channel_receipts WHERE native_id=?", native) == 1
+	}, func() string { return "the channel binding did not receive the shared event" })
 }
 
 func waitCursor(t *testing.T, h *harness, previous, next string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * operationTimeout)
-	for time.Now().Before(deadline) {
-		if countRows(t, h, "SELECT count(*) FROM messenger_record WHERE message=?", next) == 1 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("the incremental page after %s did not arrive", previous)
+	waitRows(t, h, 2*operationTimeout, func() bool {
+		return countRows(t, h, "SELECT count(*) FROM messenger_record WHERE message=?", next) == 1
+	}, func() string {
+		return fmt.Sprintf("the incremental page after %s did not arrive", previous)
+	})
 }
 
 func waitFailure(t *testing.T, h *harness, cause string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * operationTimeout)
-	for time.Now().Before(deadline) {
-		if n := countRows(t, h, "SELECT count(*) FROM messenger_source WHERE state='failing' AND failure LIKE ?", "%"+cause+"%"); n == 1 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("the source did not report that message text is unavailable")
+	waitRows(t, h, 2*operationTimeout, func() bool {
+		return countRows(t, h, "SELECT count(*) FROM messenger_source WHERE state='failing' AND failure LIKE ?", "%"+cause+"%") == 1
+	}, func() string { return "the source did not report that message text is unavailable" })
 }
 
 // sourceEvent builds one Gateway dispatch frame.
@@ -434,7 +468,6 @@ type discordPlatform struct {
 	open      atomic.Int32
 	max       atomic.Int32
 	requested map[string]int
-	retried   bool
 	phaseNo   atomic.Int32
 	textOff   atomic.Bool
 }
