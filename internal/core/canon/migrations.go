@@ -93,6 +93,7 @@ func Migrations() []Migration {
 		{Version: 78, SQL: IdentitySchema},
 		{Version: 79, SQL: IdentityRepairSchema},
 		{Version: 80, SQL: MessengerGapSchema},
+		{Version: 81, SQL: MessengerGapNoticeSchema},
 	}
 }
 
@@ -155,6 +156,7 @@ var publishedMigrationTables = []struct {
 	{78, "identity_requeue"},
 	{79, "identity_repair"},
 	{80, "messenger_gap"},
+	{81, "messenger_gap_notice"},
 }
 
 // Reject incompatible pre-release layouts before opening the writer. There is

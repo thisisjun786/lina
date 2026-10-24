@@ -80,6 +80,9 @@ KakaoTalk is one account per main. `Connect` refuses a second account
 when the platform names the account, so an accepted card that is abandoned
 leaves no source row. A source whose stored session the platform rejected signs
 in again through `SignIn`, which keeps the recorded acceptance and its date.
+An identity mismatch drains the old reader and removes the rejected session;
+cleanup failures retain the attempt for retry. Core drops the cached adapter so
+successful retry resumes reads through the replacement session.
 
 The add-on runs one session for this platform
 (`addon.Config.SingleAccount`), so the sign-in's pending session and the
@@ -122,7 +125,9 @@ and expires after ten minutes.
 - A chat whose time since the last complete read exceeds the platform window is
   in a gap: the gap is recorded once, told to the person once through a
   background notice naming the chat, and ended by the next complete read. A
-  later gap is told again.
+  later gap is told again. The gap and pending warning commit together before
+  coverage advances. Pending warnings survive cleared gaps and retry with a
+  stable ledger event ID; a committed event acknowledges a repeated admission.
 - A source that needs sign-in keeps that state while every other source,
   including another account of the same platform, keeps reading.
 

@@ -128,7 +128,11 @@ func TestMessengerGapNoticeNamesTheChatAndPlatform(t *testing.T) {
 	if err != nil || !fresh {
 		t.Fatalf("record gap: %v %v", fresh, err)
 	}
-	if err := service.Notify(t.Context(), source, chat); err != nil {
+	if err := service.Notify(t.Context(), source, chat, "messenger-gap:test"); err != nil {
+		t.Fatal(err)
+	}
+	// Re-admit after an interruption between the ledger commit and outbox ack.
+	if err := service.Notify(t.Context(), source, chat, "messenger-gap:test"); err != nil {
 		t.Fatal(err)
 	}
 	var count int

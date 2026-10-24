@@ -222,6 +222,8 @@ func TestM4KakaoTalkSource(t *testing.T) {
 	stop()
 	stop = nil
 
+	// Fail durable notice admission after the gap and updated coverage commit.
+	kakaoSQL(t, root, `CREATE TRIGGER fail_gap_admission BEFORE INSERT ON conv_event WHEN NEW.id LIKE 'messenger-gap-%' BEGIN SELECT RAISE(ABORT,'synthetic notice admission failure'); END`)
 	// Age coverage in the stopped fixture, then catch up from the committed id.
 	kakaoSQL(t, root, `UPDATE messenger_coverage SET read_at=? WHERE platform='kakaotalk'`, time.Now().Add(-49*time.Hour).UTC().Format(time.RFC3339Nano))
 	script["chats"] = chat("9007199254740993124")
@@ -231,6 +233,18 @@ func TestM4KakaoTalkSource(t *testing.T) {
 	waitFor(t, "incremental read after restart", func() bool {
 		return readCanon(t, root, `SELECT count(*) FROM messenger_record WHERE platform='kakaotalk'`) == 4
 	})
+	waitFor(t, "pending gap after admission failure", func() bool {
+		return readCanon(t, root, `SELECT count(*) FROM messenger_gap_notice`) == 1 && readString(t, root, `SELECT state FROM messenger_source WHERE platform='kakaotalk'`) == "failing"
+	})
+	if got := readCanon(t, root, `SELECT count(*) FROM conv_event WHERE id LIKE 'messenger-gap-%'`); got != 0 {
+		t.Fatalf("failed admission created %d notices", got)
+	}
+	stop()
+	stop = nil
+	kakaoSQL(t, root, `DROP TRIGGER fail_gap_admission`)
+	// Now interrupt acknowledgement after durable admission succeeds.
+	kakaoSQL(t, root, `CREATE TRIGGER fail_gap_ack BEFORE DELETE ON messenger_gap_notice BEGIN SELECT RAISE(ABORT,'synthetic acknowledgement failure'); END`)
+	stop = start()
 	waitFor(t, "one gap notice", func() bool {
 		return readCanon(t, root, `SELECT count(*) FROM conv_event WHERE json_extract(origin,'$.locator') LIKE 'background-notice:%' AND body LIKE '%kakaotalk%'`) == 1
 	})
@@ -240,8 +254,15 @@ func TestM4KakaoTalkSource(t *testing.T) {
 	stop()
 	stop = nil
 
-	// A quiet restart covers the chat without fetching any page or retelling it.
+	if got := readCanon(t, root, `SELECT count(*) FROM messenger_gap_notice`); got != 1 {
+		t.Fatalf("failed acknowledgement lost pending notice: %d", got)
+	}
+	kakaoSQL(t, root, `DROP TRIGGER fail_gap_ack`)
+	// A quiet restart acknowledges the admitted notice without retelling it.
 	stop = start()
+	waitFor(t, "pending notice acknowledged after restart", func() bool {
+		return readCanon(t, root, `SELECT count(*) FROM messenger_gap_notice`) == 0
+	})
 	waitFor(t, "quiet chat coverage", func() bool {
 		return readCanon(t, root, `SELECT count(*) FROM messenger_coverage WHERE platform='kakaotalk' AND read_from='9007199254740993124'`) == 1
 	})
@@ -279,7 +300,64 @@ func TestM4KakaoTalkSource(t *testing.T) {
 	if got := readCanon(t, root, `SELECT count(*) FROM messenger_record WHERE platform='kakaotalk'`); got != 4 {
 		t.Fatalf("expired source records: %d", got)
 	}
+	stop()
+	stop = nil
+	acceptance := readString(t, root, `SELECT accepted_terms FROM messenger_source WHERE platform='kakaotalk'`)
+	connectedAt := readString(t, root, `SELECT connected_at FROM messenger_source WHERE platform='kakaotalk'`)
+	// A new credential attempt names the wrong account; its authenticated
+	// session must be discarded before the person can enter credentials again.
+	if err := os.Remove(filepath.Join(dir, "fixture-credentials.json")); err != nil {
+		t.Fatal(err)
+	}
+	script["expire"] = false
+	script["profile"] = map[string]any{"user_id": "7799", "nickname": "Other"}
+	script["login"] = map[string]any{"attempts": []any{map[string]any{"authenticated": true, "account_id": "7799", "user_id": "7799"}}}
+	kakaoFixture(t, root, script)
+	stop = start()
 	client, err = clientapi.DialWithCapabilities(t.Context(), cfg.Socket, "kakao-fixture", []protocol.Capability{{Name: "kakaotalk", Version: "1.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	step = kakaoRequest(t, client, protocol.KakaotalkRequest{Operation: "sign_in", Account: new("7788")})
+	if step.Step == nil || step.Step.Prompt == nil || step.Step.Prompt.Key != "email" {
+		t.Fatalf("initial retry: %+v", step)
+	}
+	kakaoRequest(t, client, protocol.KakaotalkRequest{Operation: "answer", Prompt: new("email"), Value: new("other@example.test")})
+	if _, err := client.KakaoTalk(t.Context(), protocol.KakaotalkRequest{Operation: "answer", Prompt: new("password"), Value: new("synthetic-password")}); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := client.Receive(t.Context())
+	if err != nil || frame.Error == nil || frame.Error.Code != protocol.ErrorMalformed {
+		t.Fatalf("wrong account was not rejected: %+v, %v", frame, err)
+	}
+	script["profile"] = map[string]any{"user_id": "7788", "nickname": "Me"}
+	script["login"] = map[string]any{"attempts": []any{map[string]any{"authenticated": true, "account_id": "7788", "user_id": "7788"}}}
+	script["chats"] = chat("9007199254740993126")
+	script["pages"] = map[string]any{"9007199254740993124": map[string]any{"messages": []any{message("9007199254740993126", "after correct retry", 1, nil)}, "next_cursor": "9007199254740993126", "complete": true}}
+	kakaoFixture(t, root, script)
+	step = kakaoRequest(t, client, protocol.KakaotalkRequest{Operation: "sign_in", Account: new("7788")})
+	if step.Step == nil || step.Step.Prompt == nil || step.Step.Prompt.Key != "email" {
+		t.Fatalf("correct retry did not offer credentials: %+v", step)
+	}
+	kakaoRequest(t, client, protocol.KakaotalkRequest{Operation: "answer", Prompt: new("email"), Value: new("person@example.test")})
+	step = kakaoRequest(t, client, protocol.KakaotalkRequest{Operation: "answer", Prompt: new("password"), Value: new("synthetic-password")})
+	if step.Step == nil || step.Step.State != "signed_in" {
+		t.Fatalf("correct account sign-in: %+v", step)
+	}
+	waitFor(t, "reads resume after correct account retry", func() bool {
+		return readCanon(t, root, `SELECT count(*) FROM messenger_record WHERE platform='kakaotalk'`) == 5
+	})
+	if got := readString(t, root, `SELECT accepted_terms FROM messenger_source WHERE platform='kakaotalk'`); got != acceptance {
+		t.Fatal("retry replaced accepted terms")
+	}
+	if got := readString(t, root, `SELECT connected_at FROM messenger_source WHERE platform='kakaotalk'`); got != connectedAt {
+		t.Fatal("retry replaced original source")
+	}
+	if got := readCanon(t, root, `SELECT count(*) FROM messenger_source WHERE platform='kakaotalk'`); got != 1 {
+		t.Fatalf("retry created %d sources", got)
+	}
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +366,7 @@ func TestM4KakaoTalkSource(t *testing.T) {
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("disconnect retained session: %v", err)
 	}
-	if got := readCanon(t, root, `SELECT count(*) FROM messenger_record WHERE platform='kakaotalk'`); got != 4 {
+	if got := readCanon(t, root, `SELECT count(*) FROM messenger_record WHERE platform='kakaotalk'`); got != 5 {
 		t.Fatalf("disconnect lost history: %d", got)
 	}
 	if got := readString(t, root, `SELECT e.body FROM conv_event e JOIN messenger_record r ON r.event=e.id WHERE r.platform='kakaotalk' AND r.message='1'`); got != "first" {

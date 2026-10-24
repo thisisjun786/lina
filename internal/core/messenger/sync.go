@@ -39,8 +39,9 @@ type Service struct {
 
 	// Notify tells the person that a chat passed its platform read window
 	// without a complete read. Core sets it; a nil Notify records the gap
-	// without a notice.
-	Notify func(context.Context, Source, ChatRecord) error
+	// until a notifier is available. The stable notice ID must be admitted
+	// idempotently; success acknowledges durable admission.
+	Notify func(context.Context, Source, ChatRecord, string) error
 
 	mu       sync.Mutex
 	lastSync map[string]time.Time
@@ -187,6 +188,10 @@ func (s *Service) SyncAll(ctx context.Context, now *time.Time) map[string]Result
 	connected := make(map[string]bool, len(sources))
 	defer func() { s.retain(connected) }()
 	for _, source := range sources {
+		// Delivery does not depend on a session, an adapter or the read schedule.
+		if err := s.retryGapNotices(ctx, source); err != nil {
+			continue
+		}
 		// A failing source keeps its schedule: the cause may be a credential or
 		// an unreachable node that the person can fix. A source that needs a
 		// new sign-in waits for the person instead.
@@ -410,6 +415,9 @@ func (s *Service) Sync(ctx context.Context, source Source) (result Result, err e
 		s.mu.Unlock()
 		s.leave(key)
 	}()
+	if err := s.retryGapNotices(ctx, source); err != nil {
+		return Result{}, err
+	}
 	if !s.connected(ctx, source) {
 		return Result{}, nil
 	}
@@ -458,6 +466,12 @@ func (s *Service) Sync(ctx context.Context, source Source) (result Result, err e
 		gap, err := s.gapState(ctx, source, adapter, chat)
 		if err != nil {
 			return result, err
+		}
+		// Record the warning before coverage can advance, including a quiet read.
+		if gap {
+			if _, err := s.store.NoteGap(ctx, source, chat.Chat); err != nil {
+				return result, err
+			}
 		}
 		if chat.LastMessage != "" && string(chat.Cursor) == chat.LastMessage {
 			// The listing names the message the chat already read through, so
@@ -542,17 +556,39 @@ func (s *Service) gapState(ctx context.Context, source Source, adapter Adapter, 
 	return freshness.State == "gap", nil
 }
 
-// settleGap closes the gap a completed read ended, or records a new one and
-// tells the person once. A chat still in a gap is not told again.
+// settleGap clears only the active gap. Pending notices survive a covered
+// read and retry until the notifier acknowledges their durable admission.
 func (s *Service) settleGap(ctx context.Context, source Source, chat ChatRecord, gap bool) error {
 	if !gap {
-		return s.store.ClearGap(ctx, source, chat.Chat)
+		if err := s.store.ClearGap(ctx, source, chat.Chat); err != nil {
+			return err
+		}
 	}
-	fresh, err := s.store.NoteGap(ctx, source, chat.Chat)
-	if err != nil || !fresh || s.Notify == nil {
+	return s.retryGapNotices(ctx, source)
+}
+
+func (s *Service) retryGapNotices(ctx context.Context, source Source) error {
+	if s.Notify == nil {
+		return nil
+	}
+	unlock, err := s.lockAdmission(ctx, source)
+	if err != nil {
 		return err
 	}
-	return s.Notify(ctx, source, chat)
+	defer unlock()
+	notices, err := s.store.PendingGapNotices(ctx, source)
+	if err != nil {
+		return err
+	}
+	for _, notice := range notices {
+		if err := s.Notify(ctx, source, notice.Chat, notice.ID); err != nil {
+			return err
+		}
+		if err := s.store.AcknowledgeGapNotice(ctx, notice.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Live reads a source's pushed events until ctx ends. A platform without live
@@ -687,6 +723,16 @@ func (s *Service) connected(ctx context.Context, source Source) bool {
 // admissions. It waits for that source only, and returns when ctx ends; the
 // source then stays connected and is read again on its schedule.
 func (s *Service) Disconnect(ctx context.Context, source Source) error {
+	return s.stopSource(ctx, source, StateDisconnected)
+}
+
+// RequireSignIn drains the previous reader and adapter before a rejected
+// session is removed. It preserves the source and its acceptance.
+func (s *Service) RequireSignIn(ctx context.Context, source Source) error {
+	return s.stopSource(ctx, source, StateNeedsSignIn)
+}
+
+func (s *Service) stopSource(ctx context.Context, source Source, state State) error {
 	key := source.Platform + "\x00" + source.Account
 	s.mu.Lock()
 	s.stopping[key] = true
@@ -713,5 +759,8 @@ func (s *Service) Disconnect(ctx context.Context, source Source) error {
 		}
 	}
 	s.release(key)
-	return s.store.Disconnect(ctx, source.Person, source.Platform, source.Account)
+	if state == StateDisconnected {
+		return s.store.Disconnect(ctx, source.Person, source.Platform, source.Account)
+	}
+	return s.store.setState(ctx, source.Person, source.Platform, source.Account, state, "")
 }

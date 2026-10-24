@@ -92,6 +92,9 @@ type Config struct {
 	// before the disconnect cannot commit after it. A nil Stop disconnects the
 	// store row alone.
 	Stop func(context.Context, messenger.Source) error
+	// Reset stops readers and drops their cached adapter before removing a
+	// rejected session, while keeping the source and its accepted terms.
+	Reset func(context.Context, messenger.Source) error
 	// Now overrides the clock for deterministic tests.
 	Now func() time.Time
 }
@@ -118,6 +121,7 @@ type attempt struct {
 	cancel     context.CancelFunc
 	busy       bool
 	invalid    bool
+	discard    bool
 }
 
 // NewService composes the control flow over a store and the add-on's sessions.
@@ -287,8 +291,8 @@ func (s *Service) run(ctx context.Context, pending *attempt, call func(context.C
 		return out, nil
 	}
 	if author.ID == "" || len(author.ID) > 512 || pending.account != "" && author.ID != pending.account {
-		pending.invalid = true
-		return Step{}, messenger.ErrInvalid
+		pending.invalid, pending.discard = true, true
+		return Step{}, errors.Join(messenger.ErrInvalid, s.expire(ctx))
 	}
 	source := messenger.Source{Person: s.cfg.Person, Platform: Platform, Account: author.ID, Mode: messenger.ModeUnofficial,
 		Adapter: AdapterName, State: messenger.StateConnected, ConnectedAt: s.now(), AcceptedTerms: pending.terms}
@@ -388,14 +392,30 @@ func (s *Service) expire(ctx context.Context) error {
 		return nil
 	}
 	pending.invalid = true
-	if pending.cancel != nil {
+	// A completed step may be performing this cleanup with its own request
+	// context. Cancel only an outstanding step; run cancels completed steps.
+	if pending.cancel != nil && pending.busy {
 		pending.cancel()
 	}
-	if err := pending.session.CancelSignIn(ctx); err != nil {
-		return err
+	if pending.discard && pending.account != "" && s.cfg.Reset != nil {
+		source, err := s.source(ctx, pending.account)
+		if err != nil {
+			return err
+		}
+		if source == nil {
+			return messenger.ErrNotFound
+		}
+		if err := s.cfg.Reset(ctx, *source); err != nil {
+			return err
+		}
 	}
-	if pending.account == "" {
-		if err := s.cfg.Sessions.Remove(ctx, Platform, ""); err != nil {
+	if !pending.discard {
+		if err := pending.session.CancelSignIn(ctx); err != nil {
+			return err
+		}
+	}
+	if pending.account == "" || pending.discard {
+		if err := s.cfg.Sessions.Remove(ctx, Platform, pending.account); err != nil {
 			return err
 		}
 	}

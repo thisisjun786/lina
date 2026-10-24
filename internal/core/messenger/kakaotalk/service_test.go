@@ -31,6 +31,8 @@ type script struct {
 	mu        sync.Mutex
 	responses map[string][]string
 	requests  []map[string]any
+	// retainSignIn models a driver whose cancellation keeps authenticated credentials.
+	retainSignIn bool
 	// hold, when set, runs before an operation's answer is written. A test uses
 	// it to keep one request in flight while it acts on the service.
 	hold func(op string)
@@ -40,6 +42,7 @@ func (s *script) Run(_ context.Context, _ lease.Lease, command sandbox.Command, 
 	reader := bufio.NewScanner(command.Stdin)
 	writer := bufio.NewWriter(command.Stdout)
 	defer writer.Flush()
+	identity := ""
 	for reader.Scan() {
 		var request map[string]any
 		if err := json.Unmarshal(reader.Bytes(), &request); err != nil {
@@ -49,11 +52,29 @@ func (s *script) Run(_ context.Context, _ lease.Lease, command sandbox.Command, 
 		s.requests = append(s.requests, request)
 		op, _ := request["op"].(string)
 		queue := s.responses[op]
+		if s.retainSignIn && identity != "" && (op == "beginSignIn" || op == "whoami") {
+			line := signedIn
+			if op == "whoami" {
+				line = identity
+			}
+			s.mu.Unlock()
+			id, _ := request["id"].(string)
+			if _, err := writer.WriteString(strings.ReplaceAll(line, `"id":""`, `"id":"`+id+`"`) + "\n"); err != nil {
+				return err
+			}
+			if err := writer.Flush(); err != nil {
+				return err
+			}
+			continue
+		}
 		if len(queue) == 0 {
 			s.mu.Unlock()
 			continue
 		}
 		line := queue[0]
+		if op == "whoami" {
+			identity = line
+		}
 		s.responses[op] = queue[1:]
 		hold := s.hold
 		s.mu.Unlock()
@@ -659,5 +680,61 @@ func TestDisconnectRetriesFailedSessionRemoval(t *testing.T) {
 	}
 	if _, err := os.Stat(addon.DataDir(h.root, kakaotalk.Platform, kakaotalk.Platform)); !os.IsNotExist(err) {
 		t.Fatalf("credentials survived retry: %v", err)
+	}
+}
+
+// An authenticated wrong account survives cancelSignIn in the real driver.
+// Retrying must discard that session without disconnecting the original source.
+func TestWrongAccountSignInCanRetryWithoutLosingAcceptance(t *testing.T) {
+	for _, failRemoval := range []bool{false, true} {
+		name := "removed"
+		if failRemoval {
+			name = "removal-retried"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, map[string][]string{
+				"beginSignIn": {signedIn, emailPrompt}, "whoami": {otherMe, me},
+				"cancelSignIn": {cancelled}, "answer": {passwordPrompt, signedIn},
+			})
+			h.script.retainSignIn = true
+			reset := func(ctx context.Context, source messenger.Source) error {
+				if source.Account != "7788" {
+					t.Fatalf("reset wrong source: %+v", source)
+				}
+				return ctx.Err()
+			}
+			h.service = kakaotalk.NewService(kakaotalk.Config{Person: person, Store: h.store, Sessions: h.manager, Reset: reset, Now: func() time.Time { return h.now }})
+			if failRemoval {
+				h.service = kakaotalk.NewService(kakaotalk.Config{Person: person, Store: h.store, Sessions: &retryRemoval{Sessions: h.manager}, Reset: reset, Now: func() time.Time { return h.now }})
+			}
+			original := messenger.Source{Person: person, Platform: kakaotalk.Platform, Account: "7788",
+				Mode: messenger.ModeUnofficial, Adapter: kakaotalk.AdapterName, State: messenger.StateNeedsSignIn,
+				ConnectedAt: h.now.Add(-time.Hour), AcceptedTerms: &messenger.Terms{Person: person, At: h.now.Add(-time.Hour), Text: kakaotalk.Terms}}
+			if err := h.store.Connect(t.Context(), original); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := h.service.SignIn(t.Context(), "retry", "7788"); !errors.Is(err, messenger.ErrInvalid) {
+				t.Fatalf("wrong account accepted: %v", err)
+			}
+			step, err := h.service.SignIn(t.Context(), "retry", "7788")
+			if err != nil || step.Prompt == nil || step.Prompt.Key != "email" {
+				t.Fatalf("retry did not offer fresh credentials: %+v, %v", step, err)
+			}
+			if _, err := h.service.Answer(t.Context(), "retry", "email", "person@example.test"); err != nil {
+				t.Fatal(err)
+			}
+			step, err = h.service.Answer(t.Context(), "retry", "password", "synthetic-password")
+			if err != nil || step.Account != "7788" || step.State != messenger.SignedIn {
+				t.Fatalf("correct retry: %+v, %v", step, err)
+			}
+			sources, err := h.service.Sources(t.Context())
+			if err != nil || len(sources) != 1 {
+				t.Fatalf("sources: %+v, %v", sources, err)
+			}
+			got := sources[0]
+			if got.Account != original.Account || got.State != messenger.StateConnected || got.AcceptedTerms == nil || *got.AcceptedTerms != *original.AcceptedTerms || !got.ConnectedAt.Equal(original.ConnectedAt) {
+				t.Fatalf("source or acceptance changed: %+v", got)
+			}
+		})
 	}
 }

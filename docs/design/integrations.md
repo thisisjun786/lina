@@ -875,7 +875,10 @@ Only one step may run at a time, including repeated requests from the same
 connection. A failed cancellation prevents a replacement until cleanup succeeds.
 An abandoned new connection also loses its pending session, including credentials
 that registration saved before the relay expired. Signing in again must return
-the requested account. Disconnect invalidates outstanding sign-in work before
+the requested account. If it returns another account, Core stops the old reader
+and discards the rejected session before allowing a retry. The original source,
+its connection date and accepted terms stay intact; failed cleanup is retried
+before another attempt can start. Disconnect invalidates outstanding sign-in work before
 removing the session; a late reply cannot reconnect it. Repeating disconnect for
 an old account leaves the current account's session intact.
 
@@ -920,7 +923,7 @@ Unofficial personal platforms are read through the messenger add-on: LINA's own 
 - Where a platform serves no cursor that survives a restart, a read covers only its newest messages, and the chat's coverage record states that depth and that the cursor does not survive. Overlap between those reads is resolved by the platform message id, so a message reads once.
 - A message the platform served but this account could not decrypt is a record with no text and a decryption-failed flag: it is never an empty message, a message from the system, or a deletion.
 - A message missing from a later read is never treated as deleted. Edits and deletions the platform reports follow [Messenger records](conversation-and-memory.md#messenger-records).
-- Each chat is fresh, stale (no complete read within its interval) or in a gap (the time since its last complete read passed the platform's read window, so messages may be lost). A gap is shown on the source and told to the person once. An archive import can fill it later.
+- Each chat is fresh, stale (no complete read within its interval) or in a gap (the time since its last complete read passed the platform's read window, so messages may be lost). A gap is shown on the source and told to the person once. Core records the gap and its pending warning together before advancing coverage. Pending warnings survive completed reads and restart, and retry independently of source sign-in or adapter availability until durable notice admission succeeds. Retries keep the same notice identity, including after admission succeeded but its acknowledgement was interrupted. An archive import can fill it later.
 - Rates are the adapter's: it honours the platform's retry-after and keeps its cursor.
 - A failing source never blocks conversation or another source.
 

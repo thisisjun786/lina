@@ -3,6 +3,7 @@ package messenger
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -1200,7 +1201,8 @@ ON CONFLICT(platform,account,chat,read_from,read_through) DO UPDATE SET read_at=
 
 // NoteGap records that a chat passed the platform's read window without a
 // complete read. It reports whether the gap is new: the person is told once per
-// gap, not on every sync.
+// gap, not on every sync. The pending warning commits in the same transaction
+// and remains until durable notice admission is acknowledged.
 func (s *Store) NoteGap(ctx context.Context, source Source, chat string) (bool, error) {
 	if !validName(source.Platform) || !validName(source.Account) || !validName(chat) {
 		return false, ErrInvalid
@@ -1214,6 +1216,11 @@ ON CONFLICT(platform,account,chat) DO NOTHING`, source.Platform, source.Account,
 		}
 		n, err := result.RowsAffected()
 		fresh = n > 0
+		if err != nil || !fresh {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO messenger_gap_notice(id,platform,account,chat) VALUES(?,?,?,?)`,
+			"messenger-gap:"+rand.Text(), source.Platform, source.Account, chat)
 		return err
 	})
 	return fresh, err

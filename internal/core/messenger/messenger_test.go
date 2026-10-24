@@ -1055,7 +1055,7 @@ func TestGapIsToldOnceUntilACoveredReadEndsIt(t *testing.T) {
 	}
 	service := messenger.NewService(f.store, map[string]messenger.Adapter{"discord": adapter}, time.Hour)
 	var told []string
-	service.Notify = func(_ context.Context, _ messenger.Source, chat messenger.ChatRecord) error {
+	service.Notify = func(_ context.Context, _ messenger.Source, chat messenger.ChatRecord, _ string) error {
 		told = append(told, chat.Chat)
 		return nil
 	}
