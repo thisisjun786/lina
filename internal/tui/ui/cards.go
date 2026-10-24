@@ -230,11 +230,28 @@ func (m *shellModel) cardRows(c state.Card) ([]string, int) {
 	} else {
 		if m.content.CardView.ID == c.ID && m.content.CardView.Notice != "" {
 			add(design.Text(m.styles.options.Language, m.content.CardView.Notice))
+			if choices, ok := noticeChoices(c.Form, m.content.CardView.NoticeField); ok {
+				add(design.Text(m.styles.options.Language, "card.allowed_values") + " " + strings.Join(choices, " / "))
+			}
 		}
 		add(design.Text(m.styles.options.Language, "card.question_keys"))
 	}
 	add(design.Text(m.styles.options.Language, "card.escape"))
 	return rows, targets
+}
+
+// noticeChoices returns the displayed values of the field a local validation
+// notice names, so the person can correct it without leaving the card.
+func noticeChoices(form *protocol.QuestionForm, name string) ([]string, bool) {
+	if form == nil || name == "" {
+		return nil, false
+	}
+	for _, field := range form.Fields {
+		if field.Name == name && field.Choices != nil {
+			return *field.Choices, true
+		}
+	}
+	return nil, false
 }
 
 func (m *shellModel) cardContent(c state.Card) string {

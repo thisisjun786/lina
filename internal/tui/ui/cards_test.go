@@ -13,6 +13,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/thisisjun786/lina/internal/design"
 	"github.com/thisisjun786/lina/internal/tui/layout"
 	"github.com/thisisjun786/lina/internal/tui/state"
 	"github.com/thisisjun786/lina/internal/tui/term"
@@ -233,6 +234,39 @@ func TestSchemaInvalidQuestionStaysEditable(t *testing.T) {
 	decline, handled := m.cardKey(term.Key{Name: "ctrl+d", Events: true})
 	if decline == nil || !handled {
 		t.Fatal("decline blocked after an invalid value")
+	}
+}
+
+func TestInvalidQuestionChoiceShowsAllowedValues(t *testing.T) {
+	m := cardModel(t)
+	m.content.Cards[0].Kind = protocol.KindQuestion
+	m.content.Cards[0].Choices = nil
+	choices := []string{"North orchard", "South orchard"}
+	m.content.Cards[0].Form = &protocol.QuestionForm{PluginName: "LINA", Fields: []protocol.FormField{{Name: "answer", Type: protocol.FormFieldTypeChoice, Choices: &choices}}}
+	m.content, _ = state.Reduce(m.content, state.EditQuestionField{Name: "answer", Value: "1"})
+	cmd, handled := m.cardKey(term.Key{Name: "enter", Events: true})
+	if cmd != nil || !handled {
+		t.Fatal("invalid choice was submitted")
+	}
+	if m.content.CardView.Pending || m.content.Cards[0].Outcome != "" || m.content.CardView.Fields["answer"] != "1" {
+		t.Fatalf("invalid choice settled the card: pending=%v outcome=%s fields=%v", m.content.CardView.Pending, m.content.Cards[0].Outcome, m.content.CardView.Fields)
+	}
+	content := m.cardContent(m.content.Cards[0])
+	notice := design.Text(design.English, "card.form_invalid")
+	allowed := design.Text(design.English, "card.allowed_values") + " " + strings.Join(choices, " / ")
+	if !strings.Contains(content, notice) || !strings.Contains(content, allowed) {
+		t.Fatalf("missing validation feedback:\n%s", content)
+	}
+	m.content, _ = state.Reduce(m.content, state.EditQuestionField{Name: "answer", Value: "North orchard"})
+	if strings.Contains(m.cardContent(m.content.Cards[0]), notice) {
+		t.Fatal("correction kept the validation feedback")
+	}
+	cmd, _ = m.cardKey(term.Key{Name: "enter", Events: true})
+	if cmd == nil {
+		t.Fatal("corrected choice was not submitted")
+	}
+	if _, ok := cmd().(shellCardAnswer); !ok {
+		t.Fatal("corrected choice used the wrong effect")
 	}
 }
 

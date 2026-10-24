@@ -85,7 +85,14 @@ func TestM1TUIQuestionConversationScopeInstalledCore(t *testing.T) {
 	waitScreen(t, h, terminal, "Capsule question is ready.")
 	h.keys(terminal, "\x1b[?3u\x1b[17~")
 	waitScreen(t, h, terminal, "Blue / Orange")
-	h.keys(terminal, "Blue\x1b[13;1:1u")
+	// An invalid choice stays unsent: the open card names the allowed values
+	// and keeps the draft, so the person can correct it and submit.
+	h.keys(terminal, "1\x1b[13;1:1u")
+	waitScreen(t, h, terminal, design.Text(design.English, "card.allowed_values")+" Blue / Orange")
+	h.keys(terminal, "\x7f")
+	h.keys(terminal, "Blue")
+	waitScreen(t, h, terminal, "answer (choice): Blue")
+	h.keys(terminal, "\x1b[13;1:1u")
 	for {
 		frame := tap.next(t, h)
 		if answer, ok := frame.Payload.(protocol.QuestionAnswer); ok {

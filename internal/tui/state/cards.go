@@ -47,6 +47,7 @@ type CardView struct {
 	Fields                  map[string]string
 	ID                      string
 	Notice                  string
+	NoticeField             string
 	Choice                  protocol.ApprovalChoice
 	TargetsVisible, Pending bool
 }
@@ -185,6 +186,7 @@ func (s State) reduceCard(msg Msg) (State, []Cmd) {
 			s.CardView.Fields = map[string]string{}
 		}
 		s.CardView.Notice = ""
+		s.CardView.NoticeField = ""
 		s.CardView.Fields[m.Name] = m.Value
 	case AnswerQuestion:
 		c, ok := s.CurrentCard()
@@ -197,12 +199,19 @@ func (s State) reduceCard(msg Msg) (State, []Cmd) {
 			var valid bool
 			values, valid = QuestionValues(c.Form, s.CardView.Fields)
 			if !valid {
+				s.CardView.Notice = "card.form_invalid"
+				s.CardView.NoticeField = ""
+				if name, ok := InvalidQuestionField(c.Form, s.CardView.Fields); ok {
+					s.CardView.NoticeField = name
+				}
 				return s, nil
 			}
 		case protocol.QuestionAnswerActionDecline, protocol.QuestionAnswerActionCancel:
 		default:
 			return s, nil
 		}
+		s.CardView.Notice = ""
+		s.CardView.NoticeField = ""
 		s.CardSequence++
 		req := CardAnswerRequest{ID: c.ID, Epoch: c.Epoch, Revision: c.Revision, Token: c.Token, Sequence: s.CardSequence, QuestionAction: m.Action, Values: values}
 		c.pending = &req
@@ -239,6 +248,7 @@ func (s State) reduceCard(msg Msg) (State, []Cmd) {
 		if s.CardView.ID == m.Request.ID {
 			s.CardView.Pending = false
 			s.CardView.Notice = "card.form_invalid"
+			s.CardView.NoticeField = ""
 		}
 	}
 	return s, nil
@@ -257,49 +267,73 @@ func QuestionValues(form *protocol.QuestionForm, fields map[string]string) (prot
 	}
 	values := protocol.FormValues{}
 	for _, field := range form.Fields {
-		text, exists := fields[field.Name]
-		if field.Optional != nil && *field.Optional && (!exists || text == "") {
-			continue
-		}
-		if !exists {
+		value, present, ok := questionFieldValue(field, fields)
+		if !ok {
 			return nil, false
 		}
-		value := protocol.FormValue{}
-		switch field.Type {
-		case protocol.FormFieldTypeText:
-			value.String = &text
-		case protocol.FormFieldTypeNumber:
-			if !json.Valid([]byte(text)) || text == "" {
-				return nil, false
-			}
-			decoder := json.NewDecoder(strings.NewReader(text))
-			decoder.UseNumber()
-			var decoded any
-			if decoder.Decode(&decoded) != nil {
-				return nil, false
-			}
-			n, ok := decoded.(json.Number)
-			if !ok {
-				return nil, false
-			}
-			value.Number = &n
-		case protocol.FormFieldTypeBoolean:
-			if text != "true" && text != "false" {
-				return nil, false
-			}
-			b, _ := strconv.ParseBool(text)
-			value.Boolean = &b
-		case protocol.FormFieldTypeChoice:
-			if field.Choices == nil || !slices.Contains(*field.Choices, text) {
-				return nil, false
-			}
-			value.String = &text
-		default:
-			return nil, false
+		if present {
+			values[field.Name] = value
 		}
-		values[field.Name] = value
 	}
 	return values, true
+}
+
+// InvalidQuestionField names the first field whose draft does not match the
+// form. A blank optional field is valid and skipped.
+func InvalidQuestionField(form *protocol.QuestionForm, fields map[string]string) (string, bool) {
+	if form == nil {
+		return "", false
+	}
+	for _, field := range form.Fields {
+		if _, _, ok := questionFieldValue(field, fields); !ok {
+			return field.Name, true
+		}
+	}
+	return "", false
+}
+
+func questionFieldValue(field protocol.FormField, fields map[string]string) (protocol.FormValue, bool, bool) {
+	text, exists := fields[field.Name]
+	if field.Optional != nil && *field.Optional && (!exists || text == "") {
+		return protocol.FormValue{}, false, true
+	}
+	if !exists {
+		return protocol.FormValue{}, false, false
+	}
+	value := protocol.FormValue{}
+	switch field.Type {
+	case protocol.FormFieldTypeText:
+		value.String = &text
+	case protocol.FormFieldTypeNumber:
+		if !json.Valid([]byte(text)) || text == "" {
+			return protocol.FormValue{}, false, false
+		}
+		decoder := json.NewDecoder(strings.NewReader(text))
+		decoder.UseNumber()
+		var decoded any
+		if decoder.Decode(&decoded) != nil {
+			return protocol.FormValue{}, false, false
+		}
+		n, ok := decoded.(json.Number)
+		if !ok {
+			return protocol.FormValue{}, false, false
+		}
+		value.Number = &n
+	case protocol.FormFieldTypeBoolean:
+		if text != "true" && text != "false" {
+			return protocol.FormValue{}, false, false
+		}
+		b, _ := strconv.ParseBool(text)
+		value.Boolean = &b
+	case protocol.FormFieldTypeChoice:
+		if field.Choices == nil || !slices.Contains(*field.Choices, text) {
+			return protocol.FormValue{}, false, false
+		}
+		value.String = &text
+	default:
+		return protocol.FormValue{}, false, false
+	}
+	return value, true, true
 }
 
 type ResetCardRequests struct{}

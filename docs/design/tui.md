@@ -951,7 +951,7 @@ There is no client decision store. Group membership and its displayed arguments
 must be revalidated in the same authority transaction as the decisions, so a
 changed group cannot partially approve.
 
-**Questions.** A form question renders its flat schema as prompts, and a URL question follows the contract, opening the URL only on an explicit key. Core refuses a form that asks for a secret, and the TUI shows the refusal. An unknown outcome of an effect is a question card with the dispositions of [main-authority.md](main-authority.md#command-outcomes). The TUI adds no option Core did not list.
+**Questions.** A form question renders its flat schema as prompts, and a URL question follows the contract, opening the URL only on an explicit key. Core refuses a form that asks for a secret, and the TUI shows the refusal. An unknown outcome of an effect is a question card with the dispositions of [main-authority.md](main-authority.md#command-outcomes). The TUI adds no option Core did not list. An answer the TUI can reject from the rendered schema is not sent; the card stays open with the draft and says the value was not accepted, naming the values that field allows, so an invalid choice never looks stuck.
 
 Worker questions identify the originating agent by its display name in both the
 form header and the conversation card row, consistently with Home and approvals.
