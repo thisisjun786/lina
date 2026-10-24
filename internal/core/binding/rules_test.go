@@ -8,6 +8,7 @@ import (
 )
 
 func TestRulesAndFocus(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	base := State{Clock: now, Focus: Target{Class: "existing", ID: "a", Kind: "project"}, FocusAgeSeconds: 1, Items: []Item{{ID: "a", Title: "Garden", Kind: "project", State: "active", LastActivity: now}, {ID: "b", Title: "도서관", Names: []string{"Straße", "Café"}, Kind: "project", State: "active", LastActivity: now}}, Surfaces: map[string]string{"reply": "b"}}
 	for _, tc := range []struct {
@@ -27,6 +28,7 @@ func TestRulesAndFocus(t *testing.T) {
 		{name: "aged", text: "continue", age: 3600},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s := base
 			s.Items = append([]Item(nil), base.Items...)
 			s.FocusAgeSeconds = tc.age
@@ -56,6 +58,7 @@ func TestRulesAndFocus(t *testing.T) {
 	}
 }
 func TestCandidateOrderAndLimit(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	s := State{Clock: now, Focus: Target{Class: "existing", ID: "focus", Kind: "project"}, Questions: []Question{{ID: "q", Target: "question", Options: []string{"A", "B"}}}}
 	for n, id := range []string{"recent", "named", "run", "question", "focus", "old1", "old2", "old3", "old4"} {

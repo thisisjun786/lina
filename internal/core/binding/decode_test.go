@@ -23,6 +23,7 @@ func decodeState() State {
 // A model writes the shapes it reads: ids, titles, class words and ordinals are
 // all accepted, and only a target it cannot resolve is returned for correction.
 func TestNormalizeChoicesAcceptsModelShapes(t *testing.T) {
+	t.Parallel()
 	s := decodeState()
 	text := "Water the garden and start a new task."
 	for _, tc := range []struct {
@@ -42,6 +43,7 @@ func TestNormalizeChoicesAcceptsModelShapes(t *testing.T) {
 		{"string-request", `{"request":"2","target":"none"}`, Choice{Request: 2, Quote: text, Target: Target{Class: "none"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := NormalizeChoices(s, text, []json.RawMessage{json.RawMessage(tc.raw)})
 			if err != nil {
 				t.Fatal(err)
@@ -58,6 +60,7 @@ func TestNormalizeChoicesAcceptsModelShapes(t *testing.T) {
 // An unknown or ambiguous target is the one argument Core must not guess: it
 // returns the authorized ids so the next call can resolve it.
 func TestNormalizeChoicesCorrectsOnlyTargets(t *testing.T) {
+	t.Parallel()
 	s := decodeState()
 	s.Items = append(s.Items, Item{ID: "beds-a", Title: "Beds", Kind: "project", State: "active", LastActivity: s.Clock}, Item{ID: "beds-b", Title: "Beds", Kind: "project", State: "active", LastActivity: s.Clock})
 	for _, tc := range []struct {
@@ -69,6 +72,7 @@ func TestNormalizeChoicesCorrectsOnlyTargets(t *testing.T) {
 		{"missing", `{"quote":"Water the garden"}`, "bindings[0].target", "missing_target", []string{"existing", "new", "none"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := NormalizeChoices(s, "Water the garden", []json.RawMessage{json.RawMessage(tc.raw)})
 			var detail *ChoiceError
 			if !errors.As(err, &detail) || detail.Field != tc.field || detail.Reason != tc.reason || !slices.Equal(detail.Allowed, tc.allowed) {
@@ -81,6 +85,7 @@ func TestNormalizeChoicesCorrectsOnlyTargets(t *testing.T) {
 // A unique exact title of a finished offered item is that item. An id already
 // binds it; the title must not become an unknown target after the open filter.
 func TestCompletedExactTitleBinds(t *testing.T) {
+	t.Parallel()
 	s := decodeState()
 	got, err := NormalizeChoices(s, "Water the garden", []json.RawMessage{json.RawMessage(`{"target":"Done"}`)})
 	if err != nil || len(got) != 1 || got[0].Target != (Target{Class: "existing", ID: "finished", Kind: "project"}) {
@@ -101,6 +106,7 @@ func TestCompletedExactTitleBinds(t *testing.T) {
 
 // A canonical choice keeps targets that do not fit on the first question page.
 func TestNormalizeChoicesKeepsLaterPage(t *testing.T) {
+	t.Parallel()
 	s := decodeState()
 	s.Items = append(s.Items, Item{ID: "extra-a", Title: "Extra A", Kind: "task", State: "running", LastActivity: s.Clock}, Item{ID: "extra-b", Title: "Extra B", Kind: "task", State: "running", LastActivity: s.Clock})
 	raw := `{"target":{"class":"existing","id":"garden","kind":"project"},"tied":[{"class":"existing","id":"garden","kind":"project"},{"class":"existing","id":"library","kind":"project"},{"class":"existing","id":"planting","kind":"task"},{"class":"existing","id":"finished","kind":"project"}],"more":[{"class":"existing","id":"extra-a","kind":"task"},{"class":"existing","id":"extra-b","kind":"task"}],"action":"stop"}`
@@ -112,6 +118,7 @@ func TestNormalizeChoicesKeepsLaterPage(t *testing.T) {
 
 // An ambiguous tied alternative is a correction, not a settled recommendation.
 func TestAmbiguousTiedTargetIsNotDropped(t *testing.T) {
+	t.Parallel()
 	s := decodeState()
 	s.Items = append(s.Items, Item{ID: "beds-a", Title: "Beds", Kind: "project", State: "active", LastActivity: s.Clock}, Item{ID: "beds-b", Title: "Beds", Kind: "project", State: "active", LastActivity: s.Clock})
 	_, err := NormalizeChoices(s, "Stop the garden work.", []json.RawMessage{json.RawMessage(`{"target":"garden","tied":["garden","Beds"],"action":"stop"}`)})
@@ -128,6 +135,7 @@ func TestAmbiguousTiedTargetIsNotDropped(t *testing.T) {
 // Close matches that are not open items never reach the duplicate check, and a
 // difference is bounded so one message cannot store unbounded text.
 func TestNormalizeChoicesBoundsMetadata(t *testing.T) {
+	t.Parallel()
 	s := decodeState()
 	raw, _ := json.Marshal(map[string]any{"target": "none", "close_matches": []string{"garden", "finished", "missing"}, "difference": strings.Repeat("x", maxDifference+10)})
 	got, err := NormalizeChoices(s, "Save a task.", []json.RawMessage{raw})
@@ -142,6 +150,7 @@ func TestNormalizeChoicesBoundsMetadata(t *testing.T) {
 // A candidate id that begins with a stored kind name is still that item.
 // Kind-and-colon text is new work only when it is not an exact candidate id.
 func TestExactCandidateIDBeatsKindPrefix(t *testing.T) {
+	t.Parallel()
 	s := decodeState()
 	s.Items = append(s.Items, Item{ID: "task:a", Title: "Recovered", Kind: "task", State: "running", LastActivity: s.Clock})
 	text := "Continue the recovered task."
