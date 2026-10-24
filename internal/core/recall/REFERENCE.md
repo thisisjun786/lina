@@ -108,6 +108,9 @@ calling the adapter. Source hash, queue sequence, current eligibility and model
 generation are checked before dispatch and again on publication. A failed row
 remains queued; the cursor wraps so later rows can advance. Empty derived text
 and ineligible documents consume their queue entry without a model call.
+The shared recursive privacy relation also guards source reads, dispatch and
+publication, including indirect memory citations, legacy evidence and shared
+material locators.
 
 A model, dimension or endpoint change atomically replaces only the derived
 vector table and queues the current documents. Reads stay lexical until this

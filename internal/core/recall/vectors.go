@@ -75,10 +75,10 @@ func NewVectors(ctx context.Context, db Canon, readEvent ReadEvent, adapter Embe
 }
 
 type embeddingDocument struct {
-	sequence, id             int64
-	kind, source, hash, text string
-	external                 bool
-	spans                    []secrets.Span
+	sequence, id                     int64
+	person, kind, source, hash, text string
+	external                         bool
+	spans                            []secrets.Span
 }
 
 func (v *Vectors) generation(ctx context.Context, tx *canon.Tx) (int64, bool, error) {
@@ -114,13 +114,13 @@ func (v *Vectors) DrainBatch(ctx context.Context) (int, error) {
 		if err != nil {
 			return err
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT q.sequence,d.id,d.kind,d.source_id,d.text_hash FROM recall_embed_pending q JOIN recall_doc d ON d.id=q.doc WHERE q.sequence>? ORDER BY q.sequence LIMIT ?`, v.after, EmbeddingBatchSize)
+		rows, err := tx.QueryContext(ctx, `SELECT q.sequence,d.id,d.person,d.kind,d.source_id,d.text_hash FROM recall_embed_pending q JOIN recall_doc d ON d.id=q.doc WHERE q.sequence>? ORDER BY q.sequence LIMIT ?`, v.after, EmbeddingBatchSize)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var d embeddingDocument
-			if err = rows.Scan(&d.sequence, &d.id, &d.kind, &d.source, &d.hash); err != nil {
+			if err = rows.Scan(&d.sequence, &d.id, &d.person, &d.kind, &d.source, &d.hash); err != nil {
 				rows.Close()
 				return err
 			}
@@ -136,6 +136,13 @@ func (v *Vectors) DrainBatch(ctx context.Context) (int, error) {
 				return err
 			}
 			if eligible == 0 {
+				continue
+			}
+			restricted, err := SourceRestricted(ctx, tx, Scope{Person: d.person, ExternalModel: true}, d.kind, d.source)
+			if err != nil {
+				return err
+			}
+			if restricted {
 				continue
 			}
 			src, err := readSource(ctx, tx, d.kind, d.source)
@@ -233,6 +240,14 @@ func (v *Vectors) DrainBatch(ctx context.Context) (int, error) {
 				return err
 			}
 			if present == 1 {
+				restricted, err := SourceRestricted(ctx, tx, Scope{Person: d.person, ExternalModel: true}, d.kind, d.source)
+				if err != nil {
+					return err
+				}
+				if restricted {
+					skipped = append(skipped, d)
+					continue
+				}
 				kept = append(kept, d)
 				texts = append(texts, d.text)
 			}
@@ -280,6 +295,13 @@ func (v *Vectors) DrainBatch(ctx context.Context) (int, error) {
 					return err
 				}
 				if present == 0 {
+					continue
+				}
+				restricted, err := SourceRestricted(ctx, tx, Scope{Person: d.person, ExternalModel: true}, d.kind, d.source)
+				if err != nil {
+					return err
+				}
+				if restricted {
 					continue
 				}
 				if _, err := tx.ExecContext(ctx, "INSERT INTO recall_vec(rowid,embedding) VALUES(?,?)", d.id, vectorBytes(vectors[i])); err != nil {

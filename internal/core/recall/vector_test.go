@@ -234,6 +234,31 @@ func TestVectorsScopeBeforeLimitAndSecretProjection(t *testing.T) {
 	}
 }
 
+func TestEmbeddingUsesSharedPrivacyRestrictions(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%v", legacy), func(t *testing.T) {
+			db := database(t)
+			admit(t, db, "protected", "private observatory details")
+			protected := remember(t, db, "agent", "", "protected classification", memory.NeverLeaves, "protected")
+			if legacy {
+				write(t, db, "DELETE FROM cite WHERE view_kind='memory' AND view_id=?", protected)
+			} else {
+				derived := remember(t, db, "agent", "", "derived observatory details", memory.Local, "protected")
+				write(t, db, "UPDATE cite SET target_kind='memory',target_id=? WHERE view_kind='memory' AND view_id=?", derived, protected)
+			}
+			adapter := &fakeEmbeddings{model: "test", dimension: 2}
+			vectors, err := recall.NewVectors(t.Context(), db, nil, adapter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			finishVectors(t, db, vectors)
+			if adapter.calls != 0 || vectorCount(t, db) != 0 {
+				t.Fatalf("shared privacy restriction escaped: calls=%d vectors=%d", adapter.calls, vectorCount(t, db))
+			}
+		})
+	}
+}
+
 func TestMessengerImportConsentAndChatSwitch(t *testing.T) {
 	db := database(t)
 	admit(t, db, "imported-message", "garden plants")
