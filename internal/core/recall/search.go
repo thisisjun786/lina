@@ -291,16 +291,17 @@ dedup AS (
   CASE WHEN c.kind='event' AND c.text_hash IS NOT NULL AND c.replay=0 THEN row_number() OVER (
    PARTITION BY c.conversation,c.text_hash ORDER BY julianday(c.occurred_at),c.source_id) ELSE 1 END AS twin
  FROM candidates c` + lineageFilter(withEvents) + `)
-SELECT kind,source_id,revision,occurred_at,holder,older,CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END AS tier,score
+SELECT kind,source_id,revision,occurred_at,holder,older,
+ CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END AS tier
  FROM dedup WHERE twin=1 AND (?=1 OR older=0)
 ORDER BY tier, score, julianday(occurred_at) DESC, source_id`
 	args = append(args, boolInt(scope.History))
 	limit := query.Limit
 	if limit > 0 {
 		statement += " LIMIT ?"
-		args = append(args, limit+len(external))
+		args = append(args, limit)
 	}
-	var ranks []rankedHit
+	var ranked []orderedHit
 	err := db.Read(ctx, func(tx *canon.Tx) error {
 		rows, err := tx.QueryContext(ctx, statement, args...)
 		if err != nil {
@@ -308,66 +309,70 @@ ORDER BY tier, score, julianday(occurred_at) DESC, source_id`
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var r rankedHit
+			var h orderedHit
 			var occurred string
 			var older int
-			if err := rows.Scan(&r.hit.Kind, &r.hit.ID, &r.hit.Revision, &occurred, &r.hit.Holder, &older, &r.tier, &r.score); err != nil {
+			if err := rows.Scan(&h.Kind, &h.ID, &h.Revision, &occurred, &h.Holder, &older, &h.tier); err != nil {
 				return err
 			}
-			r.hit.Older = older == 1
-			if r.hit.OccurredAt, err = time.Parse(time.RFC3339Nano, occurred); err != nil {
-				r.hit.OccurredAt = time.Time{}
+			h.Older = older == 1
+			if h.OccurredAt, err = time.Parse(time.RFC3339Nano, occurred); err != nil {
+				h.OccurredAt = time.Time{}
 			}
-			ranks = append(ranks, r)
+			ranked = append(ranked, h)
 		}
 		return rows.Err()
 	})
 	if err != nil {
 		return nil, err
 	}
+	// Material-backed queued events are unscored, the same tier as an inline
+	// body that is still pending. Merge them by newer occurred_at before the
+	// limit so a newer import is not dropped behind an older inline row.
 	if len(external) > 0 {
-		// A queued material hit is an unscored candidate like any other queued
-		// source, so it takes the same place in the order before the limit.
-		for _, h := range external {
-			ranks = append(ranks, rankedHit{hit: h, tier: 2})
-		}
-		sort.SliceStable(ranks, func(i, j int) bool { return ranks[i].before(ranks[j]) })
+		ranked = mergeUnscored(ranked, external)
 	}
-	hits := make([]Hit, 0, len(ranks))
-	for _, r := range ranks {
-		hits = append(hits, r.hit)
+	if limit > 0 && len(ranked) > limit {
+		ranked = ranked[:limit]
 	}
-	if limit > 0 && len(hits) > limit {
-		hits = hits[:limit]
+	hits := make([]Hit, len(ranked))
+	for i, h := range ranked {
+		hits[i] = h.Hit
 	}
 	if query.Vectors != nil {
-		return fuse(ctx, db, scope, query, hits)
+		return fuse(ctx, db, scope, at, query, hits)
 	}
 	return lineage(ctx, db, scope, hits)
 }
 
-// rankedHit carries the SQL order key of a match: tier, then score with NULL
-// first, then newer occurrence, then source id.
-type rankedHit struct {
-	hit   Hit
-	tier  int
-	score sql.NullFloat64
+// orderedHit keeps the SQL rank tier so pending material can join the
+// unscored suffix without passing a paired or trigram match.
+type orderedHit struct {
+	Hit
+	tier int
 }
 
-func (a rankedHit) before(b rankedHit) bool {
-	if a.tier != b.tier {
-		return a.tier < b.tier
+// mergeUnscored inserts material hits into the trailing unscored tier.
+// Paired and trigram matches stay ahead of that tier. Within the tier, newer
+// occurred_at wins and source id breaks a tie, matching the SQL order.
+func mergeUnscored(ranked []orderedHit, external []Hit) []orderedHit {
+	split := len(ranked)
+	for split > 0 && ranked[split-1].tier == 2 {
+		split--
 	}
-	if a.score.Valid != b.score.Valid {
-		return !a.score.Valid
+	suffix := make([]orderedHit, 0, len(ranked)-split+len(external))
+	suffix = append(suffix, ranked[split:]...)
+	for _, h := range external {
+		suffix = append(suffix, orderedHit{Hit: h, tier: 2})
 	}
-	if a.score.Valid && a.score.Float64 != b.score.Float64 {
-		return a.score.Float64 < b.score.Float64
-	}
-	if !a.hit.OccurredAt.Equal(b.hit.OccurredAt) {
-		return a.hit.OccurredAt.After(b.hit.OccurredAt)
-	}
-	return a.hit.ID < b.hit.ID
+	sort.SliceStable(suffix, func(i, j int) bool {
+		if !suffix[i].OccurredAt.Equal(suffix[j].OccurredAt) {
+			return suffix[i].OccurredAt.After(suffix[j].OccurredAt)
+		}
+		return suffix[i].ID < suffix[j].ID
+	})
+	out := append(ranked[:split:split], suffix...)
+	return out
 }
 
 // pendingEventText reads the derived text of queued events whose body lives in
@@ -621,7 +626,7 @@ func lineage(ctx context.Context, db Canon, scope Scope, hits []Hit) ([]Hit, err
 }
 
 // fuse merges the full-text list and the vector hook by reciprocal rank.
-func fuse(ctx context.Context, db Canon, scope Scope, query Query, text []Hit) ([]Hit, error) {
+func fuse(ctx context.Context, db Canon, scope Scope, at int64, query Query, text []Hit) ([]Hit, error) {
 	ids, err := query.Vectors(ctx, scope, query.Text)
 	if err != nil {
 		return nil, err
@@ -637,7 +642,7 @@ func fuse(ctx context.Context, db Canon, scope Scope, query Query, text []Hit) (
 		scores[k] += 1 / float64(FusionConstant+rank+1)
 		keep[k] = h
 	}
-	extra, err := byIDs(ctx, db, scope, ids)
+	extra, err := byIDs(ctx, db, scope, at, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -668,7 +673,7 @@ func fuse(ctx context.Context, db Canon, scope Scope, query Query, text []Hit) (
 	return lineage(ctx, db, scope, out)
 }
 
-func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, error) {
+func byIDs(ctx context.Context, db Canon, scope Scope, at int64, ids []string) ([]Hit, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -677,24 +682,19 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 		return nil, err
 	}
 	kinds := kindsOf(scope)
-	at := scope.At
-	if at == 0 {
-		at = time.Now().Unix()
-	}
 	restricted := scope.Projection || scope.ExternalModel
-	where, args := scopeWhere(scope, kinds, at, restricted, "d")
+	where, whereArgs := scopeWhere(scope, kinds, at, restricted, "d")
 	where = append(where, "d.source_id IN (SELECT value FROM json_each(?))")
-	args = append(args, encoded)
-	if !scope.History {
-		older, olderArgs := olderExpr(kinds, at, "d")
-		where = append(where, "("+older+")=0")
-		args = append(args, olderArgs...)
-	}
+	olderSQL, olderArgs := olderExpr(kinds, at, "d")
 	prefix := ""
-	if fragment, prefixArgs := RestrictionCTE(scope); fragment != "" {
-		prefix = "WITH RECURSIVE " + fragment + " "
-		args = append(prefixArgs, args...)
+	var args []any
+	if cte, cteArgs := RestrictionCTE(scope); cte != "" {
+		prefix = "WITH RECURSIVE " + cte + " "
+		args = append(args, cteArgs...)
 	}
+	args = append(args, olderArgs...)
+	args = append(args, whereArgs...)
+	args = append(args, encoded, boolInt(scope.History))
 	order := map[string]int{}
 	for i, id := range ids {
 		if _, ok := order[id]; !ok {
@@ -703,8 +703,10 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	}
 	var hits []Hit
 	err = db.Read(ctx, func(tx *canon.Tx) error {
-		rows, err := tx.QueryContext(ctx, prefix+`SELECT d.source_id,d.kind,d.revision,d.occurred_at,d.holder FROM recall_doc d
-   WHERE `+strings.Join(where, " AND "), args...)
+		rows, err := tx.QueryContext(ctx, prefix+`SELECT source_id,kind,revision,occurred_at,holder,older FROM (
+ SELECT d.source_id,d.kind,d.revision,d.occurred_at,d.holder,`+olderSQL+` AS older
+ FROM recall_doc d WHERE `+strings.Join(where, " AND ")+`)
+ WHERE (?=1 OR older=0)`, args...)
 		if err != nil {
 			return err
 		}
@@ -712,9 +714,11 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 		for rows.Next() {
 			var h Hit
 			var occurred string
-			if err := rows.Scan(&h.ID, &h.Kind, &h.Revision, &occurred, &h.Holder); err != nil {
+			var older int
+			if err := rows.Scan(&h.ID, &h.Kind, &h.Revision, &occurred, &h.Holder, &older); err != nil {
 				return err
 			}
+			h.Older = older == 1
 			h.OccurredAt, _ = time.Parse(time.RFC3339Nano, occurred)
 			hits = append(hits, h)
 		}

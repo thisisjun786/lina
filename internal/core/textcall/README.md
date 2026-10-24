@@ -3,8 +3,9 @@
 `Detect` is the pure shared boundary for [#1621](https://github.com/lina-system/lina/issues/1621).
 It proposes `none`, `parse_and_dispatch`, or `restart_fresh_session` from a
 completed turn and its active tool declarations. It does not execute tools,
-contact a provider, open sessions or write conversation state. Model-route and
-worker wiring remain separate work in #1622 and #1623.
+contact a provider, open sessions or write conversation state. Model routes install `Guard` in #1622; worker adapter wiring remains separate
+work in #1623. `Guard` translates declarations to the shared parser and delegates
+stream filtering and bounded continuation to `kit/loop.GuardTextCalls`.
 
 The [model contract](../../../docs/design/go-core.md#model-path-and-accounts) and
 [adapter contract](../../../docs/design/work-and-delegation.md#adapter-boundary)
@@ -20,9 +21,13 @@ child tags, `function_calls`/`invoke`, `antml:` invocations and wrappers, and
 without invented separators; thinking blocks never enter detection.
 
 A call starts on its own visible line, optionally after prose or a thinking block.
-Fenced and indented code, block quotes, diff lines and thinking markup are ignored.
-A complete call followed by explanatory prose is not a terminal call. The parser
-does not infer a call from an inline mention of its syntax.
+Fenced and indented code, inline code spans, block quotes, diff lines and thinking
+markup are ignored. A line opening with three or more backticks is a fence only
+when the rest of that line contains no backtick; a same-line closing sequence is
+an inline span. A span counts only when a closer of the same length exists, so an
+unclosed backtick run stays literal. A complete call followed by explanatory prose
+is not a terminal call. The parser does not infer a call from an inline mention
+of its syntax.
 
 The exact declared name wins. Otherwise exactly one leading underscore may be
 removed if that result is declared. Duplicate declarations, duplicate JSON keys,
@@ -60,8 +65,8 @@ Each UTF-8 JSONL line has these required fields:
 | `declared_tools` | Array of `{ "name": "bash", "schema": { "type": "object" } }` |
 | `turn.stop_reason` | Nonempty stop reason; only the terminal reasons above permit recovery |
 | `turn.tool_calls` | Array of structured `{ "name": "...", "arguments": { ... } }` objects; additional provider fields may be retained |
-| `turn.text`, `turn.thinking` | Arrays of text blocks in wire order |
-| `turn.delta_timestamps_ms` | Nonnegative, nondecreasing elapsed millisecond offsets; an empty array means no recorded deltas |
+| `turn.text`, `turn.thinking` | Arrays of strings in wire order; a null or non-string element is invalid |
+| `turn.delta_timestamps_ms` | Nonnegative, nondecreasing elapsed millisecond offsets; an empty array means no recorded deltas; a null or non-number element is invalid |
 | `gold.detected` | Boolean |
 | `gold.action` | One of the three actions |
 | `gold.parsed_call` | Required only for dispatch: canonical declared `name` and object `arguments` |
@@ -91,8 +96,9 @@ the research latency bar; unit tests do not pass or fail based on scheduling luc
 `simulated_dispatches` counts dispatch proposals. `planned_extra_model_turns` is
 zero for dispatch and one for restart; `planned_fresh_session_starts` is one for
 restart. There are zero same-session nudges. These are deterministic planned
-costs, not measured provider turns or completed sessions. Repeated-fault escalation
-and actual time to resumed work require the later runtime wiring.
+costs, not measured provider turns or completed sessions. Runtime stream tests and the M4 headless scenarios separately exercise
+repeated-fault failure and actual resumed tool dispatch; replay timings still
+measure only the pure decision.
 
 The command returns 0 only when at least one case was scored, every case matched,
 and none was rejected; 1 for rejected or mismatched cases, 64 for invalid usage,

@@ -30,6 +30,28 @@ func TestSyntheticDecisions(t *testing.T) {
 	}
 }
 
+func TestMarkdownCodeBoundaries(t *testing.T) {
+	tools := []Tool{{Name: "bash", Schema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`)}}
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "multiline inline span", text: "`Example:\n[tool_use\n`", want: None},
+		{name: "span opened mid-line", text: "see `\n[tool_use\n`", want: None},
+		{name: "unclosed backtick stays literal", text: "`Example\n[tool_use name=bash]\n{\"command\":\"echo synthetic\"}", want: Dispatch},
+		{name: "closed triple backtick is not a fence", text: "```literal```\n[tool_use name=bash]\n{\"command\":\"echo synthetic\"}", want: Dispatch},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Detect(Turn{StopReason: "stop", Text: []string{tc.text}}, tools)
+			if got.Action != tc.want || (tc.want == Dispatch && (got.Call == nil || got.Call.Name != "bash")) || (tc.want == None && got.Detected) {
+				t.Fatalf("got %+v, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
 func BenchmarkDetect(b *testing.B) {
 	tools := []Tool{{Name: "bash", Schema: json.RawMessage(`{"type":"object"}`)}}
 	turn := Turn{StopReason: "stop", Text: []string{"[tool_use name=_bash]\n{\"command\":\"echo synthetic\"}"}}
