@@ -190,7 +190,7 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 		return nil, nil
 	}
 	kinds := kindsOf(scope)
-	lineageEvents := containsKind(kinds, Event)
+	withEvents := containsKind(kinds, Event)
 	at := scope.At
 	if at == 0 {
 		at = time.Now().Unix()
@@ -266,7 +266,7 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 	args = append(args, olderSArgs...)
 	args = append(args, queuedArgs...)
 	var external []Hit
-	if query.EventText != nil {
+	if query.EventText != nil && withEvents {
 		var err error
 		external, err = pendingEventText(ctx, db, scope, at, restricted, terms, query.EventText)
 		if err != nil {
@@ -285,12 +285,12 @@ candidates AS MATERIALIZED (
  FROM recall_source s JOIN recall_pending q ON q.kind=s.kind AND q.source_id=s.source_id
  WHERE ` + strings.Join(pendingWhere, "\n AND ") + `
 ),
-` + lineageCTE(lineageEvents) + `
+` + lineageCTE(withEvents) + `
 dedup AS (
  SELECT c.id,c.kind,c.source_id,c.revision,c.occurred_at,c.holder,c.conversation,c.score,c.paired,c.trigram,c.older,
   CASE WHEN c.kind='event' AND c.text_hash IS NOT NULL AND c.replay=0 THEN row_number() OVER (
    PARTITION BY c.conversation,c.text_hash ORDER BY julianday(c.occurred_at),c.source_id) ELSE 1 END AS twin
- FROM candidates c` + lineageFilter(lineageEvents) + `)
+ FROM candidates c` + lineageFilter(withEvents) + `)
 SELECT kind,source_id,revision,occurred_at,holder,older,
  CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END AS tier
  FROM dedup WHERE twin=1 AND (?=1 OR older=0)
@@ -461,7 +461,7 @@ func lineageFilter(enabled bool) string {
 	if !enabled {
 		return ""
 	}
-	return ` WHERE c.kind<>'event' OR c.id NOT IN (SELECT d.id FROM candidates d JOIN derived x ON x.id=d.source_id)`
+	return ` WHERE c.kind<>'event' OR c.source_id NOT IN (SELECT x.id FROM derived x)`
 }
 
 func holderCondition(scope Scope, alias string) string {
@@ -469,6 +469,31 @@ func holderCondition(scope Scope, alias string) string {
 		return alias + ".holder='all'"
 	}
 	return alias + ".holder IN (?,'all')"
+}
+
+// RestrictedEvents returns the events a Projection or ExternalModel scope
+// excludes, by the same rule Match applies: the evidence of protected memory
+// and every replay copy, view_of event and original linked to it. Other scopes
+// restrict nothing.
+func RestrictedEvents(ctx context.Context, tx *canon.Tx, scope Scope) (map[string]bool, error) {
+	ids := map[string]bool{}
+	if !scope.Projection && !scope.ExternalModel {
+		return ids, nil
+	}
+	fragment, args := RestrictionCTE(scope)
+	rows, err := tx.QueryContext(ctx, "WITH RECURSIVE "+fragment+" SELECT id FROM restricted WHERE kind='event'", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
 }
 
 // scopeWhere applies the scope before matching. It is shared by the published
@@ -503,10 +528,6 @@ func scopeWhere(scope Scope, kinds []Kind, at int64, restricted bool, alias stri
 	if scope.EventSpeakerKind != "" {
 		where = append(where, "("+alias+".kind<>'event' OR "+alias+".speaker_kind=?)")
 		args = append(args, string(scope.EventSpeakerKind))
-	}
-	if scope.PersonOnly {
-		where = append(where, `((`+alias+`.kind='event' AND `+alias+`.speaker_kind='person')
- OR (`+alias+`.kind='memory' AND EXISTS(SELECT 1 FROM memory_item m WHERE m.id=`+alias+`.source_id AND m.subject_kind='person')))`)
 	}
 	if scope.Origin != "" {
 		where = append(where, "json_extract("+alias+".origin,'$.kind')=?")
