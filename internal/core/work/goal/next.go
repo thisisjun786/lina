@@ -112,6 +112,11 @@ type Task struct {
 	PR             PRState   `json:"pr"`
 	Merge          Proof     `json:"merge"`
 	QA             Proof     `json:"qa"`
+	// ResearchFollowUp is the one follow-up brief derived from a partial
+	// landing. It is empty until that landing, and it is never replaced.
+	ResearchFollowUp *BackgroundBrief `json:"research_follow_up,omitempty"`
+	ResearchGap      []string         `json:"research_gap,omitempty"`
+	ResearchOpen     []ResearchOpen   `json:"research_open,omitempty"`
 }
 type GoalState string
 
@@ -136,6 +141,8 @@ type Goal struct {
 	AssessedFailure   string              `json:"assessed_failure,omitempty"`
 	Scope             GoalScope           `json:"-"`
 	Assumptions       []string            `json:"-"`
+	Asks              []string            `json:"-"`
+	PersonTasks       []string            `json:"-"`
 	Decisions         []GoalDecision      `json:"-"`
 	Criteria          []Criterion         `json:"-"`
 	Checks            []CriterionEvidence `json:"checks,omitempty"`
@@ -168,7 +175,37 @@ type Goal struct {
 	Deployment        Proof             `json:"deployment"`
 	Verification      Proof             `json:"verification"`
 	Waits             []Wait            `json:"waits,omitempty"`
-	Evidence          []Proof           `json:"evidence,omitempty"`
+	// ClearTodos are linked 할 일 whose waiting_on must be cleared after the wait ends.
+	// The fields are the wait's own values, so a later edit of the to-do is left in place.
+	ClearTodos []ClearedWait `json:"clear_todos,omitempty"`
+	Evidence   []Proof       `json:"evidence,omitempty"`
+}
+
+// ClearedWait is one linked 할 일 to clear after its outside wait ends.
+// A persisted entry may be the to-do id alone, from before the fields were stored.
+type ClearedWait struct {
+	TodoID    string `json:"todo_id"`
+	Who       string `json:"who,omitempty"`
+	Since     string `json:"since,omitempty"`
+	NextCheck string `json:"next_check,omitempty"`
+}
+
+func (c *ClearedWait) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		var id string
+		if err := json.Unmarshal(data, &id); err != nil {
+			return err
+		}
+		*c = ClearedWait{TodoID: id}
+		return nil
+	}
+	type fields ClearedWait
+	var decoded fields
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*c = ClearedWait(decoded)
+	return nil
 }
 
 type ActionKind string
@@ -186,6 +223,8 @@ const (
 	Observe        ActionKind = "observe"
 	Decide         ActionKind = "decide"
 	PlanGoal       ActionKind = "plan_goal"
+	// ReadSource is the one read of an outside wait's source.
+	ReadSource ActionKind = "read_source"
 )
 
 const CheckCriterion ActionKind = "check_criterion"
@@ -193,34 +232,38 @@ const CheckCriterion ActionKind = "check_criterion"
 const ContinueWorker ActionKind = "continue_worker"
 
 type Action struct {
-	StepKind             StepKind        `json:"step_kind,omitempty"`
-	RecordRevision       string          `json:"record_revision,omitempty"`
-	InputVersion         *InputVersion   `json:"input_version,omitempty"`
-	Superseded           bool            `json:"superseded,omitempty"`
-	RetirementReconciled bool            `json:"retirement_reconciled,omitempty"`
-	ObserveActionID      string          `json:"observe_action_id,omitempty"`
-	Signal               string          `json:"signal,omitempty"`
-	FailureKey           string          `json:"failure_key,omitempty"`
-	CriterionID          string          `json:"criterion_id,omitempty"`
-	Check                *CriterionCheck `json:"check,omitempty"`
-	GoalRevision         int64           `json:"goal_revision"`
-	CheckRound           int64           `json:"check_round"`
-	ID                   string          `json:"id"`
-	GoalID               string          `json:"goal_id"`
-	TaskID               string          `json:"task_id"`
-	Kind                 ActionKind      `json:"kind"`
-	Attempt              int             `json:"attempt"`
-	NodeID               string          `json:"node_id"`
-	Revision             string          `json:"revision"`
-	Resources            Resources       `json:"resources"`
-	State                string          `json:"state"`
-	Epoch                uint64          `json:"epoch"`
-	Handle               string          `json:"handle"`
-	Deadline             int64           `json:"deadline"`
-	Sequence             int             `json:"sequence"`
-	ObservedAt           int64           `json:"observed_at"`
-	ObserverEpoch        uint64          `json:"observer_epoch"`
-	Receipt              json.RawMessage `json:"receipt,omitempty"`
+	StepKind             StepKind      `json:"step_kind,omitempty"`
+	RecordRevision       string        `json:"record_revision,omitempty"`
+	InputVersion         *InputVersion `json:"input_version,omitempty"`
+	Superseded           bool          `json:"superseded,omitempty"`
+	RetirementReconciled bool          `json:"retirement_reconciled,omitempty"`
+	ObserveActionID      string        `json:"observe_action_id,omitempty"`
+	Signal               string        `json:"signal,omitempty"`
+	// ReadCause is "signal" or "deadline" for a source read.
+	ReadCause string `json:"read_cause,omitempty"`
+	// WaitSource is the source that one read observes.
+	WaitSource    string          `json:"wait_source,omitempty"`
+	FailureKey    string          `json:"failure_key,omitempty"`
+	CriterionID   string          `json:"criterion_id,omitempty"`
+	Check         *CriterionCheck `json:"check,omitempty"`
+	GoalRevision  int64           `json:"goal_revision"`
+	CheckRound    int64           `json:"check_round"`
+	ID            string          `json:"id"`
+	GoalID        string          `json:"goal_id"`
+	TaskID        string          `json:"task_id"`
+	Kind          ActionKind      `json:"kind"`
+	Attempt       int             `json:"attempt"`
+	NodeID        string          `json:"node_id"`
+	Revision      string          `json:"revision"`
+	Resources     Resources       `json:"resources"`
+	State         string          `json:"state"`
+	Epoch         uint64          `json:"epoch"`
+	Handle        string          `json:"handle"`
+	Deadline      int64           `json:"deadline"`
+	Sequence      int             `json:"sequence"`
+	ObservedAt    int64           `json:"observed_at"`
+	ObserverEpoch uint64          `json:"observer_epoch"`
+	Receipt       json.RawMessage `json:"receipt,omitempty"`
 	// OpenCriteria names the unmet done condition for one liveness manager turn.
 	OpenCriteria []string `json:"open_criteria,omitempty"`
 }
@@ -239,6 +282,26 @@ type Wait struct {
 	Wake     string `json:"wake"`
 	Until    int64  `json:"until"`
 	Recorded bool   `json:"recorded,omitempty"`
+	// Recommendation and Draft are the expiry row. Both empty keeps the
+	// liveness row; a wait that names only one of them is refused.
+	Recommendation string `json:"recommendation,omitempty"`
+	Draft          string `json:"draft,omitempty"`
+	// TodoID is the 할 일 whose waiting_on is this wait. Who, Since and
+	// NextCheck are that waiting_on; NextCheck is the deadline.
+	TodoID    string `json:"todo_id,omitempty"`
+	Who       string `json:"who,omitempty"`
+	Since     string `json:"since,omitempty"`
+	NextCheck string `json:"next_check,omitempty"`
+	// Source is what the one read observes. A date wait may leave it empty.
+	Source string `json:"source,omitempty"`
+	// PendingSignal is a change signal that arrived while a read was open.
+	PendingSignal string `json:"pending_signal,omitempty"`
+	// DeadlineRead is set when the one deadline read is queued.
+	DeadlineRead bool `json:"deadline_read,omitempty"`
+	// Linked is set after the 할 일's waiting_on is written.
+	Linked bool `json:"linked,omitempty"`
+	// Armed is set after the deadline timer is saved.
+	Armed bool `json:"armed,omitempty"`
 }
 type Plan struct {
 	// RunLimits is the limit this pass applied to each person, and Queues holds
@@ -378,6 +441,9 @@ func actionID(a Action) string {
 	key := []any{a.GoalID, a.TaskID, a.Kind, a.Attempt, a.Revision, a.Sequence, a.CriterionID, a.GoalRevision, a.CheckRound, a.FailureKey}
 	if a.ObserveActionID != "" {
 		key = append(key, "observe", a.ObserveActionID)
+	}
+	if a.ReadCause != "" {
+		key = append(key, a.ReadCause, a.Signal)
 	}
 	raw, _ := json.Marshal(key)
 	hash := sha256.Sum256(raw)
@@ -524,14 +590,10 @@ func Derive(state State, now time.Time) (Plan, error) {
 			}
 			continue
 		}
-		// A recorded wait holds the goal only until its deadline. After that the
-		// liveness pass below applies again, instead of keeping an expired wait.
-		for _, w := range g.Waits {
-			if w.Recorded && namedWait(w) && w.Until > now.Unix() {
-				w.GoalID = g.ID
-				plan.Waits = append(plan.Waits, w)
-			}
-		}
+		// A recorded wait without an expiry row still drops at its deadline so
+		// liveness can block. A wait with an expiry row stays until its one
+		// deadline read settles.
+		outsideWait := holdRecordedWaits(&plan, state, g, now)
 		tasks := map[string]Task{}
 		for _, t := range g.Tasks {
 			tasks[t.ID] = t
@@ -641,7 +703,7 @@ func Derive(state State, now time.Time) (Plan, error) {
 		}
 		// No tasks is not "everything landed". The liveness pass below asks the
 		// manager, instead of waiting on a merge that does not exist.
-		if len(g.Tasks) == 0 || !allDone || pending(state.Actions, g.ID, "") {
+		if len(g.Tasks) == 0 || !allDone || pending(state.Actions, g.ID, "") || outsideWait || g.DecisionRow != "" {
 			continue
 		}
 		if g.TargetRevision == "" {
@@ -674,6 +736,9 @@ func Derive(state State, now time.Time) (Plan, error) {
 		failure := ""
 		for _, c := range goalCriteria(g) {
 			for _, proof := range g.Checks {
+				if c.Check.Kind == CitationEvidence {
+					continue
+				}
 				if currentEvidence(g, c, proof) && !proof.Passed {
 					failure = fmt.Sprintf("%d:%d:%s", g.Revision, g.CheckRound, c.ID)
 					break
@@ -695,8 +760,13 @@ func Derive(state State, now time.Time) (Plan, error) {
 			continue
 		}
 		missing := false
+		heldCitation := false
 		for _, c := range goalCriteria(g) {
 			if criterionMet(g, c) {
+				continue
+			}
+			if citationUnresolved(g, c) {
+				heldCitation = true
 				continue
 			}
 			a := Action{GoalID: g.ID, Kind: CheckCriterion, Revision: criterionRevision(g, c), CriterionID: c.ID, Check: &c.Check, GoalRevision: g.Revision, CheckRound: g.CheckRound, State: "queued", Deadline: now.Add(SafetySweep).Unix()}
@@ -705,6 +775,10 @@ func Derive(state State, now time.Time) (Plan, error) {
 			plan.Actions = append(plan.Actions, a)
 			missing = true
 			break
+		}
+		if heldCitation && !missing {
+			wait(g, Task{}, "citation", "evidence.target_changed")
+			continue
 		}
 		if !missing {
 			plan.Close = append(plan.Close, g.ID)

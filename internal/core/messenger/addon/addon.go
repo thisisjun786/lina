@@ -38,6 +38,11 @@ var ErrAttachmentFetch = errors.New("attachment fetch not offered by the messeng
 // ErrStopped reports that the add-on exited and was not restarted.
 var ErrStopped = errors.New("messenger add-on stopped")
 
+// ErrLiveEnded reports a live subscription the add-on ended on its own, such
+// as after a lost connection. The add-on keeps serving; the source is read
+// again on its schedule.
+var ErrLiveEnded = errors.New("messenger add-on live events ended")
+
 // ErrRefused reports that the add-on declined with a platform cause code, such
 // as source_forbidden. The process is healthy, so the source fails with that
 // cause instead of being restarted for it.
@@ -164,7 +169,9 @@ func (a *Adapter) Members(ctx context.Context, id messenger.SourceID, chat strin
 	return members, nil
 }
 
-// Live delivers the add-on's pushed events until ctx ends.
+// Live delivers the add-on's pushed events until ctx ends. A subscription the
+// add-on ends on its own returns ErrLiveEnded with its cause, joined with
+// messenger.ErrNeedsSignIn when the platform revoked the session.
 func (a *Adapter) Live(ctx context.Context, id messenger.SourceID, deliver func(messenger.Event) error) error {
 	if err := a.forAccount(id); err != nil {
 		return err
@@ -174,7 +181,7 @@ func (a *Adapter) Live(ctx context.Context, id messenger.SourceID, deliver func(
 
 // FetchAttachment is not offered: the operation table carries attachment
 // metadata only.
-func (a *Adapter) FetchAttachment(_ context.Context, id messenger.SourceID, _, _ string) (io.ReadCloser, error) {
+func (a *Adapter) FetchAttachment(_ context.Context, id messenger.SourceID, _, _, _ string) (io.ReadCloser, error) {
 	if err := a.forAccount(id); err != nil {
 		return nil, err
 	}

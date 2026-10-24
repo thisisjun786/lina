@@ -44,6 +44,9 @@ const (
 	OutcomeNeedsPerson Outcome = "needs_person"
 	OutcomeQuota       Outcome = "quota"
 	OutcomeNoReceipt   Outcome = "no_receipt"
+	// OutcomePartial is a background run that landed with something usable
+	// still missing. It is not a successful landing and it is not a person row.
+	OutcomePartial Outcome = "partial"
 )
 
 type Observation struct {
@@ -52,15 +55,22 @@ type Observation struct {
 	Tasks      []Task             `json:"tasks,omitempty"`
 	// Wait and Decision are what a liveness manager turn can record besides tasks.
 	// A turn that records none of the three leaves the goal blocked.
-	Wait           *Wait   `json:"wait,omitempty"`
-	Decision       string  `json:"decision,omitempty"`
-	Status         Outcome `json:"status"`
-	Handle         string  `json:"handle,omitempty"`
-	Head           string  `json:"head,omitempty"`
-	Proof          Proof   `json:"proof"`
-	PR             PRState `json:"pr"`
-	EffectsSettled bool    `json:"effects_settled"`
-	Code           string  `json:"code,omitempty"`
+	Wait *Wait `json:"wait,omitempty"`
+	// Waits lets one plan retain independent outside waits together. Wait is
+	// retained for existing drivers; wake identities must be unique across both.
+	Waits    []Wait `json:"waits,omitempty"`
+	Decision string `json:"decision,omitempty"`
+	// SourceOpen is the result of one source read. Nil is not an answer.
+	// True means the wait is still open; false closes it.
+	SourceOpen     *bool            `json:"source_open,omitempty"`
+	Status         Outcome          `json:"status"`
+	Handle         string           `json:"handle,omitempty"`
+	Head           string           `json:"head,omitempty"`
+	Proof          Proof            `json:"proof"`
+	PR             PRState          `json:"pr"`
+	EffectsSettled bool             `json:"effects_settled"`
+	Code           string           `json:"code,omitempty"`
+	Partial        *ResearchPartial `json:"partial,omitempty"`
 }
 type Config struct {
 	Records       Definitions
@@ -80,6 +90,10 @@ type Config struct {
 	// Changed publishes a committed projection. A delivery failure does not
 	// revoke the state; startup and subsequent events can publish it again.
 	Changed func(context.Context, State) error
+	// ArmWait schedules the wait's durable deadline. LinkWaitingOn writes the
+	// same waiting_on onto the 할 일. Both run after the ledger commit.
+	ArmWait       func(context.Context, Goal, Wait) error
+	LinkWaitingOn func(context.Context, Goal, Wait) error
 }
 type Engine struct {
 	definitions   sync.Map
@@ -254,6 +268,9 @@ func (e *Engine) Admit(ctx context.Context, g Goal) error {
 			return ErrInvalid
 		}
 	}
+	if err := AcceptProse(g); err != nil {
+		return err
+	}
 	if err := e.prepareDefinition(ctx, &g); err != nil {
 		return err
 	}
@@ -401,6 +418,17 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 					}
 					waits = append(waits, w)
 				}
+				kept := map[string]bool{}
+				for _, w := range waits {
+					if w.Recorded && w.Wake != "" {
+						kept[w.Wake] = true
+					}
+				}
+				for _, old := range g.Waits {
+					if old.Recorded && old.TodoID != "" && !kept[old.Wake] {
+						queueClear(g, old)
+					}
+				}
 				g.Waits = waits
 			}
 			if g.State != GoalDone && g.State != GoalStopped && !g.Paused {
@@ -451,7 +479,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 					g.State = GoalRunning
 				case failedEvidence(*g):
 					g.State = GoalRunning
-				case allLanded:
+				case allLanded && len(waits) == 0:
 					g.State = GoalChecking
 				case active:
 					g.State = GoalRunning
@@ -481,10 +509,11 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 		}
 		return nil
 	})
-	if errors.Is(err, errNoChange) {
-		return nil
+	if err != nil && !errors.Is(err, errNoChange) {
+		return err
 	}
-	return err
+	e.syncWaits(ctx)
+	return nil
 }
 
 // Claim is durable before any authorization or external dispatch. A claimed
@@ -590,7 +619,11 @@ func (e *Engine) Report(ctx context.Context, id string, epoch uint64, o Observat
 	if errors.Is(err, errNoChange) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	e.syncWaits(ctx)
+	return nil
 }
 func (e *Engine) report(ctx context.Context, ev Transition, id string, o Observation) error {
 	return e.journal.Update(ctx, ev, func(v *View) error {
@@ -647,7 +680,7 @@ func (e *Engine) report(ctx context.Context, ev Transition, id string, o Observa
 			if o.Handle != "" {
 				a.Handle = o.Handle
 			}
-			if effectSettled(a, o) || !hasExternalEffect(a) && (o.Status == OutcomeSucceeded || o.Status == OutcomeFailed || o.Status == OutcomeConflict || o.Status == OutcomeNeedsPerson) {
+			if effectSettled(a, o) || !hasExternalEffect(a) && (o.Status == OutcomeSucceeded || o.Status == OutcomeFailed || o.Status == OutcomeConflict || o.Status == OutcomeNeedsPerson || o.Status == OutcomePartial) {
 				a.State = "finished"
 			}
 			return put(v, "action", id, a)
@@ -730,6 +763,13 @@ func (e *Engine) report(ctx context.Context, ev Transition, id string, o Observa
 			a.State = "finished"
 			t.Stage = TaskConflicted
 		case OutcomeFailed:
+			if a.Kind == ReadSource {
+				if err := finishFailedSourceRead(&g, a); err != nil {
+					return err
+				}
+				a.State = "finished"
+				break
+			}
 			if a.Kind == Verify {
 				if t != nil || !o.Proof.fails(a.Revision) {
 					return ErrInvalid
@@ -765,8 +805,19 @@ func (e *Engine) report(ctx context.Context, ev Transition, id string, o Observa
 				g.Evidence = append(g.Evidence, o.Proof)
 			case InspectPR, Merge, PlanGoal:
 				a.State = "needs_person"
-			case Deploy, Verify, Observe, Decide, CheckCriterion:
+			case Deploy, Verify, Observe, Decide, CheckCriterion, ReadSource:
 				return ErrInvalid
+			}
+		case OutcomePartial:
+			if t == nil || stepKind(t.Kind) != BackgroundStep || a.Kind != Assign || !o.EffectsSettled {
+				return ErrInvalid
+			}
+			if err = applyResearchPartial(&g, t, o); err != nil {
+				return err
+			}
+			a.State = "finished"
+			if o.Handle != "" {
+				a.Handle = o.Handle
 			}
 		case OutcomeSucceeded:
 			a.State = "finished"
@@ -841,8 +892,13 @@ func applySuccess(g *Goal, t *Task, a Action, o Observation, now int64) error {
 			return ErrInvalid
 		}
 		liveness := t == nil && a.FailureKey == ""
-		if liveness && o.Wait != nil && !namedWait(*o.Wait) {
-			return ErrInvalid
+		var waits []Wait
+		if liveness {
+			var err error
+			waits, err = plannedWaits(*g, o)
+			if err != nil {
+				return err
+			}
 		}
 		if t == nil {
 			g.ManagerTurns++
@@ -875,10 +931,10 @@ func applySuccess(g *Goal, t *Task, a Action, o Observation, now int64) error {
 				return err
 			}
 		}
-		if liveness && o.Wait != nil {
-			w := *o.Wait
+		for _, w := range waits {
 			w.GoalID = g.ID
 			w.Recorded = true
+			w.PendingSignal, w.DeadlineRead, w.Linked, w.Armed = "", false, false, false
 			g.Waits = append(g.Waits, w)
 		}
 		if liveness && len(o.Tasks) == 0 && strings.TrimSpace(o.Decision) != "" {
@@ -985,6 +1041,8 @@ func applySuccess(g *Goal, t *Task, a Action, o Observation, now int64) error {
 		g.Evidence = append(g.Evidence, o.Proof)
 	case Observe, Decide:
 		return ErrInvalid
+	case ReadSource:
+		return applyWaitRead(g, a, o)
 	}
 	return nil
 }

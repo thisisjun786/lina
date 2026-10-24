@@ -8,6 +8,7 @@
 // and only that source fails.
 import { Refusal, type Driver } from './protocol.ts';
 import type { DriverFactory, DriverOptions } from './driver.ts';
+import { lineDriver } from './line.ts';
 import { whatsappDriver } from './whatsapp.ts';
 
 export type PlatformName = 'kakaotalk' | 'discord' | 'whatsapp' | 'line';
@@ -24,8 +25,16 @@ export type Registration = {
 };
 
 const DRIVERS: Partial<Record<PlatformName, Registration>> = {
+  // LINE: QR and PIN sign-in as a secondary device, read-only, newest N
+  // messages per chat and live events (#1087).
+  line: {
+    load: () => import('agent-messenger/line'),
+    open: async (sdk, options) => lineDriver(sdk, options),
+  },
+  // WhatsApp: pairing-code link as a secondary device, read-only, the history
+  // the phone pushed at link time and live messages (#1086).
   whatsapp: {
-    open: (sdk, options) => whatsappDriver(sdk, options),
+    open: async (sdk, options) => whatsappDriver(sdk, options),
     load: () => import('agent-messenger/whatsapp'),
   },
 };

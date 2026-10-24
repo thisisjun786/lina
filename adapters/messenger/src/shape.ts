@@ -5,6 +5,7 @@
 // a record: Core then fails that source's batch and keeps its cursor.
 import { Refusal, type Author, type Chat, type LiveEvent, type Message, type Page, type Route } from './protocol.ts';
 
+
 const ROUTES: Record<Route, true> = { person: true, automation: true, system: true, external_participant: true };
 
 const text = (value: unknown): value is string => typeof value === 'string';
@@ -48,6 +49,14 @@ export function message(value: unknown): Message {
     text: source.text,
   };
   if (source.edited !== undefined && source.edited !== '') result.edited = time(source.edited);
+  if (source.decryptionFailed !== undefined) {
+    if (typeof source.decryptionFailed !== 'boolean') throw changed('message');
+    if (source.decryptionFailed) {
+      // A failed decryption has no text; it never becomes an empty message.
+      if (result.text !== '') throw changed('message');
+      result.decryptionFailed = true;
+    }
+  }
   if (source.replyTo !== undefined) {
     if (!text(source.replyTo)) throw changed('message');
     result.replyTo = source.replyTo;
@@ -81,29 +90,40 @@ export function page(value: unknown): Page {
     if (!id(deletion.message)) throw changed('page');
     return { message: deletion.message as string, at: time(deletion.at) };
   });
-  return {
+  const page: Page = {
     messages: source.messages.map(message),
     deletions,
     next: source.next,
     hasMore: source.hasMore,
     through: source.through === undefined ? undefined : time(source.through),
   };
+  if (source.coverage !== undefined) {
+    const coverage = source.coverage;
+    if (!coverage || typeof coverage !== 'object' || Array.isArray(coverage)) throw changed('coverage');
+    const entry = coverage as Record<string, unknown>;
+    if (typeof entry.historyDepth !== 'string' || typeof entry.cursorSurvivesRestart !== 'boolean') {
+      throw changed('coverage');
+    }
+    page.coverage = { historyDepth: entry.historyDepth, cursorSurvivesRestart: entry.cursorSurvivesRestart };
+  }
+  return page;
 }
 
-// A live event names its chat and carries exactly one of a message or a
-// deletion. An event the add-on does not recognise fails the source instead of
-// being passed on.
+// A live event carries exactly one of a message or a deletion, and the chat it
+// belongs to where the platform's pin names one. An event the add-on does not
+// recognise fails the source instead of being passed on.
 export function live(value: unknown): LiveEvent {
   if (!value || typeof value !== 'object') throw changed('live event');
   const source = value as Record<string, unknown>;
-  if (!id(source.chat)) throw changed('live chat');
+  if (source.chat !== undefined && !id(source.chat)) throw changed('live chat');
+  const chat = source.chat as string | undefined;
   if (source.event === 'message' && source.message !== undefined && source.deletion === undefined) {
-    return { event: 'message', chat: source.chat as string, message: message(source.message) };
+    return { event: 'message', ...(chat ? { chat } : {}), message: message(source.message) };
   }
   if (source.event === 'deletion' && source.deletion !== undefined && source.message === undefined) {
     const entry = source.deletion as Record<string, unknown>;
     if (!id(entry.message)) throw changed('live deletion');
-    return { event: 'deletion', chat: source.chat as string, deletion: { message: entry.message as string, at: time(entry.at) } };
+    return { event: 'deletion', ...(chat ? { chat } : {}), deletion: { message: entry.message as string, at: time(entry.at) } };
   }
   throw changed('live event');
 }

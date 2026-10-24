@@ -101,15 +101,35 @@ export function serve(input: NodeJS.ReadableStream, output: NodeJS.WriteStream |
       case 'live': {
         const value = await driverOrOpen();
         stopLive();
-        liveStop = value.live((event: LiveEvent) => {
-          // A pushed event the add-on does not recognise fails the source
-          // rather than entering canon unchecked.
-          try {
-            write(checkedLive(event));
-          } catch {
-            write({ event: 'error', error: 'upstream_changed' });
-          }
-        });
+        // current is false once this subscription is stopped, replaced or
+        // ended, so a late event or a second end from the driver is dropped.
+        let current = true;
+        let unsubscribe: (() => void) | null = null;
+        const stop = value.live(
+          (event: LiveEvent) => {
+            if (!current) return;
+            // A pushed event the add-on does not recognise fails the source
+            // rather than entering canon unchecked.
+            try {
+              write(checkedLive(event));
+            } catch {
+              write({ event: 'error', error: 'upstream_changed' });
+            }
+          },
+          (error: unknown) => {
+            if (!current) return;
+            current = false;
+            if (unsubscribe && liveStop === unsubscribe) liveStop = null;
+            write({ event: 'ended', error: describe(error) });
+          },
+        );
+        if (current) {
+          unsubscribe = () => {
+            current = false;
+            stop();
+          };
+          liveStop = unsubscribe;
+        }
         return { live: true };
       }
       default:

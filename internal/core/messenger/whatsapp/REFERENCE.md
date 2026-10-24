@@ -44,16 +44,16 @@ a chat therefore means the range may be missing, not that it can be refetched.
   read carries it; the scheduled read advances the cursor and coverage.
 - A chat started after the subscription seeded joins it with what it already
   holds, so only its later messages arrive as live events; the subscription
-  re-lists chats every `chatsMs` (30 seconds). A chat that is never re-listed
-  still reaches the store through the scheduled read, never as a live event.
-- Core admits a live event with `Store.AdmitLive`: one transaction, no cursor
-  and no coverage, idempotent by message id, and refused for a chat that is not
-  listed or is out of sync. The service lists chats first when a live event
-  names one it has not seen.
-- One subscription per source account runs beside the scheduled reads. A
-  subscription that ends on error marks that source failing with its cause and
-  the next interval retries; the other sources and the conversation keep
-  running.
+  re-lists chats every `chatsMs` (30 seconds). Core upserts chats on each
+  scheduled read, so a conversation Core has not listed yet is read on its
+  schedule instead of through the live frame.
+- Core admits a live event with `Store.AdmitEvent`: one transaction, no cursor
+  and no coverage, idempotent by message id. A chat the source has not listed,
+  or one the person left out of sync, takes no live record; the scheduled page
+  read still admits its messages.
+- `Service.follow` keeps one live subscription per source account beside the
+  scheduled reads. A subscription that ends on its own is rejoined after a
+  bounded backoff, and a revoked session moves the source to needs-sign-in.
 
 ## As-built: the cursor
 

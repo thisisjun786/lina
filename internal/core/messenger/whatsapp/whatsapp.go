@@ -83,8 +83,8 @@ func (a *Adapter) Live(ctx context.Context, id messenger.SourceID, deliver func(
 	return refusal(a.inner.Live(ctx, id, deliver))
 }
 
-func (a *Adapter) FetchAttachment(ctx context.Context, id messenger.SourceID, chat, message string) (io.ReadCloser, error) {
-	body, err := a.inner.FetchAttachment(ctx, id, chat, message)
+func (a *Adapter) FetchAttachment(ctx context.Context, id messenger.SourceID, chat, message, attachment string) (io.ReadCloser, error) {
+	body, err := a.inner.FetchAttachment(ctx, id, chat, message, attachment)
 	return body, refusal(err)
 }
 

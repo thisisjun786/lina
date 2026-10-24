@@ -350,13 +350,15 @@ func TestLiveEventsCarryTheirChat(t *testing.T) {
 	<-done
 }
 
-func TestLiveEventWithoutAChatFailsTheSource(t *testing.T) {
+func TestLiveEventWithAMalformedChatFailsTheSource(t *testing.T) {
 	t.Parallel()
 	s := &script{
 		responses: map[string][]string{"live": {`{"id":"","ok":true,"result":{"live":true}}`}},
-		events:    []string{`{"event":"message","message":{"id":"m-1","author":{"id":"someone-1","name":"Someone"},"route":"external_participant","at":"2026-10-24T09:00:00Z","text":"pushed"}}`},
+		events:    []string{`{"event":"message","chat":"chat\u0001one","message":{"id":"m-1","author":{"id":"someone-1","name":"Someone"},"route":"external_participant","at":"2026-10-24T09:00:00Z","text":"pushed"}}`},
 	}
-	err := session(t, s).Adapter().Live(t.Context(), messenger.SourceID{Platform: "kakaotalk", Account: "account-1"}, func(messenger.Event) error { return nil })
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	err := session(t, s).Adapter().Live(ctx, messenger.SourceID{Platform: "kakaotalk", Account: "account-1"}, func(messenger.Event) error { return nil })
 	if !errors.Is(err, addon.ErrUpstreamChanged) {
 		t.Fatalf("got %v, want upstream changed", err)
 	}
@@ -371,7 +373,7 @@ func TestAccountMismatchNeverReachesTheProcess(t *testing.T) {
 		_, e3 := a.Page(t.Context(), id, "chat", "")
 		_, e4 := a.Members(t.Context(), id, "chat")
 		e5 := a.Live(t.Context(), id, func(messenger.Event) error { return nil })
-		_, e6 := a.FetchAttachment(t.Context(), id, "chat", "file")
+		_, e6 := a.FetchAttachment(t.Context(), id, "chat", "message", "file")
 		for _, err := range []error{e1, e2, e3, e4, e5, e6} {
 			if !errors.Is(err, messenger.ErrInvalid) {
 				t.Fatalf("wrong source: %v", err)
@@ -382,6 +384,53 @@ func TestAccountMismatchNeverReachesTheProcess(t *testing.T) {
 	defer s.mu.Unlock()
 	if s.exits != 0 {
 		t.Fatalf("started %d children", s.exits)
+	}
+}
+
+func TestLiveReturnsWhenTheAddonReportsItsEnd(t *testing.T) {
+	t.Parallel()
+	id := messenger.SourceID{Platform: "kakaotalk", Account: "account-1"}
+	for _, tc := range []struct {
+		frame string
+		want  error
+	}{
+		{`{"event":"ended","error":"failed:ECONNRESET"}`, addon.ErrLiveEnded},
+		{`{"event":"ended","error":"needs_sign_in"}`, messenger.ErrNeedsSignIn},
+	} {
+		s := &script{responses: map[string][]string{
+			"live":   {`{"id":"","ok":true,"result":{"live":true}}` + "\n" + tc.frame},
+			"signIn": {`{"id":"","ok":true,"result":{"state":"signed_in"}}`},
+		}}
+		adapter := session(t, s).Adapter()
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		err := adapter.Live(ctx, id, func(messenger.Event) error { return nil })
+		expired := ctx.Err()
+		cancel()
+		if expired != nil || !errors.Is(err, tc.want) {
+			t.Fatalf("%s: live returned %v (context %v), want %v", tc.frame, err, expired, tc.want)
+		}
+		if state, err := adapter.SignIn(t.Context(), id); err != nil || state != messenger.SignedIn {
+			t.Fatalf("%s: the add-on stopped serving after the live end: %v, %v", tc.frame, state, err)
+		}
+	}
+}
+
+func TestMalformedLiveEndIsRefused(t *testing.T) {
+	t.Parallel()
+	for _, frame := range []string{
+		`{"event":"ended"}`,
+		`{"event":"ended","error":"failed","message":{"id":"m"}}`,
+		`{"event":"message","error":"failed","message":{"id":"m","author":{"id":"u","name":""},"route":"system","at":"2026-10-24T09:00:00Z","text":""}}`,
+	} {
+		s := &script{responses: map[string][]string{
+			"live": {`{"id":"","ok":true,"result":{"live":true}}` + "\n" + frame},
+		}}
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		err := session(t, s).Adapter().Live(ctx, messenger.SourceID{Platform: "kakaotalk", Account: "account-1"}, func(messenger.Event) error { return nil })
+		cancel()
+		if !errors.Is(err, addon.ErrUpstreamChanged) {
+			t.Fatalf("%s: got %v, want upstream changed", frame, err)
+		}
 	}
 }
 
