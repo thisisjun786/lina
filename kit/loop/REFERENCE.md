@@ -40,6 +40,8 @@ positions are cleared. The first stream is closed before the next opens. A secon
 unusable call returns `ErrTextCall`; cancellation and transport errors never
 trigger this continuation. Nested installation preserves one recovery allowance.
 Reported usage is combined across attempts, with unknown values kept unknown.
+The first attempt's usage becomes prior usage only after the replacement stream
+opens; close or open failures retain the original metadata without adding it twice.
 
 The Core parser adapter is `internal/core/textcall.Guard`. Turn and run entry
 points install it for injected stream functions; `modelpath.Config.Stream` also

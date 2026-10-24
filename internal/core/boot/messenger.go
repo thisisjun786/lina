@@ -134,6 +134,12 @@ func (r *conversationRuntime) startMessenger(ctx context.Context, cfg *Messenger
 		return err
 	}
 	service := messenger.NewServiceWithResolver(store, r.messengerResolver(cfg), cfg.Interval).WithFactory(r.messengerFactory(cfg.Factory))
+	service.SetAfterSync(r.notifyMessengerExtraction)
+	// Learning reads the person's own records, so the job exists only when a
+	// messenger source can admit them.
+	if err := r.startMessengerExtraction(ctx); err != nil {
+		return err
+	}
 	runCtx, stop := context.WithCancel(ctx)
 	r.messenger, r.messengerAddon, r.messengerStop, r.messengerDone = service, cfg.Addon, stop, make(chan struct{})
 	go func() {
@@ -225,7 +231,7 @@ func (r *conversationRuntime) botSource(source messenger.Source, transport http.
 // Messenger is the running source loop, when Core started one.
 func (r *conversationRuntime) Messenger() *messenger.Service { return r.messenger }
 
-// Identity is the sender-identity store the messenger loop matches with.
+// SenderIdentity is the sender-identity store the messenger loop matches with.
 func (r *conversationRuntime) SenderIdentity() *identity.Store { return r.senderIdentity }
 
 // resolveMessenger selects an adapter per source: a platform adapter when one

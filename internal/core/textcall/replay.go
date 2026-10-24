@@ -218,6 +218,11 @@ func readCase(raw []byte) (Case, string) {
 	if gold["action"] == Dispatch && !has(gold, "parsed_call") {
 		return c, "missing_fields"
 	}
+	// Typed decoding turns null strings into "" and null numbers into 0.
+	// Reject those elements while the generic values are still intact.
+	if !stringArray(turn["text"]) || !stringArray(turn["thinking"]) || !numberArray(turn["delta_timestamps_ms"]) {
+		return c, "invalid_case"
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&c); err != nil {
@@ -227,6 +232,30 @@ func readCase(raw []byte) (Case, string) {
 		return c, "invalid_case"
 	}
 	return c, ""
+}
+func stringArray(value any) bool {
+	items, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		if _, ok := item.(string); !ok {
+			return false
+		}
+	}
+	return true
+}
+func numberArray(value any) bool {
+	items, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		if _, ok := item.(json.Number); !ok {
+			return false
+		}
+	}
+	return true
 }
 func has(obj map[string]any, keys ...string) bool {
 	for _, key := range keys {

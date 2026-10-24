@@ -92,7 +92,8 @@ func Migrations() []Migration {
 		{Version: 77, SQL: recallSearchSchema},
 		{Version: 78, SQL: IdentitySchema},
 		{Version: 79, SQL: IdentityRepairSchema},
-		{Version: 80, SQL: recallVectorsSchema},
+		{Version: 80, SQL: MessengerLearningSchema},
+		{Version: 81, SQL: recallVectorsSchema},
 	}
 }
 
@@ -154,7 +155,8 @@ var publishedMigrationTables = []struct {
 	{78, "identity_merge_link"}, {78, "identity_merge_alias"}, {78, "identity_merge_artifact"},
 	{78, "identity_requeue"},
 	{79, "identity_repair"},
-	{80, "recall_vec"}, {80, "recall_embed_pending"}, {80, "recall_embed_consent"},
+	{80, "messenger_learning_cursor"}, {80, "messenger_learning_skip"},
+	{81, "recall_vec"}, {81, "recall_embed_pending"}, {81, "recall_embed_consent"},
 }
 
 // Reject incompatible pre-release layouts before opening the writer. There is

@@ -16,10 +16,11 @@ import (
 )
 
 type wire struct {
-	events []provider.Event
-	closed bool
-	err    error
-	meta   provider.Meta
+	events   []provider.Event
+	closed   bool
+	err      error
+	closeErr error
+	meta     provider.Meta
 }
 
 func (w *wire) Next(context.Context) (provider.Event, error) {
@@ -34,7 +35,7 @@ func (w *wire) Next(context.Context) (provider.Event, error) {
 	return e, nil
 }
 func (w *wire) Meta() provider.Meta { return w.meta }
-func (w *wire) Close() error        { w.closed = true; return nil }
+func (w *wire) Close() error        { w.closed = true; return w.closeErr }
 func message(text string) *wire {
 	raw, _ := json.Marshal(map[string]any{"type": "message", "role": "assistant", "content": []map[string]string{{"type": "output_text", "text": text}}})
 	w := &wire{}
@@ -313,6 +314,100 @@ func TestFreshContinuationClosesFirstStreamAndAccountsBothAttempts(t *testing.T)
 	}
 	if got := u.CacheByLifetime[provider.Cache5Minutes].Read; got == nil || *got != 14 {
 		t.Fatalf("lifetime usage=%+v", u.CacheByLifetime)
+	}
+}
+
+func TestFreshContinuationUsage(t *testing.T) {
+	count := func(n int64) *int64 { return &n }
+	firstUsage := provider.Usage{
+		Input: count(19), Output: count(7), Cached: count(3), CacheWrite: count(2), Reasoning: count(1),
+		CostEstimate:    &provider.Money{Currency: "USD", Micros: 150},
+		CacheByLifetime: map[provider.CacheLifetime]provider.CacheUsage{provider.Cache5Minutes: {Read: count(3), Write: count(2)}},
+	}
+	secondUsage := provider.Usage{
+		Input: count(11), Output: count(5), Cached: count(0), CacheWrite: count(4), Reasoning: count(2),
+		CostEstimate:    &provider.Money{Currency: "USD", Micros: 90},
+		CacheByLifetime: map[provider.CacheLifetime]provider.CacheUsage{provider.Cache5Minutes: {Read: count(0), Write: count(4)}},
+	}
+	combined := provider.Usage{
+		Input: count(30), Output: count(12), Cached: count(3), CacheWrite: count(6), Reasoning: count(3),
+		CostEstimate:    &provider.Money{Currency: "USD", Micros: 240},
+		CacheByLifetime: map[provider.CacheLifetime]provider.CacheUsage{provider.Cache5Minutes: {Read: count(3), Write: count(6)}},
+	}
+	partial := provider.Usage{
+		Input: count(0), Output: count(0),
+		CacheByLifetime: map[provider.CacheLifetime]provider.CacheUsage{provider.Cache5Minutes: {Write: count(0)}, provider.Cache1Hour: {Read: count(2)}},
+	}
+	partialCombined := provider.Usage{
+		Input: count(19), Output: count(7),
+		CacheByLifetime: map[provider.CacheLifetime]provider.CacheUsage{provider.Cache5Minutes: {Write: count(2)}},
+	}
+	otherCurrency := secondUsage
+	otherCurrency.CostEstimate = &provider.Money{Currency: "EUR", Micros: 90}
+	unknownCost := combined
+	unknownCost.CostEstimate = nil
+	closeErr, openErr := errors.New("close failed"), errors.New("open failed")
+	for _, tc := range []struct {
+		name                       string
+		first, second, want        provider.Usage
+		closeErr, openErr, wantErr error
+		nilStream                  bool
+		requests                   int
+	}{
+		{name: "close_failure", first: firstUsage, want: firstUsage, closeErr: closeErr, wantErr: closeErr, requests: 1},
+		{name: "open_failure", first: firstUsage, want: firstUsage, openErr: openErr, wantErr: openErr, requests: 2},
+		{name: "nil_stream", first: firstUsage, want: firstUsage, nilStream: true, wantErr: loop.ErrResponse, requests: 2},
+		{name: "close_failure_unknown_values", first: partial, want: partial, closeErr: closeErr, wantErr: closeErr, requests: 1},
+		{name: "open_failure_unknown_values", first: partial, want: partial, openErr: openErr, wantErr: openErr, requests: 2},
+		{name: "both_reported", first: firstUsage, second: secondUsage, want: combined, requests: 2},
+		{name: "first_unknown_values", first: partial, second: firstUsage, want: partialCombined, requests: 2},
+		{name: "second_unknown_values", first: firstUsage, second: partial, want: partialCombined, requests: 2},
+		{name: "different_currencies", first: firstUsage, second: otherCurrency, want: unknownCost, requests: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first, second := message("[tool_use"), message("Recovered.")
+			first.meta.Usage, second.meta.Usage = tc.first, tc.second
+			first.closeErr = tc.closeErr
+			requests := 0
+			s, err := textcall.Guard(func(context.Context, provider.Request) (provider.Stream, error) {
+				requests++
+				if requests == 1 {
+					return first, nil
+				}
+				if !first.closed {
+					t.Error("first stream still open")
+				}
+				if tc.openErr != nil || tc.nilStream {
+					return nil, tc.openErr
+				}
+				return second, nil
+			})(t.Context(), provider.Request{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			for err == nil {
+				_, err = s.Next(t.Context())
+			}
+			wantErr := tc.wantErr
+			if wantErr == nil {
+				wantErr = io.EOF
+			}
+			if !errors.Is(err, wantErr) || requests != tc.requests {
+				t.Fatalf("err=%v want=%v requests=%d want=%d", err, wantErr, requests, tc.requests)
+			}
+			// Metadata reads and cleanup must not accumulate usage again.
+			for range 2 {
+				if got := s.Meta().Usage; !reflect.DeepEqual(got, tc.want) {
+					gotJSON, _ := json.Marshal(got)
+					wantJSON, _ := json.Marshal(tc.want)
+					t.Errorf("usage=%s want=%s", gotJSON, wantJSON)
+				}
+				if err := s.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
 	}
 }
 func TestCancelledTextStreamNeverStartsContinuation(t *testing.T) {
