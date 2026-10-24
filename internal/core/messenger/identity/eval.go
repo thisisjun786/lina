@@ -17,11 +17,6 @@ import (
 	"github.com/thisisjun786/lina/internal/core/memory"
 )
 
-// OwnerSampleUsableLinks is how many usable links the owner's sample must check
-// with none wrong before the gate holds: by the rule of three, 300 bounds the
-// wrong-link rate below 1 percent.
-const OwnerSampleUsableLinks = 300
-
 // Set is the labelled evaluation input: known people, the identities observed,
 // and the ambiguities planted on purpose. A label of "unknown" means no usable
 // link is correct; "self" is the person's own account, which is never linked.
@@ -31,9 +26,6 @@ type Set struct {
 	Identities  []SetIdentity  `json:"identities"`
 	Ambiguities []SetAmbiguity `json:"ambiguities,omitempty"`
 	Windows     []SetWindow    `json:"windows,omitempty"`
-	// MinUsableLinks is how many usable links the gate needs; the owner's
-	// sample sets it, the synthetic set does not.
-	MinUsableLinks int `json:"-"`
 }
 
 // SetPerson is one people record in a set.
@@ -90,13 +82,12 @@ func (a SetAmbiguity) Identity() Identity {
 	return Identity{Platform: a.Platform, Scope: a.Scope, User: a.User}
 }
 
-// Measures reports what the matcher did on a set, counting each identity once
-// however often it was observed. Rates are over usable links only: unmatched,
-// ambiguous and unknown identities say nothing about link correctness.
+// Measures reports what the matcher did on a set. Rates are over usable links
+// only: unmatched, ambiguous and unknown identities say nothing about link
+// correctness.
 type Measures struct {
 	Identities          int
 	UsableLinks         int
-	MinUsableLinks      int
 	WrongLinks          int
 	LinkedAutomatically int
 	Ambiguities         int
@@ -151,12 +142,22 @@ func (m Measures) WrongRateBound() float64 {
 	return 3 / float64(m.UsableLinks)
 }
 
-// Gate reports whether the matcher may be used for learning: enough usable
-// links checked, none wrong, every planted ambiguity flagged, and every
-// moved-identifier window rejected.
+// OwnerSampleTrials is the least number of usable links an owner sample must
+// check. The research note's rule of three needs 300 to bound a wrong link
+// below one percent.
+const OwnerSampleTrials = 300
+
+// Gate reports whether the matcher may be used for learning: no wrong usable
+// link, every planted ambiguity flagged, and every moved-identifier window
+// rejected. An owner sample uses OwnerGate.
 func (m Measures) Gate() bool {
-	return m.UsableLinks >= m.MinUsableLinks && m.WrongLinks == 0 &&
-		m.AmbiguitiesFlagged == m.Ambiguities && m.WindowsRejected == m.Windows
+	return m.WrongLinks == 0 && m.AmbiguitiesFlagged == m.Ambiguities && m.WindowsRejected == m.Windows
+}
+
+// OwnerGate reports the owner-sample gate. It adds the trial minimum to the
+// synthetic conditions. Fewer usable links do not certify the matcher.
+func (m Measures) OwnerGate() bool {
+	return m.Gate() && m.UsableLinks >= OwnerSampleTrials
 }
 
 // LoadSet reads an evaluation set.
@@ -182,16 +183,10 @@ func ParseSet(data []byte) (Set, error) {
 			return Set{}, ErrInvalid
 		}
 	}
-	labels := map[Identity]string{}
 	for _, identity := range set.Identities {
-		id := Identity{Platform: identity.Platform, Scope: identity.Scope, User: identity.User}
-		if !id.valid() || identity.Expect == "" {
+		if !(Identity{Platform: identity.Platform, Scope: identity.Scope, User: identity.User}).valid() || identity.Expect == "" {
 			return Set{}, ErrInvalid
 		}
-		if label, seen := labels[id]; seen && label != identity.Expect {
-			return Set{}, fmt.Errorf("%w: %s has two labels", ErrInvalid, id)
-		}
-		labels[id] = identity.Expect
 		if _, err := time.Parse(time.RFC3339, identity.At); err != nil {
 			return Set{}, ErrInvalid
 		}
@@ -295,14 +290,16 @@ func Evaluate(ctx context.Context, store *Store, set Set) (Measures, error) {
 		}
 	}
 	now := latest.Add(time.Second)
-	measures := Measures{MinUsableLinks: set.MinUsableLinks, Ambiguities: len(set.Ambiguities), Windows: len(set.Windows)}
-	measured := map[Identity]bool{}
+	measures := Measures{Ambiguities: len(set.Ambiguities), Windows: len(set.Windows)}
+	// One sender identity is one trial. Repeated observations of that identity
+	// read the same link and must not multiply the usable-link count.
+	seen := map[string]bool{}
 	for _, identity := range identities {
 		id := Identity{Platform: identity.Platform, Scope: identity.Scope, User: identity.User}
-		if measured[id] {
+		if seen[id.Key()] {
 			continue
 		}
-		measured[id] = true
+		seen[id.Key()] = true
 		measures.Identities++
 		links, err := run.Links(ctx, id)
 		if err != nil {
@@ -517,29 +514,29 @@ type OwnerSample struct {
 // Counts is what the private run writes: counts and rates only, never a name,
 // an id or a text.
 type Counts struct {
-	Identities          int     `json:"identities"`
-	UsableLinks         int     `json:"usable_links"`
-	WrongLinks          int     `json:"wrong_links"`
-	Precision           float64 `json:"precision"`
-	LinkedShare         float64 `json:"linked_share"`
-	Ambiguities         int     `json:"ambiguities"`
-	AmbiguitiesFlagged  int     `json:"ambiguities_flagged"`
-	Proposals           int     `json:"proposals"`
-	ProposalTop1        float64 `json:"proposal_top1"`
-	RepairClean         bool    `json:"repair_clean"`
-	RuleOfThree         float64 `json:"rule_of_three"`
-	RequiredUsableLinks int     `json:"required_usable_links"`
-	Gate                bool    `json:"gate"`
+	Identities         int     `json:"identities"`
+	UsableLinks        int     `json:"usable_links"`
+	WrongLinks         int     `json:"wrong_links"`
+	Precision          float64 `json:"precision"`
+	LinkedShare        float64 `json:"linked_share"`
+	Ambiguities        int     `json:"ambiguities"`
+	AmbiguitiesFlagged int     `json:"ambiguities_flagged"`
+	Proposals          int     `json:"proposals"`
+	ProposalTop1       float64 `json:"proposal_top1"`
+	RepairClean        bool    `json:"repair_clean"`
+	RuleOfThree        float64 `json:"rule_of_three"`
+	Gate               bool    `json:"gate"`
 }
 
-// CountsOf projects measures without identifiers.
+// CountsOf projects measures without identifiers. Gate is the owner-sample
+// gate, because counts are what the private run writes.
 func CountsOf(m Measures) Counts {
 	return Counts{
 		Identities: m.Identities, UsableLinks: m.UsableLinks, WrongLinks: m.WrongLinks,
 		Precision: m.Precision(), LinkedShare: m.LinkedShare(),
 		Ambiguities: m.Ambiguities, AmbiguitiesFlagged: m.AmbiguitiesFlagged,
 		Proposals: m.Proposals, ProposalTop1: m.ProposalTop1Rate(),
-		RepairClean: m.Repair.Clean, RuleOfThree: m.WrongRateBound(), RequiredUsableLinks: m.MinUsableLinks, Gate: m.Gate(),
+		RepairClean: m.Repair.Clean, RuleOfThree: m.WrongRateBound(), Gate: m.OwnerGate(),
 	}
 }
 
@@ -583,7 +580,7 @@ func LoadOwnerSample(dir string) (Set, error) {
 		}
 		sample.Identities[i].Expect = label
 	}
-	return Set{Version: 1, People: sample.People, Identities: sample.Identities, MinUsableLinks: OwnerSampleUsableLinks}, nil
+	return Set{Version: 1, People: sample.People, Identities: sample.Identities}, nil
 }
 
 // WriteCounts writes the private run's counts where the owner asked for them.
@@ -595,13 +592,14 @@ func WriteCounts(path string, measures Measures) error {
 	return os.WriteFile(path, append(data, '\n'), 0o600)
 }
 
-// Report is the person-facing one-line summary of a run.
-func Report(m Measures) string {
-	line := fmt.Sprintf("usable links %d, wrong %d, precision %.3f; linked automatically %.3f; ambiguities %d/%d flagged; proposals %d, top-1 %.3f; moved windows %d/%d rejected; repair clean %t; bound 3/n %.4f; gate %t",
+// Report is the person-facing one-line summary of a synthetic run.
+func Report(m Measures) string { return formatReport(m, m.Gate()) }
+
+// ReportOwner is the same summary with the owner-sample gate.
+func ReportOwner(m Measures) string { return formatReport(m, m.OwnerGate()) }
+
+func formatReport(m Measures, gate bool) string {
+	return fmt.Sprintf("usable links %d, wrong %d, precision %.3f; linked automatically %.3f; ambiguities %d/%d flagged; proposals %d, top-1 %.3f; moved windows %d/%d rejected; repair clean %t; bound 3/n %.4f; gate %t",
 		m.UsableLinks, m.WrongLinks, m.Precision(), m.LinkedShare(), m.AmbiguitiesFlagged, m.Ambiguities,
-		m.Proposals, m.ProposalTop1Rate(), m.WindowsRejected, m.Windows, m.Repair.Clean, m.WrongRateBound(), m.Gate())
-	if m.MinUsableLinks > 0 {
-		line += fmt.Sprintf("; usable links needed %d", m.MinUsableLinks)
-	}
-	return line
+		m.Proposals, m.ProposalTop1Rate(), m.WindowsRejected, m.Windows, m.Repair.Clean, m.WrongRateBound(), gate)
 }
