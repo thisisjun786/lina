@@ -36,7 +36,8 @@ The same identity seen in two chats or two sources is one identity. Every
 admission of a person's or an external participant's record observes the author
 inside the page's transaction (`messenger.Store.WithIdentities`); bots and
 platform notices are not observed. The person's own account (`Self`) is recorded
-so it is known, and is never linked as another person.
+so it is known, and is never linked as another person. A later observation that
+omits the mark does not change it.
 
 Core composes one identity store per conversation and gives it to every reader
 it starts: the messenger sync loop, the built-in Teams service and the built-in
@@ -118,24 +119,7 @@ in the same transaction, so an item keeps its evidence, holder and scope.
 
 What a link produced is recorded in `identity_artifact` (memory items, and the
 kind reserved for people-record entries) and a citation of the link as external
-evidence counts too. Removing, correcting, or superseding a link retracts those
-items through the one removal list in the same writer transaction as the link
-change. A citing item that is hidden only because an ancestor was forgotten is
-retracted too, so restoring that ancestor does not show it again. An item that
-is already retracted, or whose row is gone, stays as it is. The link change and the retraction become visible together. An empty
-retraction commits the link and writes no removal-list line. A failure rolls
-the link change back with the retraction. When the removal list already has
-the line, recovery replays the journaled link change and requeue with the
-retraction before reads reopen. That line records ids and the resulting
-state, not the person's answer or other signal text. The backup and
-restore commands pass this replay function when they open the removal
-list, so a restored generation finishes the same line. The backup
-package does not import the identity store.
-
-Migration 79 adds `identity_repair` for validity-window repairs admitted in a
-messenger transaction. Pending item ids commit with the cutoff and requeue;
-`Rematch` drains them before matching at startup and on scheduled passes.
-Interrupted delivery remains pending and is retried through the removal list.
+evidence counts too. Migration 79 adds `identity_repair`: pending item ids are written with the link change and requeue in canon. Delivery through the removal list follows commit; `Rematch` drains pending repairs before matching at startup and on scheduled passes. A citing item hidden only because an ancestor was forgotten is still queued and retracted, so restoring that ancestor does not show it again. An item already retracted, or whose row is gone, is acknowledged without a duplicate `Forget`. A failure remains pending and is returned to the caller; it is never reported as completed repair.
 
 A repair leaves one row per identity in `identity_requeue`, from the source's
 learning watermark or, without one, the identity's first sighting. Extraction
@@ -162,8 +146,8 @@ inside the contact section is refused rather than guessed at.
 ## Evaluation
 
 `testdata/identity/synthetic.json` holds the hard cases; `lina identity-eval`
-runs it and prints the measures. The synthetic gate is no wrong usable link and
-every planted ambiguity. `--private <dir>` runs the owner's labelled export and
+runs it and prints the measures. The synthetic gate is no wrong usable link,
+every planted ambiguity, and every moved-identifier window. `--private <dir>` runs the owner's labelled export and
 writes `counts.json` with counts and rates only. Its `gate` is the owner-sample
 gate: the synthetic conditions plus at least 300 usable links. Each sender
 identity counts once, so repeated observations of one sender are one trial. A shorter sample

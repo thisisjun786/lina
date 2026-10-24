@@ -1252,15 +1252,15 @@ VALUES('memory',?,'1',1,'external',?,'1','none','cites')`, item, link)
 	}
 }
 
-// stopRemovals can forget only in its own later transaction. A repair must
-// refuse it and leave the link unchanged when items have to be retracted.
+// stopRemovals records that delivery was attempted and stopped. The link
+// change and its repair intent stay; a later recovery delivers the retraction.
 type stopRemovals struct{}
 
 func (stopRemovals) Forget(context.Context, retract.Request) error {
 	return errors.New("removal stopped")
 }
 
-func TestRepairDoesNotKeepALinkChangeWhenRetractionStops(t *testing.T) {
+func TestRepairKeepsIntentWhenRetractionStops(t *testing.T) {
 	t.Parallel()
 	for _, act := range []string{"remove", "correct", "confirm", "no removal path"} {
 		t.Run(act, func(t *testing.T) {
@@ -1276,7 +1276,7 @@ func TestRepairDoesNotKeepALinkChangeWhenRetractionStops(t *testing.T) {
 			if len(before) != 1 || before[0].Record != "person-wrong" {
 				t.Fatalf("exact link = %+v", before)
 			}
-			item := f.item(t, "person-wrong", "repair rollback "+act)
+			item := f.item(t, "person-wrong", "repair pending "+act)
 			if err := f.store.RecordArtifact(t.Context(), before[0].ID, "item", item.ID); err != nil {
 				t.Fatal(err)
 			}
@@ -1294,15 +1294,45 @@ func TestRepairDoesNotKeepALinkChangeWhenRetractionStops(t *testing.T) {
 			case "confirm":
 				_, err = f.store.Confirm(t.Context(), discord("d-repair"), "person-right", "that one")
 			}
-			if !errors.Is(err, identity.ErrInvalid) {
-				t.Fatalf("error = %v, want ErrInvalid", err)
+			if act == "no removal path" {
+				if !errors.Is(err, identity.ErrInvalid) {
+					t.Fatalf("error = %v, want ErrInvalid", err)
+				}
+			} else if err == nil || err.Error() != "removal stopped" {
+				t.Fatalf("error = %v, want the stopped removal", err)
 			}
 			got := links(t, f, discord("d-repair"))
-			if len(got) != 1 || got[0].Record != "person-wrong" || got[0].Class != identity.Exact || got[0].State != identity.Active {
-				t.Fatalf("link changed without a retraction: %+v", got)
+			switch act {
+			case "remove", "no removal path":
+				if len(got) != 1 || got[0].Record != "person-wrong" || got[0].State != identity.Removed {
+					t.Fatalf("removed link = %+v", got)
+				}
+			case "correct":
+				if len(got) != 1 || got[0].Record != "person-right" || got[0].Class != identity.Confirmed || got[0].State != identity.Active {
+					t.Fatalf("corrected link = %+v", got)
+				}
+			case "confirm":
+				var confirmed bool
+				for _, link := range got {
+					if link.Record == "person-right" && link.Class == identity.Confirmed && link.State == identity.Active {
+						confirmed = true
+					}
+				}
+				if !confirmed {
+					t.Fatalf("confirmed links = %+v", got)
+				}
 			}
 			if !visible(t, f, item.ID) {
-				t.Fatal("the item was hidden without a committed repair")
+				t.Fatal("a stopped removal hid the item")
+			}
+			var pending int
+			if err := f.db.Read(t.Context(), func(tx *canon.Tx) error {
+				return tx.QueryRowContext(t.Context(), "SELECT count(*) FROM identity_repair WHERE item=?", item.ID).Scan(&pending)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if pending != 1 {
+				t.Fatalf("pending repairs = %d, want the item still queued", pending)
 			}
 		})
 	}
