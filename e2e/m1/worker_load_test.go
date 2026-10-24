@@ -8,24 +8,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/thisisjun786/lina/e2e/fixture"
 	"github.com/thisisjun786/lina/internal/core/canon"
 	"github.com/thisisjun786/lina/internal/core/worker/dispatch"
 )
 
 type workerLoad struct{ path string }
 
-func newWorkerLoad(t *testing.T, fixture string) workerLoad {
+func newWorkerLoad(t *testing.T, dir string) workerLoad {
 	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("installed worker capacity requires Linux host sampling")
-	}
-	load := workerLoad{filepath.Join(fixture, "loadavg")}
+	fixture.RequireLoadavgFixture(t)
+	load := workerLoad{filepath.Join(dir, "loadavg")}
 	load.set(t, "0.00")
 	return load
 }

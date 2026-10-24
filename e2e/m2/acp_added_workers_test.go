@@ -2,18 +2,17 @@
 package e2e_test
 
 import (
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/thisisjun786/lina/e2e/fixture"
 )
 
 // The shared scenario installs and boots Core, dispatches through the model
 // tool, observes unverified readiness/progress, then verifies a committed result
 // and the adapter-derived receipt. No installed vendor or credentials are used.
 func TestAddedACPWorkersThroughRunningCore(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("installed worker capacity requires Linux host sampling")
-	}
+	fixture.RequireLoadavgFixture(t)
 	profiles := `{"version":1,"profiles":[
 		{"name":"my-agent","command":"synthetic-agent","args":["acp","literal argument; $HOME"]},
 		{"name":"broken","command":"","args":[]},
