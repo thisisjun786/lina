@@ -43,8 +43,10 @@ CREATE TRIGGER recall_embed_revoke AFTER DELETE ON recall_embed_consent BEGIN
  INSERT INTO recall_embed_pending(doc) SELECT id FROM recall_doc;
  UPDATE search_index_config SET generation=generation+1,ready=0 WHERE name='recall';
 END;
--- Recursively follow current citations. Consent and never-leaves sensitivity
--- protect derived summaries/items/records as well as the event itself.
+-- Recursively follow current citations and event lineage. Consent and
+-- never-leaves sensitivity protect derived summaries, items, records, replay
+-- copies and view_of events as well as the event itself. cite does not store
+-- event views, so replay_of and ev_rel carry that lineage.
 CREATE VIEW recall_imported_event AS
  SELECT e.id,e.conversation_id,e.rowid AS sequence FROM conv_event e WHERE json_extract(e.origin,'$.kind')='import'
  OR EXISTS(SELECT 1 FROM messenger_record_revision mr JOIN messenger_legacy_ref l
@@ -55,6 +57,12 @@ CREATE VIEW recall_embed_eligible AS
   UNION
   SELECT a.doc,c.target_kind,c.target_id FROM ancestry a JOIN cite c
    ON c.view_kind=a.kind AND c.view_id=a.source_id AND c.dropped_revision IS NULL
+  UNION
+  SELECT a.doc,'event',e.replay_of FROM ancestry a JOIN conv_event e
+   ON a.kind='event' AND e.id=a.source_id AND e.replay_of IS NOT NULL
+  UNION
+  SELECT a.doc,'event',v.target_id FROM ancestry a JOIN ev_rel v
+   ON a.kind='event' AND v.event_id=a.source_id AND v.kind='view_of'
  )
  SELECT d.* FROM recall_doc d WHERE NOT EXISTS (
   SELECT 1 FROM ancestry a WHERE a.doc=d.id AND (

@@ -316,6 +316,34 @@ func TestVectorPublicationFencedByConsentGeneration(t *testing.T) {
 	}
 }
 
+func TestEmbedEligibilityFollowsReplayAndViewLineage(t *testing.T) {
+	db := database(t)
+	base := time.Unix(1700000000, 0)
+	admitAt(t, db, "ordinary", "conversation", "owner", "agent", "ordinary library books", base, "")
+	write(t, db, `INSERT INTO conv_event(id,conversation_id,person_id,agent_id,speaker_kind,surface,origin,occurred_at,recorded_at,time_quality,body)
+	 SELECT 'imported','imported-conversation',person_id,agent_id,speaker_kind,surface,'{"kind":"import"}',occurred_at,recorded_at,time_quality,'imported secret garden' FROM conv_event WHERE id='ordinary'`)
+	admitAt(t, db, "replay", "conversation", "owner", "agent", "replay of imported secret garden", base.Add(time.Second), "imported")
+	admitAt(t, db, "protected", "conversation", "owner", "agent", "protected never leaves note", base.Add(2*time.Second), "")
+	remember(t, db, "agent", "", "protected memory words", memory.NeverLeaves, "protected")
+	admitAt(t, db, "view", "conversation", "owner", "agent", "view of protected note", base.Add(3*time.Second), "")
+	write(t, db, "INSERT INTO ev_rel(event_id,target_id,kind) VALUES('view','protected','view_of')")
+	drain(t, db)
+	f := &fakeEmbeddings{model: "test", dimension: 2}
+	v, err := recall.NewVectors(t.Context(), db, nil, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishVectors(t, db, v)
+	for _, text := range f.texts {
+		if strings.Contains(text, "imported") || strings.Contains(text, "protected") || strings.Contains(text, "replay") || strings.Contains(text, "view of") {
+			t.Fatalf("lineage copy sent: %q in %v", text, f.texts)
+		}
+	}
+	if !strings.Contains(strings.Join(f.texts, "\n"), "ordinary library books") {
+		t.Fatalf("ordinary event missing: %v", f.texts)
+	}
+}
+
 func TestVectorDeletionRollsBackWithSource(t *testing.T) {
 	db := database(t)
 	admit(t, db, "event", "garden")
