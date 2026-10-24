@@ -355,8 +355,8 @@ func (v *Vectors) Query(ctx context.Context, scope Scope, text string) ([]string
 	}
 	restricted := scope.Projection || scope.ExternalModel
 	where, args := scopeWhere(scope, kindsOf(scope), at, restricted, "d")
-	cte, prefixArgs := restrictedCTE(scope)
-	prefix := "WITH "
+	cte, prefixArgs := RestrictionCTE(scope)
+	prefix := "WITH RECURSIVE "
 	if cte != "" {
 		prefix += cte + ", "
 	}

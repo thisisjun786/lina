@@ -214,6 +214,7 @@ func TestVectorsScopeBeforeLimitAndSecretProjection(t *testing.T) {
 	db := database(t)
 	base := time.Unix(1700000000, 0)
 	admitAt(t, db, "allowed", "conversation", "owner", "agent", "library books", base, "")
+	remember(t, db, "agent", "", "private library", memory.Private, "allowed")
 	for i := range 105 {
 		admitAt(t, db, fmt.Sprint(i), "other-conversation", "owner", "other", fmt.Sprintf("plants %d", i), base.Add(time.Duration(i)*time.Second), "")
 	}
@@ -226,6 +227,10 @@ func TestVectorsScopeBeforeLimitAndSecretProjection(t *testing.T) {
 	ids, err := v.Query(t.Context(), recall.Scope{Person: "owner", Agent: "agent", Kinds: []recall.Kind{recall.Event}}, "plants")
 	if err != nil || !reflect.DeepEqual(ids, []string{"event\x00allowed"}) {
 		t.Fatalf("scoped vectors: %v %v", ids, err)
+	}
+	ids, err = v.Query(t.Context(), recall.Scope{Person: "owner", Agent: "agent", Kinds: []recall.Kind{recall.Event}, Projection: true}, "plants")
+	if err != nil || len(ids) != 0 {
+		t.Fatalf("projection exposed protected vector: %v %v", ids, err)
 	}
 }
 
