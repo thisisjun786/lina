@@ -43,6 +43,11 @@ var ErrStopped = errors.New("messenger add-on stopped")
 // again on its schedule.
 var ErrLiveEnded = errors.New("messenger add-on live events ended")
 
+// ErrRefused reports that the add-on declined with a platform cause code, such
+// as source_forbidden. The process is healthy, so the source fails with that
+// cause instead of being restarted for it.
+var ErrRefused = errors.New("messenger add-on refused")
+
 // Capabilities is the add-on's own descriptor. Each platform driver narrows it.
 func Capabilities() messenger.Capabilities {
 	return messenger.Capabilities{

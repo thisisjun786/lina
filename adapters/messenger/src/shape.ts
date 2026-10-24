@@ -3,7 +3,7 @@
 // Shape checks for what the SDK returns. A platform response the add-on does
 // not recognise is refused as `upstream_changed` instead of being passed on as
 // a record: Core then fails that source's batch and keeps its cursor.
-import { Refusal, type Author, type Chat, type Message, type Page, type Route } from './protocol.ts';
+import { Refusal, type Author, type Chat, type LiveEvent, type Message, type Page, type Route } from './protocol.ts';
 
 
 const ROUTES: Record<Route, true> = { person: true, automation: true, system: true, external_participant: true };
@@ -107,4 +107,23 @@ export function page(value: unknown): Page {
     page.coverage = { historyDepth: entry.historyDepth, cursorSurvivesRestart: entry.cursorSurvivesRestart };
   }
   return page;
+}
+
+// A live event carries exactly one of a message or a deletion, and the chat it
+// belongs to where the platform's pin names one. An event the add-on does not
+// recognise fails the source instead of being passed on.
+export function live(value: unknown): LiveEvent {
+  if (!value || typeof value !== 'object') throw changed('live event');
+  const source = value as Record<string, unknown>;
+  if (source.chat !== undefined && !id(source.chat)) throw changed('live chat');
+  const chat = source.chat as string | undefined;
+  if (source.event === 'message' && source.message !== undefined && source.deletion === undefined) {
+    return { event: 'message', ...(chat ? { chat } : {}), message: message(source.message) };
+  }
+  if (source.event === 'deletion' && source.deletion !== undefined && source.message === undefined) {
+    const entry = source.deletion as Record<string, unknown>;
+    if (!id(entry.message)) throw changed('live deletion');
+    return { event: 'deletion', ...(chat ? { chat } : {}), deletion: { message: entry.message as string, at: time(entry.at) } };
+  }
+  throw changed('live event');
 }

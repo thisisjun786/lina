@@ -28,6 +28,7 @@ type wireResponse struct {
 
 type wireEvent struct {
 	Event    string        `json:"event"`
+	Chat     string        `json:"chat"`
 	Message  *wireMessage  `json:"message"`
 	Deletion *wireDeletion `json:"deletion"`
 	Error    string        `json:"error"`
@@ -55,6 +56,13 @@ func (e wireEvent) event() (messenger.Event, error) {
 	if e.Error != "" {
 		return messenger.Event{}, fmt.Errorf("%w: live event error", ErrUpstreamChanged)
 	}
+	// A live frame names the chat it belongs to where the platform's pin does:
+	// WhatsApp's event says which chat it is, while LINE's stream event names
+	// no chat at all. A named chat must be a valid identifier; a message that
+	// names none is refused at admission, which cannot place it.
+	if e.Chat != "" && !validIdentifier(e.Chat) {
+		return messenger.Event{}, fmt.Errorf("%w: live chat", ErrUpstreamChanged)
+	}
 	switch e.Event {
 	case "message":
 		if e.Message == nil || e.Deletion != nil {
@@ -64,7 +72,7 @@ func (e wireEvent) event() (messenger.Event, error) {
 		if err != nil {
 			return messenger.Event{}, err
 		}
-		return messenger.Event{Message: &message}, nil
+		return messenger.Event{Chat: e.Chat, Message: &message}, nil
 	case "deletion":
 		if e.Deletion == nil || e.Message != nil {
 			return messenger.Event{}, fmt.Errorf("%w: live deletion", ErrUpstreamChanged)
@@ -73,7 +81,7 @@ func (e wireEvent) event() (messenger.Event, error) {
 		if err != nil {
 			return messenger.Event{}, err
 		}
-		return messenger.Event{Deletion: &deletion}, nil
+		return messenger.Event{Chat: e.Chat, Deletion: &deletion}, nil
 	}
 	return messenger.Event{}, fmt.Errorf("%w: live event %q", ErrUpstreamChanged, e.Event)
 }

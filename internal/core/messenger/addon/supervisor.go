@@ -169,6 +169,8 @@ func (c *child) deliverLine(line []byte) {
 	sink := c.live
 	c.mu.Unlock()
 	if sink != nil {
+		// A failed admission is not fatal here: the frame was already checked,
+		// and the scheduled read admits what the platform can still serve.
 		_ = sink(converted)
 	}
 }
@@ -268,6 +270,9 @@ func (p *process) call(ctx context.Context, op string, arguments map[string]any,
 				return ErrUnsupportedPlatform
 			case "upstream_changed":
 				return ErrUpstreamChanged
+			}
+			if strings.HasPrefix(response.Error, "source_") {
+				return fmt.Errorf("%w: %s", ErrRefused, response.Error)
 			}
 			return fmt.Errorf("%w: %s", ErrStopped, response.Error)
 		}

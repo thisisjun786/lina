@@ -31,6 +31,9 @@ type script struct {
 	responses map[string][]string
 	requests  []map[string]any
 	exits     int
+	// events are unsolicited frames the fake add-on pushes once its live
+	// subscription is acknowledged.
+	events []string
 	// liveEvent is written after the answer to a live request, so a test can
 	// observe the subscription Core established. stopSeen signals the first stop
 	// request, so a test synchronizes on the add-on instead of a delay.
@@ -73,9 +76,16 @@ func (s *script) Run(ctx context.Context, l lease.Lease, command sandbox.Command
 		if err := writer.Flush(); err != nil {
 			return err
 		}
-		if op == "live" && s.liveEvent != "" {
-			if _, err := writer.WriteString(s.liveEvent + "\n"); err != nil {
-				return err
+		if op == "live" {
+			for _, event := range s.events {
+				if _, err := writer.WriteString(event + "\n"); err != nil {
+					return err
+				}
+			}
+			if s.liveEvent != "" {
+				if _, err := writer.WriteString(s.liveEvent + "\n"); err != nil {
+					return err
+				}
 			}
 			if err := writer.Flush(); err != nil {
 				return err
@@ -308,6 +318,63 @@ func TestResponseEnvelopeAndRequiredPageFields(t *testing.T) {
 				t.Fatalf("got %v, want upstream changed", err)
 			}
 		})
+	}
+}
+
+func TestLiveEventsCarryTheirChat(t *testing.T) {
+	t.Parallel()
+	s := &script{
+		responses: map[string][]string{"live": {`{"id":"","ok":true,"result":{"live":true}}`}},
+		events: []string{
+			`{"event":"message","chat":"chat-1","message":{"id":"m-1","author":{"id":"someone-1","name":"Someone"},"route":"external_participant","at":"2026-10-24T09:00:00Z","text":"pushed"}}`,
+			`{"event":"deletion","chat":"chat-1","deletion":{"message":"m-2","at":"2026-10-24T09:01:00Z"}}`,
+		},
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	delivered := make(chan messenger.Event, 2)
+	done := make(chan error, 1)
+	go func() {
+		done <- session(t, s).Adapter().Live(ctx, messenger.SourceID{Platform: "kakaotalk", Account: "account-1"}, func(event messenger.Event) error {
+			delivered <- event
+			return nil
+		})
+	}()
+	for _, want := range []struct {
+		chat     string
+		message  string
+		deletion string
+	}{{"chat-1", "m-1", ""}, {"chat-1", "", "m-2"}} {
+		select {
+		case event := <-delivered:
+			if event.Chat != want.chat {
+				t.Fatalf("chat = %q, want %q", event.Chat, want.chat)
+			}
+			if want.message != "" && (event.Message == nil || event.Message.ID != want.message) {
+				t.Fatalf("message = %+v, want %q", event.Message, want.message)
+			}
+			if want.deletion != "" && (event.Deletion == nil || event.Deletion.Message != want.deletion) {
+				t.Fatalf("deletion = %+v, want %q", event.Deletion, want.deletion)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("no live event reached the caller")
+		}
+	}
+	cancel()
+	<-done
+}
+
+func TestLiveEventWithAMalformedChatFailsTheSource(t *testing.T) {
+	t.Parallel()
+	s := &script{
+		responses: map[string][]string{"live": {`{"id":"","ok":true,"result":{"live":true}}`}},
+		events:    []string{`{"event":"message","chat":"chat\u0001one","message":{"id":"m-1","author":{"id":"someone-1","name":"Someone"},"route":"external_participant","at":"2026-10-24T09:00:00Z","text":"pushed"}}`},
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	err := session(t, s).Adapter().Live(ctx, messenger.SourceID{Platform: "kakaotalk", Account: "account-1"}, func(messenger.Event) error { return nil })
+	if !errors.Is(err, addon.ErrUpstreamChanged) {
+		t.Fatalf("got %v, want upstream changed", err)
 	}
 }
 

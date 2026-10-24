@@ -850,6 +850,33 @@ Edits are detected when a reread reports a later `updated` timestamp. The API
 supplies no deletion feed here, so an absent message never deletes history.
 This source exposes no write operation.
 
+### WhatsApp source
+
+WhatsApp is read as a linked device through the messenger add-on. The person
+links it with the pairing code from WhatsApp's Linked Devices screen, typed into
+the add-on through the app or the TUI. The messenger add-on section's rules on
+the session, the sandbox and sign-in apply.
+
+- The phone pushes its history once, at link time. The first fill reads what the
+  phone pushed; WhatsApp does not hand an older conversation over later.
+- Live messages arrive while the account stays linked, including in a
+  conversation started after the link: the add-on follows a chat it lists after
+  subscribing, and Core reads a chat it has not listed yet on its schedule.
+  Upstream holds at most 500 per chat for the running add-on, so a message sent
+  while the add-on is down is missed.
+- Coverage states both plainly: the read depth is what the phone pushed at link
+  time, and a gap of more than two read intervals means the range may be lost.
+  A chat carries the range its first complete read covered.
+- Phone-number JIDs are the identity handles. A chat id and an author id are
+  the JID the platform uses, such as `<number>@s.whatsapp.net` or the group
+  address, never a display name.
+- A linked device receives no edit or deletion signal, so the source declares
+  none. A message missing from a later read never deletes history.
+- A platform refusal fails that source with its cause and stops reading until
+  the person acts on the phone; other sources and the conversation keep
+  working.
+- This source has no write: WhatsApp's terms forbid automating an account.
+
 ### Messenger adapter boundary
 
 Each way of reaching a platform has one adapter. Discord's bot and Discord's personal account are two adapters of one platform; every other platform in the table has one. A source records the adapter it uses. An adapter offers: its sign-in state; listing chats; reading a page of a chat from a cursor, oldest first; members; live events where the platform has them; fetching one attachment on request, named by its chat, message and attachment id; and a static capability descriptor (history depth, cursor kind, edit and deletion signals, live events and write verbs). Every operation except the capability descriptor names the source account it acts for, so two accounts of one platform never share a read. Core releases the adapter's transport resources when it evicts the adapter or closes its service. Only adapters of official platforms have write verbs. A ported adapter is LINA's own Go code, and its client library is a Go dependency under [dependencies.md](../policy/dependencies.md).
@@ -868,7 +895,7 @@ Unofficial personal platforms are read through the messenger add-on: LINA's own 
 
 ### Sync and coverage
 
-- Core reads each source on its schedule or from its live events. For a scheduled page, the records, the chat's cursor and a coverage record (the range read completely and when) commit in one transaction. Live admission leaves that pagination cursor and coverage unchanged. A live event that cannot be admitted yet, such as an edit held behind an unsettled write, is replayed on the same session instead of being acknowledged, so it is not lost. A scheduled page that overlaps a reported deletion cannot make the deleted message searchable again; a deletion reported without a chat before its message is admitted is kept and applied when that message arrives. Reading the same messages again adds nothing.
+- Core reads each source on its schedule or from its live events. For a scheduled page, the records, the chat's cursor and a coverage record (the range read completely and when) commit in one transaction. Live admission leaves that pagination cursor and coverage unchanged. A live event that cannot be admitted yet, such as an edit held behind an unsettled write, is replayed on the same session instead of being acknowledged, so it is not lost. A live event for a chat the source has not listed is left to the scheduled read, and a chat the person left out of sync takes no live record. A scheduled page that overlaps a reported deletion cannot make the deleted message searchable again; a deletion reported without a chat before its message is admitted is kept and applied when that message arrives. Reading the same messages again adds nothing.
 - Live events and history pages for one source finish admission one at a time, so a newer edit sees the preceding committed revision. Waiting for admission can be cancelled; platform reads run independently of admission.
 - A chat the account can no longer read, such as a channel it left, is skipped with its cursor and records kept; the source's other chats are still read.
 - A failing source is read again on its schedule and returns to connected when a read completes; the person sees its cause in between. A source that needs sign-in waits for the person, and an unreachable, import-only or disconnected source is not read.

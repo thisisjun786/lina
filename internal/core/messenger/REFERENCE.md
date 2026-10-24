@@ -128,6 +128,11 @@ can never become an empty message that reads as something someone sent.
 `AdmitEvent` admits one pushed message or deletion through the same admission
 path as a page, and writes no cursor or coverage: a live event is newer than the
 last complete read, and the next page admits it again without adding anything.
+An event names its chat where the platform's own push does: the add-on's wire
+requires the field to be a valid identifier when present, and a message that
+names no chat cannot be placed, so admission refuses it. A chat the source has
+not listed, or one the person left out of sync, takes no live record; its
+messages arrive through the scheduled read.
 `Service` starts one live reader per connected source, after the source's first
 sync, and re-joins the platform's session with bounded backoff after a failure.
 A source that needs a new sign-in gets no live reader.
