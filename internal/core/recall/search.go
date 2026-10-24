@@ -59,6 +59,8 @@ type Scope struct {
 	// person-subject memory items, before ranking and the result limit.
 	PersonOnly bool
 	// PersonMemory limits only memory candidates to person-subject items.
+	// recall_person sets it so an item about a third party or the world is
+	// never evidence about the person.
 	PersonMemory bool
 	// IncludeReplay makes replay copies candidates. A copy still counts once
 	// with its lineage, so it surfaces only when its original is not a
@@ -196,6 +198,14 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 		at = time.Now().Unix()
 	}
 	restricted := scope.Projection || scope.ExternalModel
+	var external []ranked
+	if query.EventText != nil {
+		var err error
+		external, err = pendingEventText(ctx, db, scope, at, restricted, terms, query.EventText)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var with []string
 	var withArgs []any
 	if cte, cteArgs := RestrictionCTE(scope); cte != "" {
@@ -260,46 +270,45 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 	queuedArgs = append(queuedArgs, pendingArgs...)
 	olderD, olderDArgs := olderExpr(kinds, at, "d")
 	olderS, olderSArgs := olderExpr(kinds, at, "s")
+	// Term count is part of the published order, not only of the merge. A queued
+	// material hit then joins that order without rearranging hits already ranked.
+	ctes, cteArgs, termJoins, indexedTerms, pendingTerms, pendingTermArgs := termCountSQL(terms)
+	with = append(with, ctes...)
+	withArgs = append(withArgs, cteArgs...)
 	args := append([]any{}, withArgs...)
 	args = append(args, olderDArgs...)
 	args = append(args, indexArgs...)
 	args = append(args, olderSArgs...)
+	args = append(args, pendingTermArgs...)
 	args = append(args, queuedArgs...)
-	var external []Hit
-	if query.EventText != nil {
-		var err error
-		external, err = pendingEventText(ctx, db, scope, at, restricted, terms, query.EventText)
-		if err != nil {
-			return nil, err
-		}
-	}
+	order := "CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, terms DESC, score, julianday(occurred_at) DESC, source_id"
 	statement := `WITH RECURSIVE ` + strings.Join(with, ",\n") + `,
 candidates AS MATERIALIZED (
  SELECT d.id,d.kind,d.source_id,d.revision,d.occurred_at,d.holder,d.conversation,d.text_hash,d.replay,
-  p.score AS score,(p.doc IS NOT NULL) AS paired,(t.doc IS NOT NULL) AS trigram,` + olderD + ` AS older
- FROM recall_doc d LEFT JOIN pair p ON p.doc=d.id LEFT JOIN trig t ON t.doc=d.id LEFT JOIN pairhit ph ON ph.doc=d.id
+  p.score AS score,(p.doc IS NOT NULL) AS paired,(t.doc IS NOT NULL) AS trigram,` + olderD + ` AS older, ` + indexedTerms + ` AS terms
+ FROM recall_doc d LEFT JOIN pair p ON p.doc=d.id LEFT JOIN trig t ON t.doc=d.id LEFT JOIN pairhit ph ON ph.doc=d.id` + termJoins + `
  WHERE ` + strings.Join(indexWhere, "\n AND ") + `
  UNION ALL
  SELECT NULL AS id,s.kind,s.source_id,s.revision,s.occurred_at,s.holder,s.conversation,NULL AS text_hash,s.replay,
-  NULL AS score,0 AS paired,0 AS trigram,` + olderS + ` AS older
+  NULL AS score,0 AS paired,0 AS trigram,` + olderS + ` AS older, ` + pendingTerms + ` AS terms
  FROM recall_source s JOIN recall_pending q ON q.kind=s.kind AND q.source_id=s.source_id
  WHERE ` + strings.Join(pendingWhere, "\n AND ") + `
 ),
 ` + lineageCTE(lineageEvents) + `
 dedup AS (
- SELECT c.id,c.kind,c.source_id,c.revision,c.occurred_at,c.holder,c.conversation,c.score,c.paired,c.trigram,c.older,
+ SELECT c.id,c.kind,c.source_id,c.revision,c.occurred_at,c.holder,c.conversation,c.score,c.paired,c.trigram,c.older,c.terms,
   CASE WHEN c.kind='event' AND c.text_hash IS NOT NULL AND c.replay=0 THEN row_number() OVER (
    PARTITION BY c.conversation,c.text_hash ORDER BY julianday(c.occurred_at),c.source_id) ELSE 1 END AS twin
  FROM candidates c` + lineageFilter(lineageEvents) + `)
-SELECT kind,source_id,revision,occurred_at,holder,older FROM dedup WHERE twin=1 AND (?=1 OR older=0)
-ORDER BY CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, score, julianday(occurred_at) DESC, source_id`
+SELECT kind,source_id,revision,occurred_at,holder,older,paired,trigram,terms,score FROM dedup WHERE twin=1 AND (?=1 OR older=0)
+ORDER BY ` + order
 	args = append(args, boolInt(scope.History))
 	limit := query.Limit
 	if limit > 0 {
 		statement += " LIMIT ?"
-		args = append(args, limit+len(external))
+		args = append(args, limit)
 	}
-	var hits []Hit
+	var rankedHits []ranked
 	err := db.Read(ctx, func(tx *canon.Tx) error {
 		rows, err := tx.QueryContext(ctx, statement, args...)
 		if err != nil {
@@ -307,26 +316,41 @@ ORDER BY CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, score, julianda
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var h Hit
+			var h ranked
 			var occurred string
-			var older int
-			if err := rows.Scan(&h.Kind, &h.ID, &h.Revision, &occurred, &h.Holder, &older); err != nil {
+			var older, paired, trigram, terms int
+			var score sql.NullFloat64
+			if err := rows.Scan(&h.Kind, &h.ID, &h.Revision, &occurred, &h.Holder, &older, &paired, &trigram, &terms, &score); err != nil {
 				return err
 			}
 			h.Older = older == 1
+			h.tier = 2
+			if paired == 1 {
+				h.tier = 0
+			} else if trigram == 1 {
+				h.tier = 1
+			}
+			h.terms = terms
+			if score.Valid {
+				h.score = score.Float64
+				h.scored = true
+			}
 			if h.OccurredAt, err = time.Parse(time.RFC3339Nano, occurred); err != nil {
 				h.OccurredAt = time.Time{}
 			}
-			hits = append(hits, h)
+			rankedHits = append(rankedHits, h)
 		}
 		return rows.Err()
 	})
 	if err != nil {
 		return nil, err
 	}
-	hits = append(hits, external...)
-	if limit > 0 && len(hits) > limit {
-		hits = hits[:limit]
+	hits := make([]Hit, len(rankedHits))
+	for i, h := range rankedHits {
+		hits[i] = h.Hit
+	}
+	if len(external) > 0 {
+		hits = mergeRanked(append(rankedHits, external...), limit)
 	}
 	if query.Vectors != nil {
 		return fuse(ctx, db, scope, query, hits)
@@ -337,14 +361,12 @@ ORDER BY CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, score, julianda
 // pendingEventText reads the derived text of queued events whose body lives in
 // material, so a caller with material access sees them before the background
 // drain publishes them. The scan is bounded by the queue, never the corpus.
-func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, restricted bool, terms []term, readEvent ReadEvent) ([]Hit, error) {
-	var lowered []string
-	for _, t := range terms {
-		if t.runes >= 3 || t.pair {
-			lowered = append(lowered, strings.ToLower(t.text))
-		}
+// Callers that did not ask for events skip it; the scan is event text only.
+func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, restricted bool, terms []term, readEvent ReadEvent) ([]ranked, error) {
+	if !containsKind(kindsOf(scope), Event) {
+		return nil, nil
 	}
-	if len(lowered) == 0 {
+	if !materialTerms(terms) {
 		return nil, nil
 	}
 	where, args := scopeWhere(scope, []Kind{Event}, at, restricted, "s")
@@ -356,7 +378,7 @@ func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, rest
 		prefix = "WITH RECURSIVE " + cte + " "
 		args = append(cteArgs, args...)
 	}
-	var queued []Hit
+	var queued []ranked
 	err := db.Read(ctx, func(tx *canon.Tx) error {
 		rows, err := tx.QueryContext(ctx, prefix+`SELECT s.source_id,s.revision,s.occurred_at,s.holder
  FROM recall_source s JOIN recall_pending q ON q.kind=s.kind AND q.source_id=s.source_id
@@ -366,7 +388,7 @@ func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, rest
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var h Hit
+			var h ranked
 			var occurred string
 			if err := rows.Scan(&h.ID, &h.Revision, &occurred, &h.Holder); err != nil {
 				return err
@@ -380,19 +402,19 @@ func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, rest
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Hit, 0, len(queued))
+	out := make([]ranked, 0, len(queued))
 	for _, h := range queued {
 		text, err := readEvent(ctx, h.ID)
 		if err != nil {
 			continue
 		}
-		text = strings.ToLower(text)
-		for _, term := range lowered {
-			if strings.Contains(text, term) {
-				out = append(out, h)
-				break
-			}
+		rank, ok := materialRank(text, terms)
+		if !ok {
+			continue
 		}
+		h.tier = rank.tier
+		h.terms = rank.terms
+		out = append(out, h)
 	}
 	return out, nil
 }
@@ -416,11 +438,132 @@ derived AS (SELECT DISTINCT a.origin AS id FROM lineage a WHERE a.depth>0
 `
 }
 
+type ranked struct {
+	Hit
+	tier   int
+	terms  int
+	score  float64
+	scored bool
+}
+
+func materialTerms(terms []term) bool {
+	for _, t := range terms {
+		if t.runes >= 3 || t.pair {
+			return true
+		}
+	}
+	return false
+}
+
+// materialRank places a queued material body on the same order as a published
+// document: pair hits, then trigram-only hits, with more matched terms first.
+func materialRank(text string, terms []term) (ranked, bool) {
+	lower := strings.ToLower(text)
+	tokens := " " + PairTokens(text) + " "
+	var rank ranked
+	pair, trigram := false, false
+	for _, term := range terms {
+		if term.runes < 3 && !term.pair {
+			continue
+		}
+		piece := PairTokens(term.text)
+		switch {
+		case piece != "" && strings.Contains(tokens, " "+piece+" "):
+			rank.terms++
+			pair = true
+		case term.runes >= 3 && strings.Contains(lower, strings.ToLower(term.text)):
+			rank.terms++
+			trigram = true
+		}
+	}
+	if rank.terms == 0 {
+		return ranked{}, false
+	}
+	rank.tier = 2
+	if pair {
+		rank.tier = 0
+	} else if trigram {
+		rank.tier = 1
+	}
+	return rank, true
+}
+
+// termCountSQL counts matched query terms for published rows so a queued
+// material hit can be merged before the limit. Each term is one FTS lookup.
+func termCountSQL(terms []term) (ctes []string, cteArgs []any, joins, indexed, pending string, pendingArgs []any) {
+	var indexedBits, pendingBits []string
+	n := 0
+	for _, term := range terms {
+		if term.runes < 3 && !term.pair {
+			continue
+		}
+		var parts []string
+		if piece := PairTokens(term.text); piece != "" {
+			parts = append(parts, "SELECT rowid AS doc FROM recall_pair WHERE recall_pair MATCH ?")
+			cteArgs = append(cteArgs, canon.TrigramPhrase(piece))
+		}
+		if term.runes >= 3 {
+			parts = append(parts, "SELECT rowid AS doc FROM recall_text WHERE recall_text MATCH ?")
+			cteArgs = append(cteArgs, canon.TrigramPhrase(term.text))
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		name := "qterm" + strconv.Itoa(n)
+		n++
+		ctes = append(ctes, name+" AS MATERIALIZED ("+strings.Join(parts, " UNION ")+")")
+		joins += " LEFT JOIN " + name + " ON " + name + ".doc=d.id"
+		indexedBits = append(indexedBits, "(CASE WHEN "+name+".doc IS NOT NULL THEN 1 ELSE 0 END)")
+		pendingBits = append(pendingBits, "(CASE WHEN instr(lower(s.body),?)>0 THEN 1 ELSE 0 END)")
+		pendingArgs = append(pendingArgs, strings.ToLower(term.text))
+	}
+	indexed, pending = "0", "0"
+	if len(indexedBits) > 0 {
+		indexed = strings.Join(indexedBits, "+")
+		pending = strings.Join(pendingBits, "+")
+	}
+	return ctes, cteArgs, joins, indexed, pending, pendingArgs
+}
+
+func mergeRanked(hits []ranked, limit int) []Hit {
+	sort.SliceStable(hits, func(i, j int) bool {
+		a, b := hits[i], hits[j]
+		if a.tier != b.tier {
+			return a.tier < b.tier
+		}
+		if a.terms != b.terms {
+			return a.terms > b.terms
+		}
+		// A missing BM25 score sorts first, matching SQLite's ASC order for the
+		// NULL score of a row that is still queued.
+		if a.scored != b.scored {
+			return !a.scored
+		}
+		if a.scored && a.score != b.score {
+			return a.score < b.score
+		}
+		if !a.OccurredAt.Equal(b.OccurredAt) {
+			return a.OccurredAt.After(b.OccurredAt)
+		}
+		return a.ID < b.ID
+	})
+	if limit > 0 && len(hits) > limit {
+		hits = hits[:limit]
+	}
+	out := make([]Hit, len(hits))
+	for i, hit := range hits {
+		out[i] = hit.Hit
+	}
+	return out
+}
+
 func lineageFilter(enabled bool) string {
 	if !enabled {
 		return ""
 	}
-	return ` WHERE c.kind<>'event' OR c.id NOT IN (SELECT d.id FROM candidates d JOIN derived x ON x.id=d.source_id)`
+	// source_id is never null. A queued copy has no document id yet; filtering on
+	// that id makes NOT IN unknown and drops every event candidate.
+	return ` WHERE c.kind<>'event' OR NOT EXISTS (SELECT 1 FROM derived x WHERE x.id=c.source_id)`
 }
 
 func holderCondition(scope Scope, alias string) string {
@@ -628,16 +771,17 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	where, args := scopeWhere(scope, kinds, at, restricted, "d")
 	where = append(where, "d.source_id IN (SELECT value FROM json_each(?))")
 	args = append(args, encoded)
-	if !scope.History {
-		older, olderArgs := olderExpr(kinds, at, "d")
-		where = append(where, "("+older+")=0")
-		args = append(args, olderArgs...)
-	}
+	olderSQL, olderArgs := olderExpr(kinds, at, "d")
+	where = append(where, "(?=1 OR ("+olderSQL+")=0)")
+	args = append(args, boolInt(scope.History))
+	args = append(args, olderArgs...)
 	prefix := ""
-	if fragment, prefixArgs := RestrictionCTE(scope); fragment != "" {
+	var prefixArgs []any
+	if fragment, cteArgs := RestrictionCTE(scope); fragment != "" {
 		prefix = "WITH RECURSIVE " + fragment + " "
-		args = append(prefixArgs, args...)
+		prefixArgs = cteArgs
 	}
+	args = append(prefixArgs, append(olderArgs, args...)...)
 	order := map[string]int{}
 	for i, id := range ids {
 		if _, ok := order[id]; !ok {
@@ -646,7 +790,7 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	}
 	var hits []Hit
 	err = db.Read(ctx, func(tx *canon.Tx) error {
-		rows, err := tx.QueryContext(ctx, prefix+`SELECT d.source_id,d.kind,d.revision,d.occurred_at,d.holder FROM recall_doc d
+		rows, err := tx.QueryContext(ctx, prefix+`SELECT d.source_id,d.kind,d.revision,d.occurred_at,d.holder,`+olderSQL+` FROM recall_doc d
    WHERE `+strings.Join(where, " AND "), args...)
 		if err != nil {
 			return err
@@ -655,9 +799,11 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 		for rows.Next() {
 			var h Hit
 			var occurred string
-			if err := rows.Scan(&h.ID, &h.Kind, &h.Revision, &occurred, &h.Holder); err != nil {
+			var older int
+			if err := rows.Scan(&h.ID, &h.Kind, &h.Revision, &occurred, &h.Holder, &older); err != nil {
 				return err
 			}
+			h.Older = older == 1
 			h.OccurredAt, _ = time.Parse(time.RFC3339Nano, occurred)
 			hits = append(hits, h)
 		}
@@ -798,7 +944,7 @@ func sourceText(ctx context.Context, db Canon, readEvent ReadEvent, hit Hit) (st
 			}
 			return "", err
 		}
-		if material.Valid || !body.Valid {
+		if material.Valid {
 			if readEvent == nil {
 				return "", ErrBytesUnavailable
 			}
@@ -807,6 +953,9 @@ func sourceText(ctx context.Context, db Canon, readEvent ReadEvent, hit Hit) (st
 				return "", ErrBytesUnavailable
 			}
 			return text, nil
+		}
+		if !body.Valid {
+			return "", ErrBytesUnavailable
 		}
 		return maskDerived(body.String, spans)
 	case Memory:
