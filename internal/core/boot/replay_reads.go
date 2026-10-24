@@ -10,6 +10,7 @@ import (
 
 	"github.com/thisisjun786/lina/internal/core/compaction"
 	coreexec "github.com/thisisjun786/lina/internal/core/exec"
+	"github.com/thisisjun786/lina/internal/core/recall"
 	"github.com/thisisjun786/lina/internal/core/replay"
 	"github.com/thisisjun786/lina/internal/core/turn"
 	"github.com/thisisjun786/lina/kit/grant"
@@ -49,9 +50,13 @@ func (r *conversationRuntime) replayReads(source replay.Source, ep replay.Episod
 		}
 		ids, next, err := expansion.Page(ctx, agent, ref, offset, limit)
 		if errors.Is(err, sql.ErrNoRows) && !prefixed {
-			ids, next, err = expansion.Page(ctx, agent, "event:"+id, offset, limit)
+			ref = "event:" + id
+			ids, next, err = expansion.Page(ctx, agent, ref, offset, limit)
 		}
 		if err != nil {
+			return nil, err
+		}
+		if err := r.checkExpansionRestriction(ctx, ref, true); err != nil {
 			return nil, err
 		}
 		events := []replay.Event{}
@@ -70,7 +75,9 @@ func (r *conversationRuntime) replayReads(source replay.Source, ep replay.Episod
 	if err := add(spec, handler); err != nil {
 		return nil, err
 	}
-	spec, handler = r.recallTool()
+	spec, handler = r.recallTool(func(ctx context.Context, hit recall.Result) error {
+		return source.RecallVisible(ctx, replay.Scope{Person: r.person, Agent: r.agent}, string(hit.Kind), hit.ID, hit.Revision, hit.Citations)
+	})
 	if err := add(spec, handler); err != nil {
 		return nil, err
 	}

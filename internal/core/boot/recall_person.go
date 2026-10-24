@@ -19,7 +19,7 @@ import (
 // A replay sink accounts only in its output artifact. Live calls reserve and
 // settle against the same canon budget used by other auxiliary requests.
 func (r *conversationRuntime) recallPersonTool(run string, now func() int64, replayUsage func(provider.Meta)) (tools.Spec, tools.Handler) {
-	scope := memory.RecallScope{Person: r.person, Agent: r.agent, ExternalModel: true}
+	scope := memory.RecallScope{Person: r.person, Agent: r.agent, ExternalModel: true, Projection: replayUsage != nil}
 	spec, _ := coreexec.NewMemory(r.db, r.materials, nil).RecallPersonTool(scope, now)
 	return spec, func(ctx context.Context, l lease.Lease, in tools.Input) (tools.Result, error) {
 		snapshot, err := r.removals.Snapshot(ctx, r.person, r.agent)

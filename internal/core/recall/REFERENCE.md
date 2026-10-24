@@ -72,6 +72,13 @@ ranking and the limit, including queued sources. General recall keeps its wider
 kind/speaker filters. Event bodies in materials have a nullable inline body; search resolves those through the bound
 reader or reports unavailable bytes without failing the whole result list.
 
+Restricted-source selection follows protected memory to its evidence, then
+walks current citations back to every dependent memory, record and summary.
+Typed source identities preserve the boundary across nested summary children.
+The same scope predicate applies before limiting indexed, queued and vector-hook
+candidates. Internal reads retain their scope, while projection also excludes
+private evidence. The recursive union terminates citation cycles.
+
 Tests cover atomic native writes, queued sources and exclusions, generation
 fencing, batch bounds, migrations, records revisions, Korean parity, any-term
 ranking, identical-text collapse, lineage, scope and visibility classes,
@@ -84,3 +91,14 @@ text, for both pending and indexed sources. Material-backed events keep the
 canonical reader's already-masked text; source-byte spans are not applied again
 to that derived representation. `TestSearchMasksExplicitSecretSpans` covers a
 synthetic secret that shape-based detection alone cannot recognize.
+
+`restrictions.go` owns `RestrictionCTE`, the canonical SQL relation shared by
+search candidate selection, memory projections, expansion and replay/export
+validation. `SourceRestricted` queries that relation for exact references.
+Protected memory follows current citations to its sources; replay/view links
+and event material locators participate in the same traversal. The reverse
+walk reaches every dependent view, including all view targets. Typed identities
+and recursive UNION terminate cycles. Legacy memory records without citation
+rows contribute their canonical JSON evidence to the same relation. Each
+reader retains its own identity,
+revision, removal and availability checks; no restriction cache is persisted.

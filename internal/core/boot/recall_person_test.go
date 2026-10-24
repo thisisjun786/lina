@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thisisjun786/lina/internal/core/canon"
+	"github.com/thisisjun786/lina/internal/core/memory"
 	"github.com/thisisjun786/lina/internal/core/replay"
 
 	coreexec "github.com/thisisjun786/lina/internal/core/exec"
@@ -70,7 +71,11 @@ func TestReplayRecallPersonAccountsOutsideCanon(t *testing.T) {
 		return n
 	}
 	before := count()
-	citation := coreexec.Citation{ID: "event:" + input.ID}
+	item, err := coreexec.NewMemory(r.db, r.materials, nil).Remember(t.Context(), memory.Write{Person: r.person, Agent: r.agent, Item: memory.Item{Kind: memory.Fact, Content: input.Body.Text(), ValidFrom: ep.Clock.Unix(), Subject: memory.Subject{Kind: memory.Person, ID: r.person}, Basis: memory.Stated, Evidence: []memory.Evidence{{Kind: memory.Event, ID: input.ID, Precision: memory.Exact}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	citation := coreexec.Citation{ID: "memory:" + item.ID, Revision: item.Revision}
 	raw, _ := json.Marshal(map[string]any{"sentences": []coreexec.Sentence{{Text: "Violet.", Citations: []coreexec.Citation{citation}}}})
 	p.requests = nil
 	p.steps = []turnStep{{events: turnText(string(raw))}}

@@ -107,11 +107,22 @@ Standing profile/name/relationship items win duplicate identities. Only selected
 topic references join pre-dispatch revision validation; `topic-memory-v1`
 reconstructs the same projection on replay without a new search.
 
+Replay also validates structured `recall` results against current source
+identity, revision and citations during episode loading and before dispatch.
+It walks canonical summary/record dependencies and retains checks for recorded
+citations that a current source no longer carries. Legacy episodes bind missing
+owner metadata through their canonical input rather than exported text.
+Live replay recall sets the shared search's projection scope and checks each
+result and citation through `replay.Source.RecallVisible`, reusing the export
+source validator. Excluded results are dropped; storage errors fail the read.
+
 `conversation_recall.go` binds one live family in the ordered tool preparation
 table. It uses ordinary Core read grants, checks channel memory/tool scope and
 agent availability on execution, and fences reads with the revocation epoch.
-Expansion uses `compaction.Expansion` and rejects evidence protected by
-never-leaves memory and missing material bytes. New declarations remain present
+Expansion uses `compaction.Expansion` and the shared restriction set from
+`recall.RestrictionCTE`. It rejects protected event chains, copies and summary
+roots before returning a page, as well as missing material bytes. Replay
+reads (including `recall_person`) use projection scope. New declarations remain present
 through tool follow-ups. Old replay layouts and source tags stay unchanged.
 
 Reference inspected before implementation: LCM-X `tools.py` at
