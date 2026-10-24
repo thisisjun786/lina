@@ -105,11 +105,14 @@ func startsCall(s string) bool {
 
 // Only standalone syntax can be an attempted call. Preserve the original bytes
 // after finding it: masking Markdown inside arguments would change the call.
+// Inline code spans stay open only when a closer of the same length exists.
+// An unclosed backtick run is literal text, not a span and not a fence.
 func candidate(text string) string {
 	fence := byte(0)
 	width := 0
 	thinking := ""
 	diff := false
+	span := 0
 	offset := 0
 	for _, line := range strings.SplitAfter(text, "\n") {
 		start := offset
@@ -129,6 +132,14 @@ func candidate(text string) string {
 			if len(trimmed) >= width && strings.Trim(trimmed, string(fence)) == "" {
 				fence = 0
 			}
+			continue
+		}
+		if span > 0 {
+			end := closeSpan(line, span)
+			if end < 0 {
+				continue
+			}
+			span = openSpan(line[end:], text[offset:])
 			continue
 		}
 		if strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t") {
@@ -160,16 +171,10 @@ func candidate(text string) string {
 		if thinking != "" {
 			continue
 		}
-		if len(trimmed) > 0 && (trimmed[0] == '`' || trimmed[0] == '~') {
-			n := 0
-			for n < len(trimmed) && trimmed[n] == trimmed[0] {
-				n++
-			}
-			if n >= 3 {
-				fence = trimmed[0]
-				width = n
-				continue
-			}
+		if mark, n, ok := fenceRun(trimmed); ok {
+			fence = mark
+			width = n
+			continue
 		}
 		if strings.HasPrefix(line, "diff --git ") || strings.HasPrefix(line, "@@ ") || strings.HasPrefix(line, "--- ") {
 			diff = true
@@ -188,6 +193,67 @@ func candidate(text string) string {
 			indent := len(line) - len(strings.TrimLeft(line, " \t\r\n"))
 			return strings.TrimSpace(text[start+indent:])
 		}
+		span = openSpan(line, text[offset:])
 	}
 	return ""
+}
+
+// fenceRun accepts a CommonMark opening fence. A backtick fence whose info
+// string contains a backtick is an inline span, not a fence.
+func fenceRun(trimmed string) (byte, int, bool) {
+	if trimmed == "" || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return 0, 0, false
+	}
+	n := 0
+	for n < len(trimmed) && trimmed[n] == trimmed[0] {
+		n++
+	}
+	if n < 3 || (trimmed[0] == '`' && strings.Contains(trimmed[n:], "`")) {
+		return 0, 0, false
+	}
+	return trimmed[0], n, true
+}
+
+// closeSpan returns the index just after a backtick string of length n.
+func closeSpan(s string, n int) int {
+	for i := 0; i < len(s); {
+		if s[i] != '`' {
+			i++
+			continue
+		}
+		m := 0
+		for i+m < len(s) && s[i+m] == '`' {
+			m++
+		}
+		if m == n {
+			return i + m
+		}
+		i += m
+	}
+	return -1
+}
+
+// openSpan reports a code span that starts in line and closes in line or after.
+// A run with no closer anywhere in the remaining text is literal.
+func openSpan(line, after string) int {
+	for i := 0; i < len(line); {
+		if line[i] != '`' {
+			i++
+			continue
+		}
+		n := 0
+		for i+n < len(line) && line[i+n] == '`' {
+			n++
+		}
+		end := closeSpan(line[i+n:], n)
+		if end >= 0 {
+			i += n + end
+			continue
+		}
+		if closeSpan(after, n) >= 0 {
+			return n
+		}
+		i += n
+	}
+	return 0
 }

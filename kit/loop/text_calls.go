@@ -149,7 +149,6 @@ func (s *textCallStream) Next(ctx context.Context) (provider.Event, error) {
 			}
 			s.retried = true
 			usage := s.stream.Meta().Usage
-			s.priorUsage = &usage
 			if err := s.stream.Close(); err != nil {
 				s.closed = true
 				return provider.Event{}, err
@@ -158,6 +157,8 @@ func (s *textCallStream) Next(ctx context.Context) (provider.Event, error) {
 				s.closed = true
 				return provider.Event{}, err
 			}
+			// Only combine attempts once Meta reads from a replacement stream.
+			s.priorUsage = &usage
 			continue
 		}
 		if s.terminal || e.Index < 0 {
