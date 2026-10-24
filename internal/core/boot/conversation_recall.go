@@ -4,16 +4,19 @@ package boot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/thisisjun786/lina/internal/core/canon"
 	"github.com/thisisjun786/lina/internal/core/compaction"
 	coreexec "github.com/thisisjun786/lina/internal/core/exec"
 	"github.com/thisisjun786/lina/internal/core/guard"
 	"github.com/thisisjun786/lina/internal/core/memory"
 	"github.com/thisisjun786/lina/internal/core/recall"
+	"github.com/thisisjun786/lina/internal/core/replay"
 	"github.com/thisisjun786/lina/internal/core/turn"
 	"github.com/thisisjun786/lina/kit/grant"
 	"github.com/thisisjun786/lina/kit/lease"
@@ -75,7 +78,10 @@ func decodeRecall(raw json.RawMessage) (recallArguments, error) {
 	return a, nil
 }
 
-func (r *conversationRuntime) recallTool() (tools.Spec, tools.Handler) {
+// recallTool serves live turns with visible nil. Replay passes its source check:
+// the search then also excludes private memory, and a result the check excludes
+// is dropped before any excerpt is returned.
+func (r *conversationRuntime) recallTool(visible func(context.Context, recall.Result) error) (tools.Spec, tools.Handler) {
 	spec := tools.Spec{Name: "recall", Classify: tools.Class(tools.Research), Placement: tools.Core, Conc: 1, Deadline: 15 * time.Second, Schema: func(raw json.RawMessage) (tools.Input, error) {
 		a, err := decodeRecall(raw)
 		if err != nil {
@@ -108,7 +114,26 @@ func (r *conversationRuntime) recallTool() (tools.Spec, tools.Handler) {
 		if a.Origin == "messenger" {
 			limit += offset + 1
 		}
-		hits, err := recall.Search(ctx, r.db, read, recall.Scope{Person: r.person, Agent: r.agent, ExternalModel: true, Kinds: a.Kinds, Since: a.Since, Until: a.Until, SpeakerKind: a.Speaker, Origin: a.Origin, Platform: a.Platform, Account: a.Account, Chat: a.Chat, Author: a.Author, PersonOnly: a.PersonOnly, History: a.History, IncludeReplay: a.IncludeReplay}, recall.Query{Text: a.Query, Limit: limit, EventText: read, Vectors: r.vectorQuery()})
+		var vectors recall.VectorQuery
+		if visible == nil {
+			vectors = r.vectorQuery()
+		}
+		hits, err := recall.Search(ctx, r.db, read, recall.Scope{Person: r.person, Agent: r.agent, ExternalModel: true, Projection: visible != nil, Kinds: a.Kinds, Since: a.Since, Until: a.Until, SpeakerKind: a.Speaker, Origin: a.Origin, Platform: a.Platform, Account: a.Account, Chat: a.Chat, Author: a.Author, PersonOnly: a.PersonOnly, History: a.History, IncludeReplay: a.IncludeReplay}, recall.Query{Text: a.Query, Limit: limit, EventText: read, Vectors: vectors})
+		if err == nil && visible != nil {
+			kept := hits[:0]
+			for _, hit := range hits {
+				var excluded replay.Exclusion
+				if err = visible(ctx, hit); errors.As(err, &excluded) {
+					err = nil
+					continue
+				}
+				if err != nil {
+					break
+				}
+				kept = append(kept, hit)
+			}
+			hits = kept
+		}
 		next := ""
 		if err == nil && a.Origin == "messenger" {
 			if offset >= len(hits) {
@@ -174,6 +199,9 @@ func (r *conversationRuntime) expandRecall(ctx context.Context, agent, id string
 	if err != nil {
 		return nil, compaction.ErrExpand
 	}
+	if err := r.checkExpansionRestriction(ctx, id, false); err != nil {
+		return nil, err
+	}
 	restricted, err := r.memoryStore().RestrictedEvents(ctx, memory.RecallScope{Person: r.person, Agent: agent, ExternalModel: true})
 	if err != nil {
 		return nil, err
@@ -195,6 +223,28 @@ func (r *conversationRuntime) expandRecall(ctx context.Context, agent, id string
 		return nil, compaction.ErrExpand
 	}
 	return body, nil
+}
+
+// Check the requested node too, so paging past a protected event cannot turn a
+// restricted summary into a readable view. Page still enforces agent ownership.
+func (r *conversationRuntime) checkExpansionRestriction(ctx context.Context, ref string, projection bool) error {
+	kind, id, ok := strings.Cut(ref, ":")
+	if !ok || id == "" {
+		return compaction.ErrExpand
+	}
+	if kind == "node" {
+		kind = "summary"
+	}
+	return r.db.Read(ctx, func(tx *canon.Tx) error {
+		restricted, err := recall.SourceRestricted(ctx, tx, recall.Scope{Person: r.person, Projection: projection, ExternalModel: true}, kind, id)
+		if err != nil {
+			return err
+		}
+		if restricted {
+			return compaction.ErrExpand
+		}
+		return nil
+	})
 }
 
 func (r *conversationRuntime) prepareRecallTools(turnID string, _ *toolPreparation, bindings map[string]loop.Tool) ([]provider.ToolDecl, error) {
@@ -231,7 +281,7 @@ func (r *conversationRuntime) prepareRecallTools(turnID string, _ *toolPreparati
 		}}
 		return nil
 	}
-	spec, handler := r.recallTool()
+	spec, handler := r.recallTool(nil)
 	if err := add(spec, handler); err != nil {
 		return nil, err
 	}
