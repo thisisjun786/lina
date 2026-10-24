@@ -218,7 +218,7 @@ func (a *Adapter) ensure(ctx context.Context) (*telegram.Client, error) {
 		a.startErr, a.runErr = nil, nil
 		a.start(a.client, a.ready, a.readyOnce)
 	}
-	ready := a.ready
+	client, ready := a.client, a.ready
 	a.mu.Unlock()
 	select {
 	case <-ready:
@@ -227,7 +227,7 @@ func (a *Adapter) ensure(ctx context.Context) (*telegram.Client, error) {
 		if err == nil {
 			err = a.runErr
 		}
-		client := a.client
+		client = a.client
 		a.mu.Unlock()
 		if err != nil {
 			return nil, err

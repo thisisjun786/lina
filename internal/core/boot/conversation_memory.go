@@ -145,7 +145,7 @@ func (r *conversationRuntime) validateModelContext(ctx context.Context, epoch ui
 
 // memoryStore resolves evidence through the same ledger/material reader as turns.
 func (r *conversationRuntime) memoryStore() *memory.Store {
-	return memory.New(r.db).WithQuotes(ledger.New(r.db, r.materials).Citation)
+	return memory.New(r.db).WithQuotes(ledger.New(r.db, r.materials).Citation).WithVectors(r.vectorQuery())
 }
 
 // Topic memory is optional and collected only inside Atropos' deadline. The
@@ -163,7 +163,7 @@ func (r *conversationRuntime) topicPacket(ctx context.Context, input ledger.Even
 			query = query[:len(query)-1]
 		}
 	}
-	hits, err := recall.Match(ctx, r.db, recall.Scope{Person: r.person, Agent: r.agent, Kinds: []recall.Kind{recall.Memory}, ExternalModel: true, At: at.Unix()}, recall.Query{Text: query, Limit: 12})
+	hits, err := recall.Match(ctx, r.db, recall.Scope{Person: r.person, Agent: r.agent, Kinds: []recall.Kind{recall.Memory}, ExternalModel: true, At: at.Unix()}, recall.Query{Text: query, Limit: 12, Vectors: r.vectorQuery()})
 	if err != nil {
 		return nil, err
 	}

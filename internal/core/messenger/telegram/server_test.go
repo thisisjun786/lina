@@ -39,6 +39,7 @@ type server struct {
 	dispatcher *tgtest.Dispatcher
 
 	mu        sync.Mutex
+	sent      []uint32
 	invoked   []uint32
 	gets      []historyCall
 	session   tgtest.Session

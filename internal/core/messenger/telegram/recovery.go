@@ -164,8 +164,7 @@ func (a *Adapter) recoverChannel(ctx context.Context, api *tg.Client, position *
 		var updates []tg.UpdateClass
 		var users []tg.UserClass
 		var chats []tg.ChatClass
-		var pts int
-		var done bool
+		pts, done := before.Pts, false
 		switch v := response.(type) {
 		case *tg.UpdatesChannelDifference:
 			messages, updates, users, chats, pts, done = v.NewMessages, v.OtherUpdates, v.Users, v.Chats, v.Pts, v.Final
