@@ -1185,6 +1185,40 @@ AND NOT EXISTS(SELECT 1 FROM retract_target r WHERE r.kind='memory' AND r.id=m.i
 	return items, rows.Err()
 }
 
+// producedItems lists every memory item a link produced that is still
+// attributed to record, including one the person has forgotten. Split moves
+// these with the identity. A correction retracts an item and leaves it on
+// the subject it had; the external citation stays, and that citation is not
+// a reason to move the item again. A permanently deleted item has no row
+// and is absent. citingItems is the narrower list a repair retracts.
+func (s *Store) producedItems(ctx context.Context, tx *canon.Tx, linkID, record string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM identity_artifact WHERE link=? AND kind='item'
+UNION
+SELECT view_id FROM cite WHERE view_kind='memory' AND target_kind='external' AND target_id=? AND dropped_revision IS NULL`,
+		linkID, linkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		var present bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+SELECT 1 FROM memory_item m WHERE m.id=? AND m.person=? AND m.subject_kind=? AND m.subject_id=?)`,
+			id, s.person, string(memory.ThirdParty), record).Scan(&present); err != nil {
+			return nil, err
+		}
+		if present {
+			items = append(items, id)
+		}
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) retract(ctx context.Context, linkID string, items []string, requeued bool) (Repair, error) {
 	if err := s.recoverRepairs(ctx); err != nil {
 		return Repair{}, err
@@ -1495,12 +1529,15 @@ func (s *Store) Split(ctx context.Context, from, into string, identities []Ident
 				if err := writeChange(ctx, tx, link.id, link.revision+1, "split", link.class, Active, into, s.person, at); err != nil {
 					return err
 				}
-				items, err := s.citingItems(ctx, tx, link.id)
+				items, err := s.producedItems(ctx, tx, link.id, from)
 				if err != nil {
 					return err
 				}
 				for _, item := range items {
 					if _, err := memory.ReassignSubject(ctx, tx, s.person, item, from, into); err != nil {
+						if errors.Is(err, memory.ErrNotFound) {
+							continue
+						}
 						return err
 					}
 				}

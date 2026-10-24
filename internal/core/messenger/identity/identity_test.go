@@ -918,6 +918,49 @@ func TestConfirmRepairsTheLinkItSupersedes(t *testing.T) {
 	}
 }
 
+func TestRemoveKeepsTheLinkRepairAfterTheJournalSync(t *testing.T) {
+	t.Parallel()
+	people := identity.StaticPeople{
+		{Record: "person-anna", Identifiers: []identity.SeenIdentifier{{Kind: identity.Phone, Value: "+821012340001", Source: "iMessage profile"}}},
+	}
+	f := newFixture(t, people)
+	f.now = at(9)
+	observe(t, f, imessage("+821012340001"), "Anna", phone("+821012340001", "iMessage profile"))
+	anna := usable(t, f, imessage("+821012340001"))
+	if len(anna) != 1 {
+		t.Fatal("the identity did not link")
+	}
+	item := f.item(t, "person-anna", "prefers short replies")
+	if err := f.store.RecordArtifact(t.Context(), anna[0].ID, "item", item.ID); err != nil {
+		t.Fatal(err)
+	}
+	crash := errors.New("injected crash boundary")
+	f.removal.SetCrash("after_sync", crash)
+	if _, err := f.store.Remove(t.Context(), anna[0].ID); !errors.Is(err, crash) {
+		t.Fatalf("remove = %v", err)
+	}
+	if err := f.db.Read(t.Context(), func(*canon.Tx) error { return nil }); !errors.Is(err, canon.ErrRecoveryRequired) {
+		t.Fatalf("partial state was readable: %v", err)
+	}
+	f.removal.SetCrash("", nil)
+	if err := f.removal.Recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(usable(t, f, imessage("+821012340001"))) != 0 {
+		t.Fatal("recovered link stayed usable")
+	}
+	if visible(t, f, item.ID) {
+		t.Fatal("recovered item stayed visible")
+	}
+	requeues, err := f.store.Requeues(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requeues) != 1 || requeues[0].Identity != imessage("+821012340001") {
+		t.Fatalf("requeues = %+v", requeues)
+	}
+}
+
 func TestRemoveRetractsItemsAndRequeuesOnlyThatIdentity(t *testing.T) {
 	t.Parallel()
 	people := identity.StaticPeople{
@@ -1068,6 +1111,144 @@ func TestSplitMovesOneIdentityAndItsItems(t *testing.T) {
 	}
 	if subject(t, f, item.ID) != "person-split" {
 		t.Fatal("the item did not follow its identity")
+	}
+}
+
+// TestSplitMovesAForgottenItemWithItsIdentity proves an item the person forgot
+// before the split still follows the identity that produced it, and stays
+// forgotten. An item of an identity that stays behind does not move.
+func TestSplitMovesAForgottenItemWithItsIdentity(t *testing.T) {
+	t.Parallel()
+	people := identity.StaticPeople{
+		{Record: "person-shared", Identifiers: []identity.SeenIdentifier{
+			{Kind: identity.Phone, Value: "+821012340001", Source: "iMessage profile"},
+			{Kind: identity.Phone, Value: "+821012340002", Source: "iMessage profile"},
+		}},
+		{Record: "person-split"},
+	}
+	f := newFixture(t, people)
+	f.now = at(9)
+	observe(t, f, imessage("+821012340001"), "One", phone("+821012340001", "iMessage profile"))
+	observe(t, f, imessage("+821012340002"), "Two", phone("+821012340002", "iMessage profile"))
+	staying := usable(t, f, imessage("+821012340001"))
+	moving := usable(t, f, imessage("+821012340002"))
+	if len(staying) != 1 || len(moving) != 1 {
+		t.Fatal("both identities did not link")
+	}
+	kept := f.itemIn(t, "person-shared", "still here", "native:kept")
+	forgotten := f.itemIn(t, "person-shared", "please forget", "native:forgotten")
+	other := f.itemIn(t, "person-shared", "stays behind", "native:other")
+	for _, item := range []memory.Item{kept, forgotten} {
+		if err := f.store.RecordArtifact(t.Context(), moving[0].ID, "item", item.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.store.RecordArtifact(t.Context(), staying[0].ID, "item", other.ID); err != nil {
+		t.Fatal(err)
+	}
+	ref := func(id string) retract.Request {
+		return retract.Request{Person: "person", Targets: []retract.Ref{{Kind: retract.Memory, ID: id}}}
+	}
+	if err := f.removal.Forget(t.Context(), ref(forgotten.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.removal.Forget(t.Context(), ref(other.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.Split(t.Context(), "person-shared", "person-split", []identity.Identity{imessage("+821012340002")}); err != nil {
+		t.Fatal(err)
+	}
+	if subject(t, f, kept.ID) != "person-split" || !visible(t, f, kept.ID) {
+		t.Fatal("the active item did not follow its identity")
+	}
+	state, subj, ok := itemRow(t, f, forgotten.ID)
+	if !ok || state != "trashed" || subj != "person-split" || visible(t, f, forgotten.ID) {
+		t.Fatalf("forgotten item = state %q subject %q present %t visible %t", state, subj, ok, visible(t, f, forgotten.ID))
+	}
+	state, subj, ok = itemRow(t, f, other.ID)
+	if !ok || state != "trashed" || subj != "person-shared" || visible(t, f, other.ID) {
+		t.Fatalf("another identity's forgotten item = state %q subject %q present %t", state, subj, ok)
+	}
+}
+
+// TestSplitLeavesRetractedItemsOnTheSubjectACorrectionKept proves a later
+// split does not move items a correction already retracted onto the previous
+// record. Their external citations stay, and applyMemory only changes state,
+// so those items are still attributed to the old subject. Forgotten items
+// that belong to the record being split still move and stay forgotten.
+func TestSplitLeavesRetractedItemsOnTheSubjectACorrectionKept(t *testing.T) {
+	t.Parallel()
+	people := identity.StaticPeople{
+		{Record: "person-a", Identifiers: []identity.SeenIdentifier{{Kind: identity.Phone, Value: "+821012340001", Source: "Discord profile"}}},
+		{Record: "person-b"},
+		{Record: "person-c"},
+	}
+	f := newFixture(t, people)
+	f.now = at(9)
+	observe(t, f, discord("d-split"), "Someone", phone("+821012340001", "Discord profile"))
+	link := usable(t, f, discord("d-split"))
+	if len(link) != 1 || link[0].Record != "person-a" {
+		t.Fatalf("exact link = %+v", link)
+	}
+	retracted := f.itemIn(t, "person-a", "wrongly attributed", "native:retracted")
+	leftForgotten := f.itemIn(t, "person-a", "forgotten before the move", "native:left")
+	for _, item := range []memory.Item{retracted, leftForgotten} {
+		if err := f.store.RecordArtifact(t.Context(), link[0].ID, "item", item.ID); err != nil {
+			t.Fatal(err)
+		}
+		citeLink(t, f, item.ID, link[0].ID)
+	}
+	ref := func(id string) retract.Request {
+		return retract.Request{Person: "person", Targets: []retract.Ref{{Kind: retract.Memory, ID: id}}}
+	}
+	if err := f.removal.Forget(t.Context(), ref(leftForgotten.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.Correct(t.Context(), link[0].ID, "person-b"); err != nil {
+		t.Fatal(err)
+	}
+	kept := f.itemIn(t, "person-b", "learned after the correction", "native:kept")
+	forgotten := f.itemIn(t, "person-b", "forgotten on the current record", "native:forgotten")
+	for _, item := range []memory.Item{kept, forgotten} {
+		if err := f.store.RecordArtifact(t.Context(), link[0].ID, "item", item.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.removal.Forget(t.Context(), ref(forgotten.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.Split(t.Context(), "person-b", "person-c", []identity.Identity{discord("d-split")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := links(t, f, discord("d-split")); len(got) != 1 || got[0].Record != "person-c" {
+		t.Fatalf("split link = %+v", got)
+	}
+	if subject(t, f, kept.ID) != "person-c" || !visible(t, f, kept.ID) {
+		t.Fatal("the current item did not follow the identity")
+	}
+	state, subj, ok := itemRow(t, f, forgotten.ID)
+	if !ok || state != "trashed" || subj != "person-c" || visible(t, f, forgotten.ID) {
+		t.Fatalf("forgotten item = state %q subject %q present %t visible %t", state, subj, ok, visible(t, f, forgotten.ID))
+	}
+	state, subj, ok = itemRow(t, f, retracted.ID)
+	if !ok || state != "trashed" || subj != "person-a" || visible(t, f, retracted.ID) {
+		t.Fatalf("retracted item = state %q subject %q present %t visible %t", state, subj, ok, visible(t, f, retracted.ID))
+	}
+	state, subj, ok = itemRow(t, f, leftForgotten.ID)
+	if !ok || state != "trashed" || subj != "person-a" || visible(t, f, leftForgotten.ID) {
+		t.Fatalf("earlier forgotten item = state %q subject %q present %t visible %t", state, subj, ok, visible(t, f, leftForgotten.ID))
+	}
+}
+
+func citeLink(t *testing.T, f *fixture, item, link string) {
+	t.Helper()
+	err := f.db.Write(t.Context(), func(tx *canon.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `INSERT INTO cite(view_kind,view_id,added_revision,ordinal,target_kind,target_id,target_revision,precision,role)
+VALUES('memory',?,'1',1,'external',?,'1','none','cites')`, item, link)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

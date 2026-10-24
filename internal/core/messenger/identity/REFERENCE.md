@@ -110,8 +110,12 @@ record to the second, and `UndoMerge` puts each link and each item that still
 exists back on the record it came from. A forgotten item moves back still
 forgotten. A permanently deleted item stays gone, and neither blocks the undo.
 `Split` moves the identities the person chooses and the items their evidence
-produced. Item moves run through `memory.ReassignSubject` in the same
-transaction, so an item keeps its evidence, holder and scope.
+produced that are still attributed to the record being left. A forgotten item
+of that record moves still forgotten. An item a correction retracted stays on
+its previous subject; the external citation the retraction leaves behind does
+not move it or block the split. A permanently deleted item stays gone, and
+none of these block the split. Item moves run through `memory.ReassignSubject`
+in the same transaction, so an item keeps its evidence, holder and scope.
 
 What a link produced is recorded in `identity_artifact` (memory items, and the
 kind reserved for people-record entries) and a citation of the link as external
@@ -152,7 +156,7 @@ records `gate` false and the command exits unsuccessfully. The files are
 without `expect`) and `labels.json` (`{"<platform>/<scope>/<user>": "<record id>"|"unknown"|"self"}`).
 
 `Evaluate` replaces the store's people source with the set's, observes every
-identity in arrival order (`observed_at`, defaulting to `at`, so a backfill can
+identity in order of the parsed arrival instant (`observed_at`, defaulting to `at`, so a backfill can
 be seen after a later sighting), and then measures. A `windows` entry names a
 period in which a link to a record must not be usable; it pins the end of a link
 whose identifier moved. It removes one link as its repair check, so a store is

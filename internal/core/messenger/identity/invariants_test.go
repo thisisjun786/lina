@@ -105,6 +105,20 @@ func (r interruptedRemoval) Forget(ctx context.Context, req retract.Request) err
 	return errors.New("simulated process interruption")
 }
 
+// ForgetDuringIntent exercises the atomic repair API at its durable journal
+// boundary, or after the transaction commits but before success is returned.
+func (r interruptedRemoval) ForgetDuringIntent(ctx context.Context, person string, mutate func(*canon.Tx) (retract.Intent, error)) error {
+	interrupted := errors.New("simulated process interruption")
+	if !r.after {
+		r.store.SetCrash("after_sync", interrupted)
+		defer r.store.SetCrash("", nil)
+	}
+	if err := r.store.ForgetDuringIntent(ctx, person, mutate); err != nil {
+		return err
+	}
+	return interrupted
+}
+
 func TestRepairSurvivesInterruptionAndRestart(t *testing.T) {
 	for _, action := range []string{"remove", "correct", "confirm", "cutoff", "transaction only"} {
 		for _, after := range []bool{false, true} {
@@ -151,6 +165,10 @@ func TestRepairSurvivesInterruptionAndRestart(t *testing.T) {
 				}
 				if err == nil {
 					t.Fatal("interruption was not surfaced")
+				}
+				// Journal replay precedes reopening identity matching at startup.
+				if err := f.removal.Recover(t.Context()); err != nil {
+					t.Fatal(err)
 				}
 				f.store = identity.Open(f.db, "person", people, f.removal).WithClock(func() time.Time { return f.now })
 				for range 2 {
