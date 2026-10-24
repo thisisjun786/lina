@@ -570,7 +570,10 @@ func limitAfterLineage(ctx context.Context, db Canon, scope Scope, hits []Hit, l
 		prefix = len(hits)
 	}
 	for {
-		deduped, err := lineage(ctx, db, scope, hits[:prefix])
+		// lineage compacts its argument in place. A copy keeps the next
+		// candidate intact when this prefix has to grow.
+		window := append([]Hit(nil), hits[:prefix]...)
+		deduped, err := lineage(ctx, db, scope, window)
 		if err != nil {
 			return nil, err
 		}

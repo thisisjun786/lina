@@ -432,6 +432,23 @@ func TestSearchLimitFollowsMemoryEvidenceDedup(t *testing.T) {
 	}
 }
 
+func TestSearchLimitKeepsNextHitWhenEvidenceRanksFirst(t *testing.T) {
+	db := database(t)
+	base := time.Unix(1700000000, 0)
+	admitAt(t, db, "other", "conversation", "owner", "agent", "도서관 곁글", base, "")
+	admitAt(t, db, "evidence", "conversation", "owner", "agent", "도서관 원문", base.Add(2*time.Second), "")
+	item := rememberAt(t, db, "도서관 기억", "evidence", base.Add(time.Second))
+	scope := recall.Scope{Person: "owner", Agent: "agent"}
+	ids := searchIDs(t, db, scope, "도서관", 2)
+	if len(ids) != 2 || ids[0] == ids[1] {
+		t.Fatalf("duplicate after evidence ranked first: %v", ids)
+	}
+	sort.Strings(ids)
+	if !reflect.DeepEqual(ids, []string{item, "other"}) {
+		t.Fatalf("next hit lost when evidence ranked first: %v", ids)
+	}
+}
+
 func TestSearchVectorsFuseIntoTheRankedList(t *testing.T) {
 	db := database(t)
 	base := time.Unix(1700000000, 0)

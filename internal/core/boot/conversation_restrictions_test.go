@@ -118,7 +118,7 @@ func TestProtectedEvidenceAcrossLiveAndReplayReads(t *testing.T) {
 						}
 					}
 				}
-				hits, err := r.memoryStore().Items(t.Context(), memory.RecallScope{Person: r.person, Agent: r.agent, ExternalModel: true, Projection: path.projection}, []string{item.ID, derived.ID}, time.Now().Unix(), false)
+				hits, err := r.memoryStore().Items(t.Context(), memory.RecallScope{Person: r.person, Agent: r.agent, ExternalModel: true, Projection: path.projection}, []string{item.ID, derived.ID}, time.Now().Unix(), false, false)
 				if err != nil || (len(hits) == 2) != path.allowed || !path.allowed && len(hits) != 0 {
 					t.Errorf("%s memory projection: %d hits, allowed=%v, err=%v", path.name, len(hits), path.allowed, err)
 				}
