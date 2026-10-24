@@ -125,8 +125,8 @@ chat-less platform deletion that matched no record yet. Both are new tables, so
 an install at 75 keeps every row it has.
 
 Migration 77 adds `recall_doc.text_hash` and queues existing documents so
-identical event text can count once. Migration 80 adds `recall_vec`, the
-embedding queue and import consent. An install at 76 keeps every row it has.
+identical event text can count once. Migration 81 adds `recall_vec`, the
+embedding queue and import consent. An install at 80 keeps every row it has.
 
 Migration 71 adds `binding_effects` and `binding_moves` for the binding chip and
 moves. `binding_effects` is keyed by input, turn and call and keeps the bytes an
