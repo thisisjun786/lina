@@ -5,16 +5,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/thisisjun786/lina/internal/core/embedding"
-	"github.com/thisisjun786/lina/internal/core/memory"
-	"github.com/thisisjun786/lina/internal/core/recall"
-	"github.com/thisisjun786/lina/internal/core/retract"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/thisisjun786/lina/internal/core/canon"
+	"github.com/thisisjun786/lina/internal/core/embedding"
+	"github.com/thisisjun786/lina/internal/core/guard"
+	"github.com/thisisjun786/lina/internal/core/ledger"
+	"github.com/thisisjun786/lina/internal/core/memory"
+	"github.com/thisisjun786/lina/internal/core/recall"
+	"github.com/thisisjun786/lina/internal/core/retract"
 )
 
 func TestVectorMigration(t *testing.T) {
@@ -358,4 +361,63 @@ func TestFusionTiesUseKindWhenSourceIDsCollide(t *testing.T) {
 			t.Fatalf("non-deterministic fusion tie: %v %v", hits, err)
 		}
 	}
+}
+
+func TestVectorDispatchExcludesNeverLeavesCopies(t *testing.T) {
+	db := database(t)
+	base := time.Unix(1700000000, 0)
+	admitAt(t, db, "source", "conversation", "owner", "agent", "protected garden source", base, "")
+	admitAt(t, db, "replay", "conversation", "owner", "agent", "protected garden replay", base.Add(time.Second), "source")
+	if _, err := ledger.New(db, nil).Admit(t.Context(), guard.EntryOwner, ledger.Input{
+		ID: "view-copy", ConversationID: "conversation", PersonID: "owner", AgentID: "agent",
+		Surface: ledger.Surface{Kind: "tui"}, OccurredAt: base.Add(2 * time.Second), RecordedAt: base.Add(2 * time.Second),
+		TimeQuality: "observed", Body: "protected garden view",
+		Relations: []ledger.Relation{{Kind: "view_of", TargetID: "source"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	admitAt(t, db, "chain", "conversation", "owner", "agent", "protected garden chain", base.Add(3*time.Second), "")
+	middle := remember(t, db, "agent", "", "middle garden fact", memory.Local, "chain")
+	var revision int64
+	if err := db.Read(t.Context(), func(tx *canon.Tx) error {
+		return tx.QueryRowContext(t.Context(), "SELECT revision FROM memory_revision WHERE item_id=?", middle).Scan(&revision)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rememberEvidence(t, db, memory.NeverLeaves, "protected garden umbrella", memory.Evidence{Kind: memory.MemoryItem, ID: middle, Revision: revision, Precision: memory.Exact})
+	remember(t, db, "agent", "", "protected garden direct", memory.NeverLeaves, "source")
+	admitAt(t, db, "ordinary", "conversation", "owner", "agent", "library books", base.Add(4*time.Second), "")
+	admitAt(t, db, "kept", "conversation", "owner", "agent", "private shelf", base.Add(5*time.Second), "")
+	remember(t, db, "agent", "", "private shelf note", memory.Private, "kept")
+	f := &fakeEmbeddings{model: "test", dimension: 2}
+	v, err := recall.NewVectors(t.Context(), db, nil, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishVectors(t, db, v)
+	for _, text := range f.texts {
+		if strings.Contains(text, "protected") {
+			t.Fatalf("protected text sent: %q", text)
+		}
+	}
+	if !slices.Contains(f.texts, "library books") || !slices.Contains(f.texts, "private shelf") {
+		t.Fatalf("ordinary text missing: %q", f.texts)
+	}
+}
+
+func rememberEvidence(t *testing.T, db *canon.Store, scope memory.Scope, content string, evidence memory.Evidence) string {
+	t.Helper()
+	resolve := func(context.Context, *canon.Tx, memory.Evidence) (memory.Origin, error) {
+		return memory.Origin{Person: "owner", Agent: "agent", Speaker: guard.Person, Quote: content, Scope: memory.Local}, nil
+	}
+	var id string
+	write := memory.Write{Agent: "agent", Person: "owner", Item: memory.Item{Kind: memory.Fact, Scope: scope, Subject: memory.Subject{Kind: memory.World, ID: "garden"}, Content: content, Basis: memory.Derived, Evidence: []memory.Evidence{evidence}}}
+	if err := db.Write(t.Context(), func(tx *canon.Tx) error {
+		item, err := memory.Insert(t.Context(), tx, write, resolve)
+		id = item.ID
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

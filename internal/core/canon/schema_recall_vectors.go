@@ -17,6 +17,9 @@ CREATE TABLE recall_embed_pending (
 CREATE TABLE recall_embed_consent (
  conversation TEXT PRIMARY KEY, through_event INTEGER NOT NULL, granted_at TEXT NOT NULL
 );
+CREATE TABLE recall_embed_consent_event (
+ event_id TEXT PRIMARY KEY, conversation TEXT NOT NULL, granted_at TEXT NOT NULL
+);
 CREATE TRIGGER recall_embed_insert AFTER INSERT ON recall_doc BEGIN
  INSERT INTO recall_embed_pending(doc) VALUES(NEW.id);
 END;
@@ -43,8 +46,10 @@ CREATE TRIGGER recall_embed_revoke AFTER DELETE ON recall_embed_consent BEGIN
  INSERT INTO recall_embed_pending(doc) SELECT id FROM recall_doc;
  UPDATE search_index_config SET generation=generation+1,ready=0 WHERE name='recall';
 END;
--- Recursively follow current citations. Consent and never-leaves sensitivity
--- protect derived summaries/items/records as well as the event itself.
+-- never-leaves eligibility follows the external-model restriction relation:
+-- current citations, legacy evidence, replay copies, view_of links and material
+-- bodies. Import consent names either a conversation watermark or the individual
+-- events a later import reported.
 CREATE VIEW recall_imported_event AS
  SELECT e.id,e.conversation_id,e.rowid AS sequence FROM conv_event e WHERE json_extract(e.origin,'$.kind')='import'
  OR EXISTS(SELECT 1 FROM messenger_record_revision mr JOIN messenger_legacy_ref l
@@ -55,15 +60,54 @@ CREATE VIEW recall_embed_eligible AS
   UNION
   SELECT a.doc,c.target_kind,c.target_id FROM ancestry a JOIN cite c
    ON c.view_kind=a.kind AND c.view_id=a.source_id AND c.dropped_revision IS NULL
+ ),
+ legacy_memory_edges(view_id,target_kind,target_id) AS (
+  SELECT m.id,CASE json_extract(x.value,'$.kind') WHEN 'item' THEN 'memory' ELSE json_extract(x.value,'$.kind') END,
+   json_extract(x.value,'$.id') FROM memory_item m,json_each(m.record,'$.evidence') x
+  WHERE NOT EXISTS(SELECT 1 FROM cite c WHERE c.view_kind='memory' AND c.view_id=m.id AND c.dropped_revision IS NULL)
+ ),
+ sensitive(kind,id) AS (
+  SELECT 'memory',m.id FROM memory_item m WHERE m.scope='never-leaves'
+  UNION
+  SELECT c.target_kind,c.target_id FROM cite c JOIN sensitive s ON c.view_kind=s.kind AND c.view_id=s.id
+   WHERE c.dropped_revision IS NULL
+  UNION
+  SELECT c.target_kind,c.target_id FROM legacy_memory_edges c JOIN sensitive s ON s.kind='memory' AND c.view_id=s.id
+  UNION
+  SELECT 'event',e.replay_of FROM conv_event e JOIN sensitive s ON s.kind='event' AND s.id=e.id
+   WHERE e.replay_of IS NOT NULL
+  UNION
+  SELECT 'event',v.target_id FROM ev_rel v JOIN sensitive s ON s.kind='event' AND s.id=v.event_id
+   WHERE v.kind='view_of'
+  UNION
+  SELECT 'material',e.material_id FROM conv_event e JOIN sensitive s ON s.kind='event' AND s.id=e.id
+   WHERE e.material_id IS NOT NULL
+ ),
+ restricted(kind,id) AS (
+  SELECT kind,id FROM sensitive
+  UNION
+  SELECT c.view_kind,c.view_id FROM cite c JOIN restricted r ON c.target_kind=r.kind AND c.target_id=r.id
+   WHERE c.dropped_revision IS NULL
+  UNION
+  SELECT 'memory',c.view_id FROM legacy_memory_edges c JOIN restricted r ON c.target_kind=r.kind AND c.target_id=r.id
+  UNION
+  SELECT 'event',e.id FROM conv_event e JOIN restricted r ON r.kind='event' AND r.id=e.replay_of
+  UNION
+  SELECT 'event',v.event_id FROM ev_rel v JOIN restricted r ON r.kind='event' AND r.id=v.target_id
+   WHERE v.kind='view_of'
+  UNION
+  SELECT 'event',e.id FROM conv_event e JOIN restricted r ON r.kind='material' AND r.id=e.material_id
  )
  SELECT d.* FROM recall_doc d WHERE NOT EXISTS (
+  SELECT 1 FROM restricted r WHERE r.kind=d.kind AND r.id=d.source_id
+ ) AND NOT EXISTS (
   SELECT 1 FROM ancestry a WHERE a.doc=d.id AND (
    (a.kind='memory' AND EXISTS(SELECT 1 FROM memory_item m WHERE m.id=a.source_id AND
-    (m.scope='never-leaves' OR (json_extract(m.record,'$.basis')='imported' AND NOT EXISTS(
-     SELECT 1 FROM cite c WHERE c.view_kind='memory' AND c.view_id=m.id AND c.target_kind='event' AND c.dropped_revision IS NULL)))))
-   OR (a.kind='event' AND EXISTS(SELECT 1 FROM recall_imported_event e WHERE e.id=a.source_id AND NOT EXISTS(SELECT 1 FROM recall_embed_consent k WHERE k.conversation=e.conversation_id AND e.sequence<=k.through_event)))
-   OR (a.kind='event' AND EXISTS(SELECT 1 FROM cite c JOIN memory_item m ON m.id=c.view_id
-    WHERE c.view_kind='memory' AND c.target_kind='event' AND c.target_id=a.source_id AND c.dropped_revision IS NULL AND m.scope='never-leaves'))
+    json_extract(m.record,'$.basis')='imported' AND NOT EXISTS(
+     SELECT 1 FROM cite c WHERE c.view_kind='memory' AND c.view_id=m.id AND c.target_kind='event' AND c.dropped_revision IS NULL)))
+   OR (a.kind='event' AND EXISTS(SELECT 1 FROM recall_imported_event e WHERE e.id=a.source_id AND NOT (
+    EXISTS(SELECT 1 FROM recall_embed_consent k WHERE k.conversation=e.conversation_id AND e.sequence<=k.through_event)
+    OR EXISTS(SELECT 1 FROM recall_embed_consent_event x WHERE x.event_id=e.id))))
    OR (a.kind='event' AND EXISTS(SELECT 1 FROM messenger_record_revision mr JOIN messenger_chat mc
     ON mc.platform=mr.platform AND mc.account=mr.account AND mc.chat=mr.chat WHERE mr.event=a.source_id AND mc.embed=0))
   )

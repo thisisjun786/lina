@@ -156,7 +156,7 @@ var publishedMigrationTables = []struct {
 	{78, "identity_requeue"},
 	{79, "identity_repair"},
 	{80, "messenger_learning_cursor"}, {80, "messenger_learning_skip"},
-	{81, "recall_vec"}, {81, "recall_embed_pending"}, {81, "recall_embed_consent"},
+	{81, "recall_vec"}, {81, "recall_embed_pending"}, {81, "recall_embed_consent"}, {81, "recall_embed_consent_event"},
 }
 
 // Reject incompatible pre-release layouts before opening the writer. There is

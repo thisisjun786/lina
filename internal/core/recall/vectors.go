@@ -75,10 +75,10 @@ func NewVectors(ctx context.Context, db Canon, readEvent ReadEvent, adapter Embe
 }
 
 type embeddingDocument struct {
-	sequence, id             int64
-	kind, source, hash, text string
-	external                 bool
-	spans                    []secrets.Span
+	sequence, id                     int64
+	kind, source, person, hash, text string
+	external                         bool
+	spans                            []secrets.Span
 }
 
 func (v *Vectors) generation(ctx context.Context, tx *canon.Tx) (int64, bool, error) {
@@ -114,13 +114,13 @@ func (v *Vectors) DrainBatch(ctx context.Context) (int, error) {
 		if err != nil {
 			return err
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT q.sequence,d.id,d.kind,d.source_id,d.text_hash FROM recall_embed_pending q JOIN recall_doc d ON d.id=q.doc WHERE q.sequence>? ORDER BY q.sequence LIMIT ?`, v.after, EmbeddingBatchSize)
+		rows, err := tx.QueryContext(ctx, `SELECT q.sequence,d.id,d.kind,d.source_id,d.person,d.text_hash FROM recall_embed_pending q JOIN recall_doc d ON d.id=q.doc WHERE q.sequence>? ORDER BY q.sequence LIMIT ?`, v.after, EmbeddingBatchSize)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var d embeddingDocument
-			if err = rows.Scan(&d.sequence, &d.id, &d.kind, &d.source, &d.hash); err != nil {
+			if err = rows.Scan(&d.sequence, &d.id, &d.kind, &d.source, &d.person, &d.hash); err != nil {
 				rows.Close()
 				return err
 			}
@@ -136,6 +136,13 @@ func (v *Vectors) DrainBatch(ctx context.Context) (int, error) {
 				return err
 			}
 			if eligible == 0 {
+				continue
+			}
+			restricted, err := SourceRestricted(ctx, tx, Scope{Person: d.person, ExternalModel: true}, d.kind, d.source)
+			if err != nil {
+				return err
+			}
+			if restricted {
 				continue
 			}
 			src, err := readSource(ctx, tx, d.kind, d.source)
@@ -232,10 +239,18 @@ func (v *Vectors) DrainBatch(ctx context.Context) (int, error) {
 			if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM recall_embed_pending q JOIN recall_embed_eligible d ON d.id=q.doc WHERE q.sequence=? AND d.id=? AND d.text_hash=?`, d.sequence, d.id, d.hash).Scan(&present); err != nil {
 				return err
 			}
-			if present == 1 {
-				kept = append(kept, d)
-				texts = append(texts, d.text)
+			if present != 1 {
+				continue
 			}
+			restricted, err := SourceRestricted(ctx, tx, Scope{Person: d.person, ExternalModel: true}, d.kind, d.source)
+			if err != nil {
+				return err
+			}
+			if restricted {
+				continue
+			}
+			kept = append(kept, d)
+			texts = append(texts, d.text)
 		}
 		docs = kept
 		return nil
@@ -394,16 +409,68 @@ func (v *Vectors) Query(ctx context.Context, scope Scope, text string) ([]string
 	return ids, err
 }
 
+// GrantImportedEvents records consent for the events an import just reported.
+// It does not raise the conversation watermark, so an earlier unconsented
+// import in the same conversation stays ineligible.
+func GrantImportedEvents(ctx context.Context, db Canon, events []string) error {
+	if len(events) == 0 {
+		return nil
+	}
+	return db.Write(ctx, func(tx *canon.Tx) error {
+		for _, id := range events {
+			if strings.TrimSpace(id) == "" {
+				return ErrInvalid
+			}
+			var n int
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM recall_imported_event WHERE id=?", id).Scan(&n); err != nil {
+				return err
+			}
+			if n == 0 {
+				return ErrInvalid
+			}
+			if _, err := tx.ExecContext(ctx, "INSERT INTO recall_embed_consent_event(event_id,conversation,granted_at) SELECT id,conversation_id,? FROM recall_imported_event WHERE id=? ON CONFLICT(event_id) DO UPDATE SET granted_at=excluded.granted_at", time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+				return err
+			}
+		}
+		return requeueEmbeddings(ctx, tx)
+	})
+}
+
+func requeueEmbeddings(ctx context.Context, tx *canon.Tx) error {
+	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO recall_vec_delete SELECT id FROM recall_doc"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM recall_embed_pending"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO recall_embed_pending(doc) SELECT id FROM recall_doc"); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "UPDATE search_index_config SET generation=generation+1,ready=0 WHERE name='recall'")
+	return err
+}
+
 // SetImportConsent is called only after the import flow has presented its
-// volume and obtained explicit consent. The row authorizes one conversation.
+// volume and obtained explicit consent. The row authorizes one conversation's
+// events present at confirmation. A later batch uses GrantImportedEvents.
 func SetImportConsent(ctx context.Context, db Canon, conversation string, enabled bool) error {
 	if strings.TrimSpace(conversation) == "" {
 		return ErrInvalid
 	}
 	return db.Write(ctx, func(tx *canon.Tx) error {
 		if !enabled {
-			_, err := tx.ExecContext(ctx, "DELETE FROM recall_embed_consent WHERE conversation=?", conversation)
-			return err
+			if _, err := tx.ExecContext(ctx, "DELETE FROM recall_embed_consent_event WHERE conversation=?", conversation); err != nil {
+				return err
+			}
+			result, err := tx.ExecContext(ctx, "DELETE FROM recall_embed_consent WHERE conversation=?", conversation)
+			if err != nil {
+				return err
+			}
+			n, err := result.RowsAffected()
+			if err != nil || n > 0 {
+				return err
+			}
+			return requeueEmbeddings(ctx, tx)
 		}
 		var imported int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM recall_imported_event WHERE conversation_id=?", conversation).Scan(&imported); err != nil {

@@ -116,11 +116,15 @@ A model, dimension or endpoint change atomically replaces only the derived
 vector table and queues the current documents. Reads stay lexical until this
 queue and the text backfill drain. Normal incremental writes queue their own
 vectors without blocking reads. Vector candidates pass the same scoped filters
-before distance and limit. Imported-event consent and never-leaves sensitivity
-are checked through current citation ancestors. Messenger provenance is checked
-through its legacy references as well as the event's origin. Import consent
-stores a conversation's event watermark; future imports are excluded. Consent
-changes and chat embedding switches invalidate vectors and restart backfill.
+before distance and limit. Embedding eligibility uses the external-model
+restriction relation: never-leaves memory, the evidence it cites, replay and
+view_of copies, and material bodies stay off the endpoint. Dispatch checks that
+relation again before the call. Messenger provenance is checked through its
+legacy references as well as the event's origin. A conversation watermark
+covers imported events present at that confirmation. A later import grants
+consent only for the events it reported, so earlier unconsented messages stay
+ineligible. Future imports are excluded either way. Consent changes and chat
+embedding switches invalidate vectors and restart backfill.
 
 sqlite-vec refuses virtual-table writes in triggers. Deletion triggers therefore
 record document ids in `recall_vec_delete`; canon's sole writer flushes these

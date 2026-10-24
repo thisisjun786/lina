@@ -8,15 +8,15 @@ import (
 )
 
 // The import command calls this only after reporting the volume and accepting
-// --embed. Only conversations touched by this batch receive consent, bounded
-// to their current event watermark so a future import is not preauthorized.
+// --embed. Consent names the events in this batch. An earlier import into the
+// same conversation stays unauthorized, and a future import is not covered.
 func consentImportBatch(ctx context.Context, db *canon.Store, batch string) error {
-	var conversations []string
+	var events []string
 	err := db.Read(ctx, func(tx *canon.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT id FROM import_conversation WHERE batch_id=?
- UNION SELECT e.conversation_id FROM messenger_legacy_ref l JOIN messenger_record_revision r
+		rows, err := tx.QueryContext(ctx, `SELECT r.event FROM messenger_legacy_ref l JOIN messenger_record_revision r
  ON r.platform=l.platform AND r.account=l.account AND r.chat=l.chat AND r.message=l.message
- JOIN conv_event e ON e.id=r.event WHERE l.batch_id=?`, batch, batch)
+ WHERE l.batch_id=?
+ UNION SELECT e.id FROM conv_event e WHERE e.id IN (SELECT record_id FROM legacy_ref WHERE batch_id=?)`, batch, batch)
 		if err != nil {
 			return err
 		}
@@ -26,17 +26,12 @@ func consentImportBatch(ctx context.Context, db *canon.Store, batch string) erro
 			if err := rows.Scan(&id); err != nil {
 				return err
 			}
-			conversations = append(conversations, id)
+			events = append(events, id)
 		}
 		return rows.Err()
 	})
 	if err != nil {
 		return err
 	}
-	for _, id := range conversations {
-		if err := recall.SetImportConsent(ctx, db, id, true); err != nil {
-			return err
-		}
-	}
-	return nil
+	return recall.GrantImportedEvents(ctx, db, events)
 }
