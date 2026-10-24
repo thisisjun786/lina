@@ -53,12 +53,13 @@ type Scope struct {
 	// agent and tool words out of the evidence about the person while items
 	// stay eligible.
 	EventSpeakerKind guard.SpeakerKind
-	// PersonMemory limits memory candidates to items whose subject is the
-	// person. recall_person sets it so an item about a third party or the
-	// world is never evidence about the person.
+	Origin           string
+	CommonOnly       bool
+	// PersonOnly restricts person-model queries to person-authored events and
+	// person-subject memory items, before ranking and the result limit.
+	PersonOnly bool
+	// PersonMemory limits only memory candidates to person-subject items.
 	PersonMemory bool
-	Origin       string
-	CommonOnly   bool
 	// IncludeReplay makes replay copies candidates. A copy still counts once
 	// with its lineage, so it surfaces only when its original is not a
 	// candidate: a copy appears only when asked, through its original.
@@ -197,7 +198,7 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 	restricted := scope.Projection || scope.ExternalModel
 	var with []string
 	var withArgs []any
-	if cte, cteArgs := restrictedCTE(scope); cte != "" {
+	if cte, cteArgs := RestrictionCTE(scope); cte != "" {
 		with = append(with, cte)
 		withArgs = append(withArgs, cteArgs...)
 	}
@@ -351,8 +352,8 @@ func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, rest
 		"NOT EXISTS(SELECT 1 FROM recall_doc x WHERE x.kind=s.kind AND x.source_id=s.source_id)",
 		"s.body IS NULL")
 	prefix := ""
-	if cte, cteArgs := restrictedCTE(scope); cte != "" {
-		prefix = "WITH " + cte + " "
+	if cte, cteArgs := RestrictionCTE(scope); cte != "" {
+		prefix = "WITH RECURSIVE " + cte + " "
 		args = append(cteArgs, args...)
 	}
 	var queued []Hit
@@ -422,29 +423,6 @@ func lineageFilter(enabled bool) string {
 	return ` WHERE c.kind<>'event' OR c.id NOT IN (SELECT d.id FROM candidates d JOIN derived x ON x.id=d.source_id)`
 }
 
-// restrictedCTE lists the events protected by a private or never-leaves memory
-// item for the caller's person. Empty when the scope reads everything.
-func restrictedCTE(scope Scope) (string, []any) {
-	if !scope.Projection && !scope.ExternalModel {
-		return "", nil
-	}
-	cte := `restricted AS (
-  SELECT DISTINCT c.target_id AS id FROM cite c JOIN memory_item m ON m.id=c.view_id
-  WHERE c.view_kind='memory' AND c.target_kind='event' AND c.dropped_revision IS NULL AND m.person=?
-   AND ((?=1 AND m.scope IN ('private','never-leaves')) OR (?=1 AND m.scope='never-leaves')))`
-	kinds := kindsOf(scope)
-	if containsKind(kinds, Summary) || containsKind(kinds, Record) {
-		// Follow protected evidence through every summary and record ancestor.
-		cte += `, restricted_views(kind,id) AS (
- SELECT 'event',id FROM restricted
- UNION
- SELECT c.view_kind,c.view_id FROM restricted_views r JOIN cite c INDEXED BY cite_target
- ON c.target_kind=r.kind AND c.target_id=r.id
- WHERE c.dropped_revision IS NULL AND c.view_kind IN ('summary','record'))`
-	}
-	return cte, []any{scope.Person, boolInt(scope.Projection), boolInt(scope.ExternalModel)}
-}
-
 func holderCondition(scope Scope, alias string) string {
 	if scope.CommonOnly || scope.Agent == "" {
 		return alias + ".holder='all'"
@@ -485,6 +463,10 @@ func scopeWhere(scope Scope, kinds []Kind, at int64, restricted bool, alias stri
 		where = append(where, "("+alias+".kind<>'event' OR "+alias+".speaker_kind=?)")
 		args = append(args, string(scope.EventSpeakerKind))
 	}
+	if scope.PersonOnly {
+		where = append(where, `((`+alias+`.kind='event' AND `+alias+`.speaker_kind='person')
+ OR (`+alias+`.kind='memory' AND EXISTS(SELECT 1 FROM memory_item m WHERE m.id=`+alias+`.source_id AND m.subject_kind='person')))`)
+	}
 	if scope.Origin != "" {
 		where = append(where, "json_extract("+alias+".origin,'$.kind')=?")
 		args = append(args, scope.Origin)
@@ -502,20 +484,9 @@ func scopeWhere(scope Scope, kinds []Kind, at int64, restricted bool, alias stri
 		if scope.PersonMemory {
 			where = append(where, `(`+alias+`.kind<>'memory' OR EXISTS(SELECT 1 FROM memory_item p WHERE p.id=`+alias+`.source_id AND p.subject_kind='person'))`)
 		}
-		if restricted {
-			where = append(where, `(`+alias+`.kind<>'memory' OR NOT EXISTS(SELECT 1 FROM memory_item s WHERE s.id=`+alias+`.source_id
-   AND ((?=1 AND s.scope IN ('private','never-leaves')) OR (?=1 AND s.scope='never-leaves'))))`)
-			args = append(args, boolInt(scope.Projection), boolInt(scope.ExternalModel))
-			where = append(where, `(`+alias+`.kind<>'memory' OR NOT EXISTS(SELECT 1 FROM cite c2 JOIN restricted r2 ON r2.id=c2.target_id
-   WHERE c2.view_kind='memory' AND c2.view_id=`+alias+`.source_id AND c2.dropped_revision IS NULL))`)
-		}
 	}
 	if restricted {
-		where = append(where, `(`+alias+`.kind<>'event' OR NOT EXISTS(SELECT 1 FROM restricted r WHERE r.id=`+alias+`.source_id))`)
-		if containsKind(kinds, Summary) || containsKind(kinds, Record) {
-			where = append(where, `(`+alias+`.kind NOT IN ('summary','record') OR NOT EXISTS(SELECT 1 FROM restricted_views r3
-   WHERE r3.kind=`+alias+`.kind AND r3.id=`+alias+`.source_id))`)
-		}
+		where = append(where, "NOT EXISTS(SELECT 1 FROM restricted r WHERE r.kind="+alias+".kind AND r.id="+alias+".source_id)")
 	}
 	return where, args
 }
@@ -648,17 +619,24 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	if err != nil {
 		return nil, err
 	}
+	kinds := kindsOf(scope)
 	at := scope.At
 	if at == 0 {
 		at = time.Now().Unix()
 	}
-	where, args := scopeWhere(scope, kindsOf(scope), at, scope.Projection || scope.ExternalModel, "d")
+	restricted := scope.Projection || scope.ExternalModel
+	where, args := scopeWhere(scope, kinds, at, restricted, "d")
 	where = append(where, "d.source_id IN (SELECT value FROM json_each(?))")
 	args = append(args, encoded)
+	if !scope.History {
+		older, olderArgs := olderExpr(kinds, at, "d")
+		where = append(where, "("+older+")=0")
+		args = append(args, olderArgs...)
+	}
 	prefix := ""
-	if cte, cteArgs := restrictedCTE(scope); cte != "" {
-		prefix = "WITH " + cte + " "
-		args = append(cteArgs, args...)
+	if fragment, prefixArgs := RestrictionCTE(scope); fragment != "" {
+		prefix = "WITH RECURSIVE " + fragment + " "
+		args = append(prefixArgs, args...)
 	}
 	order := map[string]int{}
 	for i, id := range ids {
@@ -830,10 +808,7 @@ func sourceText(ctx context.Context, db Canon, readEvent ReadEvent, hit Hit) (st
 			}
 			return text, nil
 		}
-		if !body.Valid {
-			return "", ErrBytesUnavailable
-		}
-		return body.String, nil
+		return maskDerived(body.String, spans)
 	case Memory:
 		var text string
 		err := db.Read(ctx, func(tx *canon.Tx) error {

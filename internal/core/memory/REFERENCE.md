@@ -129,3 +129,7 @@ ancestor is identified through its retained removal target.
 The repeated-statement regression checks 50, 100 and 200 revisions using stored
 bytes and citation/revision counts. It makes no timing assertion. Older-schema
 restore remains covered by the backup package's generated fixture and CLI test.
+
+Memory candidate reads and `RestrictedEvents` share recall's `RestrictionCTE`.
+This applies scope through memory chains and copied events before candidate
+limits, including direct item/profile/relationship reads without a text query.
