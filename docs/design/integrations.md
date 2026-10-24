@@ -850,6 +850,53 @@ Edits are detected when a reread reports a later `updated` timestamp. The API
 supplies no deletion feed here, so an absent message never deletes history.
 This source exposes no write operation.
 
+### KakaoTalk source
+
+KakaoTalk reads the person's own account through the messenger add-on, signed in
+as a tablet sub-device and only reading. Kakao's terms quote unapproved programs
+calling its protocol or API as a cause for permanently restricting the account,
+so the connect card states that risk, links the term and the stability policy,
+and records the person's acceptance with the date. One account is connected per
+main; a second is refused until the first is disconnected.
+
+Sign-in runs in the add-on's own flow and Core relays it: the email, the
+password read without echo, and the passcode Kakao displays for the person to
+enter on the phone while the tablet registration finishes in the background.
+Core keeps no prompt, answer, passcode or password, and the session lives in the
+add-on's data directory. The add-on runs one pending sign-in per account, so the
+connection that began it holds the flow: another connection's connect or sign-in
+is refused while it runs, and the flow expires after ten minutes. An expired or
+ended flow is cancelled in the add-on, so the next sign-in starts its own rather
+than resuming abandoned credentials or showing its passcode again. A stored
+session the platform rejects marks only that source as needing sign-in; other
+sources keep reading.
+
+Only one step may run at a time, including repeated requests from the same
+connection. A failed cancellation prevents a replacement until cleanup succeeds.
+An abandoned new connection also loses its pending session, including credentials
+that registration saved before the relay expired. Signing in again must return
+the requested account. If it returns another account, Core stops the old reader
+and discards the rejected session before allowing a retry. The original source,
+its connection date and accepted terms stay intact; failed cleanup is retried
+before another attempt can start. Disconnect invalidates outstanding sign-in work before
+removing the session; a late reply cannot reconnect it. Repeating disconnect for
+an old account leaves the current account's session intact.
+
+The adapter lists chats, reads a chat forward from a `log_id` cursor, reads
+members, follows live message pushes, and reports a 64-bit log id as an opaque
+string. It reports no edits and no deletions, because the platform offers neither
+to this client, and an empty message keeps an empty body with its type and
+attachment metadata. The platform message type is retained as an opaque string
+even when there is no text or file. Reading never enters the room, so it advances no read
+watermark. The source never sends, never marks a message read, never evicts the
+person's other devices and never takes a password from another app's cache.
+
+Core reads the chat list, skips a chat whose listed newest message is the one
+already stored while recording it as covered, and reads the rest every fifteen
+minutes, 100 messages a page, against a two-day platform window. A chat whose
+last complete read is older than that window is in a gap: the gap is recorded
+once and told to the person once, and the next complete read ends it.
+
 ### Messenger adapter boundary
 
 Each way of reaching a platform has one adapter. Discord's bot and Discord's personal account are two adapters of one platform; every other platform in the table has one. A source records the adapter it uses. An adapter offers: its sign-in state; listing chats; reading a page of a chat from a cursor, oldest first; members; live events where the platform has them; fetching one attachment on request, named by its chat, message and attachment id; and a static capability descriptor (history depth, cursor kind, edit and deletion signals, live events and write verbs). Every operation except the capability descriptor names the source account it acts for, so two accounts of one platform never share a read. Core releases the adapter's transport resources when it evicts the adapter or closes its service. Only adapters of official platforms have write verbs. A ported adapter is LINA's own Go code, and its client library is a Go dependency under [dependencies.md](../policy/dependencies.md).
@@ -876,7 +923,7 @@ Unofficial personal platforms are read through the messenger add-on: LINA's own 
 - Where a platform serves no cursor that survives a restart, a read covers only its newest messages, and the chat's coverage record states that depth and that the cursor does not survive. Overlap between those reads is resolved by the platform message id, so a message reads once.
 - A message the platform served but this account could not decrypt is a record with no text and a decryption-failed flag: it is never an empty message, a message from the system, or a deletion.
 - A message missing from a later read is never treated as deleted. Edits and deletions the platform reports follow [Messenger records](conversation-and-memory.md#messenger-records).
-- Each chat is fresh, stale (no complete read within its interval) or in a gap (the time since its last complete read passed the platform's read window, so messages may be lost). A gap is shown on the source and told to the person once. An archive import can fill it later.
+- Each chat is fresh, stale (no complete read within its interval) or in a gap (the time since its last complete read passed the platform's read window, so messages may be lost). A gap is shown on the source and told to the person once. Core records the gap and its pending warning together before advancing coverage. Pending warnings survive completed reads and restart, and retry independently of source sign-in or adapter availability until durable notice admission succeeds. Retries keep the same notice identity, including after admission succeeded but its acknowledgement was interrupted. An archive import can fill it later.
 - Rates are the adapter's: it honours the platform's retry-after and keeps its cursor.
 - A failing source never blocks conversation or another source.
 
