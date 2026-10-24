@@ -39,9 +39,7 @@ func decodeStepGraph(raw string, target any) error {
 
 // stepGraphGoalID accepts the bare goal id or its project record id.
 func stepGraphGoalID(id string) (string, bool) {
-	if strings.HasPrefix(id, "goal:") {
-		id = strings.TrimPrefix(id, "goal:")
-	}
+	id = strings.TrimPrefix(id, "goal:")
 	if id == "" {
 		return "", false
 	}
