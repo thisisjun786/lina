@@ -28,12 +28,13 @@ contracts; no product behavior changes.
   SHA-256: `356ac160d1ea6fa195f63969a0ef7c5fb051efad71f139f058d3ba18d61d8507`.
   Recorded request digest:
   `e147ba6224ede52b79ad0ad5a47058a76b83cfaf0534398a945c27e5e5aa135a`.
-- `sources.tar.gz` is the companion synthetic source seed (296,166 bytes):
+- `sources.tar.gz` is the companion synthetic source seed (282,433 bytes):
   canon, immutable materials/persona revisions and the generated install identity.
   Normal replay rehydrates local sources and checks their current visibility;
   the exported bytes alone cannot authorize a replay. Machine observations,
   sign-in host identity and queued background work are removed from a disposable
-  database copy, then `VACUUM` removes their bytes from free pages. The source
+  database copy, then `VACUUM` removes their bytes from free pages. The connection closes before
+  packaging so WAL changes are checkpointed into the archived database. The source
   events and request evidence are unchanged. No credentials, installed binaries,
   sockets, user data or logs are included.
 - `record_test.go.txt` is the historical recorder. Its text extension keeps it

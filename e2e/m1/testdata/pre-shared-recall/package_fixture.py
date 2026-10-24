@@ -2,6 +2,7 @@
 """Package a closed synthetic recording without unrelated operational rows."""
 
 import argparse
+from contextlib import closing
 import gzip
 import io
 import json
@@ -24,7 +25,7 @@ fixture.joinpath("episodes.jsonl").write_bytes(episode)
 # never rewrite request evidence, source revisions or the exported episode.
 database = base / "fixture.sqlite"
 shutil.copyfile(base / "canon/canon.sqlite", database)
-with sqlite3.connect(database) as db:
+with closing(sqlite3.connect(database)) as db:
     triggers = list(db.execute("SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND tbl_name='work_events'"))
     for name, _ in triggers:
         db.execute('DROP TRIGGER "' + name + '"')
@@ -35,6 +36,7 @@ with sqlite3.connect(database) as db:
     db.commit()
     db.execute("VACUUM")  # Remove the excluded bytes from free pages too.
     assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+# Closing checkpoints WAL changes into the main file before these bytes are read.
 files = {"canon/canon.sqlite": database.read_bytes()}
 for directory in ["materials", "versions"]:
     for path in (base / directory).rglob("*"):
