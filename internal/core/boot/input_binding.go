@@ -78,7 +78,7 @@ func (r *conversationRuntime) bindingState(ctx context.Context, tx *canon.Tx, in
 	}
 	// Read the latest binding and exchange before this input, using ledger order.
 	// A withdrawn input must not restore its focus or refresh its age.
-	raw, at, previousID, err := r.previousInputBinding(ctx, tx, input)
+	raw, _, previousID, err := r.previousInputBinding(ctx, tx, input)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return s, err
 	}
@@ -104,8 +104,7 @@ func (r *conversationRuntime) bindingState(ctx context.Context, tx *canon.Tx, in
 		if err != nil {
 			return s, err
 		}
-		at = latest
-		last, err := time.Parse(time.RFC3339Nano, at)
+		last, err := time.Parse(time.RFC3339Nano, latest)
 		if err != nil {
 			return s, err
 		}
