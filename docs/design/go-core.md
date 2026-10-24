@@ -1217,6 +1217,9 @@ summary of task inputs and recorded tool results with their original status.
 A second unusable text call on that step is a terminal failure; the background
 run's ordinary failure retry must not grant a third attempt. Transport failures
 and cancelled streams do not qualify for text-call recovery.
+Usage and cost are combined only after the fresh continuation opens. If closing
+the original stream or opening its replacement fails, the original usage and cost
+are retained once. Combined usage keeps unreported values unknown.
 
 Before runtime recovery is enabled, a deterministic replay must verify the shared
 parser against the active declarations. An exact declared name wins over removing
