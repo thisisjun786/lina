@@ -42,7 +42,9 @@ origin, replay, visibility class), matches, ranks and limits without reading a
 published source body. A scope can also restrict only event candidates by
 speaker, which keeps memory items eligible; `recall_person` uses it to read the
 person's own events and never an agent's or tool's words as evidence about the
-person. Vector candidates go through the same scope predicates and the same
+person. `PersonMemory` keeps only memory items whose subject is the person,
+before ranking and the limit; `recall_person` and person-only memory search set
+it. Vector candidates go through the same scope predicates and the same
 restricted-event list before fusion. Query terms are literal, whitespace split,
 at most eight, and any term may match. Documents holding more terms come first
 by BM25 over the pair table; documents found only through the trigram table follow;
@@ -64,9 +66,33 @@ for events and items together, materializes the item set in one scoped read, and
 reads an event's text only for the results that remain. Its cost follows the
 hits, not the number of person events.
 
+Person-model queries set `PersonOnly`, which filters person-authored events and
+person-subject memory items before ranking and the limit, including queued
+sources. General recall keeps its wider kind/speaker filters. Event bodies in
+materials have a nullable inline body; search resolves those through the bound
+reader or reports unavailable bytes without failing the whole result list.
+
+Restricted-source selection follows protected memory to its evidence, then
+walks current citations back to every dependent memory, record and summary.
+Typed source identities preserve the boundary across nested summary children.
+The same scope predicate applies before limiting indexed, queued and vector-hook
+candidates. Internal reads retain their scope, while projection also excludes
+private evidence. The recursive union terminates citation cycles.
+
 Tests cover atomic native writes, queued sources and exclusions, generation
 fencing, batch bounds, migrations, records revisions, Korean parity, any-term
 ranking, identical-text collapse, lineage, scope and visibility classes,
 retraction, summary navigation, excerpt bounds and the vector hook. The opt-in
 store benchmark Core test proves startup fill and socket memory writes/forget
 with the normal running Core.
+
+`restrictions.go` owns `RestrictionCTE`, the canonical SQL relation shared by
+search candidate selection, memory projections, expansion and replay/export
+validation. `SourceRestricted` queries that relation for exact references.
+Protected memory follows current citations to its sources; replay/view links
+and event material locators participate in the same traversal. The reverse
+walk reaches every dependent view, including all view targets. Typed identities
+and recursive UNION terminate cycles. Legacy memory records without citation
+rows contribute their canonical JSON evidence to the same relation. Each
+reader retains its own identity,
+revision, removal and availability checks; no restriction cache is persisted.

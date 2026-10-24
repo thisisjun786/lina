@@ -138,6 +138,12 @@ func (r *conversationRuntime) startMessenger(ctx context.Context, cfg *Messenger
 	// to the person once through the ordinary background notice.
 	initKakaoTalk(r, cfg)
 	service.Notify = r.notifyMessengerGap
+	service.SetAfterSync(r.notifyMessengerExtraction)
+	// Learning reads the person's own records, so the job exists only when a
+	// messenger source can admit them.
+	if err := r.startMessengerExtraction(ctx); err != nil {
+		return err
+	}
 	runCtx, stop := context.WithCancel(ctx)
 	r.messenger, r.messengerAddon, r.messengerStop, r.messengerDone = service, cfg.Addon, stop, make(chan struct{})
 	go func() {

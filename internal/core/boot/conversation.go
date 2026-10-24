@@ -144,6 +144,7 @@ type conversationRuntime struct {
 
 	skillMaintenance            *skillMaintenanceRuntime
 	memoryExtraction            *memoryExtractionRuntime
+	messengerExtraction         *messengerExtractionRuntime
 	growthMu                    sync.Mutex
 	growth                      *growthRuntime
 	lanes                       *lane.Manager
@@ -592,6 +593,15 @@ func (r *conversationRuntime) Close(ctx context.Context) error {
 		m.stop = nil
 	}
 	if m := r.memoryExtraction; m != nil && m.stop != nil {
+		m.stop()
+		select {
+		case <-m.done:
+		case <-ctx.Done():
+			return errors.Join(err, ctx.Err())
+		}
+		m.stop = nil
+	}
+	if m := r.messengerExtraction; m != nil && m.stop != nil {
 		m.stop()
 		select {
 		case <-m.done:
