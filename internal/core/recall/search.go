@@ -170,6 +170,16 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 	if len(terms) == 0 {
 		return nil, nil
 	}
+	// Embed outside ranking and resolve failure before selecting the lexical
+	// candidate bound. With no usable vectors the original query is unchanged.
+	if query.Vectors != nil {
+		ids, err := query.Vectors(ctx, scope, query.Text)
+		if err != nil || len(ids) == 0 {
+			query.Vectors = nil
+		} else {
+			query.Vectors = func(context.Context, Scope, string) ([]string, error) { return ids, nil }
+		}
+	}
 	var pairPhrases, pairMatches, trigramPhrases []string
 	var shortTerms []string
 	for _, t := range terms {
@@ -295,6 +305,9 @@ SELECT kind,source_id,revision,occurred_at,holder,older FROM dedup WHERE twin=1 
 ORDER BY CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, score, julianday(occurred_at) DESC, source_id`
 	args = append(args, boolInt(scope.History))
 	limit := query.Limit
+	if query.Vectors != nil {
+		limit = VectorCandidates
+	}
 	if limit > 0 {
 		statement += " LIMIT ?"
 		args = append(args, limit+len(external))
@@ -325,7 +338,7 @@ ORDER BY CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, score, julianda
 		return nil, err
 	}
 	hits = append(hits, external...)
-	if limit > 0 && len(hits) > limit {
+	if query.Vectors == nil && limit > 0 && len(hits) > limit {
 		hits = hits[:limit]
 	}
 	if query.Vectors != nil {
@@ -420,7 +433,9 @@ func lineageFilter(enabled bool) string {
 	if !enabled {
 		return ""
 	}
-	return ` WHERE c.kind<>'event' OR c.id NOT IN (SELECT d.id FROM candidates d JOIN derived x ON x.id=d.source_id)`
+	// Queued candidates have a NULL document id. Compare source identity so that
+	// NULL cannot make NOT IN unknown for every event.
+	return ` WHERE c.kind<>'event' OR NOT EXISTS (SELECT 1 FROM derived x WHERE x.id=c.source_id)`
 }
 
 func holderCondition(scope Scope, alias string) string {
@@ -566,8 +581,11 @@ func lineage(ctx context.Context, db Canon, scope Scope, hits []Hit) ([]Hit, err
 // fuse merges the full-text list and the vector hook by reciprocal rank.
 func fuse(ctx context.Context, db Canon, scope Scope, query Query, text []Hit) ([]Hit, error) {
 	ids, err := query.Vectors(ctx, scope, query.Text)
-	if err != nil {
-		return nil, err
+	if err != nil || len(ids) == 0 {
+		if query.Limit > 0 && len(text) > query.Limit {
+			text = text[:query.Limit]
+		}
+		return lineage(ctx, db, scope, text)
 	}
 	type key struct {
 		kind Kind
@@ -603,7 +621,10 @@ func fuse(ctx context.Context, db Canon, scope Scope, query Query, text []Hit) (
 		if !out[i].OccurredAt.Equal(out[j].OccurredAt) {
 			return out[i].OccurredAt.After(out[j].OccurredAt)
 		}
-		return out[i].ID < out[j].ID
+		if out[i].ID != out[j].ID {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Kind < out[j].Kind
 	})
 	if query.Limit > 0 && len(out) > query.Limit {
 		out = out[:query.Limit]
@@ -626,14 +647,15 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	}
 	restricted := scope.Projection || scope.ExternalModel
 	where, args := scopeWhere(scope, kinds, at, restricted, "d")
-	where = append(where, "d.source_id IN (SELECT value FROM json_each(?))")
-	args = append(args, encoded)
+	where = append(where, "(d.source_id IN (SELECT value FROM json_each(?)) OR d.kind||char(0)||d.source_id IN (SELECT value FROM json_each(?)))")
+	args = append(args, encoded, encoded)
+	older, olderArgs := olderExpr(kinds, at, "d")
 	if !scope.History {
-		older, olderArgs := olderExpr(kinds, at, "d")
 		where = append(where, "("+older+")=0")
 		args = append(args, olderArgs...)
 	}
 	prefix := ""
+	args = append(olderArgs, args...)
 	if fragment, prefixArgs := RestrictionCTE(scope); fragment != "" {
 		prefix = "WITH RECURSIVE " + fragment + " "
 		args = append(prefixArgs, args...)
@@ -646,7 +668,7 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	}
 	var hits []Hit
 	err = db.Read(ctx, func(tx *canon.Tx) error {
-		rows, err := tx.QueryContext(ctx, prefix+`SELECT d.source_id,d.kind,d.revision,d.occurred_at,d.holder FROM recall_doc d
+		rows, err := tx.QueryContext(ctx, prefix+` SELECT d.source_id,d.kind,d.revision,d.occurred_at,d.holder,`+older+` FROM recall_doc d
    WHERE `+strings.Join(where, " AND "), args...)
 		if err != nil {
 			return err
@@ -655,9 +677,11 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 		for rows.Next() {
 			var h Hit
 			var occurred string
-			if err := rows.Scan(&h.ID, &h.Kind, &h.Revision, &occurred, &h.Holder); err != nil {
+			var olderValue int
+			if err := rows.Scan(&h.ID, &h.Kind, &h.Revision, &occurred, &h.Holder, &olderValue); err != nil {
 				return err
 			}
+			h.Older = olderValue == 1
 			h.OccurredAt, _ = time.Parse(time.RFC3339Nano, occurred)
 			hits = append(hits, h)
 		}
@@ -666,7 +690,13 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	if err != nil {
 		return nil, err
 	}
-	sort.SliceStable(hits, func(i, j int) bool { return order[hits[i].ID] < order[hits[j].ID] })
+	rank := func(h Hit) int {
+		if n, ok := order[string(h.Kind)+"\x00"+h.ID]; ok {
+			return n
+		}
+		return order[h.ID]
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return rank(hits[i]) < rank(hits[j]) })
 	return hits, nil
 }
 
@@ -770,6 +800,8 @@ func maskDerived(text string, spans []secrets.Span) (string, error) {
 func sourceText(ctx context.Context, db Canon, readEvent ReadEvent, hit Hit) (string, error) {
 	switch hit.Kind {
 	case Event:
+		// Material-backed events store a NULL body. Scanning into a string fails
+		// the whole result list before the reader can supply the bytes.
 		var body sql.NullString
 		var material sql.NullString
 		var spans []secrets.Span
