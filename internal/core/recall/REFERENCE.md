@@ -98,3 +98,14 @@ lineage, scope and visibility classes, retraction, summary navigation, excerpt
 bounds, explicit secret spans in excerpts and the vector hook. The opt-in
 store benchmark Core test proves startup fill and socket memory writes/forget
 with the normal running Core.
+
+`restrictions.go` owns `RestrictionCTE`, the canonical SQL relation shared by
+search candidate selection, memory projections, expansion and replay/export
+validation. `SourceRestricted` queries that relation for exact references.
+Protected memory follows current citations to its sources; replay/view links
+and event material locators participate in the same traversal. The reverse
+walk reaches every dependent view, including all view targets. Typed identities
+and recursive UNION terminate cycles. Legacy memory records without citation
+rows contribute their canonical JSON evidence to the same relation. Each
+reader retains its own identity,
+revision, removal and availability checks; no restriction cache is persisted.

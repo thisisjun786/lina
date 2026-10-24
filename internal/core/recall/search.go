@@ -48,11 +48,18 @@ type Scope struct {
 	Conversation string
 	Since, Until time.Time
 	SpeakerKind  guard.SpeakerKind
-	Origin       string
-	CommonOnly   bool
+	// EventSpeakerKind restricts event candidates only. Memory items and
+	// records carry no speaker of their own, so recall_person uses this to keep
+	// agent and tool words out of the evidence about the person while items
+	// stay eligible.
+	EventSpeakerKind guard.SpeakerKind
+	Origin           string
+	CommonOnly       bool
 	// PersonOnly restricts person-model queries to person-authored events and
 	// person-subject memory items, before ranking and the result limit.
 	PersonOnly bool
+	// PersonMemory limits only memory candidates to person-subject items.
+	PersonMemory bool
 	// IncludeReplay makes replay copies candidates. A copy still counts once
 	// with its lineage, so it surfaces only when its original is not a
 	// candidate: a copy appears only when asked, through its original.
@@ -191,10 +198,9 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 	restricted := scope.Projection || scope.ExternalModel
 	var with []string
 	var withArgs []any
-	if restricted {
-		fragment, args := restrictedSources(scope)
-		with = append(with, fragment)
-		withArgs = append(withArgs, args...)
+	if cte, cteArgs := RestrictionCTE(scope); cte != "" {
+		with = append(with, cte)
+		withArgs = append(withArgs, cteArgs...)
 	}
 	if len(pairPhrases) > 0 {
 		with = append(with, `pair AS MATERIALIZED (SELECT rowid AS doc, bm25(recall_pair) AS score FROM recall_pair WHERE recall_pair MATCH ?)`)
@@ -363,13 +369,10 @@ func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, rest
 		"NOT EXISTS(SELECT 1 FROM recall_doc x WHERE x.kind=s.kind AND x.source_id=s.source_id)",
 		"s.body IS NULL")
 	prefix := ""
-	var prefixArgs []any
-	if restricted {
-		fragment, values := restrictedSources(scope)
-		prefix = "WITH RECURSIVE " + fragment + " "
-		prefixArgs = values
+	if cte, cteArgs := RestrictionCTE(scope); cte != "" {
+		prefix = "WITH RECURSIVE " + cte + " "
+		args = append(cteArgs, args...)
 	}
-	args = append(prefixArgs, args...)
 	var queued []Hit
 	err := db.Read(ctx, func(tx *canon.Tx) error {
 		rows, err := tx.QueryContext(ctx, prefix+`SELECT s.source_id,s.revision,s.occurred_at,s.holder
@@ -581,38 +584,6 @@ func holderCondition(scope Scope, alias string) string {
 	return alias + ".holder IN (?,'all')"
 }
 
-// Follow protected memory to its evidence, then protect every current view
-// that depends on any of those sources. A replay copy or view_of event carries
-// its original's text, so protection also spreads both ways along those links
-// before anything cites them. Typed identities and UNION terminate cycles
-// without confusing equal ids belonging to different source kinds.
-func restrictedSources(scope Scope) (string, []any) {
-	return `sensitive(kind,id) AS (
- SELECT 'memory',m.id FROM memory_item m WHERE m.person=?
-  AND ((?=1 AND m.scope IN ('private','never-leaves')) OR (?=1 AND m.scope='never-leaves'))
- UNION
- SELECT c.target_kind,c.target_id FROM cite c JOIN sensitive s ON c.view_kind=s.kind AND c.view_id=s.id
-  WHERE c.dropped_revision IS NULL
-), copied(child,parent) AS MATERIALIZED (
- SELECT e.id,e.replay_of FROM recall_doc d JOIN conv_event e ON e.id=d.source_id
-  WHERE d.person=? AND d.kind='event' AND d.replay=1 AND coalesce(e.replay_of,'')<>''
- UNION ALL
- SELECT e.id,e.replay_of FROM recall_pending q JOIN conv_event e ON e.id=q.source_id
-  WHERE q.kind='event' AND coalesce(e.replay_of,'')<>''
- UNION ALL
- SELECT event_id,target_id FROM ev_rel WHERE kind='view_of'
-), restricted(kind,id) AS (
- SELECT kind,id FROM sensitive
- UNION
- SELECT c.view_kind,c.view_id FROM cite c JOIN restricted r ON c.target_kind=r.kind AND c.target_id=r.id
-  WHERE c.dropped_revision IS NULL
- UNION
- SELECT 'event',l.child FROM copied l JOIN restricted r ON r.kind='event' AND r.id=l.parent
- UNION
- SELECT 'event',l.parent FROM copied l JOIN restricted r ON r.kind='event' AND r.id=l.child
-)`, []any{scope.Person, boolInt(scope.Projection), boolInt(scope.ExternalModel), scope.Person}
-}
-
 // scopeWhere applies the scope before matching. It is shared by the published
 // index and the still-queued sources so both see the same filters.
 func scopeWhere(scope Scope, kinds []Kind, at int64, restricted bool, alias string) ([]string, []any) {
@@ -642,6 +613,10 @@ func scopeWhere(scope Scope, kinds []Kind, at int64, restricted bool, alias stri
 		where = append(where, alias+".speaker_kind=?")
 		args = append(args, string(scope.SpeakerKind))
 	}
+	if scope.EventSpeakerKind != "" {
+		where = append(where, "("+alias+".kind<>'event' OR "+alias+".speaker_kind=?)")
+		args = append(args, string(scope.EventSpeakerKind))
+	}
 	if scope.PersonOnly {
 		where = append(where, `((`+alias+`.kind='event' AND `+alias+`.speaker_kind='person')
  OR (`+alias+`.kind='memory' AND EXISTS(SELECT 1 FROM memory_item m WHERE m.id=`+alias+`.source_id AND m.subject_kind='person')))`)
@@ -660,6 +635,9 @@ func scopeWhere(scope Scope, kinds []Kind, at int64, restricted bool, alias stri
 	if containsKind(kinds, Memory) {
 		where = append(where, `(`+alias+`.kind<>'memory' OR EXISTS(SELECT 1 FROM memory_item v WHERE v.id=`+alias+`.source_id AND v.valid_from<=?))`)
 		args = append(args, at)
+		if scope.PersonMemory {
+			where = append(where, `(`+alias+`.kind<>'memory' OR EXISTS(SELECT 1 FROM memory_item p WHERE p.id=`+alias+`.source_id AND p.subject_kind='person'))`)
+		}
 	}
 	if restricted {
 		where = append(where, "NOT EXISTS(SELECT 1 FROM restricted r WHERE r.kind="+alias+".kind AND r.id="+alias+".source_id)")
@@ -815,8 +793,7 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	}
 	prefix := ""
 	var args []any
-	if restricted {
-		fragment, prefixArgs := restrictedSources(scope)
+	if fragment, prefixArgs := RestrictionCTE(scope); fragment != "" {
 		prefix = "WITH RECURSIVE " + fragment + " "
 		args = append(args, prefixArgs...)
 	}
