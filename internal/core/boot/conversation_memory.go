@@ -174,7 +174,7 @@ func (r *conversationRuntime) topicPacket(ctx context.Context, input ledger.Even
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	items, err := r.memoryStore().Items(ctx, memory.RecallScope{Person: r.person, Agent: r.agent, ExternalModel: true}, ids, at.Unix(), false)
+	items, err := r.memoryStore().Items(ctx, memory.RecallScope{Person: r.person, Agent: r.agent, ExternalModel: true}, ids, at.Unix(), false, false)
 	if err != nil {
 		return nil, err
 	}

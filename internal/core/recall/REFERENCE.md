@@ -56,8 +56,8 @@ read through the caller's `EventText` reader, which only `ledger.Store.Search`
 supplies. That hit joins the unscored pending tier and is ordered with inline
 pending hits by newer `occurred_at` before the limit. `recall_doc.text_hash`
 collapses events with identical derived text inside one conversation to the
-earliest of them. A
-returned memory item hides its own evidence events, so lineage counts once. A
+earliest of them. A returned memory item hides its own evidence events, so lineage counts once.
+The caller's limit is applied after that removal. A
 replay copy is a candidate only when the scope asks for copies, and even then
 its lineage counts once: a copy appears when its original is out of scope.
 `recall.Search` adds the bounded masked excerpt and the citations in force at

@@ -281,7 +281,7 @@ func measure(ctx context.Context, root string, c corpus) (_ report, err error) {
 			for _, hit := range hits {
 				ids = append(ids, hit.ID)
 			}
-			items, err := memory.New(db).WithQuotes(events.Citation).Items(ctx, memory.RecallScope{Person: person, Agent: agent, ExternalModel: true}, ids, 1800000000, false)
+			items, err := memory.New(db).WithQuotes(events.Citation).Items(ctx, memory.RecallScope{Person: person, Agent: agent, ExternalModel: true}, ids, 1800000000, false, false)
 			r.Hits["topic_memory_read"] += len(items)
 			return err
 		}); err != nil {

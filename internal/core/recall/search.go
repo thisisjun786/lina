@@ -296,11 +296,6 @@ SELECT kind,source_id,revision,occurred_at,holder,older,
  FROM dedup WHERE twin=1 AND (?=1 OR older=0)
 ORDER BY tier, score, julianday(occurred_at) DESC, source_id`
 	args = append(args, boolInt(scope.History))
-	limit := query.Limit
-	if limit > 0 {
-		statement += " LIMIT ?"
-		args = append(args, limit)
-	}
 	var ranked []orderedHit
 	err := db.Read(ctx, func(tx *canon.Tx) error {
 		rows, err := tx.QueryContext(ctx, statement, args...)
@@ -329,11 +324,10 @@ ORDER BY tier, score, julianday(occurred_at) DESC, source_id`
 	// Material-backed queued events are unscored, the same tier as an inline
 	// body that is still pending. Merge them by newer occurred_at before the
 	// limit so a newer import is not dropped behind an older inline row.
+	// The caller's limit is applied after lineage removal, so this list stays
+	// whole until then.
 	if len(external) > 0 {
 		ranked = mergeUnscored(ranked, external)
-	}
-	if limit > 0 && len(ranked) > limit {
-		ranked = ranked[:limit]
 	}
 	hits := make([]Hit, len(ranked))
 	for i, h := range ranked {
@@ -342,7 +336,7 @@ ORDER BY tier, score, julianday(occurred_at) DESC, source_id`
 	if query.Vectors != nil {
 		return fuse(ctx, db, scope, at, query, hits)
 	}
-	return lineage(ctx, db, scope, hits)
+	return limitAfterLineage(ctx, db, scope, hits, query.Limit)
 }
 
 // orderedHit keeps the SQL rank tier so pending material can join the
@@ -461,7 +455,9 @@ func lineageFilter(enabled bool) string {
 	if !enabled {
 		return ""
 	}
-	return ` WHERE c.kind<>'event' OR c.id NOT IN (SELECT d.id FROM candidates d JOIN derived x ON x.id=d.source_id)`
+	// Compare source identities. A still-queued copy has a NULL document id, and
+	// NOT IN treats that NULL as unknown for every event.
+	return ` WHERE c.kind<>'event' OR NOT EXISTS (SELECT 1 FROM derived x WHERE x.id=c.source_id)`
 }
 
 func holderCondition(scope Scope, alias string) string {
@@ -517,7 +513,8 @@ func scopeWhere(scope Scope, kinds []Kind, at int64, restricted bool, alias stri
 	}
 	if containsKind(kinds, Event) {
 		where = append(where, `(`+alias+`.kind<>'event' OR EXISTS(SELECT 1 FROM conv_event e WHERE e.id=`+alias+`.source_id
-   AND coalesce(e.scaffold_kind,'')<>'reply_check'))`)
+   AND coalesce(e.scaffold_kind,'')<>'reply_check'
+   AND NOT (coalesce(e.scaffold_kind,'')='result' AND EXISTS(SELECT 1 FROM ev_rel view WHERE view.event_id=e.id AND view.kind='view_of'))))`)
 	}
 	if containsKind(kinds, Memory) {
 		where = append(where, `(`+alias+`.kind<>'memory' OR EXISTS(SELECT 1 FROM memory_item v WHERE v.id=`+alias+`.source_id AND v.valid_from<=?))`)
@@ -604,6 +601,38 @@ func lineage(ctx context.Context, db Canon, scope Scope, hits []Hit) ([]Hit, err
 	return out, nil
 }
 
+// limitAfterLineage applies the caller's limit after an evidence event of a
+// returned memory item is removed. Truncating first would let that event take
+// a place another result could fill.
+func limitAfterLineage(ctx context.Context, db Canon, scope Scope, hits []Hit, limit int) ([]Hit, error) {
+	if limit <= 0 {
+		return lineage(ctx, db, scope, hits)
+	}
+	prefix := limit
+	if prefix > len(hits) {
+		prefix = len(hits)
+	}
+	for {
+		// lineage compacts its argument in place. A copy keeps the next
+		// candidate intact when this prefix has to grow.
+		window := append([]Hit(nil), hits[:prefix]...)
+		deduped, err := lineage(ctx, db, scope, window)
+		if err != nil {
+			return nil, err
+		}
+		if len(deduped) >= limit || prefix == len(hits) {
+			if len(deduped) > limit {
+				deduped = deduped[:limit]
+			}
+			return deduped, nil
+		}
+		prefix += limit - len(deduped)
+		if prefix > len(hits) {
+			prefix = len(hits)
+		}
+	}
+}
+
 // fuse merges the full-text list and the vector hook by reciprocal rank.
 func fuse(ctx context.Context, db Canon, scope Scope, at int64, query Query, text []Hit) ([]Hit, error) {
 	ids, err := query.Vectors(ctx, scope, query.Text)
@@ -646,10 +675,7 @@ func fuse(ctx context.Context, db Canon, scope Scope, at int64, query Query, tex
 		}
 		return out[i].ID < out[j].ID
 	})
-	if query.Limit > 0 && len(out) > query.Limit {
-		out = out[:query.Limit]
-	}
-	return lineage(ctx, db, scope, out)
+	return limitAfterLineage(ctx, db, scope, out, query.Limit)
 }
 
 func byIDs(ctx context.Context, db Canon, scope Scope, at int64, ids []string) ([]Hit, error) {
