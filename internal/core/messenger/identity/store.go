@@ -965,6 +965,17 @@ func (s *Store) Confirm(ctx context.Context, id Identity, record, words string) 
 				}
 			}
 		}
+		// A sender with no link yet, such as one whose phone two records list,
+		// still has its observed identifiers; a later move must end this link.
+		stored, err := s.identifiersTx(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		for _, identifier := range stored {
+			if identifier.Kind == Phone || identifier.Kind == Email {
+				signals = appendSignal(signals, Signal{Kind: string(identifier.Kind), Source: identifier.Source, Value: identifier.Value})
+			}
+		}
 		if chosen == nil {
 			if err := s.insertLink(ctx, tx, id, record, Confirmed, s.person, at, from, signals); err != nil {
 				return err
@@ -1460,6 +1471,7 @@ func (s *Store) Split(ctx context.Context, from, into string, identities []Ident
 	}
 	at := s.now()
 	return s.db.Write(ctx, func(tx *canon.Tx) error {
+		moved := map[string]bool{}
 		for _, id := range identities {
 			if !id.valid() {
 				return ErrInvalid
@@ -1500,9 +1512,13 @@ func (s *Store) Split(ctx context.Context, from, into string, identities []Ident
 					return err
 				}
 				for _, item := range items {
+					if moved[item] {
+						continue
+					}
 					if _, err := memory.ReassignSubject(ctx, tx, s.person, item, from, into); err != nil {
 						return err
 					}
+					moved[item] = true
 				}
 			}
 		}
