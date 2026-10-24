@@ -256,6 +256,7 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 	pendingWhere, queuedArgs := scopeWhere(scope, kinds, at, restricted, "s")
 	pendingWhere = append(pendingWhere,
 		"NOT EXISTS(SELECT 1 FROM recall_doc x WHERE x.kind=s.kind AND x.source_id=s.source_id)",
+		"s.kind<>'event'",
 		"(s.body IS NOT NULL AND ("+strings.Join(pendingMatch, " OR ")+"))")
 	queuedArgs = append(queuedArgs, pendingArgs...)
 	olderD, olderDArgs := olderExpr(kinds, at, "d")
@@ -265,13 +266,36 @@ func Match(ctx context.Context, db Canon, scope Scope, query Query) ([]Hit, erro
 	args = append(args, indexArgs...)
 	args = append(args, olderSArgs...)
 	args = append(args, queuedArgs...)
-	var external []Hit
-	if query.EventText != nil {
+	// A queued event's body is still raw in the queue view, so the queue is
+	// matched in Go where the event's flagged spans are applied. An event whose
+	// text lives in material is read through EventText, which may be nil when
+	// the caller has no material access.
+	var queued []queuedEvent
+	if containsKind(kinds, Event) {
 		var err error
-		external, err = pendingEventText(ctx, db, scope, at, restricted, terms, query.EventText)
+		queued, err = pendingEvents(ctx, db, scope, at, restricted, terms, query.EventText)
 		if err != nil {
 			return nil, err
 		}
+	}
+	queuedUnion := ""
+	if len(queued) > 0 {
+		raw := make([]map[string]string, 0, len(queued))
+		for _, q := range queued {
+			raw = append(raw, map[string]string{"id": q.hit.ID, "hash": q.hash})
+		}
+		encoded, err := json.Marshal(raw)
+		if err != nil {
+			return nil, err
+		}
+		olderQ, olderQArgs := olderExpr(kinds, at, "s")
+		args = append(args, olderQArgs...)
+		args = append(args, string(encoded))
+		queuedUnion = `
+ UNION ALL
+ SELECT NULL AS id,s.kind,s.source_id,s.revision,s.occurred_at,s.holder,s.conversation,
+  json_extract(j.value,'$.hash') AS text_hash,s.replay,NULL AS score,0 AS paired,1 AS trigram,` + olderQ + ` AS older
+ FROM json_each(?) j JOIN recall_source s ON s.kind='event' AND s.source_id=json_extract(j.value,'$.id')`
 	}
 	statement := `WITH RECURSIVE ` + strings.Join(with, ",\n") + `,
 candidates AS MATERIALIZED (
@@ -283,7 +307,7 @@ candidates AS MATERIALIZED (
  SELECT NULL AS id,s.kind,s.source_id,s.revision,s.occurred_at,s.holder,s.conversation,NULL AS text_hash,s.replay,
   NULL AS score,0 AS paired,0 AS trigram,` + olderS + ` AS older
  FROM recall_source s JOIN recall_pending q ON q.kind=s.kind AND q.source_id=s.source_id
- WHERE ` + strings.Join(pendingWhere, "\n AND ") + `
+ WHERE ` + strings.Join(pendingWhere, "\n AND ") + queuedUnion + `
 ),
 ` + lineageCTE(lineageEvents) + `
 dedup AS (
@@ -297,7 +321,7 @@ ORDER BY CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, score, julianda
 	limit := query.Limit
 	if limit > 0 {
 		statement += " LIMIT ?"
-		args = append(args, limit+len(external))
+		args = append(args, limit)
 	}
 	var hits []Hit
 	err := db.Read(ctx, func(tx *canon.Tx) error {
@@ -324,7 +348,6 @@ ORDER BY CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, score, julianda
 	if err != nil {
 		return nil, err
 	}
-	hits = append(hits, external...)
 	if limit > 0 && len(hits) > limit {
 		hits = hits[:limit]
 	}
@@ -334,10 +357,20 @@ ORDER BY CASE WHEN paired THEN 0 WHEN trigram THEN 1 ELSE 2 END, score, julianda
 	return lineage(ctx, db, scope, hits)
 }
 
-// pendingEventText reads the derived text of queued events whose body lives in
-// material, so a caller with material access sees them before the background
-// drain publishes them. The scan is bounded by the queue, never the corpus.
-func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, restricted bool, terms []term, readEvent ReadEvent) ([]Hit, error) {
+// queuedEvent is one event the drain has not published yet, with the body the
+// queue view holds for it: raw inline text, or nothing when it lives in
+// material.
+type queuedEvent struct {
+	hit  Hit
+	hash string
+	body sql.NullString
+}
+
+// pendingEvents matches queued events. Matching happens here rather than in
+// SQL because an inline event body is stored raw with its flagged spans beside
+// it, and a value a shape detector cannot recognize would otherwise match.
+// The scan is bounded by the queue, never the corpus.
+func pendingEvents(ctx context.Context, db Canon, scope Scope, at int64, restricted bool, terms []term, readEvent ReadEvent) ([]queuedEvent, error) {
 	var lowered []string
 	for _, t := range terms {
 		if t.runes >= 3 || t.pair {
@@ -348,17 +381,15 @@ func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, rest
 		return nil, nil
 	}
 	where, args := scopeWhere(scope, []Kind{Event}, at, restricted, "s")
-	where = append(where,
-		"NOT EXISTS(SELECT 1 FROM recall_doc x WHERE x.kind=s.kind AND x.source_id=s.source_id)",
-		"s.body IS NULL")
+	where = append(where, "NOT EXISTS(SELECT 1 FROM recall_doc x WHERE x.kind=s.kind AND x.source_id=s.source_id)")
 	prefix := ""
 	if cte, cteArgs := RestrictionCTE(scope); cte != "" {
 		prefix = "WITH RECURSIVE " + cte + " "
 		args = append(cteArgs, args...)
 	}
-	var queued []Hit
+	var pending []queuedEvent
 	err := db.Read(ctx, func(tx *canon.Tx) error {
-		rows, err := tx.QueryContext(ctx, prefix+`SELECT s.source_id,s.revision,s.occurred_at,s.holder
+		rows, err := tx.QueryContext(ctx, prefix+`SELECT s.source_id,s.revision,s.occurred_at,s.holder,s.body
  FROM recall_source s JOIN recall_pending q ON q.kind=s.kind AND q.source_id=s.source_id
  WHERE `+strings.Join(where, "\n AND "), args...)
 		if err != nil {
@@ -366,35 +397,92 @@ func pendingEventText(ctx context.Context, db Canon, scope Scope, at int64, rest
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var h Hit
+			var p queuedEvent
 			var occurred string
-			if err := rows.Scan(&h.ID, &h.Revision, &occurred, &h.Holder); err != nil {
+			if err := rows.Scan(&p.hit.ID, &p.hit.Revision, &occurred, &p.hit.Holder, &p.body); err != nil {
 				return err
 			}
-			h.Kind = Event
-			h.OccurredAt, _ = time.Parse(time.RFC3339Nano, occurred)
-			queued = append(queued, h)
+			p.hit.Kind = Event
+			p.hit.OccurredAt, _ = time.Parse(time.RFC3339Nano, occurred)
+			pending = append(pending, p)
 		}
 		return rows.Err()
 	})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Hit, 0, len(queued))
-	for _, h := range queued {
-		text, err := readEvent(ctx, h.ID)
-		if err != nil {
+	spans, err := pendingSpans(ctx, db, pending)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]queuedEvent, 0, len(pending))
+	for _, p := range pending {
+		var text string
+		switch {
+		case p.body.Valid:
+			masked, err := secrets.Mask(p.body.String, spans[p.hit.ID]...)
+			if err != nil {
+				continue
+			}
+			text = masked.DerivedText()
+		case readEvent != nil:
+			value, err := readEvent(ctx, p.hit.ID)
+			if err != nil {
+				continue
+			}
+			text = value
+		default:
 			continue
 		}
-		text = strings.ToLower(text)
+		lower := strings.ToLower(text)
 		for _, term := range lowered {
-			if strings.Contains(text, term) {
-				out = append(out, h)
+			if strings.Contains(lower, term) {
+				p.hash = textHash(text)
+				out = append(out, p)
 				break
 			}
 		}
 	}
 	return out, nil
+}
+
+// pendingSpans reads the flagged spans of the queued events that keep their
+// body inline, in one query per queue pass.
+func pendingSpans(ctx context.Context, db Canon, pending []queuedEvent) (map[string][]secrets.Span, error) {
+	var ids []string
+	for _, p := range pending {
+		if p.body.Valid {
+			ids = append(ids, p.hit.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	encoded, err := jsonArray(ids)
+	if err != nil {
+		return nil, err
+	}
+	spans := map[string][]secrets.Span{}
+	err = db.Read(ctx, func(tx *canon.Tx) error {
+		rows, err := tx.QueryContext(ctx, "SELECT event_id,start,end,sensitivity FROM ev_span WHERE sensitivity='secret' AND event_id IN (SELECT value FROM json_each(?)) ORDER BY event_id,start,end", encoded)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			var span secrets.Span
+			if err := rows.Scan(&id, &span.Start, &span.End, &span.Sensitivity); err != nil {
+				return err
+			}
+			spans[id] = append(spans[id], span)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return spans, nil
 }
 
 // lineageCTE walks each candidate event's replay_of and view_of chain. A
@@ -420,7 +508,9 @@ func lineageFilter(enabled bool) string {
 	if !enabled {
 		return ""
 	}
-	return ` WHERE c.kind<>'event' OR c.id NOT IN (SELECT d.id FROM candidates d JOIN derived x ON x.id=d.source_id)`
+	// Compare source ids, which are never NULL: a queued candidate has no index
+	// row id, and a NULL in the subquery makes NOT IN reject every row.
+	return ` WHERE c.kind<>'event' OR c.source_id NOT IN (SELECT id FROM derived)`
 }
 
 func holderCondition(scope Scope, alias string) string {
@@ -625,19 +715,19 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 		at = time.Now().Unix()
 	}
 	restricted := scope.Projection || scope.ExternalModel
-	where, args := scopeWhere(scope, kinds, at, restricted, "d")
+	where, whereArgs := scopeWhere(scope, kinds, at, restricted, "d")
 	where = append(where, "d.source_id IN (SELECT value FROM json_each(?))")
-	args = append(args, encoded)
-	if !scope.History {
-		older, olderArgs := olderExpr(kinds, at, "d")
-		where = append(where, "("+older+")=0")
-		args = append(args, olderArgs...)
-	}
+	// A vector candidate carries the same validity mark as a lexical one, so a
+	// historical hit says it is older instead of passing for current.
+	older, olderArgs := olderExpr(kinds, at, "d")
 	prefix := ""
+	args := olderArgs
 	if fragment, prefixArgs := RestrictionCTE(scope); fragment != "" {
 		prefix = "WITH RECURSIVE " + fragment + " "
-		args = append(prefixArgs, args...)
+		args = append(append([]any{}, prefixArgs...), args...)
 	}
+	args = append(args, whereArgs...)
+	args = append(args, encoded)
 	order := map[string]int{}
 	for i, id := range ids {
 		if _, ok := order[id]; !ok {
@@ -646,7 +736,7 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 	}
 	var hits []Hit
 	err = db.Read(ctx, func(tx *canon.Tx) error {
-		rows, err := tx.QueryContext(ctx, prefix+`SELECT d.source_id,d.kind,d.revision,d.occurred_at,d.holder FROM recall_doc d
+		rows, err := tx.QueryContext(ctx, prefix+`SELECT d.source_id,d.kind,d.revision,d.occurred_at,d.holder,`+older+` AS older FROM recall_doc d
    WHERE `+strings.Join(where, " AND "), args...)
 		if err != nil {
 			return err
@@ -655,8 +745,13 @@ func byIDs(ctx context.Context, db Canon, scope Scope, ids []string) ([]Hit, err
 		for rows.Next() {
 			var h Hit
 			var occurred string
-			if err := rows.Scan(&h.ID, &h.Kind, &h.Revision, &occurred, &h.Holder); err != nil {
+			var stale int
+			if err := rows.Scan(&h.ID, &h.Kind, &h.Revision, &occurred, &h.Holder, &stale); err != nil {
 				return err
+			}
+			h.Older = stale == 1
+			if h.Older && !scope.History {
+				continue
 			}
 			h.OccurredAt, _ = time.Parse(time.RFC3339Nano, occurred)
 			hits = append(hits, h)

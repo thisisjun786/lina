@@ -432,3 +432,54 @@ func TestSearchExcerptUsesCanonicalDerivedSpans(t *testing.T) {
 		t.Fatalf("excerpt differs from authorized derived text: %q", hits[0].Excerpt)
 	}
 }
+
+func TestSearchVectorCandidatesKeepMemoryValidity(t *testing.T) {
+	db := database(t)
+	write(t, db, `INSERT INTO memory_item(id,person,holder,subject_kind,subject_id,normalized,content,scope,state,valid_from,valid_until,supersedes,standing,record)
+ VALUES('expired','owner','all','person','owner','도서관 옛 기억','도서관 옛 기억','local','active',1600000000,1650000000,'',0,'{"revision":1}')`)
+	drain(t, db)
+	vectors := func(context.Context, recall.Scope, string) ([]string, error) {
+		return []string{"expired"}, nil
+	}
+	scope := recall.Scope{Person: "owner", Agent: "agent", Kinds: []recall.Kind{recall.Memory}, At: 1700000000}
+	hits, err := recall.Match(t.Context(), db, scope, recall.Query{Text: "산책", Vectors: vectors})
+	if err != nil || len(hits) != 0 {
+		t.Fatalf("expired memory returned as a current hit: %+v %v", hits, err)
+	}
+	scope.History = true
+	hits, err = recall.Match(t.Context(), db, scope, recall.Query{Text: "산책", Vectors: vectors})
+	if err != nil || len(hits) != 1 || !hits[0].Older {
+		t.Fatalf("history vector candidate: %+v %v", hits, err)
+	}
+}
+
+func TestSearchQueuedDerivativeKeepsOtherEvents(t *testing.T) {
+	db := database(t)
+	base := time.Unix(1700000000, 0)
+	admitAt(t, db, "original", "conversation", "owner", "agent", "도서관 원본", base, "")
+	admitAt(t, db, "unrelated", "conversation", "owner", "agent", "도서관 다른", base.Add(time.Second), "")
+	drain(t, db)
+	// A queued view copy stands for its original and must not hide the rest.
+	write(t, db, eventSQL, "copy", "도서관 사본")
+	write(t, db, "INSERT INTO ev_rel VALUES('copy','original','view_of',0)")
+	scope := recall.Scope{Person: "owner", Agent: "agent", Kinds: []recall.Kind{recall.Event}}
+	ids := searchIDs(t, db, scope, "도서관", 0)
+	sort.Strings(ids)
+	if !reflect.DeepEqual(ids, []string{"original", "unrelated"}) {
+		t.Fatalf("queued derivative: %v", ids)
+	}
+}
+
+func TestSearchQueuedEventsKeepTheSpeakerScope(t *testing.T) {
+	db := database(t)
+	base := time.Unix(1700000000, 0)
+	// Neither event has been published by the drain, so both are matched from
+	// the queue; the person-only scope still has to hold there.
+	write(t, db, `INSERT INTO conv_event(id,conversation_id,person_id,agent_id,speaker_kind,surface,occurred_at,recorded_at,time_quality,origin,body)
+ VALUES('reply','conversation',NULL,'agent','agent','{"kind":"tui"}','2026-01-02T00:00:01Z','2026-01-02T00:00:01Z','recorded','{"kind":"native"}','도서관 다녀왔어요')`)
+	admitAt(t, db, "said", "conversation", "owner", "agent", "도서관에 갈게요", base, "")
+	scope := recall.Scope{Person: "owner", Agent: "agent", Kinds: []recall.Kind{recall.Event}, EventSpeakerKind: guard.Person}
+	if ids := searchIDs(t, db, scope, "도서관", 0); !reflect.DeepEqual(ids, []string{"said"}) {
+		t.Fatalf("queued agent reply: %v", ids)
+	}
+}

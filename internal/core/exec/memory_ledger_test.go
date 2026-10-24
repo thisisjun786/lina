@@ -311,3 +311,43 @@ func TestRecallPersonFiltersBeforeLimit(t *testing.T) {
 		t.Fatalf("person evidence displaced by other sources: %v", ids)
 	}
 }
+
+func TestRecallPersonKeepsUnpublishedAgentWordsOut(t *testing.T) {
+	db := memoryDB(t)
+	events := ledger.New(db, nil)
+	flow := NewMemory(db, nil, nil)
+	base := time.Unix(10, 0)
+	inputs := []struct {
+		entry guard.Entry
+		in    ledger.Input
+	}{
+		{guard.EntryAgent, ledger.Input{ID: "queued-reply", ConversationID: "conversation", AgentID: "A", Surface: ledger.Surface{Kind: "tui"}, OccurredAt: base, RecordedAt: base, TimeQuality: "observed", Body: "You told me you like tea", Locator: "synthetic-source"}},
+		{guard.EntryTool, ledger.Input{ID: "queued-tool", ConversationID: "conversation", AgentID: "A", Surface: ledger.Surface{Kind: "tui"}, OccurredAt: base.Add(time.Second), RecordedAt: base.Add(time.Second), TimeQuality: "observed", Body: "search result: tea", Locator: "synthetic-source"}},
+		{guard.EntryOwner, ledger.Input{ID: "person", ConversationID: "conversation", AgentID: "A", PersonID: "person", Surface: ledger.Surface{Kind: "tui"}, OccurredAt: base.Add(2 * time.Second), RecordedAt: base.Add(2 * time.Second), TimeQuality: "observed", Body: "I like tea", Locator: "synthetic-source"}},
+	}
+	for _, input := range inputs {
+		if _, err := events.Admit(t.Context(), input.entry, input.in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Nothing is drained here: the queue path has to keep the same speaker
+	// restriction as the published index.
+	scope := memory.RecallScope{Agent: "A", Person: "person"}
+	answer, err := flow.RecallPerson(t.Context(), scope, PersonRecall{Question: "What drink?", Query: "tea", At: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range answer.Sources {
+		if strings.HasPrefix(source.ID, "event:") && source.ID != "event:person" {
+			t.Fatalf("unpublished words reached person evidence: %+v", answer.Sources)
+		}
+	}
+	recallStore := recall.New(db, nil)
+	if _, err = recallStore.DrainBatch(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	answer, err = flow.RecallPerson(t.Context(), scope, PersonRecall{Question: "What drink?", Query: "tea", At: 100})
+	if err != nil || len(answer.Sources) != 1 || answer.Sources[0].ID != "event:person" {
+		t.Fatalf("published person evidence: %+v %v", answer.Sources, err)
+	}
+}
