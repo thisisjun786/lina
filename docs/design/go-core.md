@@ -1224,10 +1224,13 @@ are retained once. Combined usage keeps unreported values unknown.
 Before runtime recovery is enabled, a deterministic replay must verify the shared
 parser against the active declarations. An exact declared name wins over removing
 one leading underscore. Only standalone terminal syntax outside Markdown quotes,
-code, diffs and thinking is eligible; an existing structured call takes precedence.
+fenced or indented code, inline code spans, diffs and thinking is eligible. A
+backtick line is a fence only when its remainder has no backtick; a same-line
+closing sequence is an inline span. An existing structured call takes precedence.
 Arguments must satisfy the declared schema. Duplicate keys or parameters, partial
 calls and ambiguous multiple calls require a fresh session without partial dispatch.
-The replay rejects malformed or missing cases explicitly, and distinguishes measured
+The replay rejects malformed or missing cases explicitly, including a null or
+wrongly typed element in text, thinking or delta timestamps, and distinguishes measured
 decision latency from proposed tool dispatches and fresh-session starts.
 
 Implementation and replay schema: [text-call parser](../../internal/core/textcall/README.md).
