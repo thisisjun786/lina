@@ -93,7 +93,11 @@ func (r *conversationRuntime) recallTool(visible func(context.Context, recall.Re
 			}
 			return e.Body.DerivedText(), nil
 		}
-		hits, err := recall.Search(ctx, r.db, read, recall.Scope{Person: r.person, Agent: r.agent, ExternalModel: true, Projection: visible != nil, Kinds: a.Kinds, Since: a.Since, Until: a.Until, SpeakerKind: a.Speaker, Origin: a.Origin, History: a.History, IncludeReplay: a.IncludeReplay}, recall.Query{Text: a.Query, Limit: a.Limit, EventText: read})
+		query := recall.Query{Text: a.Query, Limit: a.Limit, EventText: read}
+		if visible == nil {
+			query.Vectors = r.vectorQuery()
+		}
+		hits, err := recall.Search(ctx, r.db, read, recall.Scope{Person: r.person, Agent: r.agent, ExternalModel: true, Projection: visible != nil, Kinds: a.Kinds, Since: a.Since, Until: a.Until, SpeakerKind: a.Speaker, Origin: a.Origin, History: a.History, IncludeReplay: a.IncludeReplay}, query)
 		if err == nil && visible != nil {
 			kept := hits[:0]
 			for _, hit := range hits {
