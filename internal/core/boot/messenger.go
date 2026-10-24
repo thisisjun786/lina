@@ -134,6 +134,10 @@ func (r *conversationRuntime) startMessenger(ctx context.Context, cfg *Messenger
 		return err
 	}
 	service := messenger.NewServiceWithResolver(store, r.messengerResolver(cfg), cfg.Interval).WithFactory(r.messengerFactory(cfg.Factory))
+	// The add-on's platform sources keep their control surface; a gap is told
+	// to the person once through the ordinary background notice.
+	initKakaoTalk(r, cfg)
+	service.Notify = r.notifyMessengerGap
 	service.SetAfterSync(r.notifyMessengerExtraction)
 	// Learning reads the person's own records, so the job exists only when a
 	// messenger source can admit them.

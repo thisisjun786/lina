@@ -212,6 +212,7 @@ test('live events carry the same record shape as a page', async () => {
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(events.length, 1);
   assert.equal(events[0].event, 'message');
+  assert.equal(events[0].chat, 'you');
   assert.equal(events[0].message.id, '50');
   assert.equal(events[0].message.decryptionFailed, true);
   assert.equal(events[0].message.text, '');
@@ -272,4 +273,27 @@ test('a live subscription that cannot open reports needs_sign_in', { timeout: 10
   const driver = lineDriver(sdk, { configDir: '/synthetic' });
   const { error } = await liveEnd(driver);
   assert.equal(error.code, 'needs_sign_in');
+});
+
+test('live events name the destination for groups and outgoing direct messages', async () => {
+  for (const routing of [
+    { toType: 'GROUP', from: 'you', to: 'group', own: false, expected: 'group' },
+    { toType: 2, from: 'you', to: 'group', own: false, expected: 'group' },
+    { toType: 0, from: 'you', to: 'me', own: false, expected: 'you' },
+    { toType: 0, from: 'me', to: 'you', own: true, expected: 'you' },
+    { toType: 1, from: 'you', to: 'room', own: false, expected: 'room' },
+    { toType: 'USER', from: 'me', to: 'you', own: true, expected: 'you' },
+  ]) {
+    const { sdk } = sdkWith({
+      credentials,
+      events: [{ kind: 'message', message: {
+        raw: { id: '52', createdTime: Date.UTC(2026, 9, 24, 9, 6), toType: routing.toType },
+        from: { id: routing.from }, to: { id: routing.to }, isMyMessage: routing.own, text: 'hello',
+      } }],
+    });
+    const { events, error } = await liveEnd(lineDriver(sdk, { configDir: '/synthetic' }));
+    assert.equal(error.code, 'live_ended');
+    assert.equal(events.length, 1);
+    assert.equal(events[0].chat, routing.expected);
+  }
 });
