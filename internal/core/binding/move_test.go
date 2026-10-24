@@ -14,6 +14,7 @@ func chipState(age int64) State {
 }
 
 func TestChipShowsOnlyWhatLeavesTheFreshFocus(t *testing.T) {
+	t.Parallel()
 	fresh := chipState(10)
 	for _, tc := range []struct {
 		name   string
@@ -28,6 +29,7 @@ func TestChipShowsOnlyWhatLeavesTheFreshFocus(t *testing.T) {
 		{name: "none leaves the focus", state: fresh, target: Target{Class: "none"}, show: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := ChipFor(tc.state, tc.target)
 			if got.Show != tc.show {
 				t.Fatalf("show = %v, want %v", got.Show, tc.show)
@@ -44,6 +46,7 @@ func TestChipShowsOnlyWhatLeavesTheFreshFocus(t *testing.T) {
 }
 
 func TestOffersListTheOtherCandidates(t *testing.T) {
+	t.Parallel()
 	state := chipState(10)
 	decision := Decision{Candidates: []Item{state.Items[0], state.Items[1], state.Items[3]}}
 	offers := Offers(decision, Target{Class: "existing", ID: "plants", Kind: "todo"})
@@ -71,6 +74,7 @@ func TestOffersListTheOtherCandidates(t *testing.T) {
 }
 
 func TestTallyCountsMovesPerHundredByDecider(t *testing.T) {
+	t.Parallel()
 	stats := Tally(map[string]int{"exact-reference": 4, "model": 0}, map[string]int{"exact-reference": 1, "model": 2})
 	if stats.Bindings != 4 || stats.Moves != 3 || stats.PerHundred != 75 {
 		t.Fatalf("stats = %+v", stats)

@@ -4,6 +4,7 @@ package binding
 import "testing"
 
 func TestAskRequiresTieAndIrreversibleAction(t *testing.T) {
+	t.Parallel()
 	s := State{Items: []Item{{ID: "a", Kind: "task", State: "running"}, {ID: "b", Kind: "task", State: "running"}}}
 	a, b := Target{Class: "existing", Kind: "task", ID: "a"}, Target{Class: "existing", Kind: "task", ID: "b"}
 	for _, action := range []string{"read", "edit", "steer", "start", "send", "pay", "delete", "stop"} {
@@ -21,6 +22,7 @@ func TestAskRequiresTieAndIrreversibleAction(t *testing.T) {
 	}
 }
 func TestQuestionPageKeepsEveryInheritedTarget(t *testing.T) {
+	t.Parallel()
 	targets := make([]Target, 10)
 	items := make([]Item, len(targets))
 	for i := range targets {
@@ -55,7 +57,7 @@ func TestQuestionPageKeepsEveryInheritedTarget(t *testing.T) {
 	if err := ValidateChoice(s, "stop it", choice); err == nil {
 		t.Fatal("six tied targets were accepted")
 	}
-	shown, rest = QuestionPage(targets)
+	_, rest = QuestionPage(targets)
 	shown, rest = QuestionPage(rest)
 	if len(shown) != 4 || len(rest) != 2 {
 		t.Fatalf("second page: %d shown, %d rest", len(shown), len(rest))
@@ -71,6 +73,7 @@ func TestQuestionPageKeepsEveryInheritedTarget(t *testing.T) {
 }
 
 func TestNeedsQuestionCountsTargetsHeldForLaterPage(t *testing.T) {
+	t.Parallel()
 	shown := make([]Target, 4)
 	items := make([]Item, 0, 6)
 	for i := range shown {
@@ -95,6 +98,7 @@ func TestNeedsQuestionCountsTargetsHeldForLaterPage(t *testing.T) {
 	}
 }
 func TestSteerOnAnInputNeededTaskAsks(t *testing.T) {
+	t.Parallel()
 	a := Target{Class: "existing", Kind: "task", ID: "a"}
 	b := Target{Class: "existing", Kind: "task", ID: "b"}
 	// A blocked task card keeps the work state spelling, not the binding one.
@@ -104,6 +108,7 @@ func TestSteerOnAnInputNeededTaskAsks(t *testing.T) {
 	}
 }
 func TestDuplicateNormalizationAndClosedItems(t *testing.T) {
+	t.Parallel()
 	s := State{Items: []Item{{ID: "nfc", Title: "Café", State: "open"}, {ID: "closed", Title: "Cafe\u0301", State: "done"}, {ID: "near", Title: "Another title", State: "open"}}}
 	matches := Duplicates(s, " CAFE\u0301 ", []string{"near"})
 	if len(matches) != 2 || matches[0].ID != "nfc" || matches[1].ID != "near" {
